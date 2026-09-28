@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "summary-01",
+  "task_class": "document_reduction",
+  "prompt": "Summarize in 200 words with section citations, constraints and open questions.",
+  "input": "# Synthetic architecture: ParcelLab\n\n1. Purpose: tracks test parcels, not payments.\n2. Intake: repeated event_id is idempotent.\n3. Ordering: events arrive out of order; projection sorts by event timestamp.\n4. Persistence: append-only log is authoritative; status view is rebuildable.\n5. Privacy: recipient names remain local; metrics aggregate counts only.\n6. Recovery: resume from committed offset after crash.\n7. Operations: single database writer only.\n8. Deployment: local TOML-configured process, no public service.\n9. Budgets: synthetic cap of 1000 requests/day, not provider entitlement.\n10. Open question: offline mobile support undecided.\n",
+  "privacy": "public",
+  "fixture_kind": "synthetic_seed"
+}

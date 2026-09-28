@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "direct-01",
+  "expected_source": "MAX_ATTEMPTS = 3\n\n\ndef attempts():\n    return MAX_ATTEMPTS\n",
+  "expected_delegation": false,
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

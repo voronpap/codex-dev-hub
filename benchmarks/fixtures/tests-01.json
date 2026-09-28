@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "tests-01",
+  "task_class": "test_draft",
+  "prompt": "Write pytest tests for next_day: ISO date in, next calendar date out. Cover year and leap-day boundaries. Do not fix code.",
+  "input": "from datetime import date\n\n\ndef next_day(value):\n    day = date.fromisoformat(value)\n    return f\"{day.year:04}-{day.month:02}-{day.day + 1:02}\"\n",
+  "privacy": "public",
+  "fixture_kind": "synthetic_seed"
+}

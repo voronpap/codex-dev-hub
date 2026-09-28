@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "review-01",
+  "required_facts": [
+    "line 3 cannot catch a missing separator",
+    "abc raises IndexError on line 5"
+  ],
+  "required_fix": "Require at least two parts before indexing.",
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

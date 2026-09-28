@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "direct-01",
+  "task_class": "do_not_delegate",
+  "prompt": "Rename RETRY_COUNT to MAX_ATTEMPTS without changing behavior; return source only. No delegation needed.",
+  "input": "RETRY_COUNT = 3\n\n\ndef attempts():\n    return RETRY_COUNT\n",
+  "privacy": "public",
+  "fixture_kind": "synthetic_seed"
+}

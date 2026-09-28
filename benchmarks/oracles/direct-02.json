@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "direct-02",
+  "required_facts": [
+    "reject when sum exceeds limit",
+    "equality admitted"
+  ],
+  "expected_delegation": false,
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

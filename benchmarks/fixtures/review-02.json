@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "review-02",
+  "task_class": "code_review",
+  "prompt": "Find the cross-project access defect with a line reference and example.",
+  "input": "def read_artifact(actor_project, artifact_id, lookup):\n    artifact = lookup[artifact_id]\n    return artifact[\"content\"]\n",
+  "privacy": "public",
+  "fixture_kind": "synthetic_seed"
+}

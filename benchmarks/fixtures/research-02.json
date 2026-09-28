@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "research-02",
+  "task_class": "research",
+  "prompt": "Interpret synthetic header values, cite source and do not confuse RPD with RPM.",
+  "input": "Frozen evidence card, 2026-09-28.\nSource: https://console.groq.com/docs/rate-limits\nParaphrase: remaining-requests is RPD, remaining-tokens is TPM; retry-after is supplied for 429.\nSynthetic example: x-ratelimit-remaining-requests: 25; x-ratelimit-remaining-tokens: 500.\n",
+  "privacy": "public",
+  "fixture_kind": "synthetic_seed"
+}

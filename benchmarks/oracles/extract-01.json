@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "extract-01",
+  "expected_json": {
+    "errors": [
+      {
+        "code": 401,
+        "retryable": false,
+        "action": "refresh_credentials"
+      },
+      {
+        "code": 429,
+        "retryable": true,
+        "action": "honor_retry_after"
+      },
+      {
+        "code": 503,
+        "retryable": true,
+        "action": "bounded_backoff"
+      }
+    ]
+  },
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}
