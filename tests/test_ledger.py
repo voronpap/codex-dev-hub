@@ -6,6 +6,7 @@ from devhub import ledger
 from devhub.ledger import Ledger, LedgerError
 
 
+@pytest.mark.windows_smoke
 def test_migrate_reopen_backup_and_rollback(tmp_path):
     path = tmp_path / "ledger.db"
     database = Ledger(path)

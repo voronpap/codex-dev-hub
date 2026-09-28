@@ -43,6 +43,7 @@ def test_status_in_process_no_network_and_project_isolation(tmp_path, monkeypatc
     asyncio.run(run())
 
 
+@pytest.mark.windows_smoke
 def test_real_stdio_client_discovers_and_calls_status(tmp_path):
     config = tmp_path / "offline.toml"
     config.write_text("schema_version = 1\n")
