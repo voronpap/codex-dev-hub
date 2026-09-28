@@ -48,6 +48,11 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
         )""",
         "CREATE INDEX pending_events ON events(project, acknowledged, sequence)",
     ),
+    (
+        """CREATE TABLE quota_observations (
+            scope TEXT PRIMARY KEY, spec TEXT NOT NULL
+        )""",
+    ),
 )
 
 

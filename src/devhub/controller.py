@@ -25,10 +25,40 @@ class ResourceController:
         *,
         allow_paid_simulation: bool = False,
         allow_local_execution: bool = False,
+        allow_free_probe: bool = False,
     ) -> None:
         self.ledger = ledger
         self.allow_paid_simulation = allow_paid_simulation
         self.allow_local_execution = allow_local_execution
+        self.allow_free_probe = allow_free_probe
+
+    def _live_gate(
+        self,
+        connection: sqlite3.Connection,
+        policy: ResourcePolicy,
+        request: Admission,
+        now_ms: int,
+        *,
+        reserving: bool,
+    ) -> None:
+        if policy.synthetic:
+            return
+        if policy.kind == "local":
+            if not self.allow_local_execution:
+                raise Denied("local_execution_disabled")
+        elif policy.kind == "free" and policy.single_probe:
+            if not self.allow_free_probe:
+                raise Denied("free_probe_disabled")
+            from devhub.quota import check_observation
+
+            check_observation(connection, policy.quota_scope, request, now_ms)
+            if reserving:
+                for row in connection.execute("SELECT policy FROM reservations"):
+                    old = ResourcePolicy.model_validate_json(row[0])
+                    if old.single_probe and old.live_account == policy.live_account:
+                        raise Denied("free_probe_already_consumed")
+        else:
+            raise Denied("live_execution_disabled")
 
     def register_bucket(self, bucket: Bucket) -> None:
         with self.ledger.transaction() as connection:
@@ -66,7 +96,7 @@ class ResourceController:
             row = connection.execute(
                 "SELECT spec FROM policies WHERE id=?", (policy.id,)
             ).fetchone()
-            if row is not None and row[0] != policy.model_dump_json():
+            if row is not None and ResourcePolicy.model_validate_json(row[0]) != policy:
                 raise Denied("immutable_policy")
             connection.execute(
                 "INSERT OR IGNORE INTO policies(id, spec) VALUES (?, ?)",
@@ -111,10 +141,9 @@ class ResourceController:
             if row is None:
                 raise Denied("unknown_resource")
             policy = ResourcePolicy.model_validate_json(row[0])
+            self._live_gate(connection, policy, request, now_ms, reserving=True)
             if not policy.synthetic:
-                if not self.allow_local_execution:
-                    raise Denied("local_execution_disabled")
-                # One live local inference across this ledger, including unresolved sends.
+                # One live inference across this ledger, including unresolved sends.
                 for active in connection.execute(
                     "SELECT policy FROM reservations "
                     "WHERE state IN ('reserved','dispatched','unknown_usage')"
@@ -246,10 +275,13 @@ class ResourceController:
                 raise Denied("request_mismatch")
             if row["state"] != "reserved" or not row["created_ms"] <= now_ms < row["expires_ms"]:
                 raise Denied("not_dispatchable")
-            if not ResourcePolicy.model_validate_json(row["policy"]).synthetic and (
-                not self.allow_local_execution
-            ):
-                raise Denied("local_execution_disabled")
+            self._live_gate(
+                connection,
+                ResourcePolicy.model_validate_json(row["policy"]),
+                request,
+                now_ms,
+                reserving=False,
+            )
             if ResourcePolicy.model_validate_json(row["policy"]).kind == "paid" and (
                 not self.allow_paid_simulation
             ):

@@ -14,7 +14,7 @@ from devhub.resources import Positive, ResourcePolicy, Timestamp
 class CapabilityRecord(Contract):
     resource: Identifier
     provider: Identifier
-    model: Identifier
+    model: Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_./:-]+$")]
     endpoint: Identifier
     plan: Identifier
     kind: Literal["free", "local", "paid"]
@@ -32,8 +32,8 @@ class CapabilityRecord(Contract):
 
     @model_validator(mode="after")
     def valid_evidence(self) -> "CapabilityRecord":
-        if not self.synthetic and (self.kind != "local" or self.locality != "local"):
-            raise ValueError("only local live execution is supported")
+        if not self.synthetic and self.kind == "paid":
+            raise ValueError("live paid execution is unsupported")
         if self.valid_until_ms <= self.observed_ms:
             raise ValueError("evidence must expire after observation")
         if self.kind == "local" and self.locality != "local":

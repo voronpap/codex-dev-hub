@@ -7,19 +7,20 @@
 **Stage 2 CLOSED.** Stages 1 and 2 are accepted, merged and verified. MCP exposes status,
 strict configuration and synthetic test resources. Internal offline resource APIs
 add SQLite accounting, reservations, capabilities, deterministic routing and recovery.
-Cloud inference and paid execution are not implemented. See the
+The default server has no inference or paid execution. See the
 [Stage 1 runbook](docs/STAGE1.md) and [Stage 2 scope and evidence](docs/STAGE2.md).
 
 [Stage 3A Project Brain + FTS5](docs/STAGE3A.md) is **CLOSED**, accepted and merged as an
 internal, project-scoped retrieval API. [Stage 3B Context Builder](docs/STAGE3B.md)
 is **CLOSED**, accepted and merged with immutable, budgeted and revalidated packages;
-cloud adapters remain gated by the local Ollama end-to-end smoke.
+its private packages require explicit export approval before any cloud use.
 
 [Stage 3C Ollama](docs/STAGE3C.md) is **CLOSED + Local E2E Gate PASSED** through an
 explicit local-only MCP entry point, with model-specific token admission and real
 Codex smoke evidence. Execution/accounting gate passed; semantic quality not yet
-established. The default status server remains offline. [Stage 3D Groq gates](docs/STAGE3D.md)
-require the same pipeline and public/redacted-only cloud input by default.
+established. The default status server remains offline. [Stage 3D Groq](docs/STAGE3D.md)
+adds an opt-in, one-shot Free probe through the same accounting boundary and explicit
+public/redacted export. Stage 3D is awaiting review; Gemini remains unimplemented.
 
 ## Core idea
 
@@ -114,7 +115,7 @@ Agents do not share one enormous prompt. They share a **Project Brain**.
 
 Each consumer receives only the context relevant to its task.
 
-Git remains the source of truth for code. Project Brain stores architecture, decisions, conventions, task history, useful summaries and retrieval indexes—not stale copies of the whole repository.
+Git remains the source of truth for code. Project Brain stores architecture, decisions, conventions, task history, useful summaries and retrieval indexesвЂ”not stale copies of the whole repository.
 
 ## Planned capability groups
 
@@ -160,22 +161,22 @@ The implementation is intended to remain a single monorepo:
 
 ```text
 codex-dev-hub/
-├── core/          # routing, quotas, context, policies
-├── providers/     # cloud/local model adapters
-├── tools/         # search, web, RAG, browser, documents...
-├── agents/        # worker-agent adapters
-├── mcp/           # Codex-facing MCP interface
-├── memory/        # Project Brain
-├── config/
-├── tests/
-└── docs/
+в”њв”Ђв”Ђ core/          # routing, quotas, context, policies
+в”њв”Ђв”Ђ providers/     # cloud/local model adapters
+в”њв”Ђв”Ђ tools/         # search, web, RAG, browser, documents...
+в”њв”Ђв”Ђ agents/        # worker-agent adapters
+в”њв”Ђв”Ђ mcp/           # Codex-facing MCP interface
+в”њв”Ђв”Ђ memory/        # Project Brain
+в”њв”Ђв”Ђ config/
+в”њв”Ђв”Ђ tests/
+в””в”Ђв”Ђ docs/
 ```
 
 The exact implementation structure may change after V1 spikes. Architecture documents describe contracts and responsibilities rather than prematurely fixing a framework.
 
 ## Documentation
 
-- [V1 technical proposal](docs/V1_TECHNICAL_PROPOSAL.md) — proposed stack and architecture, design only.
+- [V1 technical proposal](docs/V1_TECHNICAL_PROPOSAL.md) вЂ” proposed stack and architecture, design only.
 - [Repository audit and gaps](docs/V1_AUDIT.md)
 - [Current technology research](docs/V1_RESEARCH.md)
 - [V1 contracts and schemas](docs/V1_CONTRACTS.md)
@@ -205,4 +206,4 @@ V1 succeeds if Codex can use Dev Hub during real development work and we can dem
 - share useful project context safely;
 - remain observable and reversible.
 
-The objective is not “delegate as much as possible.” The objective is **make Codex development more efficient**.
+The objective is not вЂњdelegate as much as possible.вЂќ The objective is **make Codex development more efficient**.

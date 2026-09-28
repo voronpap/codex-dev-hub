@@ -1,22 +1,22 @@
 # Staged V1 implementation plan
 
-Status: **Stage 2 CLOSED** after owner acceptance and sequential merge of PR #4–#9.
+Status: **Stage 2 CLOSED** after owner acceptance and sequential merge of PR #4вЂ“#9.
 Stage 1 was closed after PR #2/#3. Each row is a small review
 boundary; stages can contain several focused PRs. Do not combine them into one
-implementation commit. ADR-0005–0010 are Accepted; later stages remain gated by their acceptance evidence.
+implementation commit. ADR-0005вЂ“0010 are Accepted; later stages remain gated by their acceptance evidence.
 
 ## Stage 1 coding readiness
 
 The design package is ready for review: all 17 requested design topics are covered
 by the technical proposal, contracts, research and benchmark. Start Stage 1 only
-when the owner adopts ADR-0005вЂ“0010 and the following checklist is recorded:
+when the owner adopts ADR-0005РІР‚вЂњ0010 and the following checklist is recorded:
 
 - [x] Repository audit, gap analysis and current primary-source research written.
 - [x] Responsibilities, MVP scope and external-project boundaries explicit.
 - [x] MCP/provider contracts, quota concurrency/crash rules and privacy defaults defined.
 - [x] Baseline protocol, measurement gaps and V1 acceptance targets specified.
 - [x] Small stages and pass/fail acceptance criteria defined below.
-- [x] Design adopted: ADR-0005–0010 Accepted following owner review of PR #1.
+- [x] Design adopted: ADR-0005вЂ“0010 Accepted following owner review of PR #1.
 - [x] Stage 1 target confirmed: local Python 3.12 + Codex stdio; Linux CI and Windows/WSL smoke coverage.
 
 The target is confirmed and requires no cloud credentials.
@@ -29,13 +29,13 @@ Repository license is unresolved; choose it before public package distribution.
 
 | Stage | Small implementation slices | Acceptance / exit evidence | Rollback |
 |---|---|---|---|
-| 0 вЂ” Design (this change) | Audit, source ledger, proposal, schemas, ADRs, benchmark and roadmap | Links/examples/whitespace checked; catalog intact; no runtime changes | Revert docs change |
-| 1 вЂ” Offline skeleton and baseline | First PR: package/config/DTOs + status over stdio, fake adapter; second: fixture manifest and A recording procedure | Locked dependencies + license inventory; schema tests; real SDK client initializes/lists/calls; manual Codex status call; invalid config fails closed; fixture oracles frozen | Remove local MCP registration; no other repo changes |
-| 2 вЂ” Resource and policy core | Ledger migrations/reservations; deterministic router and registry; error/telemetry skeleton | Parallel last-slot test admits once; shared account pools enforced; crash-before/after-send cases; budget/approval/unknown-price tests; deterministic decision trace | Restore pre-migration backup; adapters remain disabled |
-| 3 вЂ” Context plus first usable delegation | Brain/FTS + Context Builder; Ollama before Groq and Gemini; real delegation path; first B-arm benchmark, each in separate PRs | Provenance and stale-index tests; local-only cannot egress; bounded valid handoff; verified live model per adapter; full accounting on invalid output/429/timeout; initial B vs A report | Disable failing adapter; Codex continues directly |
-| 4 вЂ” Research and third cloud option | Tavily search + safe extraction; optional OpenRouter free adapter | Citation-backed fixture output; SSRF redirect/IPv6/DNS tests; search credit exhaustion; verified free-only route cannot select paid | Disable search/OpenRouter independently |
-| 5 вЂ” Sandbox and worker validation | Separate executor; command profiles; patch/test handoff; Compose packaging | Prove network denial, resource/deadline limits, no secret/socket/root mount, path-safe artifacts; disposable worktree; no main writes; WSL path mapping smoke | Stop executor and clean only its registered job dirs |
-| 6 вЂ” V1 acceptance | Optional disabled-by-default paid adapter; restart/restore drills; complete paired benchmark; operating guide | Cost caps and trusted approval tested with mocks; live paid only if separately enabled; all required core paths tested; positive/inconclusive/negative value published by class; V1 exit gates below | Keep only demonstrated valuable task classes enabled |
+| 0 РІР‚вЂќ Design (this change) | Audit, source ledger, proposal, schemas, ADRs, benchmark and roadmap | Links/examples/whitespace checked; catalog intact; no runtime changes | Revert docs change |
+| 1 РІР‚вЂќ Offline skeleton and baseline | First PR: package/config/DTOs + status over stdio, fake adapter; second: fixture manifest and A recording procedure | Locked dependencies + license inventory; schema tests; real SDK client initializes/lists/calls; manual Codex status call; invalid config fails closed; fixture oracles frozen | Remove local MCP registration; no other repo changes |
+| 2 РІР‚вЂќ Resource and policy core | Ledger migrations/reservations; deterministic router and registry; error/telemetry skeleton | Parallel last-slot test admits once; shared account pools enforced; crash-before/after-send cases; budget/approval/unknown-price tests; deterministic decision trace | Restore pre-migration backup; adapters remain disabled |
+| 3 РІР‚вЂќ Context plus first usable delegation | Brain/FTS + Context Builder; Ollama before Groq and Gemini; real delegation path; first B-arm benchmark, each in separate PRs | Provenance and stale-index tests; local-only cannot egress; bounded valid handoff; verified live model per adapter; full accounting on invalid output/429/timeout; initial B vs A report | Disable failing adapter; Codex continues directly |
+| 4 РІР‚вЂќ Research and third cloud option | Tavily search + safe extraction; optional OpenRouter free adapter | Citation-backed fixture output; SSRF redirect/IPv6/DNS tests; search credit exhaustion; verified free-only route cannot select paid | Disable search/OpenRouter independently |
+| 5 РІР‚вЂќ Sandbox and worker validation | Separate executor; command profiles; patch/test handoff; Compose packaging | Prove network denial, resource/deadline limits, no secret/socket/root mount, path-safe artifacts; disposable worktree; no main writes; WSL path mapping smoke | Stop executor and clean only its registered job dirs |
+| 6 РІР‚вЂќ V1 acceptance | Optional disabled-by-default paid adapter; restart/restore drills; complete paired benchmark; operating guide | Cost caps and trusted approval tested with mocks; live paid only if separately enabled; all required core paths tested; positive/inconclusive/negative value published by class; V1 exit gates below | Keep only demonstrated valuable task classes enabled |
 
 Dependencies: Stage 2 follows Stage 1; Stage 3 follows Stage 2; research and sandbox
 require working policy/context. The final benchmark waits for all required paths.
@@ -69,7 +69,7 @@ providers remain catalog candidates. Their adoption needs measured demand.
 | Codex per-task token visibility | Benchmark implementer, Stage 1 | Null + documented proxy; no quota-saving claims |
 | Repository distribution license | Repository owner, before release | No license invented in this docs change |
 | Rootless executor availability on host | Implementer/operator, Stage 5 | Sandbox unavailable; never execute on host as fallback |
-| Design adoption | Repository owner, PR #1 and Stage 1/2 reviews | Accepted; Stages 1–2 CLOSED; Stage 3 follows the local-first sequence below |
+| Design adoption | Repository owner, PR #1 and Stage 1/2 reviews | Accepted; Stages 1вЂ“2 CLOSED; Stage 3 follows the local-first sequence below |
 
 ## Conditions recorded with design acceptance
 
@@ -113,7 +113,9 @@ validation is introduced with Ollama.
 
 Stage 3C is **CLOSED + Local E2E Gate PASSED**: [local execution and smoke evidence](STAGE3C.md).
 Execution/accounting gate passed; semantic quality not yet established. The next
-slice follows the [Stage 3D Groq acceptance gates](STAGE3D.md); Gemini follows Groq.
+slice implements a bounded, opt-in [Stage 3D Groq probe](STAGE3D.md), awaiting review.
+Gemini remains blocked until that review. Unknown quota dimensions are not unlimited;
+the initial probe uses a separate durable single-attempt authorization.
 
 The owner revised adapter implementation order at Stage 2 acceptance. Keep these
 as separate review slices; this sequence does not prescribe routing priority.
@@ -129,7 +131,7 @@ as separate review slices; this sequence does not prescribe routing priority.
 | 3G | First B-arm benchmark | Frozen fixture/oracle integrity, matched A/B conditions and measured quality/latency/usage; unavailable metrics remain null or labeled proxy |
 
 3C must prove the real local path before 3D starts:
-Codex → MCP → Context → Router → ResourceController → Ollama → accounting → handoff.
+Codex в†’ MCP в†’ Context в†’ Router в†’ ResourceController в†’ Ollama в†’ accounting в†’ handoff.
 3F completes the common delegation surface after the individual adapter slices.
 Local execution still records measured tokens and unknown usage; it does not
 pretend that unavailable hardware/energy costs were measured as zero.

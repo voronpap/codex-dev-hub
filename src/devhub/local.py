@@ -14,12 +14,13 @@ from devhub.brain_store import BrainError
 from devhub.context import ContextBuilder, canonical
 from devhub.context_models import ContextLimits, ContextPolicy, ContextTask
 from devhub.controller import Denied, ResourceController
+from devhub.execution import dispatch_execution, reserve_execution, settle_execution
 from devhub.ledger import Ledger
 from devhub.models import Contract, Identifier
 from devhub.ollama import OllamaAdapter, OllamaConfig, OllamaError
-from devhub.registry import CapabilityRecord, CapabilityRegistry
+from devhub.registry import CapabilityRecord
 from devhub.resources import Bucket, ResourcePolicy
-from devhub.router import Router, RouteRequest, RoutingPolicy
+from devhub.router import RouteRequest
 
 
 def now_ms() -> int:
@@ -165,28 +166,28 @@ class LocalRuntime:
         prepared = self.adapter.prepare(package, evidence, tokenizer)
         started = now_ms()
         expiry = started + self.config.ollama.timeout_seconds * 1000 + 15000
-        CapabilityRegistry(self.core.ledger).put(
-            CapabilityRecord(
-                resource=self.resource,
-                provider="ollama",
-                model=evidence.digest[:32],
-                endpoint=sha256(self.config.ollama.endpoint.encode())[:32],
-                plan="installed-local",
-                kind="local",
-                locality="local",
-                synthetic=False,
-                supports_text=True,
-                supports_json=True,
-                context_tokens=self.config.ollama.context_tokens,
-                max_output_tokens=self.config.ollama.max_output_tokens,
-                healthy=True,
-                task_classes=(self.resource,),
-                observed_ms=started,
-                valid_until_ms=expiry,
-                evidence=evidence.metadata_hash,
-            )
+        capability = CapabilityRecord(
+            resource=self.resource,
+            provider="ollama",
+            model=evidence.digest[:32],
+            endpoint=sha256(self.config.ollama.endpoint.encode())[:32],
+            plan="installed-local",
+            kind="local",
+            locality="local",
+            synthetic=False,
+            supports_text=True,
+            supports_json=True,
+            context_tokens=self.config.ollama.context_tokens,
+            max_output_tokens=self.config.ollama.max_output_tokens,
+            healthy=True,
+            task_classes=(self.resource,),
+            observed_ms=started,
+            valid_until_ms=expiry,
+            evidence=evidence.metadata_hash,
         )
-        route = Router(self.core).route(
+        ticket, admission = reserve_execution(
+            self.core,
+            capability,
             RouteRequest(
                 project=self.config.project,
                 task=request.task_id,
@@ -208,14 +209,9 @@ class LocalRuntime:
                 requires_json=True,
             ),
             now_ms=started,
-            policy=RoutingPolicy(preferred_resources=(self.resource,), max_attempts=1),
         )
-        if route.ticket is None or route.admission is None:
-            raise Denied(";".join(decision.reason for decision in route.decisions))
-        ticket, admission = route.ticket, route.admission
-        if admission.resource != self.resource or ticket.state != "reserved":
-            raise Denied("unexpected_route_or_attempt")
-        try:
+
+        def revalidate() -> None:
             self.adapter.check_digest()
             if (self.state / "tokenizer-mismatch.block").exists():
                 raise OllamaError("tokenizer_verification_required")
@@ -228,10 +224,8 @@ class LocalRuntime:
                 now_ms=now_ms(),
             ):
                 raise OllamaError("context_insufficient")
-            self.core.dispatch(ticket.id, admission, now_ms=now_ms())
-        except (OllamaError, BrainError, Denied):
-            self.core.release(ticket.id, project=self.config.project)
-            raise
+
+        dispatch_execution(self.core, ticket, admission, revalidate, now_ms)
         base: dict[str, Any] = dict(
             reservation=ticket.id,
             package_hash=package.package_hash,
@@ -260,16 +254,7 @@ class LocalRuntime:
                 marker.write("Operator verification required.\n")
                 marker.flush()
                 os.fsync(marker.fileno())
-        self.core.settle(
-            ticket.id,
-            project=self.config.project,
-            actual={
-                self.buckets["requests"]: 1,
-                self.buckets["input_tokens"]: inputs,
-                self.buckets["output_tokens"]: outputs,
-                self.buckets["total_tokens"]: inputs + outputs,
-            },
-        )
+        settle_execution(self.core, ticket, admission, self.buckets, inputs, outputs)
         base.update(actual_model_input_tokens=inputs, actual_model_output_tokens=outputs)
         if inputs != prepared.model_input_tokens:
             return LocalHandoff(status="failed", reason="tokenizer_count_mismatch", **base)

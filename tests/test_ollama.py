@@ -325,3 +325,15 @@ def test_concurrent_tokenizer_block_is_checked_before_dispatch(local, monkeypatc
     assert [
         event.transition for event in EventOutbox(runtime.core.ledger).pending(project="p")
     ] == ["reserved", "released"]
+
+
+def test_existing_stage3c_policy_survives_default_field_additions(local):
+    runtime, _, _, _ = local
+    with runtime.core.ledger.transaction() as connection:
+        spec = json.loads(connection.execute("SELECT spec FROM policies").fetchone()[0])
+        for field in ("live_account", "quota_scope", "single_probe"):
+            del spec[field]
+        connection.execute("UPDATE policies SET spec=?", (json.dumps(spec),))
+    # Old persisted specs have no Stage 3D fields; semantically identical defaults
+    # must not trigger immutable_policy on a previously accepted local runtime.
+    assert LocalRuntime(runtime.config).resource == runtime.resource
