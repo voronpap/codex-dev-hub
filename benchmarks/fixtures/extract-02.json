@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "extract-02",
+  "task_class": "structured_extraction",
+  "prompt": "Return JSON {renames:[{old,new}],removed:[],unchanged:[]} sorted lexically; infer nothing.",
+  "input": "rename max_tokens to max_output_tokens\nrename timeout to deadline_ms\nremove legacy_router\nkeep project_id\nkeep privacy\n",
+  "privacy": "public",
+  "fixture_kind": "synthetic_seed"
+}

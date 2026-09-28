@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "research-02",
+  "required_facts": [
+    "25 requests/day remaining",
+    "500 tokens/minute remaining",
+    "not RPM",
+    "synthetic not account probe"
+  ],
+  "required_urls": [
+    "https://console.groq.com/docs/rate-limits"
+  ],
+  "live_freshness": "not evaluated",
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

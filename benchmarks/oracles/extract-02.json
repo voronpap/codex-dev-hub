@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "extract-02",
+  "expected_json": {
+    "renames": [
+      {
+        "old": "max_tokens",
+        "new": "max_output_tokens"
+      },
+      {
+        "old": "timeout",
+        "new": "deadline_ms"
+      }
+    ],
+    "removed": [
+      "legacy_router"
+    ],
+    "unchanged": [
+      "privacy",
+      "project_id"
+    ]
+  },
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

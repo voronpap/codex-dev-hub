@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "tests-01",
+  "required_cases": [
+    [
+      "2024-12-31",
+      "2025-01-01"
+    ],
+    [
+      "2024-02-28",
+      "2024-02-29"
+    ],
+    [
+      "2024-02-29",
+      "2024-03-01"
+    ],
+    [
+      "2023-02-28",
+      "2023-03-01"
+    ]
+  ],
+  "execution_gate": "Tests must catch seeded bug and pass timedelta(days=1) reference; generated tests execute only in a later isolated benchmark.",
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

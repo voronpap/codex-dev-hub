@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "research-01",
+  "required_facts": [
+    "stdio subprocess",
+    "Streamable HTTP",
+    "bearer/OAuth",
+    "no completed interoperability test"
+  ],
+  "required_urls": [
+    "https://learn.chatgpt.com/docs/extend/mcp?surface=cli"
+  ],
+  "live_freshness": "not evaluated",
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

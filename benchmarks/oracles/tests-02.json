@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "tests-02",
+  "required_facts": [
+    "Barrier(2) through gap",
+    "both calls pass check before decrement",
+    "exactly one True",
+    "remaining nonnegative"
+  ],
+  "execution_gate": "Corrected reference must synchronize check/decrement; its rendezvous is before the lock to avoid a barrier deadlock.",
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

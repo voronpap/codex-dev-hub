@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "extract-01",
+  "task_class": "structured_extraction",
+  "prompt": "Return JSON {errors:[{code,retryable,action}]} sorted by code.",
+  "input": "Synthetic error table:\n503 | yes | bounded_backoff\n401 | no | refresh_credentials\n429 | yes | honor_retry_after\n",
+  "privacy": "public",
+  "fixture_kind": "synthetic_seed"
+}

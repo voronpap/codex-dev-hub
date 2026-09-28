@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "summary-02",
+  "required_facts": [
+    "raw logs 7 days",
+    "metadata 90 days",
+    "B supersedes A",
+    "C proposed",
+    "summary not authoritative"
+  ],
+  "forbidden_claims": [
+    "30 days active",
+    "forever active"
+  ],
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

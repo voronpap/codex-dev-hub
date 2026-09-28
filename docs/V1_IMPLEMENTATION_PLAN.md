@@ -80,3 +80,12 @@ providers remain catalog candidates. Their adoption needs measured demand.
   so Jina/SearXNG can be added without changing the MCP contract.
 - Context/summary caps of 8,000/1,500 tokens are configurable initial policy defaults.
 - Paid adapter work remains Stage 6.
+
+## Stage 1 delivery
+
+The offline skeleton and status integration are implemented in the first review
+slice; [runbook](STAGE1.md) and [verification](STAGE1_VERIFICATION.md) record the
+executable proof. The second slice provides [12 frozen baseline seed fixtures](../benchmarks/README.md),
+reviewer oracles and isolated packet preparation. The seed summary is deliberately
+smaller than the future ten-page benchmark and is labeled accordingly.
+No cloud adapter, full A/B benchmark or Stage 2 resource implementation is included.

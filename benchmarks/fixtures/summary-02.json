@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "summary-02",
+  "task_class": "document_reduction",
+  "prompt": "Identify the active retention policy and unresolved proposals, citing decisions.",
+  "input": "ADR-A (Accepted): raw logs 90 days.\nADR-B (Accepted, supersedes ADR-A): raw logs 7 days, audit metadata 90 days.\nADR-C (Proposed): raw logs 30 days.\nAn unreviewed task summary says logs are kept forever.\n",
+  "privacy": "public",
+  "fixture_kind": "synthetic_seed"
+}

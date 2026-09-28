@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "summary-01",
+  "required_facts": [
+    "idempotent event_id",
+    "timestamp ordering",
+    "authoritative log",
+    "names local",
+    "single writer",
+    "mobile undecided"
+  ],
+  "required_citations": [
+    "2",
+    "3",
+    "4",
+    "5",
+    "7",
+    "10"
+  ],
+  "note": "Compact ten-section seed; not the later ten-page workload.",
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}

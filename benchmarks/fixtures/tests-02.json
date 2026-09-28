@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "tests-02",
+  "task_class": "test_draft",
+  "prompt": "Write a deterministic test: two callers competing for one slot yield exactly one admission. Use a barrier through gap, not sleep. Do not fix code.",
+  "input": "class Quota:\n    def __init__(self):\n        self.remaining = 1\n\n    def reserve(self, gap):\n        if self.remaining <= 0:\n            return False\n        gap()\n        self.remaining -= 1\n        return True\n",
+  "privacy": "public",
+  "fixture_kind": "synthetic_seed"
+}

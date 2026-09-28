@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "review-02",
+  "required_facts": [
+    "actor_project is never checked",
+    "line 3 returns other project's content"
+  ],
+  "required_fix": "Check artifact ownership before returning content.",
+  "rubric": {
+    "correctness": 60,
+    "evidence": 25,
+    "scope_and_clarity": 15
+  }
+}
