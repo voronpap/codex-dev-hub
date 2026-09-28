@@ -1,7 +1,7 @@
 # Stage 3F: unified delegation
 
-Status: implementation under review; local real-Codex proof and final platform
-checks pending. Stage 3G is not started. Accepted 3C/3D/3E execution gates remain
+Status: local real-Codex delegation gate PASSED; Stage 3F CLOSED proposed
+pending final Linux/Windows full CI and review. PR remains unmerged. Stage 3G is not started. Accepted 3C/3D/3E execution gates remain
 closed; semantic quality and provider comparisons remain unestablished.
 
 ## Normal MCP contract
@@ -93,3 +93,32 @@ installed allowlisted Ollama -> validated structured handoff. No auto-pull, new 
 inference, prompt tuning of the old smoke, adaptive routing, benchmark, DeepSeek,
 paid provider, embeddings or AI Platform facade. Final closure requires Linux full
 and Windows full CI; ordinary Windows smoke cannot replace the stage-close gate.
+
+## Real local proof
+
+[Machine-readable evidence](evidence/stage3f-local-delegation.json) records a real
+Codex CLI 0.155.0-alpha.9.2 call over MCP stdio on implementation `5b59bd5`.
+The existing numeric-loopback endpoint and installed qwen2.5:14b-instruct manifest
+allowlist were reverified; the Stage 3C ledger was reused, not reset. The task used
+local_only context from docs/STAGES.md through the normal devhub_delegate entry point.
+Its single inference returned completed/validated with citation s1. Offline byte
+proxy was 2184, model preflight and actual input both 767, output 119 (886 total),
+inference latency 20311 ms. Output schema and citation membership both passed.
+Outbox: reserved -> dispatched -> settled; the observer checked committed dispatch
+at the HTTP send boundary. Retry/fallback: zero. No Groq/Gemini call or model pull.
+
+The first Codex invocation was blocked by host approval configuration before the
+runtime ran: zero reservations and zero sends. Its transcript hash and failure
+remain recorded. The subsequent invocation used the documented per-tool
+`mcp_servers.devhub_delegate.tools.devhub_delegate.approval_mode="approve"` only for
+this already operator-authorized, exact, local one-shot proof. The shell sandbox
+stayed read-only; no global config or tool annotations were weakened. Request,
+model and prompt were unchanged. The observer enforced one exact request and at
+most one send. This was host setup recovery, not a provider retry.
+
+For normal Codex setup, review the configured providers and approve the tool at the
+host boundary explicitly. See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+Do not copy a broad approval into a cloud-enabled configuration without reviewing
+its export and account permissions. This proof's configuration had cloud disabled
+and only the verified local profile. Raw context/provenance stays local; the handoff
+is compact and untrusted. Semantic acceptance/value/savings/quality stay null.
