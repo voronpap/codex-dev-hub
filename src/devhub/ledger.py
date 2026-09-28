@@ -59,6 +59,14 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             request_hash TEXT NOT NULL, tokens INTEGER CHECK(tokens > 0)
         )""",
     ),
+    (
+        """CREATE TABLE gemini_followup_permits (
+            id TEXT PRIMARY KEY, project_number TEXT UNIQUE NOT NULL
+                REFERENCES gemini_preflights(project),
+            spec TEXT NOT NULL, claimed_ms INTEGER,
+            tokens INTEGER CHECK(tokens > 0)
+        )""",
+    ),
 )
 
 

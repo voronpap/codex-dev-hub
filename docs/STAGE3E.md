@@ -11,6 +11,9 @@ No general routing, paid execution, Stage 3F or benchmark is enabled.
 
 ## Offline follow-up
 
+[Follow-up candidate and operator grant review](STAGE3E_FOLLOWUP.md) prepares a
+separate, inactive 3.5 Flash-Lite proposal. It does not authorize count/inference.
+
 [Offline 404 investigation](STAGE3E_INVESTIGATION.md): root cause remains unknown.
 The documented wire contract matches; current Gemini 2.5 eligibility restrictions
 are a plausible account-level explanation. No new permit or live call was made.

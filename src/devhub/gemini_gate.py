@@ -94,6 +94,11 @@ def finish_count(ledger: Ledger, project: str, request_hash: str, tokens: int) -
 def check_gemini(
     connection: sqlite3.Connection, scope: str | None, request: Admission, now_ms: int
 ) -> None:
+    if scope is not None and scope.startswith("gemini-followup-"):
+        from devhub.gemini_permit import check_permit
+
+        check_permit(connection, scope, request, now_ms)
+        return
     row = connection.execute(
         "SELECT spec,tokens FROM gemini_preflights WHERE project=?", (scope,)
     ).fetchone()
