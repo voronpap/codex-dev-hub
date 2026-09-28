@@ -66,7 +66,13 @@ class ResourceController:
             )
 
     def reserve(
-        self, request: Admission, *, now_ms: int, approval: SpendApproval | None = None
+        self,
+        request: Admission,
+        *,
+        now_ms: int,
+        approval: SpendApproval | None = None,
+        capability_revision: str | None = None,
+        attempt_limit: int = 3,
     ) -> Ticket:
         with self.ledger.transaction() as connection:
             existing = connection.execute(
@@ -79,6 +85,18 @@ class ResourceController:
                 return Ticket(id=existing["id"], state=existing["state"])
             if not now_ms < request.expires_ms <= now_ms + 120_000:
                 raise Denied("invalid_lease")
+            if type(attempt_limit) is not int or not 1 <= attempt_limit <= 3:
+                raise Denied("invalid_attempt_limit")
+            attempts = connection.execute(
+                "SELECT COUNT(*) FROM reservations WHERE project=? AND task=?",
+                (request.project, request.task),
+            ).fetchone()[0]
+            if attempts >= attempt_limit:
+                raise Denied("attempt_limit")
+            if capability_revision is not None:
+                self._check_capability(
+                    connection, request.resource, capability_revision, now_ms, request.expires_ms
+                )
             row = connection.execute(
                 "SELECT spec FROM policies WHERE id=?", (request.resource,)
             ).fetchone()
@@ -159,7 +177,26 @@ class ResourceController:
                     (ticket.id, bucket_id, amount),
                 )
                 connection.execute("UPDATE buckets SET held=held+? WHERE id=?", (amount, bucket_id))
+            connection.execute(
+                "UPDATE reservations SET capability_revision=? WHERE id=?",
+                (capability_revision, ticket.id),
+            )
             return ticket
+
+    @staticmethod
+    def _check_capability(
+        connection: sqlite3.Connection, resource: str, revision: str, now_ms: int, expires_ms: int
+    ) -> None:
+        from devhub.registry import CapabilityRecord
+
+        row = connection.execute("SELECT * FROM capabilities WHERE id=?", (resource,)).fetchone()
+        if row is None or row["revision"] != revision:
+            raise Denied("capability_changed")
+        record = CapabilityRecord.model_validate_json(row["spec"])
+        if not record.observed_ms <= now_ms < record.valid_until_ms or (
+            record.valid_until_ms < expires_ms
+        ):
+            raise Denied("stale_capability")
 
     @staticmethod
     def _owned(connection: sqlite3.Connection, ticket: str, project: str) -> sqlite3.Row:
@@ -178,6 +215,14 @@ class ResourceController:
                 raise Denied("request_mismatch")
             if row["state"] != "reserved" or not row["created_ms"] <= now_ms < row["expires_ms"]:
                 raise Denied("not_dispatchable")
+            if row["capability_revision"] is not None:
+                self._check_capability(
+                    connection,
+                    row["resource"],
+                    row["capability_revision"],
+                    now_ms,
+                    row["expires_ms"],
+                )
             connection.execute("UPDATE reservations SET state='dispatched' WHERE id=?", (ticket,))
 
     def release(self, ticket: str, *, project: str) -> None:

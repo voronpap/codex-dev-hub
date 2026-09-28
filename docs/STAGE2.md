@@ -62,3 +62,20 @@ Unknown remains unknown. Records are explicitly synthetic; no provider metadata
 is fetched. Policy kind must match the registry. Updating evidence changes its
 SHA-256 revision. The router will bind admission to that revision and deny stale
 or changed evidence before dispatch. Upgrading a v1 database preserves counters.
+
+## 2D: deterministic router
+
+Eligibility checks privacy, fresh verified capabilities/health, qualified task
+class and combined input/output context size. Unknown values fail closed. Default
+ranking is free/local/paid, then trusted task policy preference, then resource ID.
+Kind ordering is configurable; there is no hardcoded provider-name sequence,
+learned ranking or fabricated benchmark score. Decisions give stable reason codes
+for every registered candidate. Quota failure can select the next eligible resource;
+there is no provider retry or transport call. Three persisted reservations per
+project/task are the maximum, including released attempts.
+
+Selection binds the capability revision inside the reservation transaction and
+rechecks it before dispatch, closing the metadata-update race. The router returns
+a ticket and its bound admission request. Dispatch must still succeed before any
+future adapter is invoked. Missing registry entries are unavailable. This internal
+simulation does not change the non-routable fake adapter exposed by MCP status.
