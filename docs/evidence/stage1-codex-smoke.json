@@ -1,0 +1,28 @@
+{
+  "checked_at": "2026-09-28",
+  "client": "codex-cli 0.155.0-alpha.9.2",
+  "sdk": "mcp 2.2.0",
+  "method": "ephemeral Codex CLI with per-run stdio config; no persistent registration",
+  "call_count": 1,
+  "tool": "devhub_status",
+  "arguments": {
+    "project_id": "devhub"
+  },
+  "observed": {
+    "stage": "offline_stage1",
+    "available_tools": [
+      "devhub_status"
+    ],
+    "resources": [
+      {
+        "schema_version": 1,
+        "resource_id": "fake",
+        "kind": "fake",
+        "availability": "test_only",
+        "synthetic": true,
+        "routable": false
+      }
+    ]
+  },
+  "benchmark": false
+}

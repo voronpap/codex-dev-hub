@@ -1,0 +1,561 @@
+{
+  "HubConfig": {
+    "$defs": {
+      "FakeConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "FakeConfig",
+        "type": "object"
+      },
+      "Policy": {
+        "additionalProperties": false,
+        "properties": {
+          "context_token_cap": {
+            "default": 8000,
+            "maximum": 1000000,
+            "minimum": 1,
+            "title": "Context Token Cap",
+            "type": "integer"
+          },
+          "deadline_ms": {
+            "default": 120000,
+            "maximum": 120000,
+            "minimum": 1,
+            "title": "Deadline Ms",
+            "type": "integer"
+          },
+          "max_attempts": {
+            "default": 3,
+            "maximum": 3,
+            "minimum": 1,
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "paid_mode": {
+            "const": "disabled",
+            "default": "disabled",
+            "title": "Paid Mode",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "summary_token_cap": {
+            "default": 1500,
+            "maximum": 100000,
+            "minimum": 1,
+            "title": "Summary Token Cap",
+            "type": "integer"
+          }
+        },
+        "title": "Policy",
+        "type": "object"
+      },
+      "ProjectConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "privacy": {
+            "const": "local_only",
+            "default": "local_only",
+            "title": "Privacy",
+            "type": "string"
+          },
+          "root": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Root",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "root"
+        ],
+        "title": "ProjectConfig",
+        "type": "object"
+      },
+      "ServerConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "transport": {
+            "const": "stdio",
+            "default": "stdio",
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "title": "ServerConfig",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "fake": {
+        "$ref": "#/$defs/FakeConfig"
+      },
+      "policy": {
+        "$ref": "#/$defs/Policy"
+      },
+      "projects": {
+        "maxProperties": 64,
+        "patternProperties": {
+          "^[A-Za-z0-9_-]+$": {
+            "$ref": "#/$defs/ProjectConfig"
+          }
+        },
+        "propertyNames": {
+          "maxLength": 64,
+          "minLength": 1
+        },
+        "title": "Projects",
+        "type": "object"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "server": {
+        "$ref": "#/$defs/ServerConfig"
+      }
+    },
+    "title": "HubConfig",
+    "type": "object"
+  },
+  "ModelResult": {
+    "$defs": {
+      "Usage": {
+        "additionalProperties": false,
+        "properties": {
+          "cost_actual_microusd": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cost Actual Microusd"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input Tokens"
+          },
+          "measurement_source": {
+            "const": "synthetic",
+            "default": "synthetic",
+            "title": "Measurement Source",
+            "type": "string"
+          },
+          "missing_reason": {
+            "default": "Fake adapter does not perform inference or measure model usage.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Missing Reason",
+            "type": "string"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Tokens"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "Usage",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "maxLength": 2000,
+        "minLength": 1,
+        "title": "Content",
+        "type": "string"
+      },
+      "resource_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "title": "Resource Id",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "synthetic": {
+        "const": true,
+        "default": true,
+        "title": "Synthetic",
+        "type": "boolean"
+      },
+      "task_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "title": "Task Id",
+        "type": "string"
+      },
+      "usage": {
+        "$ref": "#/$defs/Usage"
+      }
+    },
+    "required": [
+      "resource_id",
+      "task_id",
+      "content"
+    ],
+    "title": "ModelResult",
+    "type": "object"
+  },
+  "StatusRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "project_id": {
+        "anyOf": [
+          {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Project Id"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "title": "StatusRequest",
+    "type": "object"
+  },
+  "StatusResponse": {
+    "$defs": {
+      "Policy": {
+        "additionalProperties": false,
+        "properties": {
+          "context_token_cap": {
+            "default": 8000,
+            "maximum": 1000000,
+            "minimum": 1,
+            "title": "Context Token Cap",
+            "type": "integer"
+          },
+          "deadline_ms": {
+            "default": 120000,
+            "maximum": 120000,
+            "minimum": 1,
+            "title": "Deadline Ms",
+            "type": "integer"
+          },
+          "max_attempts": {
+            "default": 3,
+            "maximum": 3,
+            "minimum": 1,
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "paid_mode": {
+            "const": "disabled",
+            "default": "disabled",
+            "title": "Paid Mode",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "summary_token_cap": {
+            "default": 1500,
+            "maximum": 100000,
+            "minimum": 1,
+            "title": "Summary Token Cap",
+            "type": "integer"
+          }
+        },
+        "title": "Policy",
+        "type": "object"
+      },
+      "ResourceStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "const": "test_only",
+            "default": "test_only",
+            "title": "Availability",
+            "type": "string"
+          },
+          "kind": {
+            "const": "fake",
+            "default": "fake",
+            "title": "Kind",
+            "type": "string"
+          },
+          "resource_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "routable": {
+            "const": false,
+            "default": false,
+            "title": "Routable",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "synthetic": {
+            "const": true,
+            "default": true,
+            "title": "Synthetic",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "resource_id"
+        ],
+        "title": "ResourceStatus",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "accessible_projects": {
+        "items": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "maxItems": 64,
+        "title": "Accessible Projects",
+        "type": "array"
+      },
+      "available_tools": {
+        "items": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "maxItems": 6,
+        "title": "Available Tools",
+        "type": "array"
+      },
+      "policy": {
+        "$ref": "#/$defs/Policy"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Project Id"
+      },
+      "request_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "title": "Request Id",
+        "type": "string"
+      },
+      "resources": {
+        "items": {
+          "$ref": "#/$defs/ResourceStatus"
+        },
+        "maxItems": 1,
+        "title": "Resources",
+        "type": "array"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "stage": {
+        "const": "offline_stage1",
+        "default": "offline_stage1",
+        "title": "Stage",
+        "type": "string"
+      },
+      "status": {
+        "const": "succeeded",
+        "default": "succeeded",
+        "title": "Status",
+        "type": "string"
+      },
+      "summary": {
+        "maxLength": 2000,
+        "minLength": 1,
+        "title": "Summary",
+        "type": "string"
+      },
+      "trace_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "title": "Trace Id",
+        "type": "string"
+      },
+      "warnings": {
+        "items": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 8,
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "request_id",
+      "trace_id",
+      "project_id",
+      "summary",
+      "available_tools",
+      "accessible_projects",
+      "resources",
+      "policy",
+      "warnings"
+    ],
+    "title": "StatusResponse",
+    "type": "object"
+  },
+  "TaskRequest": {
+    "additionalProperties": false,
+    "description": "Offline contract fixture; not an exposed submission endpoint yet.",
+    "properties": {
+      "context": {
+        "default": "",
+        "maxLength": 32000,
+        "title": "Context",
+        "type": "string"
+      },
+      "instructions": {
+        "maxLength": 2000,
+        "minLength": 1,
+        "title": "Instructions",
+        "type": "string"
+      },
+      "max_output_tokens": {
+        "default": 1500,
+        "maximum": 100000,
+        "minimum": 1,
+        "title": "Max Output Tokens",
+        "type": "integer"
+      },
+      "privacy": {
+        "const": "local_only",
+        "default": "local_only",
+        "title": "Privacy",
+        "type": "string"
+      },
+      "project_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "title": "Project Id",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "task_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "title": "Task Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "project_id",
+      "task_id",
+      "instructions"
+    ],
+    "title": "TaskRequest",
+    "type": "object"
+  }
+}
