@@ -80,3 +80,15 @@ class SearchResult(Contract):
 class SearchQuery(Contract):
     text: Annotated[str, Field(min_length=1, max_length=2000)]
     limit: Annotated[int, Field(ge=1, le=20)] = 5
+
+
+class BoundExcerpt(Contract):
+    """A whole-line prefix bound to an original indexed chunk."""
+
+    path: RelativePath
+    source_sha256: Digest
+    chunk_sha256: Digest
+    start_line: Annotated[int, Field(ge=1)]
+    original_end_line: Annotated[int, Field(ge=1)]
+    end_line: Annotated[int, Field(ge=1)]
+    text: Annotated[str, Field(min_length=1, max_length=4000)]

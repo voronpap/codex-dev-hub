@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import cast
 
 from devhub.brain_models import (
+    BoundExcerpt,
     BrainSnapshot,
     ProjectScope,
     RetrievalHit,
@@ -375,6 +376,81 @@ class ProjectBrain:
                 if len(hits) == query.limit:
                     break
         return SearchResult(snapshot_id=snapshot_id, status="ready", hits=tuple(hits))
+
+    def validate_snapshot(self, scope: ProjectScope, snapshot_id: str) -> bool:
+        return self._fresh(scope, snapshot_id)[2]
+
+    def validate_hits(
+        self, scope: ProjectScope, snapshot_id: str, hits: tuple[RetrievalHit, ...]
+    ) -> bool:
+        """Check one source snapshot, then every hit in the same DB transaction."""
+        store, snapshot, fresh = self._fresh(scope, snapshot_id)
+        if not fresh:
+            return False
+        hashes = {source.path: source.content_sha256 for source in snapshot.sources}
+        with store.transaction() as connection:
+            meta = connection.execute("SELECT snapshot, state FROM brain_meta").fetchone()
+            if meta[0] != snapshot.model_dump_json() or meta[1] != "ready":
+                return False
+            for hit in hits:
+                if (
+                    (hit.scope, hit.snapshot_id, hit.repo_identity, hit.revision, hit.branch)
+                    != (
+                        scope,
+                        snapshot_id,
+                        snapshot.repo_identity,
+                        snapshot.revision,
+                        snapshot.branch,
+                    )
+                    or hashes.get(hit.path) != hit.source_sha256
+                    or sha256(hit.text.encode()) != hit.chunk_sha256
+                ):
+                    return False
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM chunks WHERE path=? AND start_line=? AND end_line=? "
+                        "AND text=? AND digest=?",
+                        (hit.path, hit.start_line, hit.end_line, hit.text, hit.chunk_sha256),
+                    ).fetchone()
+                    is None
+                ):
+                    return False
+        return True
+
+    def validate_excerpts(
+        self, scope: ProjectScope, snapshot_id: str, excerpts: tuple[BoundExcerpt, ...]
+    ) -> bool:
+        """Validate compacted text against original chunks, never trust supplied provenance."""
+        store, snapshot, fresh = self._fresh(scope, snapshot_id)
+        if not fresh:
+            return False
+        hashes = {source.path: source.content_sha256 for source in snapshot.sources}
+        with store.transaction() as connection:
+            meta = connection.execute("SELECT snapshot, state FROM brain_meta").fetchone()
+            if meta[0] != snapshot.model_dump_json() or meta[1] != "ready":
+                return False
+            for excerpt in excerpts:
+                if not excerpt.start_line <= excerpt.end_line <= excerpt.original_end_line or (
+                    hashes.get(excerpt.path) != excerpt.source_sha256
+                ):
+                    return False
+                row = connection.execute(
+                    "SELECT text FROM chunks WHERE path=? AND start_line=? "
+                    "AND end_line=? AND digest=?",
+                    (
+                        excerpt.path,
+                        excerpt.start_line,
+                        excerpt.original_end_line,
+                        excerpt.chunk_sha256,
+                    ),
+                ).fetchone()
+                if (
+                    row is None
+                    or "".join(_source_lines(row[0])[: excerpt.end_line - excerpt.start_line + 1])
+                    != excerpt.text
+                ):
+                    return False
+        return True
 
     def validate_hit(self, scope: ProjectScope, hit: RetrievalHit) -> bool:
         """Future Context Builder must revalidate again at use/dispatch time."""
