@@ -132,6 +132,18 @@ class ResourceController:
                     "SELECT * FROM buckets WHERE id=?", (bucket_id,)
                 ).fetchone()
                 bucket = Bucket.model_validate_json(counter["spec"])
+                for previous in connection.execute(
+                    "SELECT spec FROM buckets WHERE held>0 AND id<>?", (bucket.id,)
+                ):
+                    other = Bucket.model_validate_json(previous[0])
+                    if (other.pool, other.unit, other.scope, other.project, other.task) == (
+                        bucket.pool,
+                        bucket.unit,
+                        bucket.scope,
+                        bucket.project,
+                        bucket.task,
+                    ):
+                        raise Denied("unreconciled_pool_window")
                 if (
                     bucket.capacity is None
                     or bucket.ends_ms is None
@@ -217,6 +229,10 @@ class ResourceController:
                 raise Denied("request_mismatch")
             if row["state"] != "reserved" or not row["created_ms"] <= now_ms < row["expires_ms"]:
                 raise Denied("not_dispatchable")
+            if ResourcePolicy.model_validate_json(row["policy"]).kind == "paid" and (
+                not self.allow_paid_simulation
+            ):
+                raise Denied("paid_disabled")
             if row["capability_revision"] is not None:
                 self._check_capability(
                     connection,
@@ -268,6 +284,20 @@ class ResourceController:
                 for value in actual.values()
             ):
                 raise Denied("incomplete_usage")
+            measured: dict[str, int] = {}
+            for item in items:
+                spec = connection.execute(
+                    "SELECT spec FROM buckets WHERE id=?", (item["bucket"],)
+                ).fetchone()[0]
+                unit = Bucket.model_validate_json(spec).unit
+                value = actual[item["bucket"]]
+                if unit in measured and measured[unit] != value:
+                    raise Denied("inconsistent_usage")
+                measured[unit] = value
+            if {"input_tokens", "output_tokens", "total_tokens"} <= measured.keys() and (
+                measured["input_tokens"] + measured["output_tokens"] != measured["total_tokens"]
+            ):
+                raise Denied("inconsistent_usage")
             if row["state"] == "settled":
                 if any(item["actual"] != actual[item["bucket"]] for item in items):
                     raise Denied("settlement_conflict")
@@ -285,3 +315,34 @@ class ResourceController:
                 )
             connection.execute("UPDATE reservations SET state='settled' WHERE id=?", (ticket,))
             record_event(connection, ticket, "settled")
+
+    def recover(self, *, now_ms: int) -> dict[str, int]:
+        """Expired pre-send leases release; expired send markers keep liabilities."""
+        counts = {"released": 0, "unknown_usage": 0}
+        with self.ledger.transaction() as connection:
+            rows = connection.execute(
+                """SELECT * FROM reservations WHERE expires_ms<=?
+                AND state IN ('reserved', 'dispatched') ORDER BY id""",
+                (now_ms,),
+            ).fetchall()
+            for row in rows:
+                if row["state"] == "reserved":
+                    for item in connection.execute(
+                        "SELECT * FROM allocations WHERE reservation=?", (row["id"],)
+                    ).fetchall():
+                        connection.execute(
+                            "UPDATE buckets SET held=held-? WHERE id=?",
+                            (item["amount"], item["bucket"]),
+                        )
+                    connection.execute(
+                        "UPDATE reservations SET state='released' WHERE id=?", (row["id"],)
+                    )
+                    record_event(connection, row["id"], "released")
+                    counts["released"] += 1
+                else:
+                    connection.execute(
+                        "UPDATE reservations SET state='unknown_usage' WHERE id=?", (row["id"],)
+                    )
+                    record_event(connection, row["id"], "unknown_usage")
+                    counts["unknown_usage"] += 1
+        return counts

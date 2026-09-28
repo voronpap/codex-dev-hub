@@ -1,6 +1,7 @@
 # Staged V1 implementation plan
 
-Status: accepted for Stage 1 by the repository owner after review of PR #1. Each row is a small review
+Status: Stage 1 merged after owner review of PR #2/#3; Stage 2 offline resource
+core is implemented in separate review slices. Each row is a small review
 boundary; stages can contain several focused PRs. Do not combine them into one
 implementation commit. ADR-0005–0010 are Accepted; later stages remain gated by their acceptance evidence.
 
@@ -88,4 +89,13 @@ slice; [runbook](STAGE1.md) and [verification](STAGE1_VERIFICATION.md) record th
 executable proof. The second slice provides [12 frozen baseline seed fixtures](../benchmarks/README.md),
 reviewer oracles and isolated packet preparation. The seed summary is deliberately
 smaller than the future ten-page benchmark and is labeled accordingly.
-No cloud adapter, full A/B benchmark or Stage 2 resource implementation is included.
+No cloud adapter or full A/B benchmark is included in Stage 1.
+
+## Stage 2 review delivery
+
+The owner accepted the Stage 1 diffs and requested the sequence merge #2, update
+#3 from main, repeat CI, then merge #3. All steps completed. Stage 2 follows as
+six dependent PRs: ledger, reservations, registry, router, events and recovery.
+[Stage 2 scope and evidence](STAGE2.md) records the implementation boundaries.
+The resource core operates on synthetic resources only. Stage 3 remains a separate
+gate after review of this evidence; no real provider has been implemented.
