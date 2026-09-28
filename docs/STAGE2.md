@@ -29,3 +29,26 @@ before reading admission counters. No provider call may occur inside a transacti
 For rollback, stop all users, preserve the current database, and open the snapshot
 with the matching runtime. Never restore a snapshot over a live ledger. Backups
 are operator-controlled local files and must receive the same protection as the ledger.
+
+## 2B: reservations
+
+Trusted operator code registers immutable resource policies and fixed-window
+buckets. Multiple resources reference the same bucket for a shared account quota.
+Overlapping aliases for the same pool/dimension/scope are refused. Window rollover
+requires a new policy/resource ID and bucket; old liabilities are never reset.
+Unknown capacities or reset times deny admission. Rolling-window adapters and
+provider-header reconciliation belong to later integration work.
+
+Admission reserves requests, full input and maximum output tokens, and all linked
+budgets in one transaction, including reserve floors. Input counts must include
+the entire provider payload; the future adapter owns token counting. Idempotency
+is project-scoped and binds the resource, payload digest, limits and deadline.
+Dispatch is a one-way durable transition before transport. Only pre-dispatch
+reservations can be released. Timeout becomes unknown_usage and retains every
+hold. Settlement requires complete trusted measurements; missing usage never
+means zero. Actual overruns are recorded rather than clamped to reserved values.
+
+Paid simulation is disabled by default and requires a fresh upper price including
+fees, an explicit project/task/resource approval, and task/project/global budgets.
+It cannot execute paid requests. Trusted configuration, approval and measured
+usage are internal Python APIs, not tool arguments available to a model.
