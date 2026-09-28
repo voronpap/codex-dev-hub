@@ -1,5 +1,7 @@
 # Stage 2: offline resource core
 
+Status: **CLOSED** after owner acceptance and sequential merges on 2026-09-28.
+
 Stage 1 is closed: PR #2 merged, PR #3 updated from main, Linux/Windows CI rerun
 successfully, then PR #3 merged. The real Codex MCP smoke and frozen baseline
 remain recorded in the Stage 1 evidence. No benchmark savings are claimed.
@@ -134,9 +136,26 @@ run status is attached to each PR rather than inferred from local results.
 | 2C registry | [PR #6](https://github.com/voronpap/codex-dev-hub/pull/6) |
 | 2D router | [PR #7](https://github.com/voronpap/codex-dev-hub/pull/7) |
 | 2E events | [PR #8](https://github.com/voronpap/codex-dev-hub/pull/8) |
-| 2F recovery/concurrency | Final slice on top of 2E |
+| 2F recovery/concurrency | [PR #9](https://github.com/voronpap/codex-dev-hub/pull/9) |
 
-These PRs are stacked: review and merge in order, update each successor onto main
-and rerun CI before its merge. Stage 2 is not auto-merged. Stage 3 remains gated
-on review; real account limits, token counting, transport cancellation and live
-usage reconciliation still require adapter-specific evidence.
+The owner accepted all six slices. PR #4 was merged first; each successor
+was updated from main, retargeted to main, passed fresh Linux/Windows CI,
+then merged with its checked head SHA. Each slice retains its own merge commit.
+
+| PR | Merge commit |
+|---|---|
+| [#4](https://github.com/voronpap/codex-dev-hub/pull/4) | `ab2fcd14e5f7d56316739e92cf6d9319304b63f5` |
+| [#5](https://github.com/voronpap/codex-dev-hub/pull/5) | `fe6d2cf7b10c2968ae4d960e61af81506fb1594b` |
+| [#6](https://github.com/voronpap/codex-dev-hub/pull/6) | `052e95afd28a71a7231947be9bf9210ff5f1abea` |
+| [#7](https://github.com/voronpap/codex-dev-hub/pull/7) | `326f9d4a2b62446c44c629eb8f8a8ed03b1f1ff4` |
+| [#8](https://github.com/voronpap/codex-dev-hub/pull/8) | `7343536b85bd12c221dfd28348e9bf34a1c981ca` |
+| [#9](https://github.com/voronpap/codex-dev-hub/pull/9) | `5c97e0aba0db78d7c939272aa1bad5f38aa97fbe` |
+
+The conservative unreconciled_pool_window behavior remains unchanged. An unknown
+liability can block a pool indefinitely. Stage 3 cloud adapters must introduce
+provider-specific reconciliation/expiry rules backed by provider evidence;
+a timeout or local lease expiry alone must never imply zero usage.
+
+Stage 3 follows the [local-first sequence](V1_IMPLEMENTATION_PLAN.md#stage-3-local-first-sequence).
+Real account limits, token counting, transport cancellation and live usage
+reconciliation still require adapter-specific evidence.
