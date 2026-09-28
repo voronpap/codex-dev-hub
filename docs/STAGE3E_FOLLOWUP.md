@@ -1,12 +1,41 @@
 # Stage 3E follow-up: candidate and one-shot grant review
 
-Status: prepared for operator review; no live count/inference authorized or performed.
-PR #18 was merged as partial implementation. Stage 3E remains OPEN and the Gemini
-execution/accounting gate NOT_PASSED. The original 2.5 Flash Lite HTTP 404, null
-usage, zero reservations/dispatch/inference and consumed claim remain unchanged;
-root cause remains unknown. This is an explicitly proposed new model, not fallback.
+Status: operator-approved follow-up executed once on accepted implementation
+`a1037e2`. **Live execution/accounting gate PASSED; Stage 3E CLOSED proposed,
+pending CI and review.** PR #19 remains unmerged. Runtime output validation failed
+(`invalid_output`); complete actual usage was settled before returning failure.
+This gate establishes execution/accounting only, not semantic acceptance or quality.
+The original 2.5 Flash Lite HTTP 404 and consumed claim remain unchanged;
+root cause remains unknown. The approved 3.5 request was not an automatic fallback.
 
-## Candidate review
+## Approved live result
+
+[Machine-readable evidence](evidence/stage3e-followup-live.json) records the single
+2026-09-28 follow-up through the real MCP stdio server. Fresh authenticated AI Studio
+qualification matched the Windows User key to project `836602474597`, Free tier,
+Set up billing and No billing account. Official Standard Free pricing and unpaid
+public-data terms were reviewed. The exact model account UI showed 15 RPM / 250K
+input TPM / 500 RPD; remaining capacity stays null. Catalogs do not authorize runtime.
+
+Permit `gemini-followup-836602474597-02` was issued in the existing ledger, bound to
+the approved request hash and review digest, with a ten-minute lifetime. It is now
+consumed. Migration preserved the original failed claim; no historical reset occurred.
+Two exact-model metadata GETs occurred (before issuance and within the runtime).
+Exactly one count returned HTTP 200 / 81 tokens in 203 ms, before any reservation.
+Exactly one generation returned HTTP 200 in 3328 ms. The HTTP boundary asserted
+frozen request bytes, successful durable count and a committed dispatch marker.
+Outbox order was `reserved -> dispatched -> settled`; actual usage was 81 prompt,
+11 candidate/output and 92 total tokens. Absent thought/cache/tool dimensions remain
+null. Offline byte proxy remains 867, distinct from the provider count and usage.
+
+The runtime returned `failed / invalid_output` after settlement. Sanitized evidence
+does not distinguish the precise JSON/shape failure; raw output was not retained.
+No retry, fallback, prompt tuning or extra inference was performed to diagnose it.
+Semantic acceptance, Delegation Value, savings and quality benchmark remain null.
+The approved request and inactive proposal below are retained as historical review
+artifacts; they must not be reactivated or replayed. No further live call is authorized.
+
+## Candidate review (pre-execution record)
 
 Propose **gemini-3.5-flash-lite**, with `gemini-3.1-flash-lite` recorded only as a
 reviewed alternative, not an executable fallback. Both exact IDs come from official
@@ -21,10 +50,10 @@ lists Standard Free input/output for both. Published prices do not qualify our
 account or remaining quota. The newer stable 3.5 candidate fits the same reviewed
 smoke capabilities; no measured quality or savings advantage is claimed.
 
-Exactly two authenticated, metadata-only model GETs returned 200 with the exact
+During preparation, exactly two authenticated, metadata-only model GETs returned 200 with the exact
 names, limits and advertised countTokens/generateContent methods. See
 [sanitized metadata evidence](evidence/stage3e-followup-metadata.json).
-No counting, generation, retry or fallback happened. Credentials were read only
+No counting, generation, retry or fallback happened during that preparation. Credentials were read only
 from Windows User environment. GET does not return project/billing identity or
 prove execution entitlement. Our earlier exact-project association and user-supplied
 15 RPM / 250K TPM / 500 RPD observations are historical evidence, not fresh qualification.
@@ -72,11 +101,11 @@ New bucket windows start at fresh qualification time and cannot overlap prior ac
 windows; the old ledger must be reused, not replaced to evade a consumed claim.
 
 The checked-in proposal is deliberately not a `FollowupPermit`: operator_approved
-is false; issue/expiry/review fields are null. No real grant has been issued, no
-historical ledger migrated, and the existing local model configuration is unchanged.
+is false; issue/expiry/review fields are null. At preparation time no real grant had been issued and no historical ledger migrated.
+The approved live run above subsequently issued and consumed the separate grant.
 Tests issue synthetic grants only in temporary ledgers with mocked provider I/O.
 
-## Approval and execution checklist
+## Approval and execution checklist (fulfilled live sequence)
 
 After this exact proposal and code receive explicit approval:
 

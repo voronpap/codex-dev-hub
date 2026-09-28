@@ -24,7 +24,11 @@ public/redacted export. **Stage 3D CLOSED** after owner acceptance of PR #17 and
 UTF-8 documentation cleanup. [Stage 3E Gemini gates](docs/STAGE3E.md) preserve the
 same boundary and require separate data-use, quota and token-accounting verification;
 the opt-in Gemini partial implementation was accepted and merged in PR #18.
-**Stage 3E OPEN; Gemini live execution/accounting gate NOT_PASSED.** The first count
+**PR #19: Gemini execution/accounting gate PASSED; Stage 3E CLOSED proposed pending
+CI and review.** Its approved one-shot follow-up settled 81 input + 11 output tokens
+before returning `invalid_output`; semantic acceptance remains null. See the
+[follow-up evidence](docs/STAGE3E_FOLLOWUP.md). At the PR #18 merge, Stage 3E was
+OPEN and the live gate NOT_PASSED. The first count
 returned HTTP 404 and blocked inference. Merge accepts the implementation and
 fail-closed evidence; it does not verify Gemini execution.
 

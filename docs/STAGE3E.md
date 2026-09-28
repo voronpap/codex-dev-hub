@@ -1,7 +1,10 @@
 # Stage 3E: Gemini acceptance gates
 
 Status: partial implementation accepted and merged in PR #18 on 2026-09-28.
-**Stage 3E OPEN. Gemini live execution/accounting gate NOT_PASSED.**
+At the PR #18 merge: **Stage 3E OPEN; live gate NOT_PASSED**.
+The separately approved PR #19 follow-up now demonstrates **execution/accounting
+gate PASSED; Stage 3E CLOSED proposed pending CI and review**. Output validation
+returned `invalid_output` after complete usage settlement; semantic acceptance is null.
 Merge accepts the adapter, fail-closed behavior, offline contract investigation and
 provider catalogs; it does not establish successful Gemini execution.
 Stage 3D is accepted and CLOSED.
@@ -9,10 +12,11 @@ The default MCP status server remains offline. Gemini is an explicit one-shot
 Free Developer API probe through `devhub.cloud_server`, using `GeminiCloudConfig`.
 No general routing, paid execution, Stage 3F or benchmark is enabled.
 
-## Offline follow-up
+## Approved follow-up
 
-[Follow-up candidate and operator grant review](STAGE3E_FOLLOWUP.md) prepares a
-separate, inactive 3.5 Flash-Lite proposal. It does not authorize count/inference.
+[Follow-up review and live result](STAGE3E_FOLLOWUP.md) records the approved one-shot
+3.5 Flash-Lite run and its consumed permit. The frozen proposal remains an inactive
+historical artifact. No further count/inference is authorized.
 
 [Offline 404 investigation](STAGE3E_INVESTIGATION.md): root cause remains unknown.
 The documented wire contract matches; current Gemini 2.5 eligibility restrictions
@@ -87,7 +91,7 @@ count permit concurrency/restart, inference crash/recovery, provider errors,
 thought/cache conservation, missing usage and malformed output. Existing Groq,
 Ollama, Controller and Brain tests remain regression coverage.
 
-## Live preflight evidence: gate NOT PASSED
+## Historical first preflight: gate NOT PASSED
 
 [Recorded public synthetic probe](evidence/stage3e-gemini-preflight.json), 2026-09-28,
 implementation `de32099`. Authenticated AI Studio showed project `836602474597`
@@ -111,8 +115,8 @@ The failure's root cause is not established by the sanitized status alone.
 The original handoff/evidence is retained unchanged, including null metrics. A later
 change improves preflight error diagnostics (HTTP status, latency, response hash and
 package/export binding), tested offline only. No second live call was made to obtain
-better evidence. Stage 3E stays OPEN; a successful counted inference/accounting smoke
-still requires a separately reviewed follow-up. Do not reset this ledger, edit the
+better evidence. At that point Stage 3E stayed OPEN and required a separately reviewed follow-up.
+The new follow-up above preserves this historical failure and consumed claim. Do not reset this ledger, edit the
 permit or switch models merely to obtain a green smoke. No semantic, quality,
 savings or Delegation Value claim is made.
 
