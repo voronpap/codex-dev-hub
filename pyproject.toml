@@ -29,6 +29,8 @@ packages = ["src/devhub"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["windows_smoke: platform-sensitive Windows contracts (also run on Linux)"]
+addopts = "--strict-markers"
 
 [tool.ruff]
 target-version = "py312"

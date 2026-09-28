@@ -382,6 +382,7 @@ def test_incomplete_or_inconsistent_usage_never_becomes_zero(updates):
     )
 
 
+@pytest.mark.windows_smoke
 def test_transport_no_retries_redirect_proxy_secret_or_rotation(monkeypatch):
     import devhub.gemini as module
 

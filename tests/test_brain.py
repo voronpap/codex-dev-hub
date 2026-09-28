@@ -253,6 +253,7 @@ def test_unapproved_ignored_private_binary_and_oversized_sources(tmp_path):
     assert search(service, scope, snapshot, "NEVER_INDEX").hits == ()
 
 
+@pytest.mark.windows_smoke
 def test_symlink_does_not_read_another_project(tmp_path):
     root = repo(tmp_path / "repo")
     outside = tmp_path / "secret.md"
@@ -345,6 +346,7 @@ def test_missing_fts5_fails_atomically(tmp_path, monkeypatch):
         assert connection.execute("SELECT name FROM sqlite_master").fetchall() == []
 
 
+@pytest.mark.windows_smoke
 def test_untracked_filename_cannot_match_git_pathspec_pattern(tmp_path):
     root = repo(tmp_path / "repo", {"doc1.md": "tracked"})
     (root / "doc[1].md").write_text("NEVER_INDEX", encoding="utf-8")
@@ -370,6 +372,7 @@ def test_worktrees_share_repo_identity_but_not_snapshot_or_results(tmp_path):
     assert search(service, right, b).hits == ()
 
 
+@pytest.mark.windows_smoke
 def test_unicode_paragraph_separator_does_not_change_git_line_numbers(tmp_path):
     root = repo(tmp_path / "repo", {"guide.md": "first\u2028paragraph\nsecond needle\n"})
     service = ProjectBrain(tmp_path / "state", {"p": root})

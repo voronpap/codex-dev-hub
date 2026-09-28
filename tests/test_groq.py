@@ -388,6 +388,7 @@ def test_mcp_boundary_strict_and_complete_path(cloud):
 
 
 @pytest.mark.parametrize("status", [200, 302, 401, 429, 500])
+@pytest.mark.windows_smoke
 def test_http_one_attempt_no_redirect_no_secret_echo(monkeypatch, status):
     import devhub.groq as groq
 
