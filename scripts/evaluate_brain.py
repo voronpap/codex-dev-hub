@@ -15,7 +15,8 @@ def evaluate(fixture: Path) -> dict[str, Any]:
     raw = fixture.read_bytes()
     data = json.loads(raw)
     with tempfile.TemporaryDirectory(prefix="devhub-retrieval-") as temporary:
-        root = Path(temporary) / "repo"
+        # Windows runners may expose TEMP through an 8.3 alias; compare canonical paths.
+        root = Path(temporary).resolve() / "repo"
         root.mkdir()
 
         def git(*args: str) -> None:

@@ -126,8 +126,8 @@ and scope rejection, hash/excerpt tampering, concurrent indexers, failed writes,
 line bounds, Git pathspecs, excluded sources and missing FTS5. The symlink test is
 skipped on Windows hosts without symlink creation privileges and runs on Linux.
 
-Local verification on 2026-09-28: Windows Python 3.12.10 ran **79 passed, 1 skipped**
-(symlink privilege); WSL Ubuntu 24.04 Python 3.12.3 ran **80 passed**. Ruff lint and
+Local verification on 2026-09-28: Windows Python 3.12.10 ran **80 passed, 1 skipped**
+(symlink privilege); WSL Ubuntu 24.04 Python 3.12.3 ran **81 passed**. Ruff lint and
 format checks and strict mypy pass. The quality test reproduces the checked-in
 report including its fixture hash. No dependency changes were needed. Remote
 Linux/Windows CI results are recorded on the PR.
