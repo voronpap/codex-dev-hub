@@ -3,20 +3,20 @@
 Build the smallest system that proves Dev Hub improves real Codex development.
 Codex remains orchestrator; free-first applies only after choosing to delegate.
 
-## Phase 0 — Technical design
+## Phase 0 вЂ” Technical design
 
-- [x] Vision, principles and Accepted ADR-0001–0004.
+- [x] Vision, principles and Accepted ADR-0001вЂ“0004.
 - [x] Audit all repository documentation and preserve the ideas catalog.
 - [x] Recheck official technology/provider documentation.
-- [x] Propose stack, contracts, security, baseline and ADR-0005–0010.
-- [ ] Record design adoption before Stage 1 coding.
+- [x] Propose stack, contracts, security, baseline and ADR-0005вЂ“0010.
+- [x] Owner accepted ADR-0005–0010 and the offline-only Stage 1 scope in PR #1 review.
 - [ ] Verify actual Codex MCP interoperability during Stage 1.
 
 Public documentation verification is complete; account/hardware probes and
 benchmark execution are not. See [audit](docs/V1_AUDIT.md),
 [proposal](docs/V1_TECHNICAL_PROPOSAL.md) and [ADR index](docs/adr/README.md).
 
-## V1 — Small, independently verified stages
+## V1 вЂ” Small, independently verified stages
 
 1. Offline skeleton, MCP status, locked contracts and baseline fixtures.
 2. ResourceController, Capability Registry, deterministic Router and telemetry.

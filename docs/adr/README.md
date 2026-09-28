@@ -7,7 +7,7 @@ Accepted foundational decisions remain unchanged:
 - [0003: Shared Project Brain](0003-shared-project-brain.md)
 - [0004: Agents as workers](0004-agents-as-workers.md)
 
-Proposed V1 technical decisions, 2026-09-28:
+Accepted V1 technical decisions (owner review of PR #1), 2026-09-28:
 
 - [0005: Minimal V1 runtime and adapter boundary](0005-minimal-v1-stack.md)
 - [0006: Six high-level MCP tools](0006-mcp-domain-tools.md)

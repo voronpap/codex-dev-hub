@@ -1,6 +1,6 @@
 # ADR-0007: Atomic resource admission and deterministic routing
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-09-28
 
@@ -27,5 +27,5 @@ Move ledger to transactional PostgreSQL if concurrent writers require it; learne
 ## Evidence and implementation gate
 See [research](../V1_RESEARCH.md), [proposal](../V1_TECHNICAL_PROPOSAL.md),
 [contracts](../V1_CONTRACTS.md), [benchmark](../V1_BENCHMARK.md) and
-[staged plan](../V1_IMPLEMENTATION_PLAN.md). Adoption is not a claim of implemented
-or benchmarked behavior. Record acceptance/revision before Stage 1 coding.
+[staged plan](../V1_IMPLEMENTATION_PLAN.md). Accepted by the repository owner after reviewing PR #1. Acceptance does not
+claim implemented or benchmarked behavior; Stage 1 is restricted to offline work.

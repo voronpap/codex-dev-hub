@@ -1,6 +1,6 @@
 # V1 technical proposal
 
-Status: **Proposed, design only**. Date: 2026-09-28.
+Status: **Accepted design; offline Stage 1 authorized**. Date: 2026-09-28.
 Baseline, evidence and gaps: [audit](V1_AUDIT.md), [research](V1_RESEARCH.md).
 Normative field definitions: [contracts](V1_CONTRACTS.md).
 
@@ -13,7 +13,8 @@ Pydantic v2 validation, httpx transports, SQLite/FTS5, Git and ripgrep. Use pyte
 with deterministic clocks/fake adapters, Ruff and a type checker for verification.
 No web UI, distributed queue, Redis, vector database or general agent framework.
 
-Initial adapter sequence: Groq, Gemini, Ollama, then opt-in OpenRouter free.
+Implementation sequence: Groq, Gemini, Ollama, then opt-in OpenRouter free.
+This is not a fixed routing order; routing follows eligibility and benchmark data.
 One Tavily search adapter plus bounded HTTP extraction provides research.
 Paid inference uses one explicitly configured OpenAI-compatible adapter only
 after policy tests; disabled by default. No Codex subscription credentials are
@@ -183,7 +184,7 @@ free attempts merely to maintain free-first appearances.
 ## 7. Context Builder and repository retrieval
 
 Inputs are task, scope, acceptance criteria, project revision and retrieval
-query—not full repo/history. Read registered roots using Git's tracked-file list,
+queryвЂ”not full repo/history. Read registered roots using Git's tracked-file list,
 ripgrep identifier/path matches, FTS5 over approved documentation and excerpts,
 then bounded neighboring definitions. Exclude binaries, ignored/generated/vendor
 files, credentials and private paths. No automatic dependency installation.
