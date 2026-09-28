@@ -548,3 +548,39 @@ def test_transport_exception_is_sanitized_and_not_retried(monkeypatch):
     with pytest.raises(GroqError) as error:
         GroqHTTP(1).request("/openai/v1/chat/completions", b"{}")
     assert str(error.value) == "send_outcome_unknown" and calls == [1]
+
+
+def test_credential_rotation_cannot_switch_accounts_after_discovery(monkeypatch):
+    import devhub.groq as groq
+
+    key, calls = ["first-test-credential"], []
+    monkeypatch.setattr(groq, "windows_user_key", lambda: key[0])
+
+    class Connection:
+        status = 200
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def request(self, *args, **kwargs):
+            calls.append(1)
+
+        def getresponse(self):
+            return self
+
+        def getheaders(self):
+            return []
+
+        def read(self, _limit):
+            return b'{"data": []}'
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(groq.http.client, "HTTPSConnection", Connection)
+    http = GroqHTTP(1)
+    http.request("/openai/v1/models")
+    key[0] = "different-test-credential"
+    with pytest.raises(GroqError, match="credential_changed_since_discovery"):
+        http.request("/openai/v1/chat/completions", b"{}")
+    assert calls == [1]

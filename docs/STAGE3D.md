@@ -23,7 +23,9 @@ Credentials come only from `HKCU\Environment\GROQ_API_KEY` (Windows user environ
 inside the HTTP boundary. Process overrides, machine environment, .env and repo
 configuration are ignored. Keys are never stored on the adapter or emitted in errors.
 Transport exceptions become stable codes; raw response bodies remain ephemeral.
-Credential echoes are rejected. Only TLS-verified `api.groq.com` and GET
+Credential echoes are rejected. An ephemeral transport-only fingerprint binds
+discovery and inference to the same credential; rotation between them fails closed
+before sending. Neither the credential nor its fingerprint enters DTOs/evidence. Only TLS-verified `api.groq.com` and GET
 `/openai/v1/models` / POST `/openai/v1/chat/completions` are available. The client has
 no SDK retries, redirects, proxy discovery or fallback; responses are capped at 1 MiB.
 
@@ -127,7 +129,9 @@ inference on implementation commit `346cd00`: HTTP 200, 250 ms HTTP latency,
 97 actual input tokens and 12 output tokens, with reserved/dispatched/settled
 outbox events. Offline byte proxy was 867; full-request estimate was 1648; exact
 preflight tokenizer count remains null. The returned summary was "The synthetic
-lighthouse is blue." No follow-up inference or prompt tuning was performed.
+lighthouse is blue." No follow-up inference or prompt tuning was performed. The subsequent credential-
+rotation guard was verified offline; this evidence retains its exact original
+implementation commit.
 
 The discovery response had no rate-limit headers. The inference response reported
 RPD limit 1000 / remaining 999 / reset 1m26.4s and TPM limit 8000 / remaining 7807 /

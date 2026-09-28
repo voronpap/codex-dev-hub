@@ -97,6 +97,7 @@ class HTTPResult:
 class GroqHTTP:
     def __init__(self, timeout_seconds: int) -> None:
         self.timeout = timeout_seconds
+        self._credential_fingerprint: str | None = None
 
     def request(self, path: str, body: bytes | None = None) -> HTTPResult:
         if (path, body is None) not in {
@@ -105,6 +106,12 @@ class GroqHTTP:
         }:
             raise GroqError("endpoint_denied")
         key = windows_user_key()
+        fingerprint = sha256(key.encode())
+        if self._credential_fingerprint is not None and self._credential_fingerprint != fingerprint:
+            raise GroqError("credential_changed_since_discovery")
+        # Pin discovery and inference to one credential without retaining its value.
+        # This fingerprint stays inside the transport, never in a DTO or evidence.
+        self._credential_fingerprint = fingerprint
         connection = http.client.HTTPSConnection(
             "api.groq.com", timeout=self.timeout, context=ssl.create_default_context()
         )
