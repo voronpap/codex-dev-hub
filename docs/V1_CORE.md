@@ -1,5 +1,9 @@
 # V1 Core Specification
 
+Concrete design: [proposal](V1_TECHNICAL_PROPOSAL.md), [contracts](V1_CONTRACTS.md),
+[staged plan](V1_IMPLEMENTATION_PLAN.md). These proposed documents refine the
+required scope; coding has not begun.
+
 ## Goal
 
 V1 must prove that Codex Dev Hub makes **real Codex development more efficient** without replacing Codex.
@@ -245,12 +249,12 @@ Codex should see a **small curated tool set**, not every underlying integration.
 Candidate V1 tools:
 
 ```text
-devhub.status
-devhub.delegate
-devhub.research
-devhub.context
-devhub.remember
-devhub.sandbox
+devhub_status
+devhub_delegate
+devhub_research
+devhub_context
+devhub_remember
+devhub_sandbox
 ```
 
 Exact names/contracts are subject to an MCP integration spike.

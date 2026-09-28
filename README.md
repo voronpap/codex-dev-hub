@@ -160,6 +160,13 @@ The exact implementation structure may change after V1 spikes. Architecture docu
 
 ## Documentation
 
+- [V1 technical proposal](docs/V1_TECHNICAL_PROPOSAL.md) — proposed stack and architecture, design only.
+- [Repository audit and gaps](docs/V1_AUDIT.md)
+- [Current technology research](docs/V1_RESEARCH.md)
+- [V1 contracts and schemas](docs/V1_CONTRACTS.md)
+- [Baseline and Delegation Value](docs/V1_BENCHMARK.md)
+- [Staged implementation and Stage 1 gate](docs/V1_IMPLEMENTATION_PLAN.md)
+- [Mandatory V1 core](docs/V1_CORE.md)
 - [Vision](VISION.md)
 - [Architecture](ARCHITECTURE.md)
 - [Roadmap](ROADMAP.md)
