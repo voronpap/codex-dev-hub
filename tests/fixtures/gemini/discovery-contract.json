@@ -1,0 +1,169 @@
+{
+  "v1": {
+    "source": "https://generativelanguage.googleapis.com/$discovery/rest?version=v1",
+    "revision": "20260927",
+    "sha256": "c21453179aacb21cd2564513146d7c7174b9c85c9041781026f1edb3690e9a66",
+    "methods": {
+      "list": {
+        "httpMethod": "GET",
+        "path": "v1/models"
+      },
+      "get": {
+        "httpMethod": "GET",
+        "path": "v1/{+name}"
+      },
+      "countTokens": {
+        "httpMethod": "POST",
+        "path": "v1/{+model}:countTokens"
+      },
+      "generateContent": {
+        "httpMethod": "POST",
+        "path": "v1/{+model}:generateContent"
+      }
+    },
+    "fields": {
+      "CountTokensRequest": [
+        "contents",
+        "generateContentRequest"
+      ],
+      "GenerateContentRequest": [
+        "contents",
+        "generationConfig",
+        "model",
+        "safetySettings",
+        "serviceTier",
+        "store",
+        "systemInstruction",
+        "toolConfig",
+        "tools"
+      ],
+      "GenerationConfig": [
+        "_responseJsonSchema",
+        "candidateCount",
+        "enableEnhancedCivicAnswers",
+        "frequencyPenalty",
+        "imageConfig",
+        "logprobs",
+        "maxOutputTokens",
+        "mediaResolution",
+        "presencePenalty",
+        "responseFormat",
+        "responseJsonSchema",
+        "responseLogprobs",
+        "responseMimeType",
+        "responseModalities",
+        "responseSchema",
+        "seed",
+        "stopSequences",
+        "temperature",
+        "thinkingConfig",
+        "topK",
+        "topP"
+      ],
+      "ThinkingConfig": [
+        "includeThoughts",
+        "thinkingBudget",
+        "thinkingLevel"
+      ],
+      "UsageMetadata": [
+        "cacheTokensDetails",
+        "candidatesTokenCount",
+        "candidatesTokensDetails",
+        "promptTokenCount",
+        "promptTokensDetails",
+        "serviceTier",
+        "thoughtsTokenCount",
+        "toolUsePromptTokenCount",
+        "toolUsePromptTokensDetails",
+        "totalTokenCount"
+      ]
+    }
+  },
+  "v1beta": {
+    "source": "https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta",
+    "revision": "20260927",
+    "sha256": "c3a2524745b496065a46ec675501f51e3e3baf7974b19cb3395013878046bfb7",
+    "methods": {
+      "list": {
+        "httpMethod": "GET",
+        "path": "v1beta/models"
+      },
+      "get": {
+        "httpMethod": "GET",
+        "path": "v1beta/{+name}"
+      },
+      "countTokens": {
+        "httpMethod": "POST",
+        "path": "v1beta/{+model}:countTokens"
+      },
+      "generateContent": {
+        "httpMethod": "POST",
+        "path": "v1beta/{+model}:generateContent"
+      }
+    },
+    "fields": {
+      "CountTokensRequest": [
+        "contents",
+        "generateContentRequest"
+      ],
+      "GenerateContentRequest": [
+        "cachedContent",
+        "contents",
+        "generationConfig",
+        "labels",
+        "model",
+        "safetySettings",
+        "serviceTier",
+        "store",
+        "systemInstruction",
+        "toolConfig",
+        "tools"
+      ],
+      "GenerationConfig": [
+        "_responseJsonSchema",
+        "audioTranscriptionConfig",
+        "candidateCount",
+        "enableAffectiveDialog",
+        "enableEnhancedCivicAnswers",
+        "frequencyPenalty",
+        "imageConfig",
+        "logprobs",
+        "maxOutputTokens",
+        "mediaResolution",
+        "presencePenalty",
+        "responseFormat",
+        "responseJsonSchema",
+        "responseLogprobs",
+        "responseMimeType",
+        "responseModalities",
+        "responseSchema",
+        "seed",
+        "speechConfig",
+        "stopSequences",
+        "temperature",
+        "thinkingConfig",
+        "topK",
+        "topP",
+        "translationConfig"
+      ],
+      "ThinkingConfig": [
+        "includeThoughts",
+        "thinkingBudget",
+        "thinkingLevel"
+      ],
+      "UsageMetadata": [
+        "cacheTokensDetails",
+        "cachedContentTokenCount",
+        "candidatesTokenCount",
+        "candidatesTokensDetails",
+        "promptTokenCount",
+        "promptTokensDetails",
+        "serviceTier",
+        "thoughtsTokenCount",
+        "toolUsePromptTokenCount",
+        "toolUsePromptTokensDetails",
+        "totalTokenCount"
+      ]
+    }
+  }
+}

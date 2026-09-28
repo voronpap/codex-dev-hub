@@ -145,7 +145,8 @@ def error_category(status: int) -> str:
         401: "auth",
         402: "billing_required",
         403: "entitlement",
-        404: "model_unavailable",
+        # HTTP 404 alone cannot distinguish a missing model from another resource.
+        404: "not_found",
         408: "timeout",
         429: "rate_limit",
     }.get(status, "transient" if 500 <= status <= 599 else "invalid_response")

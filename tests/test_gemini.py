@@ -226,7 +226,7 @@ def test_count_failure_is_durable_without_inference_reservation(gemini_cloud, se
     assert result.status in {"denied", "context_insufficient"}
     assert len(calls) == 2 and not transitions(runtime)
     if setting == "count_missing":
-        assert result.reason == "count_model_unavailable" and result.preflight_http_status == 404
+        assert result.reason == "count_not_found" and result.preflight_http_status == 404
         assert result.preflight_latency_ms == 1 and result.count_response_hash
         assert result.offline_context_proxy > 0 and result.export_hash
     mode["value"] = "valid"

@@ -5,6 +5,13 @@ The default MCP status server remains offline. Gemini is an explicit one-shot
 Free Developer API probe through `devhub.cloud_server`, using `GeminiCloudConfig`.
 No general routing, paid execution, Stage 3F or benchmark is enabled.
 
+## Offline follow-up
+
+[Offline 404 investigation](STAGE3E_INVESTIGATION.md): root cause remains unknown.
+The documented wire contract matches; current Gemini 2.5 eligibility restrictions
+are a plausible account-level explanation. No new permit or live call was made.
+New 404 diagnostics say `not_found`; the historical failure remains unchanged.
+
 ## Implemented boundary
 
 `CloudRuntime` now composes either configured provider through the same Brain,
