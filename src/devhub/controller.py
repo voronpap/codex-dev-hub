@@ -137,7 +137,9 @@ class ResourceController:
                 raise Denied("missing_budget_scope")
             ticket = Ticket(id=uuid4().hex, state="reserved")
             connection.execute(
-                """INSERT INTO reservations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO reservations
+                (id, project, task, request_key, fingerprint, resource, policy, state,
+                 created_ms, expires_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     ticket.id,
                     request.project,

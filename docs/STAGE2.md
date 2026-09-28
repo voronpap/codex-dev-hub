@@ -52,3 +52,13 @@ Paid simulation is disabled by default and requires a fresh upper price includin
 fees, an explicit project/task/resource approval, and task/project/global budgets.
 It cannot execute paid requests. Trusted configuration, approval and measured
 usage are internal Python APIs, not tool arguments available to a model.
+
+## 2C: capability registry
+
+Migration 2 adds persisted capability evidence scoped to resource/provider/model/
+endpoint/plan. Records include provenance ID, observation and expiry timestamps,
+tri-state features/health, context/output limits and qualified task classes.
+Unknown remains unknown. Records are explicitly synthetic; no provider metadata
+is fetched. Policy kind must match the registry. Updating evidence changes its
+SHA-256 revision. The router will bind admission to that revision and deny stale
+or changed evidence before dispatch. Upgrading a v1 database preserves counters.
