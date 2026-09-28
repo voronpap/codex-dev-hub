@@ -56,13 +56,24 @@ class ResourcePolicy(Contract):
     id: Identifier
     kind: Literal["free", "local", "paid"]
     synthetic: bool = True
+    live_account: Identifier | None = None
+    quota_scope: Identifier | None = None
+    single_probe: bool = False
     buckets: Annotated[tuple[Identifier, ...], Field(min_length=1, max_length=32)]
     price: Price | None = None
 
     @model_validator(mode="after")
     def unique_buckets(self) -> "ResourcePolicy":
-        if not self.synthetic and self.kind != "local":
-            raise ValueError("only local live execution is supported")
+        if (
+            not self.synthetic
+            and self.kind != "local"
+            and not (
+                self.kind == "free" and self.single_probe and self.live_account and self.quota_scope
+            )
+        ):
+            raise ValueError("live cloud requires a bounded free probe policy")
+        if self.synthetic and (self.single_probe or self.live_account or self.quota_scope):
+            raise ValueError("synthetic policies cannot authorize cloud execution")
         if len(set(self.buckets)) != len(self.buckets):
             raise ValueError("duplicate bucket")
         return self

@@ -7,19 +7,23 @@
 **Stage 2 CLOSED.** Stages 1 and 2 are accepted, merged and verified. MCP exposes status,
 strict configuration and synthetic test resources. Internal offline resource APIs
 add SQLite accounting, reservations, capabilities, deterministic routing and recovery.
-Cloud inference and paid execution are not implemented. See the
+The default server has no inference or paid execution. See the
 [Stage 1 runbook](docs/STAGE1.md) and [Stage 2 scope and evidence](docs/STAGE2.md).
 
 [Stage 3A Project Brain + FTS5](docs/STAGE3A.md) is **CLOSED**, accepted and merged as an
 internal, project-scoped retrieval API. [Stage 3B Context Builder](docs/STAGE3B.md)
 is **CLOSED**, accepted and merged with immutable, budgeted and revalidated packages;
-cloud adapters remain gated by the local Ollama end-to-end smoke.
+its private packages require explicit export approval before any cloud use.
 
 [Stage 3C Ollama](docs/STAGE3C.md) is **CLOSED + Local E2E Gate PASSED** through an
 explicit local-only MCP entry point, with model-specific token admission and real
 Codex smoke evidence. Execution/accounting gate passed; semantic quality not yet
-established. The default status server remains offline. [Stage 3D Groq gates](docs/STAGE3D.md)
-require the same pipeline and public/redacted-only cloud input by default.
+established. The default status server remains offline. [Stage 3D Groq](docs/STAGE3D.md)
+adds an opt-in, one-shot Free probe through the same accounting boundary and explicit
+public/redacted export. **Stage 3D CLOSED** after owner acceptance of PR #17 and
+UTF-8 documentation cleanup. [Stage 3E Gemini gates](docs/STAGE3E.md) preserve the
+same boundary and require separate data-use, quota and token-accounting verification;
+the Gemini adapter remains unimplemented.
 
 ## Core idea
 
