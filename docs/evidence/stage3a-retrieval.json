@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "fixture_sha256": "196ca81db142599125525988c8617025b53ee4e15c9c5769dd6d9cc5511b91d2",
+  "synthetic": true,
+  "documents": 12,
+  "positive_queries": 12,
+  "negative_queries": 2,
+  "negative_hits": 0,
+  "top1_accuracy": 0.8333333333333334,
+  "recall_at_3": 0.8333333333333334,
+  "mrr_at_3": 0.8333333333333334,
+  "queries": [
+    {
+      "id": "exact-path",
+      "returned_paths": [
+        "src/controller.py",
+        "docs/overview.md"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "identifier",
+      "returned_paths": [
+        "src/controller.py"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "unknown-usage",
+      "returned_paths": [
+        "docs/quota.md"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "invalidation",
+      "returned_paths": [
+        "docs/brain.md"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "isolation",
+      "returned_paths": [
+        "docs/security.md",
+        "docs/history.md"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "context-budget",
+      "returned_paths": [
+        "docs/context.md"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "backup",
+      "returned_paths": [
+        "ops/backup.md",
+        "docs/history.md"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "privacy",
+      "returned_paths": [
+        "docs/router.md"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "atomic-events",
+      "returned_paths": [
+        "docs/outbox.md"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "ukrainian",
+      "returned_paths": [
+        "docs/ukrainian.md"
+      ],
+      "first_relevant_rank": 1,
+      "recall_at_3": 1.0
+    },
+    {
+      "id": "natural-question",
+      "returned_paths": [],
+      "first_relevant_rank": null,
+      "recall_at_3": 0.0
+    },
+    {
+      "id": "paraphrase",
+      "returned_paths": [],
+      "first_relevant_rank": null,
+      "recall_at_3": 0.0
+    }
+  ],
+  "limitation": "Small synthetic lexical seed; no semantic recall or delegation-value claim.",
+  "codex_tokens": null,
+  "savings": null
+}

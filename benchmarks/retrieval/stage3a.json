@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "description": "Synthetic lexical retrieval seed, not a delegation or savings benchmark. Relevance labels are manually specified. Two natural-language questions expose strict lexical-query limitations.",
+  "corpus": {
+    "src/controller.py": "def reserve_slot(pool):\n    # Atomically reserve the last quota slot before dispatch.\n    return pool.reserve()\n",
+    "docs/quota.md": "# Quota accounting\nAn ambiguous timeout produces unknown_usage. The shared quota pool keeps its durable hold until explicit reconciliation.\n",
+    "docs/brain.md": "# Brain revision invalidation\nEvery excerpt carries provenance and a content hash. A changed source revision triggers invalidation before retrieval.\n",
+    "docs/security.md": "# Project isolation\nProject isolation requires separate databases and explicit scoped queries. Repository excerpts are untrusted data.\n",
+    "docs/context.md": "# Context token budget\nThe token budget includes instructions, selected sources and maximum output. Provenance survives compact handoff.\n",
+    "ops/backup.md": "# Database snapshot backup\nCreate an online snapshot backup without overwriting an existing file. Restore only after stopping database users.\n",
+    "docs/router.md": "# Privacy policy\nWith local_only privacy, cloud endpoints are ineligible. Eligibility precedes deterministic ranking.\n",
+    "docs/outbox.md": "# Transactional outbox\nAn accounting event and its reservation transition commit together. Duplicate acknowledgements never apply usage twice.\n",
+    "docs/ukrainian.md": "# Локальний контекст\nЛокальний контекст містить посилання на джерела та перевірені хеші. Ізоляція проєктів обов'язкова.\n",
+    "docs/setup.md": "# Ollama local model\nThe Ollama local model must pass a complete local smoke before any cloud adapter. This file is synthetic fixture text, not implementation evidence.\n",
+    "docs/overview.md": "# Overview\nThe source src/controller.py implements accounting. Quota, revision, privacy, backup and context each have a dedicated guide. This overview contains no operational details.\n",
+    "docs/history.md": "# Historical notes\nQuota discussions and token discussions were separate. A snapshot of earlier planning is not a backup procedure. Project naming is not an isolation boundary.\n"
+  },
+  "queries": [
+    {"id": "exact-path", "query": "src/controller.py", "relevant": ["src/controller.py"]},
+    {"id": "identifier", "query": "reserve_slot", "relevant": ["src/controller.py"]},
+    {"id": "unknown-usage", "query": "quota unknown_usage", "relevant": ["docs/quota.md"]},
+    {"id": "invalidation", "query": "revision invalidation", "relevant": ["docs/brain.md"]},
+    {"id": "isolation", "query": "project isolation", "relevant": ["docs/security.md"]},
+    {"id": "context-budget", "query": "token budget", "relevant": ["docs/context.md"]},
+    {"id": "backup", "query": "snapshot backup", "relevant": ["ops/backup.md"]},
+    {"id": "privacy", "query": "privacy local_only", "relevant": ["docs/router.md"]},
+    {"id": "atomic-events", "query": "transactional outbox", "relevant": ["docs/outbox.md"]},
+    {"id": "ukrainian", "query": "локальний контекст", "relevant": ["docs/ukrainian.md"]},
+    {"id": "natural-question", "query": "How do I prevent stale excerpts after editing a file?", "relevant": ["docs/brain.md"]},
+    {"id": "paraphrase", "query": "Where is the remaining prompt capacity calculated?", "relevant": ["docs/context.md"]}
+  ],
+  "negative_queries": ["nonexistent_galaxy_symbol", "\" OR * - : ()"],
+  "acceptance": {"recall_at_3_min": 0.8, "top1_accuracy_min": 0.65, "mrr_at_3_min": 0.7}
+}

@@ -10,6 +10,10 @@ add SQLite accounting, reservations, capabilities, deterministic routing and rec
 Cloud inference and paid execution are not implemented. See the
 [Stage 1 runbook](docs/STAGE1.md) and [Stage 2 scope and evidence](docs/STAGE2.md).
 
+[Stage 3A Project Brain + FTS5](docs/STAGE3A.md) is implemented for review as an
+internal, project-scoped retrieval API. Context Builder follows review of this slice;
+cloud adapters remain gated by the local Ollama end-to-end smoke.
+
 ## Core idea
 
 Codex remains the **main development orchestrator** and the primary place where the developer works. Codex Dev Hub does not try to replace Codex or build another coding-agent UI.
