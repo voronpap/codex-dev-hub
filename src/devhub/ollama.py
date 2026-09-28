@@ -19,6 +19,7 @@ from devhub.brain_models import Digest, sha256
 from devhub.context import canonical, render_payload
 from devhub.context_models import ContextPackage
 from devhub.models import Contract
+from devhub.output import OutputPolicy, system_instruction
 
 PATTERN = (
     r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}|"
@@ -64,7 +65,8 @@ class OllamaConfig(Contract):
 
 
 class LocalHTTP:
-    def __init__(self, config: OllamaConfig) -> None:
+    def __init__(self, config: OllamaConfig, *, output_policy: OutputPolicy | None = None) -> None:
+        self.output_policy = output_policy
         self.config = config
 
     def request(self, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -163,7 +165,8 @@ class PreparedRequest(Contract):
 
 
 class OllamaAdapter:
-    def __init__(self, config: OllamaConfig) -> None:
+    def __init__(self, config: OllamaConfig, *, output_policy: OutputPolicy | None = None) -> None:
+        self.output_policy = output_policy
         self.config = config
         self.http = LocalHTTP(config)
 
@@ -205,11 +208,18 @@ class OllamaAdapter:
         self, package: ContextPackage, evidence: ModelEvidence, tokenizer: QwenTokenizer
     ) -> PreparedRequest:
         payload = render_payload(package.task, package.items)
+        system = SYSTEM
+        if self.output_policy is not None:
+            system = system_instruction(self.output_policy)
+            data = json.loads(payload)
+            for index, source in enumerate(data["sources"]):
+                source["citation"] = f"s{index + 1}"
+            payload = canonical(data)
         # Prevent source/task text from injecting model-specific role delimiters.
         if "<|" in payload or "|>" in payload:
             raise OllamaError("reserved_chat_marker_in_data")
         prompt = (
-            f"<|im_start|>system\n{SYSTEM}<|im_end|>\n"
+            f"<|im_start|>system\n{system}<|im_end|>\n"
             f"<|im_start|>user\n{payload}<|im_end|>\n<|im_start|>assistant\n"
         )
         count = tokenizer.count(prompt)

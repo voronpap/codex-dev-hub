@@ -22,6 +22,7 @@ from devhub.groq import GroqAdapter, GroqConfig, GroqError, complete_usage, erro
 from devhub.ledger import Ledger
 from devhub.local import LocalHandoff, LocalTask, Summary, now_ms
 from devhub.models import Contract, Identifier
+from devhub.output import OutputPolicy, validate_output
 from devhub.quota import QuotaObservation, observe, save_observation
 from devhub.registry import CapabilityRecord
 from devhub.resources import Bucket, ResourcePolicy
@@ -66,7 +67,10 @@ class CloudHandoff(LocalHandoff):
 
 
 class CloudRuntime:
-    def __init__(self, config: CloudConfig | GeminiCloudConfig) -> None:
+    def __init__(
+        self, config: CloudConfig | GeminiCloudConfig, *, output_policy: OutputPolicy | None = None
+    ) -> None:
+        self.output_policy = output_policy
         self.config = config
         root, state = Path(config.root).resolve(strict=True), Path(config.state_root).resolve()
         if state == root or state.is_relative_to(root):
@@ -80,9 +84,9 @@ class CloudRuntime:
         self.provider = "groq" if isinstance(config, CloudConfig) else "gemini"
         self.provider_config = config.groq if isinstance(config, CloudConfig) else config.gemini
         self.adapter = (
-            GroqAdapter(config.groq)
+            GroqAdapter(config.groq, output_policy=output_policy)
             if isinstance(config, CloudConfig)
-            else GeminiAdapter(config.gemini)
+            else GeminiAdapter(config.gemini, output_policy=output_policy)
         )
         self.resource = (
             self.provider + "-" + sha256(canonical(self.provider_config.model_dump()).encode())[:32]
@@ -360,7 +364,7 @@ class CloudRuntime:
             return CloudHandoff(status="failed", reason=category(response.status), **base)
         try:
             if self.provider == "gemini":
-                summary = Summary.model_validate(json.loads(gemini.summary_text(response)))
+                text = gemini.summary_text(response)
             else:
                 body = response.body or {}
                 choices = body["choices"]
@@ -375,7 +379,29 @@ class CloudRuntime:
                     raise ValueError
                 if message.get("role") != "assistant" or message.get("tool_calls"):
                     raise ValueError
-                summary = Summary.model_validate(json.loads(message["content"]))
+                text = message["content"]
+            if self.output_policy is not None:
+                checked = validate_output(
+                    text,
+                    tuple(sorted({item.citation for item in receipt.provenance})),
+                    self.output_policy,
+                )
+                base.update(
+                    output_validation=checked.output_validation,
+                    citations_validation=checked.citations_validation,
+                )
+                if checked.output is None:
+                    return CloudHandoff(status="failed", reason=checked.reason, **base)
+                return CloudHandoff(
+                    status="completed",
+                    reason="validated",
+                    summary=checked.output.summary,
+                    citations=checked.output.citations,
+                    **base,
+                )
+            summary = Summary.model_validate(json.loads(text))
         except (KeyError, TypeError, ValueError, ValidationError):
+            if self.output_policy is not None:
+                base["output_validation"] = "failed"
             return CloudHandoff(status="failed", reason="invalid_output", **base)
         return CloudHandoff(status="completed", reason="settled", summary=summary.summary, **base)
