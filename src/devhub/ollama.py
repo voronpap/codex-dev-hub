@@ -65,8 +65,7 @@ class OllamaConfig(Contract):
 
 
 class LocalHTTP:
-    def __init__(self, config: OllamaConfig, *, output_policy: OutputPolicy | None = None) -> None:
-        self.output_policy = output_policy
+    def __init__(self, config: OllamaConfig) -> None:
         self.config = config
 
     def request(self, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
