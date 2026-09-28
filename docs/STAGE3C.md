@@ -133,6 +133,11 @@ transactional accounting events. See [machine-readable evidence](evidence/stage3
 The Codex smoke's summary omitted the requested explicit revalidation wording.
 Therefore it proves execution, source binding and accounting, **not semantic
 acceptance of that answer**. No B-arm benchmark or token savings is claimed.
+After the mismatch race fix, a second Codex smoke queried `validate_package`:
+proxy **3277**, preflight/actual input **930/930**, output **86**, settled with
+three live accounting events. It correctly described revalidation and hash checks
+before dispatch, but omitted the requested file citation in the summary. Both
+results and limitations are retained in the evidence; neither is a benchmark.
 The two Stage 3A paraphrase misses and baseline fixtures remain unchanged.
 
 ## Upstream contracts
