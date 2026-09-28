@@ -1,36 +1,41 @@
 # Roadmap
 
-## Rule
 Build the smallest system that proves Dev Hub improves real Codex development.
+Codex remains orchestrator; free-first applies only after choosing to delegate.
 
-## Phase 0 — Specification
-- [x] Codex-first vision.
-- [x] Free-first delegation policy.
-- [x] Project Brain concept.
-- [x] Worker-agent role.
-- [ ] Validate current Codex MCP surface.
-- [ ] Select implementation runtime.
-- [ ] Define benchmark tasks and baseline.
+## Phase 0 вЂ” Technical design
 
-## Phase 1 — Minimal usable Dev Hub
-Build MCP server, config, provider registry, health checks, a few free-cloud adapters, local adapter, one research tool, telemetry and `devhub_status`.
+- [x] Vision, principles and Accepted ADR-0001вЂ“0004.
+- [x] Audit all repository documentation and preserve the ideas catalog.
+- [x] Recheck official technology/provider documentation.
+- [x] Propose stack, contracts, security, baseline and ADR-0005вЂ“0010.
+- [x] Owner accepted ADR-0005–0010 and the offline-only Stage 1 scope in PR #1 review.
+- [ ] Verify actual Codex MCP interoperability during Stage 1.
 
-Start small: Gemini free, Groq, NVIDIA NIM or OpenRouter free, plus Ollama local fallback.
+Public documentation verification is complete; account/hardware probes and
+benchmark execution are not. See [audit](docs/V1_AUDIT.md),
+[proposal](docs/V1_TECHNICAL_PROPOSAL.md) and [ADR index](docs/adr/README.md).
 
-## Phase 2 — Project Brain
-Add project namespaces, architecture/decision storage, repo retrieval, Context Builder and compact handoffs. Pilot against existing repositories without rewriting them.
+## V1 вЂ” Small, independently verified stages
 
-## Phase 3 — Development tools
-Add based on measured demand: web extraction, documents, browser, sandbox and Git/GitHub helpers.
+1. Offline skeleton, MCP status, locked contracts and baseline fixtures.
+2. ResourceController, Capability Registry, deterministic Router and telemetry.
+3. Project Brain, Context Builder and Groq/Gemini/Ollama delegation.
+4. Bounded research and optional OpenRouter free adapter.
+5. Isolated sandbox/executor, worker handoffs and deployment packaging.
+6. Recovery tests, controlled paid path and paired V1 acceptance benchmark.
 
-## Phase 4 — Worker agents
-Integrate one worker first (Cursor or OpenHands): isolated workspace, bounded permissions, structured task package, tests and compact handoff. No automatic main-branch modification by default.
+Project Brain, context, resource control and sandbox are within V1, not postponed
+to a later product version. Model workers provide bounded delegation; dedicated
+Cursor/OpenHands integrations can follow. Each stage has small PR boundaries,
+acceptance evidence and rollback in the [implementation plan](docs/V1_IMPLEMENTATION_PLAN.md).
 
-## Phase 5 — Smart routing
-Use telemetry for quota-, task-, latency- and quality-aware routing, semantic cache where useful, and controlled paid escalation.
+## After V1 evidence
 
-## Phase 6 — Extended capabilities
-Candidates: vision/OCR, voice, advanced scraping, computer use, image generation, fine-tuning, workflow engines and production-facing APIs.
+Pilot existing repositories without rewrites; add one external worker adapter
+when useful; evaluate smarter routing against the [baseline](docs/V1_BENCHMARK.md).
+Add AST/vector/graph retrieval, multimodal, browser, workflows or larger hosting
+only when measured needs justify them. All ideas remain in [catalog](docs/catalog/README.md).
 
-## Benchmark
-Compare normal Codex vs Codex + Dev Hub on representative tasks: quality, Codex quota/tokens, paid cost, elapsed time, retries, human corrections and context size. Remove features whose complexity does not improve outcomes.
+`ai-platform` remains a separate application-runtime project. No V1 dependency
+or shared deployment is planned. PLAIK/DealHunter changes are outside this stage.

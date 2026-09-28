@@ -1,5 +1,12 @@
 # Providers
 
+Current evidence and V1 selection: [research](V1_RESEARCH.md). Runtime offer classes
+are `CORE_FREE`, `DEV_FREE`, `EVAL_FREE`, `TINY_FREE`, `FREE_CREDITS`,
+`TRIAL_CREDIT`, `VERIFY`, `PAID`; renewal and expiry are separate fields.
+The catalog's earlier replenishment labels remain research history, not runtime
+enums. Proposed adapters: Groq, Gemini, Ollama, then opt-in OpenRouter free;
+NVIDIA stays an evaluation candidate. See [contracts](V1_CONTRACTS.md).
+
 ## Contract
 Projects and Codex-facing tools contain no provider-specific routing logic. Providers implement adapters.
 

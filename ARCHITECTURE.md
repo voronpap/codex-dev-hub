@@ -1,5 +1,8 @@
 # Architecture
 
+Concrete V1 design: [technical proposal](docs/V1_TECHNICAL_PROPOSAL.md) and
+[contracts](docs/V1_CONTRACTS.md). These are proposed refinements, not implemented behavior.
+
 ## Position
 Codex is the control plane for development reasoning. Dev Hub is a capability plane exposed primarily through MCP.
 
@@ -40,18 +43,10 @@ FREE CLOUD -> LOCAL -> PAID
 Routing can consider capability, privacy, complexity, context size, quota, measured quality, latency and cost.
 
 ## Codex-facing interface
-Primary: MCP. Candidate high-level tools:
-- `devhub_status`
-- `free_model_task`
-- `research`
-- `web_extract`
-- `project_context`
-- `project_decision_write`
-- `document_analyze`
-- `sandbox_run`
-- `delegate_agent`
-
-Validate the surface experimentally.
+Primary: MCP. Proposed V1 tools: `devhub_status`, `devhub_delegate`,
+`devhub_research`, `devhub_context`, `devhub_remember`, `devhub_sandbox`.
+See versioned inputs/lifecycle in [contracts](docs/V1_CONTRACTS.md). Validate actual
+Codex interoperability in Stage 1; document/browser/external-worker adapters can follow V1.
 
 ## Deployment
 V1 favors simple local/self-hosted deployment, likely Docker Compose plus a small MCP service. Optional capabilities are enabled independently.
