@@ -31,6 +31,13 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
         )""",
         "CREATE INDEX reservation_expiry ON reservations(state, expires_ms)",
     ),
+    (
+        """CREATE TABLE capabilities (
+            id TEXT PRIMARY KEY REFERENCES policies(id),
+            revision TEXT NOT NULL, spec TEXT NOT NULL
+        )""",
+        "ALTER TABLE reservations ADD COLUMN capability_revision TEXT",
+    ),
 )
 
 
