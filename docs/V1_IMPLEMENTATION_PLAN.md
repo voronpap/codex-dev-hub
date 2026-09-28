@@ -111,6 +111,9 @@ Stage 3B is **CLOSED**, accepted and merged: [selection, budget and validation c
 Its token accounting remains an explicitly labeled offline proxy until model-specific
 validation is introduced with Ollama.
 
+Stage 3C is implemented for review: [local execution, token admission and smoke evidence](STAGE3C.md).
+Its execution smoke is separate from semantic answer acceptance and the later B-arm benchmark.
+
 The owner revised adapter implementation order at Stage 2 acceptance. Keep these
 as separate review slices; this sequence does not prescribe routing priority.
 

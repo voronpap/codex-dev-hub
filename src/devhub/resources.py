@@ -55,12 +55,14 @@ class Price(Contract):
 class ResourcePolicy(Contract):
     id: Identifier
     kind: Literal["free", "local", "paid"]
-    synthetic: Literal[True] = True
+    synthetic: bool = True
     buckets: Annotated[tuple[Identifier, ...], Field(min_length=1, max_length=32)]
     price: Price | None = None
 
     @model_validator(mode="after")
     def unique_buckets(self) -> "ResourcePolicy":
+        if not self.synthetic and self.kind != "local":
+            raise ValueError("only local live execution is supported")
         if len(set(self.buckets)) != len(self.buckets):
             raise ValueError("duplicate bucket")
         return self
