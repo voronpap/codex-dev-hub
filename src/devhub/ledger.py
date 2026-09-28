@@ -38,6 +38,16 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
         )""",
         "ALTER TABLE reservations ADD COLUMN capability_revision TEXT",
     ),
+    (
+        """CREATE TABLE events (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT UNIQUE NOT NULL, project TEXT NOT NULL,
+            reservation TEXT NOT NULL REFERENCES reservations(id),
+            payload TEXT NOT NULL, acknowledged INTEGER NOT NULL DEFAULT 0
+                CHECK(acknowledged IN (0,1))
+        )""",
+        "CREATE INDEX pending_events ON events(project, acknowledged, sequence)",
+    ),
 )
 
 
