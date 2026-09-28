@@ -95,8 +95,8 @@ def gemini_cloud(cloud, monkeypatch):  # noqa: F811
             assert counted["systemInstruction"] and counted["generationConfig"]
             if value == "count_timeout":
                 raise GeminiError("send_outcome_unknown")
-            if value == "count_failure":
-                return HTTPResult(429, {}, {}, 1)
+            if value in {"count_failure", "count_missing"}:
+                return HTTPResult(404 if value == "count_missing" else 429, {}, {}, 1)
             return HTTPResult(200, {}, {"totalTokens": 9000 if value == "too_large" else 100}, 1)
         assert path.endswith(":generateContent")
         with runtime.core.ledger.transaction() as connection:
@@ -216,13 +216,19 @@ def test_usage_settled_before_output_validation(gemini_cloud, setting):
         assert result.provider_usage["cachedContentTokenCount"] == 20
 
 
-@pytest.mark.parametrize("setting", ["count_timeout", "count_failure", "too_large"])
+@pytest.mark.parametrize(
+    "setting", ["count_timeout", "count_failure", "count_missing", "too_large"]
+)
 def test_count_failure_is_durable_without_inference_reservation(gemini_cloud, setting):
     runtime, task, calls, mode = gemini_cloud
     mode["value"] = setting
     result = runtime.run(task)
     assert result.status in {"denied", "context_insufficient"}
     assert len(calls) == 2 and not transitions(runtime)
+    if setting == "count_missing":
+        assert result.reason == "count_model_unavailable" and result.preflight_http_status == 404
+        assert result.preflight_latency_ms == 1 and result.count_response_hash
+        assert result.offline_context_proxy > 0 and result.export_hash
     mode["value"] = "valid"
     assert runtime.run(task).reason == "gemini_count_permit_consumed"
     assert len(calls) == 3 and calls[-1][1] is None

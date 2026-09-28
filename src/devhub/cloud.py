@@ -60,6 +60,8 @@ class CloudHandoff(LocalHandoff):
     provider_usage: dict[str, int | None] | None = None
     provider_error: dict[str, Any] | None = None
     count_response_hash: str | None = None
+    preflight_http_status: int | None = None
+    preflight_latency_ms: int | None = None
 
 
 class CloudRuntime:
@@ -177,7 +179,28 @@ class CloudRuntime:
                 raise Denied("context_insufficient")
             body_hash = sha256(self.adapter.request_body(released))
             claim_count(self.core.ledger, self.adapter.config.qualification, body_hash, now_ms())
-            prepared = self.adapter.prepare(released)
+            try:
+                prepared = self.adapter.prepare(released)
+            except (GeminiError, Denied) as error:
+                count_response = self.adapter.count_response
+                return CloudHandoff(
+                    status="context_insufficient"
+                    if str(error) == "context_insufficient"
+                    else "denied",
+                    reason=str(error),
+                    model=evidence.model,
+                    package_hash=package.package_hash,
+                    offline_context_proxy=package.input_estimate,
+                    export_hash=released.digest,
+                    preflight_http_status=count_response.status if count_response else None,
+                    preflight_latency_ms=count_response.latency_ms if count_response else None,
+                    count_response_hash=sha256(canonical(count_response.body).encode())
+                    if count_response
+                    else None,
+                    provider_error=gemini.error_evidence(count_response)
+                    if count_response and count_response.status != 200
+                    else None,
+                )
             finish_count(
                 self.core.ledger,
                 self.adapter.config.quota_scope,

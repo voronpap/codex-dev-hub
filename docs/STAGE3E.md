@@ -73,6 +73,35 @@ count permit concurrency/restart, inference crash/recovery, provider errors,
 thought/cache conservation, missing usage and malformed output. Existing Groq,
 Ollama, Controller and Brain tests remain regression coverage.
 
+## Live preflight evidence: gate NOT PASSED
+
+[Recorded public synthetic probe](evidence/stage3e-gemini-preflight.json), 2026-09-28,
+implementation `de32099`. Authenticated AI Studio showed project `836602474597`
+(`gen-lang-client-0241797686`) as Free tier with Set up billing. The official
+[billing guide](https://ai.google.dev/gemini-api/docs/billing#verify-billing-status)
+identifies that action as no linked billing account. The displayed key was matched
+by SHA-256 with Windows User environment without exposing or publishing its value
+or fingerprint. Country Ukraine is operator-declared. No billing setting changed.
+The selected exact model `gemini-2.5-flash-lite` has free Standard text input/output
+pricing. AI Studio showed 10 RPM / 250,000 input TPM / 20 RPD; remaining capacity
+is unknown. Those limits are evidence for this account/model, not runtime defaults.
+
+`models.list` and the exact model metadata request succeeded. The model advertised
+both required operations. **The one full-request countTokens call returned HTTP 404**,
+normalized to `count_model_unavailable`. No inference reservation, dispatch marker,
+generateContent send or settlement occurred. The project count permit remains
+consumed with tokens NULL. No retry, second model or fallback was attempted.
+Discovery alone therefore did not prove this model's counting endpoint usable.
+The failure's root cause is not established by the sanitized status alone.
+
+The original handoff/evidence is retained unchanged, including null metrics. A later
+change improves preflight error diagnostics (HTTP status, latency, response hash and
+package/export binding), tested offline only. No second live call was made to obtain
+better evidence. Stage 3E stays OPEN; a successful counted inference/accounting smoke
+still requires a separately reviewed follow-up. Do not reset this ledger, edit the
+permit or switch models merely to obtain a green smoke. No semantic, quality,
+savings or Delegation Value claim is made.
+
 ## Reuse the accepted boundary
 
 Gemini must use the same explicit public/redacted export, local provenance,

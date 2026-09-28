@@ -171,7 +171,11 @@ class GeminiAdapter:
         context, output = data.get("inputTokenLimit"), data.get("outputTokenLimit")
         if data.get("name") != "models/" + self.config.model:
             raise GeminiError("model_unavailable")
-        if not isinstance(methods, list) or not {"generateContent", "countTokens"} <= set(methods):
+        if (
+            not isinstance(methods, list)
+            or not all(isinstance(method, str) for method in methods)
+            or not {"generateContent", "countTokens"} <= set(methods)
+        ):
             raise GeminiError("model_capability_unknown")
         if not (
             type(context) is int
