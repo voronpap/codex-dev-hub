@@ -115,7 +115,7 @@ Agents do not share one enormous prompt. They share a **Project Brain**.
 
 Each consumer receives only the context relevant to its task.
 
-Git remains the source of truth for code. Project Brain stores architecture, decisions, conventions, task history, useful summaries and retrieval indexesвЂ”not stale copies of the whole repository.
+Git remains the source of truth for code. Project Brain stores architecture, decisions, conventions, task history, useful summaries and retrieval indexes—not stale copies of the whole repository.
 
 ## Planned capability groups
 
@@ -161,22 +161,22 @@ The implementation is intended to remain a single monorepo:
 
 ```text
 codex-dev-hub/
-в”њв”Ђв”Ђ core/          # routing, quotas, context, policies
-в”њв”Ђв”Ђ providers/     # cloud/local model adapters
-в”њв”Ђв”Ђ tools/         # search, web, RAG, browser, documents...
-в”њв”Ђв”Ђ agents/        # worker-agent adapters
-в”њв”Ђв”Ђ mcp/           # Codex-facing MCP interface
-в”њв”Ђв”Ђ memory/        # Project Brain
-в”њв”Ђв”Ђ config/
-в”њв”Ђв”Ђ tests/
-в””в”Ђв”Ђ docs/
+├── core/          # routing, quotas, context, policies
+├── providers/     # cloud/local model adapters
+├── tools/         # search, web, RAG, browser, documents...
+├── agents/        # worker-agent adapters
+├── mcp/           # Codex-facing MCP interface
+├── memory/        # Project Brain
+├── config/
+├── tests/
+└── docs/
 ```
 
 The exact implementation structure may change after V1 spikes. Architecture documents describe contracts and responsibilities rather than prematurely fixing a framework.
 
 ## Documentation
 
-- [V1 technical proposal](docs/V1_TECHNICAL_PROPOSAL.md) вЂ” proposed stack and architecture, design only.
+- [V1 technical proposal](docs/V1_TECHNICAL_PROPOSAL.md) — proposed stack and architecture, design only.
 - [Repository audit and gaps](docs/V1_AUDIT.md)
 - [Current technology research](docs/V1_RESEARCH.md)
 - [V1 contracts and schemas](docs/V1_CONTRACTS.md)
@@ -206,4 +206,4 @@ V1 succeeds if Codex can use Dev Hub during real development work and we can dem
 - share useful project context safely;
 - remain observable and reversible.
 
-The objective is not вЂњdelegate as much as possible.вЂќ The objective is **make Codex development more efficient**.
+The objective is not “delegate as much as possible.” The objective is **make Codex development more efficient**.
