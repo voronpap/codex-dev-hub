@@ -104,7 +104,7 @@ core operates on synthetic resources only; no real provider has been implemented
 
 ## Stage 3 local-first sequence
 
-Stage 3A is implemented for review: [scope, API and retrieval evidence](STAGE3A.md).
+Stage 3A is **CLOSED**, accepted and merged: [scope, API and retrieval evidence](STAGE3A.md).
 It does not expose a new MCP tool or implement Context Builder/provider execution.
 
 The owner revised adapter implementation order at Stage 2 acceptance. Keep these

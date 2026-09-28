@@ -1,6 +1,8 @@
 # Stage 3A: Project Brain + FTS5
 
-Status: implemented for review, after Stage 2 CLOSED. This slice provides internal
+Status: **CLOSED** after owner acceptance and merge of [PR #11](https://github.com/voronpap/codex-dev-hub/pull/11)
+on 2026-09-28 (merge commit `17a8788`, all Linux/Windows head checks passed).
+This slice provides internal
 Python APIs for approved repository-source indexing and lexical retrieval. MCP
 still exposes only status. Context packages/token allocation, durable decision
 authoring, summaries, provider adapters and delegation belong to later slices.
