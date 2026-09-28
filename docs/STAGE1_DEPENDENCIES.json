@@ -1,0 +1,342 @@
+[
+  {
+    "name": "annotated-types",
+    "version": "0.8.0",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "anyio",
+    "version": "4.15.1",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "attrs",
+    "version": "26.1.0",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "cffi",
+    "version": "2.1.1",
+    "license_expression": "MIT-0",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "click",
+    "version": "8.5.0",
+    "license_expression": "BSD-3-Clause",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "colorama",
+    "version": "0.4.6",
+    "license_expression": null,
+    "license_label": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "cryptography",
+    "version": "50.0.1",
+    "license_expression": "Apache-2.0 OR BSD-3-Clause",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "h11",
+    "version": "0.16.0",
+    "license_expression": null,
+    "license_label": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "httpcore2",
+    "version": "2.13.1",
+    "license_expression": "BSD-3-Clause",
+    "license_label": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "httpx2",
+    "version": "2.13.1",
+    "license_expression": "BSD-3-Clause",
+    "license_label": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "idna",
+    "version": "3.20",
+    "license_expression": "BSD-3-Clause",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "iniconfig",
+    "version": "2.3.0",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "jsonschema",
+    "version": "4.26.0",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "jsonschema-specifications",
+    "version": "2025.9.1",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "mcp",
+    "version": "2.2.0",
+    "license_expression": null,
+    "license_label": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "mcp-types",
+    "version": "2.2.0",
+    "license_expression": null,
+    "license_label": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "mypy",
+    "version": "1.18.2",
+    "license_expression": null,
+    "license_label": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "mypy_extensions",
+    "version": "1.1.0",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "opentelemetry-api",
+    "version": "1.45.0",
+    "license_expression": "Apache-2.0",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "packaging",
+    "version": "26.3",
+    "license_expression": "Apache-2.0 OR BSD-2-Clause",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "pathspec",
+    "version": "1.1.1",
+    "license_expression": null,
+    "license_label": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "pluggy",
+    "version": "1.6.0",
+    "license_expression": null,
+    "license_label": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "pycparser",
+    "version": "3.0",
+    "license_expression": "BSD-3-Clause",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "pydantic",
+    "version": "2.12.5",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "pydantic_core",
+    "version": "2.41.5",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "Pygments",
+    "version": "2.21.0",
+    "license_expression": "BSD-2-Clause",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "PyJWT",
+    "version": "2.15.0",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "pytest",
+    "version": "8.4.2",
+    "license_expression": null,
+    "license_label": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "python-multipart",
+    "version": "0.0.32",
+    "license_expression": "Apache-2.0",
+    "license_label": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "pywin32",
+    "version": "312",
+    "license_expression": null,
+    "license_label": "PSF",
+    "license_classifiers": [
+      "License :: OSI Approved :: Python Software Foundation License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "referencing",
+    "version": "0.37.0",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "rpds-py",
+    "version": "2026.6.3",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "ruff",
+    "version": "0.13.2",
+    "license_expression": null,
+    "license_label": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "sse-starlette",
+    "version": "3.4.11",
+    "license_expression": "BSD-3-Clause",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "starlette",
+    "version": "1.7.0",
+    "license_expression": "BSD-3-Clause",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "truststore",
+    "version": "0.10.4",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "typing-inspection",
+    "version": "0.4.4",
+    "license_expression": "MIT",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "typing_extensions",
+    "version": "4.16.0",
+    "license_expression": "PSF-2.0",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  },
+  {
+    "name": "uvicorn",
+    "version": "0.54.0",
+    "license_expression": "BSD-3-Clause",
+    "license_label": null,
+    "license_classifiers": [],
+    "evidence": "installed distribution metadata; inspect bundled notices before release"
+  }
+]

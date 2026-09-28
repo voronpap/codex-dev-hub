@@ -4,7 +4,9 @@
 
 ## Status
 
-**Design / specification phase.** This repository currently defines the product vision, architecture, principles, integration contracts, and V1 roadmap before implementation begins.
+**Offline Stage 1.** The V1 design is accepted. The first executable slice exposes
+MCP status, strict configuration and synthetic test resources; cloud inference,
+routing and paid execution are not implemented. See [Stage 1 runbook](docs/STAGE1.md).
 
 ## Core idea
 

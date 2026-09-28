@@ -1,0 +1,17 @@
+schema_version = 1
+
+[server]
+transport = "stdio"
+
+[policy]
+context_token_cap = 8000
+summary_token_cap = 1500
+paid_mode = "disabled"
+
+[projects.devhub]
+# Relative to this file; registration does not read or index repository contents.
+root = ".."
+privacy = "local_only"
+
+[fake]
+enabled = true
