@@ -1,0 +1,995 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "non_authorizing_account_catalog",
+  "provider": "gemini_developer_api",
+  "account": {
+    "project_number": "836602474597",
+    "project_id": "gen-lang-client-0241797686",
+    "tier": "Free",
+    "country": "Ukraine"
+  },
+  "source": {
+    "kind": "user_supplied_authenticated_ai_studio_report",
+    "surface": "AI Studio / Rate Limits",
+    "independently_reobserved": false,
+    "received_at": "2026-09-28T17:52:55Z",
+    "observed_at": null,
+    "qualification_expires_at": null
+  },
+  "qualification_active": false,
+  "stage3e_configured_model": "gemini-2.5-flash-lite",
+  "entries": [
+    {
+      "display_name": "Gemini 2 Flash",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 0,
+        "tpm": 0,
+        "rpd": 0
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": false,
+      "availability_reason": "zero_account_limit",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 2 Flash Lite",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 0,
+        "tpm": 0,
+        "rpd": 0
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": false,
+      "availability_reason": "zero_account_limit",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 2.5 Flash",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 5,
+        "tpm": 250000,
+        "rpd": 20
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 2.5 Flash Lite",
+      "api_model_id": "gemini-2.5-flash-lite",
+      "api_model_id_source": "existing_stage3e_exact_model_metadata",
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 10,
+        "tpm": 250000,
+        "rpd": 20
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 2.5 Pro",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 0,
+        "tpm": 0,
+        "rpd": 0
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": false,
+      "availability_reason": "zero_account_limit",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 3 Flash",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 5,
+        "tpm": 250000,
+        "rpd": 20
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.1 Pro",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 0,
+        "tpm": 0,
+        "rpd": 0
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": false,
+      "availability_reason": "zero_account_limit",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.1 Flash Lite",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 15,
+        "tpm": 250000,
+        "rpd": 500
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.5 Flash",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 5,
+        "tpm": 250000,
+        "rpd": 20
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.5 Flash Lite",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 15,
+        "tpm": 250000,
+        "rpd": 500
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.6 Flash",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 5,
+        "tpm": 250000,
+        "rpd": 20
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.7 Flash",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 5,
+        "tpm": 250000,
+        "rpd": 20
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.8 Flash",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "text_out",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 5,
+        "tpm": 250000,
+        "rpd": 20
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemma 4 26B",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "gemma",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 30,
+        "tpm": 16000,
+        "rpd": 14400
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemma 4 31B",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "gemma",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 30,
+        "tpm": 16000,
+        "rpd": 14400
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "VERIFY"
+    },
+    {
+      "display_name": "Gemini Embedding 1",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "embeddings",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 100,
+        "tpm": 30000,
+        "rpd": 1000
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini Embedding 2",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "embeddings",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 100,
+        "tpm": 30000,
+        "rpd": 1000
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini 2.5 Flash TTS",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "tts",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 3,
+        "tpm": 10000,
+        "rpd": 10
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini 3.1 Flash TTS",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "tts",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 3,
+        "tpm": 10000,
+        "rpd": 10
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini 3.8 Flash Lite TTS",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "tts",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 3,
+        "tpm": 10000,
+        "rpd": 10
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini 3.8 Flash TTS",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "tts",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 3,
+        "tpm": 10000,
+        "rpd": 10
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini 3.5 Transcribe",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "transcription",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 3,
+        "tpm": 10000,
+        "rpd": 25
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini Robotics ER 2 Preview",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "other",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 5,
+        "tpm": 250000,
+        "rpd": 20
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini 2.5 Flash Native Audio Dialog",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "live_api",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": "Unlimited",
+        "tpm": 1000000,
+        "rpd": "Unlimited"
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "LIVE_API_VERIFY"
+    },
+    {
+      "display_name": "Gemini 3 Flash Live",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "live_api",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": "Unlimited",
+        "tpm": 65000,
+        "rpd": "Unlimited"
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "LIVE_API_VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.5 Live Translate",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "live_api",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": "Unlimited",
+        "tpm": 20000,
+        "rpd": "Unlimited"
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "LIVE_API_VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.5 Transcribe Live",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "live_api",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": "Unlimited",
+        "tpm": 20000,
+        "rpd": "Unlimited"
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "LIVE_API_VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.8 Live",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "live_api",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": "Unlimited",
+        "tpm": 65000,
+        "rpd": "Unlimited"
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "LIVE_API_VERIFY"
+    },
+    {
+      "display_name": "Gemini 3.8 Live Extended Thinking",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "live_api",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": "Unlimited",
+        "tpm": 65000,
+        "rpd": "Unlimited"
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "LIVE_API_VERIFY"
+    },
+    {
+      "display_name": "Antigravity",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "agents",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 60,
+        "tpm": 100000,
+        "rpd": 100
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Deep Research Pro Preview",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "agents",
+      "scope_kind": "display_label",
+      "account_limits": {
+        "rpm": 0,
+        "tpm": 0,
+        "rpd": 0
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": false,
+      "availability_reason": "zero_account_limit",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini 2",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "search_grounding",
+      "scope_kind": "model_group",
+      "account_limits": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": 1500
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini 2.5",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "search_grounding",
+      "scope_kind": "model_group",
+      "account_limits": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": 1500
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Gemini 3",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "search_grounding",
+      "scope_kind": "model_group",
+      "account_limits": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": 0
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": false,
+      "availability_reason": "zero_account_limit",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Default",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "search_grounding",
+      "scope_kind": "model_group",
+      "account_limits": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": 1500
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    },
+    {
+      "display_name": "Unspecified subset of models (mapping not supplied)",
+      "api_model_id": null,
+      "api_model_id_source": null,
+      "category": "map_grounding",
+      "scope_kind": "unmapped_models",
+      "account_limits": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": 500
+      },
+      "observed_remaining": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "tpm": null,
+        "rpd": null
+      },
+      "local_authorization": false,
+      "account_available": null,
+      "availability_reason": "endpoint_eligibility_unverified",
+      "routing_enabled": false,
+      "verification": "SEPARATE_CAPABILITY"
+    }
+  ]
+}

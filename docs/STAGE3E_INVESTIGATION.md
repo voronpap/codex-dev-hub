@@ -135,6 +135,12 @@ configuration blindly. No configuration/model change or candidate invocation occ
 
 ## Permit and validation decision
 
+The later [provider catalogs](PROVIDER_CATALOG.md) preserve user-reported Gemini
+account limits and documented Groq Free-plan limits without authorizing execution.
+Positive Gemini 2.5 Flash Lite quotas do not prove endpoint eligibility or establish
+the 404 cause; they also do not prove an account restriction. No new live probe was
+performed to reconcile these observations. Root cause remains unknown.
+
 No new permit was created: no unambiguous causal implementation fix was established.
 The old project count claim remains consumed, tokens NULL, reservations/events zero.
 The historical evidence file is unchanged and guarded by a fixture hash test.

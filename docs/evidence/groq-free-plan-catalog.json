@@ -1,0 +1,418 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "non_authorizing_plan_catalog",
+  "provider": "groq",
+  "tier": "free",
+  "scope": "documented_plan_not_account",
+  "account": null,
+  "source": {
+    "url": "https://console.groq.com/docs/rate-limits",
+    "section": "Free Plan Limits",
+    "kind": "official_documentation",
+    "observed_at": "2026-09-28T17:56:20+00:00"
+  },
+  "qualification_expires_at": null,
+  "qualification_active": false,
+  "observed_response_contract": "devhub.quota.QuotaObservation",
+  "cached_tokens_rate_limited": false,
+  "header_dimensions": {
+    "x-ratelimit-limit-requests": "rpd",
+    "x-ratelimit-limit-tokens": "tpm",
+    "x-ratelimit-remaining-requests": "rpd",
+    "x-ratelimit-remaining-tokens": "tpm",
+    "x-ratelimit-reset-requests": "rpd",
+    "x-ratelimit-reset-tokens": "tpm"
+  },
+  "entries": [
+    {
+      "model": "canopylabs/orpheus-arabic-saudi",
+      "category": "tts",
+      "documented_limits": {
+        "rpm": 10,
+        "rpd": 100,
+        "tpm": 1200,
+        "tpd": 3600,
+        "ash": null,
+        "asd": null
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "catalog_candidate_only"
+    },
+    {
+      "model": "canopylabs/orpheus-v1-english",
+      "category": "tts",
+      "documented_limits": {
+        "rpm": 10,
+        "rpd": 100,
+        "tpm": 1200,
+        "tpd": 3600,
+        "ash": null,
+        "asd": null
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "catalog_candidate_only"
+    },
+    {
+      "model": "meta-llama/llama-prompt-guard-2-22m",
+      "category": "moderation",
+      "documented_limits": {
+        "rpm": 30,
+        "rpd": 14400,
+        "tpm": 15000,
+        "tpd": 500000,
+        "ash": null,
+        "asd": null
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "catalog_candidate_only"
+    },
+    {
+      "model": "meta-llama/llama-prompt-guard-2-86m",
+      "category": "moderation",
+      "documented_limits": {
+        "rpm": 30,
+        "rpd": 14400,
+        "tpm": 15000,
+        "tpd": 500000,
+        "ash": null,
+        "asd": null
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "catalog_candidate_only"
+    },
+    {
+      "model": "openai/gpt-oss-120b",
+      "category": "text",
+      "documented_limits": {
+        "rpm": 30,
+        "rpd": 1000,
+        "tpm": 8000,
+        "tpd": 200000,
+        "ash": null,
+        "asd": null
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "catalog_candidate_only"
+    },
+    {
+      "model": "openai/gpt-oss-20b",
+      "category": "text",
+      "documented_limits": {
+        "rpm": 30,
+        "rpd": 1000,
+        "tpm": 8000,
+        "tpd": 200000,
+        "ash": null,
+        "asd": null
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "catalog_candidate_only"
+    },
+    {
+      "model": "openai/gpt-oss-safeguard-20b",
+      "category": "moderation",
+      "documented_limits": {
+        "rpm": 30,
+        "rpd": 1000,
+        "tpm": 8000,
+        "tpd": 200000,
+        "ash": null,
+        "asd": null
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "catalog_candidate_only"
+    },
+    {
+      "model": "qwen/qwen3.8-27b",
+      "category": "text",
+      "documented_limits": {
+        "rpm": 30,
+        "rpd": 1000,
+        "tpm": 8000,
+        "tpd": 200000,
+        "ash": null,
+        "asd": null
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "existing_stage3d_candidate"
+    },
+    {
+      "model": "whisper-large-v3",
+      "category": "transcription",
+      "documented_limits": {
+        "rpm": 20,
+        "rpd": 2000,
+        "tpm": null,
+        "tpd": null,
+        "ash": 7200,
+        "asd": 28800
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "catalog_candidate_only"
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "category": "transcription",
+      "documented_limits": {
+        "rpm": 20,
+        "rpd": 2000,
+        "tpm": null,
+        "tpd": null,
+        "ash": 7200,
+        "asd": 28800
+      },
+      "account_limits": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "observed_response": null,
+      "observed_remaining": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "historical_peak": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "ash": null,
+        "asd": null
+      },
+      "local_authorization": false,
+      "activation": "catalog_candidate_only"
+    }
+  ]
+}
