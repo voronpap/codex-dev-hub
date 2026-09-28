@@ -5,6 +5,7 @@ import sqlite3
 from typing import cast
 from uuid import uuid4
 
+from devhub.events import record_event
 from devhub.ledger import Ledger
 from devhub.resources import Admission, Bucket, ResourcePolicy, SpendApproval, Ticket
 
@@ -181,6 +182,7 @@ class ResourceController:
                 "UPDATE reservations SET capability_revision=? WHERE id=?",
                 (capability_revision, ticket.id),
             )
+            record_event(connection, ticket.id, "reserved")
             return ticket
 
     @staticmethod
@@ -224,6 +226,7 @@ class ResourceController:
                     row["expires_ms"],
                 )
             connection.execute("UPDATE reservations SET state='dispatched' WHERE id=?", (ticket,))
+            record_event(connection, ticket, "dispatched")
 
     def release(self, ticket: str, *, project: str) -> None:
         with self.ledger.transaction() as connection:
@@ -239,15 +242,19 @@ class ResourceController:
                     "UPDATE buckets SET held=held-? WHERE id=?", (item["amount"], item["bucket"])
                 )
             connection.execute("UPDATE reservations SET state='released' WHERE id=?", (ticket,))
+            record_event(connection, ticket, "released")
 
     def unknown(self, ticket: str, *, project: str) -> None:
         with self.ledger.transaction() as connection:
             row = self._owned(connection, ticket, project)
             if row["state"] not in {"dispatched", "unknown_usage"}:
                 raise Denied("not_dispatched")
+            if row["state"] == "unknown_usage":
+                return
             connection.execute(
                 "UPDATE reservations SET state='unknown_usage' WHERE id=?", (ticket,)
             )
+            record_event(connection, ticket, "unknown_usage")
 
     def settle(self, ticket: str, *, project: str, actual: dict[str, int]) -> None:
         """Only complete, trusted measurements reconcile a liability. Missing means unknown."""
@@ -277,3 +284,4 @@ class ResourceController:
                     (actual[item["bucket"]], ticket, item["bucket"]),
                 )
             connection.execute("UPDATE reservations SET state='settled' WHERE id=?", (ticket,))
+            record_event(connection, ticket, "settled")

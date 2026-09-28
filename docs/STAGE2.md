@@ -79,3 +79,19 @@ rechecks it before dispatch, closing the metadata-update race. The router return
 a ticket and its bound admission request. Dispatch must still succeed before any
 future adapter is invoked. Missing registry entries are unavailable. This internal
 simulation does not change the non-routable fake adapter exposed by MCP status.
+
+## 2E: accounting events
+
+Migration 3 adds a local transactional outbox. Each lifecycle change writes a
+typed event in the same transaction as its counters. Event failure rolls back
+the whole change. Idempotent calls emit no duplicate transitions. Records contain
+IDs, synthetic provenance, timestamp and reserved/actual allocation snapshots;
+unknown actual values stay null. No prompt, response, credential or payload digest
+is included. Route rejection reasons are returned directly, not sent externally.
+
+Project-filtered polling provides ordered at-least-once delivery; consumers must
+deduplicate by event ID and acknowledge only after committing their own work.
+Acknowledgement does not touch accounting, and replay is not a second settlement.
+This is an internal single-operator boundary, not an authentication service.
+No remote telemetry sink is configured. Older reservations remain authoritative;
+migration does not invent historical events for them.
