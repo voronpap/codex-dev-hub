@@ -111,8 +111,9 @@ Stage 3B is **CLOSED**, accepted and merged: [selection, budget and validation c
 Its token accounting remains an explicitly labeled offline proxy until model-specific
 validation is introduced with Ollama.
 
-Stage 3C is implemented for review: [local execution, token admission and smoke evidence](STAGE3C.md).
-Its execution smoke is separate from semantic answer acceptance and the later B-arm benchmark.
+Stage 3C is **CLOSED + Local E2E Gate PASSED**: [local execution and smoke evidence](STAGE3C.md).
+Execution/accounting gate passed; semantic quality not yet established. The next
+slice follows the [Stage 3D Groq acceptance gates](STAGE3D.md); Gemini follows Groq.
 
 The owner revised adapter implementation order at Stage 2 acceptance. Keep these
 as separate review slices; this sequence does not prescribe routing priority.
