@@ -1,0 +1,284 @@
+{
+  "stage": "3D",
+  "timestamp_utc": "2026-09-28T16:28:54.964643+00:00",
+  "implementation_commit": "346cd00eee459105cc8506a40e0bcad1d2e7f43a",
+  "client": "MCP SDK Client over real stdio subprocess; not a Codex quality benchmark",
+  "model": "qwen/qwen3.8-27b",
+  "model_status": "preview",
+  "account_plan": "Free",
+  "account_plan_provenance": "operator declaration; /models cannot attest billing plan",
+  "public_fixture": {
+    "text": "The synthetic lighthouse is blue.\n",
+    "source_sha256": "55c3803bc74595899cb9fdd40497e973de488c304aceb5f1c4c5e5933d9d99d7",
+    "git_revision": "4881b8e54583fb80de2a1ba6faf26eb1ffd41bed"
+  },
+  "request": {
+    "schema_version": 1,
+    "task_id": "stage3d-public-smoke",
+    "request_key": "stage3d-public-smoke-1",
+    "instructions": "Summarize the synthetic source in one short sentence.",
+    "acceptance_criteria": [
+      "Mention the lighthouse color."
+    ],
+    "query": "public.md"
+  },
+  "provider_config": {
+    "schema_version": 1,
+    "account": "groq-free-primary",
+    "plan": "Free",
+    "plan_provenance": "operator_declaration",
+    "model": "qwen/qwen3.8-27b",
+    "profile_documentation": "https://console.groq.com/docs/model/qwen/qwen3.8-27b",
+    "supports_json": true,
+    "reasoning_effort": "none",
+    "context_tokens": 8192,
+    "max_output_tokens": 96,
+    "wrapper_margin_tokens": 1024,
+    "safety_margin_tokens": 256,
+    "timeout_seconds": 30,
+    "input_estimator": "utf8_request_bytes_plus_wrapper_v1",
+    "single_probe": true,
+    "probe_expires_ms": 1790613109757,
+    "probe_token_cap": 4096
+  },
+  "handoff": {
+    "schema_version": 1,
+    "status": "completed",
+    "reason": "settled",
+    "summary": "The synthetic lighthouse is blue.",
+    "reservation": "be2c438c5df44e4c9376372b546ab186",
+    "package_hash": "d30f2a2be65d82efd268a17ba7c4cc55cbbeb918038d397c1a216a780c476b50",
+    "offline_context_proxy": 867,
+    "model_input_tokens_preflight": null,
+    "actual_model_input_tokens": 97,
+    "actual_model_output_tokens": 12,
+    "model": "qwen/qwen3.8-27b",
+    "provider_input_estimate": 1648,
+    "input_estimator": "utf8_request_bytes_plus_wrapper_v1",
+    "export_hash": "0abcbad7e72d48b7125592d8f8e70c6df7c8730744b294bd68475ae39be4d2b2",
+    "latency_ms": 250,
+    "http_status": 200,
+    "quota": {
+      "schema_version": 1,
+      "scope": "b2d133a680b50b1c188ed56e5b4c999ffccc9b59286d92417f9c6511389f7cb4",
+      "observed_ms": 1790612934790,
+      "source": "inference_response",
+      "requests_per_day": {
+        "schema_version": 1,
+        "limit": 1000,
+        "remaining": 999,
+        "reset_after_ms": 86400
+      },
+      "tokens_per_minute": {
+        "schema_version": 1,
+        "limit": 8000,
+        "remaining": 7807,
+        "reset_after_ms": 1447
+      },
+      "requests_per_minute": null,
+      "tokens_per_day": null,
+      "retry_after_ms": null,
+      "malformed": false
+    },
+    "discovery_quota": {
+      "schema_version": 1,
+      "scope": "b2d133a680b50b1c188ed56e5b4c999ffccc9b59286d92417f9c6511389f7cb4",
+      "observed_ms": 1790612933932,
+      "source": "models_response",
+      "requests_per_day": null,
+      "tokens_per_minute": null,
+      "requests_per_minute": null,
+      "tokens_per_day": null,
+      "retry_after_ms": null,
+      "malformed": false
+    },
+    "observed_rate_headers": {
+      "x-ratelimit-limit-requests": "1000",
+      "x-ratelimit-limit-tokens": "8000",
+      "x-ratelimit-remaining-requests": "999",
+      "x-ratelimit-remaining-tokens": "7807",
+      "x-ratelimit-reset-requests": "1m26.4s",
+      "x-ratelimit-reset-tokens": "1.447s"
+    },
+    "discovery_rate_headers": {},
+    "semantic_acceptance": null
+  },
+  "accounting_events": [
+    {
+      "schema_version": 1,
+      "id": "ddafd111067f471abbc0c9158a9631fd",
+      "project": "groq-smoke-public",
+      "task": "stage3d-public-smoke",
+      "reservation": "be2c438c5df44e4c9376372b546ab186",
+      "resource": "groq-77a62c5595f4d9a32f6034b1271dc290",
+      "transition": "reserved",
+      "recorded_ms": 1790612933951,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-input_tokens",
+          "reserved": 1648,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-output_tokens",
+          "reserved": 96,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-requests",
+          "reserved": 1,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-total_tokens",
+          "reserved": 1744,
+          "actual": null
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "id": "4f9c735abec84009860406023d42021b",
+      "project": "groq-smoke-public",
+      "task": "stage3d-public-smoke",
+      "reservation": "be2c438c5df44e4c9376372b546ab186",
+      "resource": "groq-77a62c5595f4d9a32f6034b1271dc290",
+      "transition": "dispatched",
+      "recorded_ms": 1790612934515,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-input_tokens",
+          "reserved": 1648,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-output_tokens",
+          "reserved": 96,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-requests",
+          "reserved": 1,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-total_tokens",
+          "reserved": 1744,
+          "actual": null
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "id": "09589c7abf7b431d8519e86858ce5438",
+      "project": "groq-smoke-public",
+      "task": "stage3d-public-smoke",
+      "reservation": "be2c438c5df44e4c9376372b546ab186",
+      "resource": "groq-77a62c5595f4d9a32f6034b1271dc290",
+      "transition": "settled",
+      "recorded_ms": 1790612934799,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-input_tokens",
+          "reserved": 1648,
+          "actual": 97
+        },
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-output_tokens",
+          "reserved": 96,
+          "actual": 12
+        },
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-requests",
+          "reserved": 1,
+          "actual": 1
+        },
+        {
+          "schema_version": 1,
+          "bucket": "groq-77a62c5595f4d9a32f6034b1271dc290-total_tokens",
+          "reserved": 1744,
+          "actual": 109
+        }
+      ]
+    }
+  ],
+  "capability_records": [
+    {
+      "schema_version": 1,
+      "resource": "groq-77a62c5595f4d9a32f6034b1271dc290",
+      "provider": "groq",
+      "model": "qwen/qwen3.8-27b",
+      "endpoint": "api-groq-com",
+      "plan": "Free-operator-declared",
+      "kind": "free",
+      "locality": "cloud",
+      "synthetic": false,
+      "supports_text": true,
+      "supports_json": true,
+      "context_tokens": 8192,
+      "max_output_tokens": 96,
+      "healthy": true,
+      "task_classes": [
+        "groq-77a62c5595f4d9a32f6034b1271dc290"
+      ],
+      "observed_ms": 1790612933939,
+      "valid_until_ms": 1790612978939,
+      "evidence": "0f529e09323a69b4d2a3529bc4793d88a3fa8818175a3c100af0b6dd6aa1614e"
+    }
+  ],
+  "local_export_receipts": [
+    {
+      "schema_version": 1,
+      "approval_id": "operator-public-synthetic-smoke",
+      "policy_hash": "e168c5709fd210fcd42a1bbba0d559dc8d4bc4d237969f3b433be0a4f6f92667",
+      "package_hash": "d30f2a2be65d82efd268a17ba7c4cc55cbbeb918038d397c1a216a780c476b50",
+      "task_sha256": "b61c041350911dca6dede3cccb7671a507f70e7b92ad1e2f3f3caaa8beae747b",
+      "payload_sha256": "0abcbad7e72d48b7125592d8f8e70c6df7c8730744b294bd68475ae39be4d2b2",
+      "provenance": [
+        {
+          "schema_version": 1,
+          "citation": "s1",
+          "original": [
+            {
+              "schema_version": 1,
+              "path": "public.md",
+              "source_sha256": "55c3803bc74595899cb9fdd40497e973de488c304aceb5f1c4c5e5933d9d99d7",
+              "original_chunk_sha256": "55c3803bc74595899cb9fdd40497e973de488c304aceb5f1c4c5e5933d9d99d7",
+              "start_line": 1,
+              "original_end_line": 1,
+              "end_line": 1,
+              "trust": "repository_untrusted",
+              "sensitivity": "project_private"
+            }
+          ],
+          "selected_sha256": "55c3803bc74595899cb9fdd40497e973de488c304aceb5f1c4c5e5933d9d99d7",
+          "released_sha256": "55c3803bc74595899cb9fdd40497e973de488c304aceb5f1c4c5e5933d9d99d7",
+          "classification": "public",
+          "public_lines": []
+        }
+      ]
+    }
+  ],
+  "dispatch_markers": 1,
+  "automatic_retries": 0,
+  "automatic_model_fallback": false,
+  "semantic_acceptance": null,
+  "delegation_value": null,
+  "savings": null,
+  "quality_benchmark": null,
+  "limitation": "One public synthetic execution/accounting probe. No semantic quality or savings claim. Provider quotas may remain partially unknown."
+}

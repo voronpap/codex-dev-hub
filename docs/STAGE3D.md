@@ -122,7 +122,20 @@ strict MCP arguments, HTTP failures, no retry/redirect, honest unknown usage,
 settlement on invalid output, concurrent last permit and crash/restart recovery.
 Windows and WSL use separate environments. Offline tests never use real credentials.
 
-Live evidence is recorded separately after tests pass. A synthetic smoke cannot
+[Live stdio MCP evidence](evidence/stage3d-groq-smoke.json) records exactly one
+inference on implementation commit `346cd00`: HTTP 200, 250 ms HTTP latency,
+97 actual input tokens and 12 output tokens, with reserved/dispatched/settled
+outbox events. Offline byte proxy was 867; full-request estimate was 1648; exact
+preflight tokenizer count remains null. The returned summary was "The synthetic
+lighthouse is blue." No follow-up inference or prompt tuning was performed.
+
+The discovery response had no rate-limit headers. The inference response reported
+RPD limit 1000 / remaining 999 / reset 1m26.4s and TPM limit 8000 / remaining 7807 /
+reset 1.447s. RPM/TPD remain null. Header-counter deltas are not usage receipts;
+settlement uses the explicit provider usage, not a subtraction of remaining quota.
+The account plan is still operator-declared. The one-shot permit is now consumed.
+
+A synthetic smoke cannot
 establish semantic quality, Delegation Value, savings or benchmark quality; these
 remain null. Stage 3E/Gemini waits for review of this PR.
 
