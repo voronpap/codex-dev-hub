@@ -4,7 +4,7 @@
 
 ## Status
 
-**Offline Stage 2 review.** Stage 1 is merged and verified. MCP exposes status,
+**Stage 2 CLOSED.** Stages 1 and 2 are accepted, merged and verified. MCP exposes status,
 strict configuration and synthetic test resources. Internal offline resource APIs
 add SQLite accounting, reservations, capabilities, deterministic routing and recovery.
 Cloud inference and paid execution are not implemented. See the

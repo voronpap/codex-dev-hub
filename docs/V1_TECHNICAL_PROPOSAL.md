@@ -1,6 +1,6 @@
 # V1 technical proposal
 
-Status: **Accepted design; offline Stage 1 authorized**. Date: 2026-09-28.
+Status: **Accepted design; offline Stages 1–2 CLOSED**. Date: 2026-09-28.
 Baseline, evidence and gaps: [audit](V1_AUDIT.md), [research](V1_RESEARCH.md).
 Normative field definitions: [contracts](V1_CONTRACTS.md).
 
@@ -13,7 +13,8 @@ Pydantic v2 validation, httpx transports, SQLite/FTS5, Git and ripgrep. Use pyte
 with deterministic clocks/fake adapters, Ruff and a type checker for verification.
 No web UI, distributed queue, Redis, vector database or general agent framework.
 
-Implementation sequence: Groq, Gemini, Ollama, then opt-in OpenRouter free.
+Implementation sequence, revised at Stage 2 acceptance: Ollama, Groq, Gemini,
+then opt-in OpenRouter free. Prove the local delegation path before cloud adapters.
 This is not a fixed routing order; routing follows eligibility and benchmark data.
 One Tavily search adapter plus bounded HTTP extraction provides research.
 Paid inference uses one explicitly configured OpenAI-compatible adapter only
