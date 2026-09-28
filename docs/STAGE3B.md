@@ -1,6 +1,7 @@
 # Stage 3B: Context Builder
 
-Status: implemented for review; not yet owner-accepted. This is an internal,
+Status: **CLOSED**, accepted and merged in [PR #13](https://github.com/voronpap/codex-dev-hub/pull/13)
+on 2026-09-28 (merge `30f0288`; all Linux/Windows head checks passed). This is an internal,
 offline Python API over Stage 3A Brain. MCP still exposes only status. No provider,
 network request, embedding service or task-summary ingestion is added.
 
@@ -95,3 +96,20 @@ Stage 3A's frozen retrieval fixture, oracle and evidence are unchanged, includin
 the two paraphrase misses and 10/12 recall. No fixture-specific query expansion is
 introduced. Query rewriting and summary ingestion remain future improvements.
 Ollama and the local end-to-end smoke remain the next gate before cloud adapters.
+
+## Stage 3C acceptance gate
+
+The owner accepted 3B with these requirements for the next slice:
+
+1. Only explicitly allowlisted local Ollama endpoints and installed models; no automatic pull.
+2. Verify model identity and capabilities before reservation.
+3. Retain `offline_context_proxy` separately from `actual_model_input_tokens`.
+4. Perform a second, model-specific admission check on the complete real request:
+   system prompt, template/wrapper, task, context, any tool schemas, reserved output
+   and safety margin. Byte-proxy fit alone cannot authorize dispatch.
+5. Persist the dispatch marker before HTTP send; a timeout after send means `unknown_usage`.
+6. Normalize actual Ollama usage and settle only with complete usage data.
+7. Invalid JSON/output shape fails the attempt but does not erase usage accounting.
+8. Default to one inference at a time.
+9. Prove the real local Codex-to-MCP-to-Brain/Context-to-Router-to-Controller-to-Ollama
+   path, settlement/telemetry and compact handoff before implementing Groq.
