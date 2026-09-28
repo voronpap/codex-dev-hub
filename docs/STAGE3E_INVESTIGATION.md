@@ -1,7 +1,8 @@
 # Stage 3E: offline investigation of the first countTokens 404
 
 Date: 2026-09-28. Outcome: `root_cause = unknown`; live follow-up NOT AUTHORIZED
-by this investigation. Stage 3E remains OPEN; PR #18 remains draft. No new account
+by this investigation. Stage 3E remains OPEN. PR #18 was subsequently accepted and
+merged as partial implementation; its live gate remains NOT_PASSED. No new account
 metadata, countTokens or generateContent call was made during this investigation.
 Only public documentation/discovery schemas were fetched without credentials.
 

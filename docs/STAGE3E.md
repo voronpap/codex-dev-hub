@@ -1,6 +1,10 @@
 # Stage 3E: Gemini acceptance gates
 
-Status: implemented for review, not CLOSED. Stage 3D is accepted and CLOSED.
+Status: partial implementation accepted and merged in PR #18 on 2026-09-28.
+**Stage 3E OPEN. Gemini live execution/accounting gate NOT_PASSED.**
+Merge accepts the adapter, fail-closed behavior, offline contract investigation and
+provider catalogs; it does not establish successful Gemini execution.
+Stage 3D is accepted and CLOSED.
 The default MCP status server remains offline. Gemini is an explicit one-shot
 Free Developer API probe through `devhub.cloud_server`, using `GeminiCloudConfig`.
 No general routing, paid execution, Stage 3F or benchmark is enabled.
