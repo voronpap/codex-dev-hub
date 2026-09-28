@@ -1,6 +1,12 @@
 # Stage 3C: local Ollama execution
 
-Status: implemented for review, not owner-accepted. This slice adds an explicit
+Status: **CLOSED + Local E2E Gate PASSED**, accepted and merged in
+[PR #15](https://github.com/voronpap/codex-dev-hub/pull/15) on 2026-09-28
+(merge `60d0318`; all Linux/Windows head checks passed).
+
+**Execution/accounting gate passed; semantic quality not yet established.**
+The citation misses remain evidence for Stage 3G, not targets for smoke-specific
+prompt tuning. This slice adds an explicit
 local-only entry point and a compact read/summary task, not general agent execution.
 Stage 3B is closed. Groq/Gemini, paid inference, tools, vision and automatic pulls
 remain unimplemented. The existing offline status server remains offline.

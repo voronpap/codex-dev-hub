@@ -15,9 +15,11 @@ internal, project-scoped retrieval API. [Stage 3B Context Builder](docs/STAGE3B.
 is **CLOSED**, accepted and merged with immutable, budgeted and revalidated packages;
 cloud adapters remain gated by the local Ollama end-to-end smoke.
 
-[Stage 3C Ollama](docs/STAGE3C.md) is implemented for review through an explicit
-local-only MCP entry point, with model-specific token admission and real Codex smoke
-evidence. The default status server remains offline.
+[Stage 3C Ollama](docs/STAGE3C.md) is **CLOSED + Local E2E Gate PASSED** through an
+explicit local-only MCP entry point, with model-specific token admission and real
+Codex smoke evidence. Execution/accounting gate passed; semantic quality not yet
+established. The default status server remains offline. [Stage 3D Groq gates](docs/STAGE3D.md)
+require the same pipeline and public/redacted-only cloud input by default.
 
 ## Core idea
 
