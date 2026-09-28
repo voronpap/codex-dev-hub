@@ -8,7 +8,7 @@ import sys
 import time
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from devhub.brain_models import sha256
 from devhub.cloud_export import ReleasedPayload, check_release
@@ -27,7 +27,10 @@ class GeminiConfig(Contract):
     qualification: FreeQualification
     model: Annotated[str, Field(pattern=r"^[A-Za-z0-9._-]{1,128}$")]
     # Explicit reviewed request profile, not a model-name switch in the runtime.
-    profile: Literal["text_json_thinking_budget_zero"]
+    profile: Literal["text_json_thinking_budget_zero", "text_json_thinking_minimal"]
+    followup_permit_id: (
+        Annotated[str, Field(pattern=r"^gemini-followup-[A-Za-z0-9_-]{1,48}$")] | None
+    ) = None
     supports_json: Literal[True] = True
     context_tokens: Annotated[int, Field(ge=1024, le=1_000_000)] = 8192
     max_output_tokens: Annotated[int, Field(ge=1, le=256)] = 96
@@ -40,13 +43,19 @@ class GeminiConfig(Contract):
     probe_expires_ms: Annotated[int, Field(ge=1)]
     probe_token_cap: Annotated[int, Field(ge=1, le=4096)] = 4096
 
+    @model_validator(mode="after")
+    def reviewed_profile(self) -> "GeminiConfig":
+        if self.profile == "text_json_thinking_minimal" and self.followup_permit_id is None:
+            raise ValueError("minimal profile requires an explicit follow-up permit reference")
+        return self
+
     @property
     def account(self) -> str:
         return "gemini-" + self.qualification.project_number
 
     @property
     def quota_scope(self) -> str:
-        return self.qualification.project_number
+        return self.followup_permit_id or self.qualification.project_number
 
     def qualify(self) -> None:
         if self.model != self.qualification.model:
@@ -194,6 +203,11 @@ class GeminiAdapter:
 
     def request_body(self, payload: ReleasedPayload) -> bytes:
         check_release(payload)
+        thinking: dict[str, int | str] = (
+            {"thinkingBudget": 0}
+            if self.config.profile == "text_json_thinking_budget_zero"
+            else {"thinkingLevel": "minimal"}
+        )
         return canonical(
             {
                 "systemInstruction": {
@@ -211,7 +225,7 @@ class GeminiAdapter:
                     "candidateCount": 1,
                     "maxOutputTokens": self.config.max_output_tokens,
                     "responseMimeType": "application/json",
-                    "thinkingConfig": {"thinkingBudget": 0},
+                    "thinkingConfig": thinking,
                 },
             }
         ).encode()

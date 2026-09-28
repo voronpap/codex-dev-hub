@@ -1,0 +1,377 @@
+{
+  "stage": "3E",
+  "timestamp_utc": "2026-09-28T18:57:50.261837+00:00",
+  "implementation_commit": "a1037e2c2dc08bbed299ce00d214a75ade618ae4",
+  "client": "MCP SDK Client over real stdio; approved runtime with observational HTTP byte/state assertions",
+  "project": "gemini-smoke-public",
+  "project_number": "836602474597",
+  "model": "gemini-3.5-flash-lite",
+  "profile": "text_json_thinking_minimal",
+  "api_version": "v1beta",
+  "free_qualification": {
+    "schema_version": 1,
+    "project_number": "836602474597",
+    "project_id": "gen-lang-client-0241797686",
+    "model": "gemini-3.5-flash-lite",
+    "country": "Ukraine",
+    "tier": "Free",
+    "billing": "disabled",
+    "source": "authenticated_ai_studio",
+    "observed_ms": 1790621741000,
+    "valid_until_ms": 1790625341000,
+    "pricing_source": "https://ai.google.dev/gemini-api/docs/pricing",
+    "standard_text_input_free": true,
+    "standard_text_output_free": true,
+    "count_tokens_free": true,
+    "terms_source": "https://ai.google.dev/gemini-api/terms",
+    "public_data_use_accepted": true,
+    "requests_per_minute": 15,
+    "input_tokens_per_minute": 250000,
+    "requests_per_day": 500,
+    "remaining_requests": null,
+    "remaining_input_tokens": null
+  },
+  "qualification_evidence": {
+    "source": "fresh authenticated AI Studio",
+    "project_number_verified": true,
+    "key_matches_windows_user_environment": true,
+    "project_tier": "Free",
+    "project_billing_action": "Set up billing",
+    "billing_page": "No billing account",
+    "model_account_limits": {
+      "rpm": 15,
+      "input_tpm": 250000,
+      "rpd": 500
+    },
+    "remaining": null,
+    "terms_reviewed": true,
+    "public_synthetic_payload_approved": true
+  },
+  "permit": {
+    "schema_version": 1,
+    "id": "gemini-followup-836602474597-02",
+    "project": "gemini-smoke-public",
+    "task": "stage3e-public-smoke",
+    "request_key": "stage3e-public-smoke-2",
+    "qualification": {
+      "schema_version": 1,
+      "project_number": "836602474597",
+      "project_id": "gen-lang-client-0241797686",
+      "model": "gemini-3.5-flash-lite",
+      "country": "Ukraine",
+      "tier": "Free",
+      "billing": "disabled",
+      "source": "authenticated_ai_studio",
+      "observed_ms": 1790621741000,
+      "valid_until_ms": 1790625341000,
+      "pricing_source": "https://ai.google.dev/gemini-api/docs/pricing",
+      "standard_text_input_free": true,
+      "standard_text_output_free": true,
+      "count_tokens_free": true,
+      "terms_source": "https://ai.google.dev/gemini-api/terms",
+      "public_data_use_accepted": true,
+      "requests_per_minute": 15,
+      "input_tokens_per_minute": 250000,
+      "requests_per_day": 500,
+      "remaining_requests": null,
+      "remaining_input_tokens": null
+    },
+    "request_hash": "def8d8e4c9f4fe498a84fa1437662fab15532c85e9fbed5f22115f1bddb0d22f",
+    "operator_review": "2ecb8bcd347250256b1dcccbf8697c09933504fc6356566099433fb42a996424",
+    "operator_approved": true,
+    "issued_ms": 1790621860948,
+    "expires_ms": 1790622460948
+  },
+  "permit_consumed": true,
+  "request_hash": "def8d8e4c9f4fe498a84fa1437662fab15532c85e9fbed5f22115f1bddb0d22f",
+  "count_body_hash": "be5392f6985382ead45f312b93ed3c2d221321bc222ac6d85c43c83d4e32c39a",
+  "metadata_before_issuance": {
+    "name": "models/gemini-3.5-flash-lite",
+    "version": "3.5-flash-lite-07-2026",
+    "inputTokenLimit": 1048576,
+    "outputTokenLimit": 65536,
+    "supportedGenerationMethods": [
+      "generateContent",
+      "countTokens",
+      "createCachedContent",
+      "batchGenerateContent"
+    ]
+  },
+  "metadata_calls": 2,
+  "handoff": {
+    "schema_version": 1,
+    "status": "failed",
+    "reason": "invalid_output",
+    "summary": null,
+    "reservation": "50a44ff424644cc890f0c80be43eeb3b",
+    "package_hash": "913106d0e91365d478eb6594774d5b6a2a2c7e6df4592bf19b88ca00a82f9b0f",
+    "offline_context_proxy": 867,
+    "model_input_tokens_preflight": 81,
+    "actual_model_input_tokens": 81,
+    "actual_model_output_tokens": 11,
+    "model": "gemini-3.5-flash-lite",
+    "provider_input_estimate": 81,
+    "input_estimator": "gemini_count_tokens_full_request_v1",
+    "export_hash": "0abcbad7e72d48b7125592d8f8e70c6df7c8730744b294bd68475ae39be4d2b2",
+    "latency_ms": 3328,
+    "http_status": 200,
+    "quota": null,
+    "discovery_quota": null,
+    "observed_rate_headers": {},
+    "discovery_rate_headers": {},
+    "semantic_acceptance": null,
+    "provider_usage": {
+      "promptTokenCount": 81,
+      "candidatesTokenCount": 11,
+      "thoughtsTokenCount": null,
+      "cachedContentTokenCount": null,
+      "toolUsePromptTokenCount": null,
+      "totalTokenCount": 92
+    },
+    "provider_error": null,
+    "count_response_hash": "f258973d68227ce43a24a89650096b63d9f64dd2da068621b7c4f3009c00f794",
+    "preflight_http_status": null,
+    "preflight_latency_ms": null
+  },
+  "count_result": {
+    "event": "response",
+    "path": "/v1beta/models/gemini-3.5-flash-lite:countTokens",
+    "http_status": 200,
+    "latency_ms": 203,
+    "response_hash": "f258973d68227ce43a24a89650096b63d9f64dd2da068621b7c4f3009c00f794",
+    "error": null,
+    "totalTokens": 81,
+    "usage": null,
+    "model_version": null,
+    "timestamp_ms": 1790621866155
+  },
+  "inference_result": {
+    "event": "response",
+    "path": "/v1beta/models/gemini-3.5-flash-lite:generateContent",
+    "http_status": 200,
+    "latency_ms": 3328,
+    "response_hash": "31c3fc986fe4a25d459ae5dc801d9ead7da8523a72623f4fe48730dfbd45f648",
+    "error": null,
+    "totalTokens": null,
+    "usage": {
+      "promptTokenCount": 81,
+      "candidatesTokenCount": 11,
+      "thoughtsTokenCount": null,
+      "cachedContentTokenCount": null,
+      "toolUsePromptTokenCount": null,
+      "totalTokenCount": 92
+    },
+    "model_version": "gemini-3.5-flash-lite",
+    "timestamp_ms": 1790621870089
+  },
+  "http_trace": [
+    {
+      "event": "metadata_send",
+      "path": "/v1beta/models/gemini-3.5-flash-lite",
+      "timestamp_ms": 1790621865124
+    },
+    {
+      "event": "response",
+      "path": "/v1beta/models/gemini-3.5-flash-lite",
+      "http_status": 200,
+      "latency_ms": 218,
+      "response_hash": "1c16fb8a8ac0f002aa3f4d9d567000ae490b3c791893cf65b1e974e00e81ebd5",
+      "error": null,
+      "totalTokens": null,
+      "usage": null,
+      "model_version": null,
+      "timestamp_ms": 1790621865369
+    },
+    {
+      "event": "before_send",
+      "path": "/v1beta/models/gemini-3.5-flash-lite:countTokens",
+      "request_hash": "be5392f6985382ead45f312b93ed3c2d221321bc222ac6d85c43c83d4e32c39a",
+      "permit_consumed": true,
+      "successful_count_recorded": false,
+      "reservation_states": [],
+      "timestamp_ms": 1790621865940
+    },
+    {
+      "event": "response",
+      "path": "/v1beta/models/gemini-3.5-flash-lite:countTokens",
+      "http_status": 200,
+      "latency_ms": 203,
+      "response_hash": "f258973d68227ce43a24a89650096b63d9f64dd2da068621b7c4f3009c00f794",
+      "error": null,
+      "totalTokens": 81,
+      "usage": null,
+      "model_version": null,
+      "timestamp_ms": 1790621866155
+    },
+    {
+      "event": "before_send",
+      "path": "/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      "request_hash": "def8d8e4c9f4fe498a84fa1437662fab15532c85e9fbed5f22115f1bddb0d22f",
+      "permit_consumed": true,
+      "successful_count_recorded": true,
+      "reservation_states": [
+        "dispatched"
+      ],
+      "timestamp_ms": 1790621866745
+    },
+    {
+      "event": "response",
+      "path": "/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      "http_status": 200,
+      "latency_ms": 3328,
+      "response_hash": "31c3fc986fe4a25d459ae5dc801d9ead7da8523a72623f4fe48730dfbd45f648",
+      "error": null,
+      "totalTokens": null,
+      "usage": {
+        "promptTokenCount": 81,
+        "candidatesTokenCount": 11,
+        "thoughtsTokenCount": null,
+        "cachedContentTokenCount": null,
+        "toolUsePromptTokenCount": null,
+        "totalTokenCount": 92
+      },
+      "model_version": "gemini-3.5-flash-lite",
+      "timestamp_ms": 1790621870089
+    }
+  ],
+  "accounting_events": [
+    {
+      "schema_version": 1,
+      "id": "a5bd96b3d7da404dbad48ac280f51abf",
+      "project": "gemini-smoke-public",
+      "task": "stage3e-public-smoke",
+      "reservation": "50a44ff424644cc890f0c80be43eeb3b",
+      "resource": "gemini-827413f883d2bb8abde6cdfd62902aef",
+      "transition": "reserved",
+      "recorded_ms": 1790621866173,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-input_tokens",
+          "reserved": 81,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-output_tokens",
+          "reserved": 96,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-requests",
+          "reserved": 1,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-total_tokens",
+          "reserved": 177,
+          "actual": null
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "id": "ca3e2cf99b81465dbc2b747bf4352def",
+      "project": "gemini-smoke-public",
+      "task": "stage3e-public-smoke",
+      "reservation": "50a44ff424644cc890f0c80be43eeb3b",
+      "resource": "gemini-827413f883d2bb8abde6cdfd62902aef",
+      "transition": "dispatched",
+      "recorded_ms": 1790621866741,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-input_tokens",
+          "reserved": 81,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-output_tokens",
+          "reserved": 96,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-requests",
+          "reserved": 1,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-total_tokens",
+          "reserved": 177,
+          "actual": null
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "id": "32f8670b1256431ab407d155d1b4fc82",
+      "project": "gemini-smoke-public",
+      "task": "stage3e-public-smoke",
+      "reservation": "50a44ff424644cc890f0c80be43eeb3b",
+      "resource": "gemini-827413f883d2bb8abde6cdfd62902aef",
+      "transition": "settled",
+      "recorded_ms": 1790621870092,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-input_tokens",
+          "reserved": 81,
+          "actual": 81
+        },
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-output_tokens",
+          "reserved": 96,
+          "actual": 11
+        },
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-requests",
+          "reserved": 1,
+          "actual": 1
+        },
+        {
+          "schema_version": 1,
+          "bucket": "gemini-827413f883d2bb8abde6cdfd62902aef-total_tokens",
+          "reserved": 177,
+          "actual": 92
+        }
+      ]
+    }
+  ],
+  "outbox_transitions": [
+    "reserved",
+    "dispatched",
+    "settled"
+  ],
+  "dispatch_markers": 1,
+  "reservations": 1,
+  "settlement": "settled",
+  "count_calls": 1,
+  "inference_sends": 1,
+  "retries": 0,
+  "fallback": false,
+  "historical_claim_unchanged": true,
+  "original_failure_root_cause": "unknown",
+  "semantic_acceptance": null,
+  "delegation_value": null,
+  "savings": null,
+  "quality_benchmark": null,
+  "live_gate": "PASSED",
+  "stage_decision": "CLOSED_PROPOSED_PENDING_CI_REVIEW",
+  "output_validation": {
+    "status": "failed",
+    "reason": "invalid_output",
+    "detail": null,
+    "raw_response_retained": false,
+    "usage_settled_before_failure": true
+  }
+}

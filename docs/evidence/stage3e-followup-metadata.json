@@ -1,0 +1,43 @@
+{
+  "source": "authenticated_exact_model_GET",
+  "observed_at": "2026-09-28T18:25:21+00:00",
+  "credential_boundary": "Windows User GEMINI_API_KEY; no credential identity retained",
+  "project_binding": "prior operator/UI project 836602474597; GET itself does not return project identity",
+  "account_execution_eligibility": "unknown",
+  "billing_reverified": false,
+  "qualification_active": false,
+  "metadata_requests": 2,
+  "count_requests": 0,
+  "inference_requests": 0,
+  "automatic_retries": 0,
+  "candidates": [
+    {
+      "requested_model": "gemini-3.1-flash-lite",
+      "http_status": 200,
+      "name": "models/gemini-3.1-flash-lite",
+      "version": "3.1-flash-lite-05-2026",
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 65536,
+      "supportedGenerationMethods": [
+        "generateContent",
+        "countTokens",
+        "createCachedContent",
+        "batchGenerateContent"
+      ]
+    },
+    {
+      "requested_model": "gemini-3.5-flash-lite",
+      "http_status": 200,
+      "name": "models/gemini-3.5-flash-lite",
+      "version": "3.5-flash-lite-07-2026",
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 65536,
+      "supportedGenerationMethods": [
+        "generateContent",
+        "countTokens",
+        "createCachedContent",
+        "batchGenerateContent"
+      ]
+    }
+  ]
+}

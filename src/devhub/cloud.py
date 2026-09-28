@@ -17,6 +17,7 @@ from devhub.controller import Denied, ResourceController
 from devhub.execution import dispatch_execution, reserve_execution, settle_execution
 from devhub.gemini import GeminiAdapter, GeminiConfig, GeminiError
 from devhub.gemini_gate import claim_count, finish_count
+from devhub.gemini_permit import claim_permit, finish_permit
 from devhub.groq import GroqAdapter, GroqConfig, GroqError, complete_usage, error_category
 from devhub.ledger import Ledger
 from devhub.local import LocalHandoff, LocalTask, Summary, now_ms
@@ -95,7 +96,9 @@ class CloudRuntime:
                     id=name,
                     pool="probe-" + sha256(self.provider_config.account.encode())[:24] + "-" + unit,
                     unit=unit,
-                    starts_ms=0,
+                    starts_ms=config.gemini.qualification.observed_ms
+                    if isinstance(config, GeminiCloudConfig) and config.gemini.followup_permit_id
+                    else 0,
                     ends_ms=self.provider_config.probe_expires_ms,
                     capacity=1 if unit == "requests" else self.provider_config.probe_token_cap,
                 )
@@ -178,7 +181,22 @@ class CloudRuntime:
             ):
                 raise Denied("context_insufficient")
             body_hash = sha256(self.adapter.request_body(released))
-            claim_count(self.core.ledger, self.adapter.config.qualification, body_hash, now_ms())
+            permit_id = self.adapter.config.followup_permit_id
+            if permit_id is None:
+                claim_count(
+                    self.core.ledger, self.adapter.config.qualification, body_hash, now_ms()
+                )
+            else:
+                claim_permit(
+                    self.core.ledger,
+                    permit_id,
+                    self.adapter.config.qualification,
+                    body_hash,
+                    self.config.project,
+                    request.task_id,
+                    request.request_key,
+                    now_ms(),
+                )
             try:
                 prepared = self.adapter.prepare(released)
             except (GeminiError, Denied) as error:
@@ -201,7 +219,8 @@ class CloudRuntime:
                     if count_response and count_response.status != 200
                     else None,
                 )
-            finish_count(
+            finish = finish_count if permit_id is None else finish_permit
+            finish(
                 self.core.ledger,
                 self.adapter.config.quota_scope,
                 prepared.request_hash,
