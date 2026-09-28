@@ -51,7 +51,12 @@ class ResourceController:
                 raise Denied("free_probe_disabled")
             from devhub.quota import check_observation
 
-            check_observation(connection, policy.quota_scope, request, now_ms)
+            if policy.quota_provider == "gemini":
+                from devhub.gemini_gate import check_gemini
+
+                check_gemini(connection, policy.quota_scope, request, now_ms)
+            else:
+                check_observation(connection, policy.quota_scope, request, now_ms)
             if reserving:
                 for row in connection.execute("SELECT policy FROM reservations"):
                     old = ResourcePolicy.model_validate_json(row[0])

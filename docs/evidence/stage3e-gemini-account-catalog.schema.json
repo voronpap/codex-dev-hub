@@ -1,0 +1,359 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_kind",
+    "provider",
+    "account",
+    "source",
+    "qualification_active",
+    "stage3e_configured_model",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_kind": {
+      "const": "non_authorizing_account_catalog"
+    },
+    "provider": {
+      "const": "gemini_developer_api"
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_number",
+        "project_id",
+        "tier",
+        "country"
+      ],
+      "properties": {
+        "project_number": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "tier": {
+          "const": "Free"
+        },
+        "country": {
+          "const": "Ukraine"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "surface",
+        "independently_reobserved",
+        "received_at",
+        "observed_at",
+        "qualification_expires_at"
+      ],
+      "properties": {
+        "kind": {
+          "const": "user_supplied_authenticated_ai_studio_report"
+        },
+        "surface": {
+          "const": "AI Studio / Rate Limits"
+        },
+        "independently_reobserved": {
+          "const": false
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "observed_at": {
+          "type": "null"
+        },
+        "qualification_expires_at": {
+          "type": "null"
+        }
+      }
+    },
+    "qualification_active": {
+      "const": false
+    },
+    "stage3e_configured_model": {
+      "const": "gemini-2.5-flash-lite"
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "display_name",
+          "api_model_id",
+          "api_model_id_source",
+          "category",
+          "scope_kind",
+          "account_limits",
+          "observed_remaining",
+          "historical_peak",
+          "local_authorization",
+          "account_available",
+          "availability_reason",
+          "routing_enabled",
+          "verification"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "api_model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "api_model_id_source": {
+            "enum": [
+              null,
+              "existing_stage3e_exact_model_metadata"
+            ]
+          },
+          "category": {
+            "enum": [
+              "text_out",
+              "gemma",
+              "embeddings",
+              "tts",
+              "transcription",
+              "other",
+              "live_api",
+              "agents",
+              "search_grounding",
+              "map_grounding"
+            ]
+          },
+          "scope_kind": {
+            "enum": [
+              "display_label",
+              "model_group",
+              "unmapped_models"
+            ]
+          },
+          "account_limits": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rpm",
+              "tpm",
+              "rpd"
+            ],
+            "properties": {
+              "rpm": {
+                "oneOf": [
+                  {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  {
+                    "const": "Unlimited"
+                  }
+                ]
+              },
+              "tpm": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "rpd": {
+                "oneOf": [
+                  {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  {
+                    "const": "Unlimited"
+                  }
+                ]
+              }
+            }
+          },
+          "observed_remaining": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rpm",
+              "tpm",
+              "rpd"
+            ],
+            "properties": {
+              "rpm": {
+                "type": "null"
+              },
+              "tpm": {
+                "type": "null"
+              },
+              "rpd": {
+                "type": "null"
+              }
+            }
+          },
+          "historical_peak": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rpm",
+              "tpm",
+              "rpd"
+            ],
+            "properties": {
+              "rpm": {
+                "type": "null"
+              },
+              "tpm": {
+                "type": "null"
+              },
+              "rpd": {
+                "type": "null"
+              }
+            }
+          },
+          "local_authorization": {
+            "const": false
+          },
+          "account_available": {
+            "enum": [
+              null,
+              false
+            ]
+          },
+          "availability_reason": {
+            "enum": [
+              "zero_account_limit",
+              "endpoint_eligibility_unverified"
+            ]
+          },
+          "routing_enabled": {
+            "const": false
+          },
+          "verification": {
+            "enum": [
+              "VERIFY",
+              "LIVE_API_VERIFY",
+              "SEPARATE_CAPABILITY"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "category": {
+                  "const": "live_api"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "verification": {
+                  "const": "LIVE_API_VERIFY"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "account_limits": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "rpm",
+                    "tpm",
+                    "rpd"
+                  ],
+                  "properties": {
+                    "rpm": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "tpm": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "rpd": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "account_limits": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "rpm": {
+                          "const": 0
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "tpm": {
+                          "const": 0
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "rpd": {
+                          "const": 0
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "account_available": {
+                  "const": false
+                },
+                "availability_reason": {
+                  "const": "zero_account_limit"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Stage 3E non-authorizing user-reported account catalog v1"
+}

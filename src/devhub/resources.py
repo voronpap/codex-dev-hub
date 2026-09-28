@@ -58,6 +58,7 @@ class ResourcePolicy(Contract):
     synthetic: bool = True
     live_account: Identifier | None = None
     quota_scope: Identifier | None = None
+    quota_provider: Literal["groq", "gemini"] = "groq"
     single_probe: bool = False
     buckets: Annotated[tuple[Identifier, ...], Field(min_length=1, max_length=32)]
     price: Price | None = None

@@ -6,16 +6,18 @@ import re
 import ssl
 import sys
 import time
-from dataclasses import dataclass
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import Field
 
-from devhub.brain_models import Digest, sha256
+from devhub.brain_models import sha256
 from devhub.cloud_export import ReleasedPayload, check_release
+from devhub.cloud_types import HTTPResult, ModelEvidence, PreparedCloud
 from devhub.context import canonical
 from devhub.controller import Denied
 from devhub.models import Contract, Identifier
+
+PreparedGroq = PreparedCloud
 
 
 class GroqError(RuntimeError):
@@ -86,14 +88,6 @@ def safe_headers(headers: list[tuple[str, str]]) -> dict[str, str]:
     return result
 
 
-@dataclass(frozen=True)
-class HTTPResult:
-    status: int
-    headers: dict[str, str]
-    body: dict[str, Any] | None
-    latency_ms: int
-
-
 class GroqHTTP:
     def __init__(self, timeout_seconds: int) -> None:
         self.timeout = timeout_seconds
@@ -140,21 +134,6 @@ class GroqHTTP:
             raise GroqError("send_outcome_unknown") from None
         finally:
             connection.close()
-
-
-class ModelEvidence(Contract):
-    model: str
-    context_tokens: Annotated[int, Field(ge=1, le=1_000_000)]
-    max_output_tokens: Annotated[int, Field(ge=1, le=1_000_000)]
-    metadata_hash: Digest
-
-
-@dataclass(frozen=True)
-class PreparedGroq:
-    payload: ReleasedPayload
-    body: bytes
-    request_hash: str
-    input_estimate: int
 
 
 def error_category(status: int) -> str:
