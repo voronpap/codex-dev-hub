@@ -19,7 +19,7 @@ class CapabilityRecord(Contract):
     plan: Identifier
     kind: Literal["free", "local", "paid"]
     locality: Literal["local", "cloud"]
-    synthetic: Literal[True] = True
+    synthetic: bool = True
     supports_text: bool | None = None
     supports_json: bool | None = None
     context_tokens: Positive | None = None
@@ -32,6 +32,8 @@ class CapabilityRecord(Contract):
 
     @model_validator(mode="after")
     def valid_evidence(self) -> "CapabilityRecord":
+        if not self.synthetic and (self.kind != "local" or self.locality != "local"):
+            raise ValueError("only local live execution is supported")
         if self.valid_until_ms <= self.observed_ms:
             raise ValueError("evidence must expire after observation")
         if self.kind == "local" and self.locality != "local":
@@ -55,7 +57,10 @@ class CapabilityRegistry:
             row = connection.execute(
                 "SELECT spec FROM policies WHERE id=?", (record.resource,)
             ).fetchone()
-            if row is None or ResourcePolicy.model_validate_json(row[0]).kind != record.kind:
+            if row is None or (
+                ResourcePolicy.model_validate_json(row[0]).kind,
+                ResourcePolicy.model_validate_json(row[0]).synthetic,
+            ) != (record.kind, record.synthetic):
                 raise Denied("capability_policy_mismatch")
             connection.execute(
                 """INSERT INTO capabilities VALUES (?, ?, ?)

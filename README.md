@@ -15,6 +15,10 @@ internal, project-scoped retrieval API. [Stage 3B Context Builder](docs/STAGE3B.
 is **CLOSED**, accepted and merged with immutable, budgeted and revalidated packages;
 cloud adapters remain gated by the local Ollama end-to-end smoke.
 
+[Stage 3C Ollama](docs/STAGE3C.md) is implemented for review through an explicit
+local-only MCP entry point, with model-specific token admission and real Codex smoke
+evidence. The default status server remains offline.
+
 ## Core idea
 
 Codex remains the **main development orchestrator** and the primary place where the developer works. Codex Dev Hub does not try to replace Codex or build another coding-agent UI.

@@ -19,9 +19,16 @@ def fingerprint(request: Admission) -> str:
 
 
 class ResourceController:
-    def __init__(self, ledger: Ledger, *, allow_paid_simulation: bool = False) -> None:
+    def __init__(
+        self,
+        ledger: Ledger,
+        *,
+        allow_paid_simulation: bool = False,
+        allow_local_execution: bool = False,
+    ) -> None:
         self.ledger = ledger
         self.allow_paid_simulation = allow_paid_simulation
+        self.allow_local_execution = allow_local_execution
 
     def register_bucket(self, bucket: Bucket) -> None:
         with self.ledger.transaction() as connection:
@@ -104,6 +111,16 @@ class ResourceController:
             if row is None:
                 raise Denied("unknown_resource")
             policy = ResourcePolicy.model_validate_json(row[0])
+            if not policy.synthetic:
+                if not self.allow_local_execution:
+                    raise Denied("local_execution_disabled")
+                # One live local inference across this ledger, including unresolved sends.
+                for active in connection.execute(
+                    "SELECT policy FROM reservations "
+                    "WHERE state IN ('reserved','dispatched','unknown_usage')"
+                ):
+                    if not ResourcePolicy.model_validate_json(active[0]).synthetic:
+                        raise Denied("local_inference_busy")
             cost = 0
             if policy.kind == "paid":
                 if not self.allow_paid_simulation:
@@ -229,6 +246,10 @@ class ResourceController:
                 raise Denied("request_mismatch")
             if row["state"] != "reserved" or not row["created_ms"] <= now_ms < row["expires_ms"]:
                 raise Denied("not_dispatchable")
+            if not ResourcePolicy.model_validate_json(row["policy"]).synthetic and (
+                not self.allow_local_execution
+            ):
+                raise Denied("local_execution_disabled")
             if ResourcePolicy.model_validate_json(row["policy"]).kind == "paid" and (
                 not self.allow_paid_simulation
             ):

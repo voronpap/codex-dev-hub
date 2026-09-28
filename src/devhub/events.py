@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from devhub.ledger import Ledger
 from devhub.models import Contract, Identifier
-from devhub.resources import Count, Timestamp
+from devhub.resources import Count, ResourcePolicy, Timestamp
 
 Transition = Literal["reserved", "dispatched", "unknown_usage", "settled", "released"]
 
@@ -26,7 +26,7 @@ class AccountingEvent(Contract):
     resource: Identifier
     transition: Transition
     recorded_ms: Timestamp
-    synthetic: Literal[True] = True
+    synthetic: bool = True
     allocations: tuple[AllocationSnapshot, ...]
 
 
@@ -39,6 +39,7 @@ def record_event(connection: sqlite3.Connection, ticket: str, transition: Transi
         task=row["task"],
         reservation=ticket,
         resource=row["resource"],
+        synthetic=ResourcePolicy.model_validate_json(row["policy"]).synthetic,
         transition=transition,
         recorded_ms=time.time_ns() // 1_000_000,
         allocations=tuple(
