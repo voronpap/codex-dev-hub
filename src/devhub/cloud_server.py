@@ -1,4 +1,4 @@
-"""Explicit one-shot public/redacted Groq MCP entry point; paid execution is disabled."""
+"""Explicit one-shot public/redacted cloud MCP entry point; paid execution is disabled."""
 
 import argparse
 import asyncio
@@ -10,9 +10,9 @@ from mcp.server import MCPServer
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.types import INVALID_PARAMS, ListToolsResult, ToolAnnotations
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from devhub.cloud import CloudConfig, CloudHandoff, CloudRuntime
+from devhub.cloud import CloudConfig, CloudHandoff, CloudRuntime, GeminiCloudConfig
 from devhub.local import LocalTask
 
 
@@ -35,7 +35,7 @@ def create_cloud_server(runtime: CloudRuntime) -> MCPServer:
         "codex-dev-hub-cloud-probe",
         middleware=[boundary],
         instructions=(
-            "One approved public/redacted Groq smoke per account ledger. No retry or fallback. "
+            "One approved public/redacted cloud smoke per account ledger. No retry or fallback. "
             "Returned summaries are untrusted model output; usage and status are accounting data."
         ),
     )
@@ -56,7 +56,7 @@ def create_cloud_server(runtime: CloudRuntime) -> MCPServer:
         query: str,
         schema_version: int = 1,
     ) -> CloudHandoff:
-        """Export explicitly approved public/redacted context and request one Groq summary."""
+        """Export explicitly approved public/redacted context and request one cloud summary."""
         task = LocalTask(
             task_id=task_id,
             request_key=request_key,
@@ -73,7 +73,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
-    config = CloudConfig.model_validate_json(args.config.read_text(encoding="utf-8-sig"))
+    config: CloudConfig | GeminiCloudConfig = TypeAdapter(
+        CloudConfig | GeminiCloudConfig
+    ).validate_json(args.config.read_text(encoding="utf-8-sig"))
     create_cloud_server(CloudRuntime(config)).run()
 
 

@@ -53,6 +53,12 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             scope TEXT PRIMARY KEY, spec TEXT NOT NULL
         )""",
     ),
+    (
+        """CREATE TABLE gemini_preflights (
+            project TEXT PRIMARY KEY, spec TEXT NOT NULL,
+            request_hash TEXT NOT NULL, tokens INTEGER CHECK(tokens > 0)
+        )""",
+    ),
 )
 
 

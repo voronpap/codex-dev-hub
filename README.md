@@ -23,7 +23,7 @@ adds an opt-in, one-shot Free probe through the same accounting boundary and exp
 public/redacted export. **Stage 3D CLOSED** after owner acceptance of PR #17 and
 UTF-8 documentation cleanup. [Stage 3E Gemini gates](docs/STAGE3E.md) preserve the
 same boundary and require separate data-use, quota and token-accounting verification;
-the Gemini adapter remains unimplemented.
+the opt-in Gemini implementation is pending review and Stage 3E remains open.
 
 ## Core idea
 

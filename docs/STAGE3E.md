@@ -1,8 +1,77 @@
 # Stage 3E: Gemini acceptance gates
 
-Status: not implemented. Stage 3D is accepted and CLOSED. This document records
-the next provider's requirements; it does not authorize paid execution or claim
-a Gemini account, model, quota or live result has been verified.
+Status: implemented for review, not CLOSED. Stage 3D is accepted and CLOSED.
+The default MCP status server remains offline. Gemini is an explicit one-shot
+Free Developer API probe through `devhub.cloud_server`, using `GeminiCloudConfig`.
+No general routing, paid execution, Stage 3F or benchmark is enabled.
+
+## Implemented boundary
+
+`CloudRuntime` now composes either configured provider through the same Brain,
+Context Builder, export, Capability Registry, Router, ResourceController and
+execution functions. Provider-specific count, usage and quota logic stays separate.
+`cloud_types` contains credential-free request/envelope types shared with Groq.
+Groq's existing configuration and request behavior remain supported.
+
+The configured Gemini profile is single-candidate JSON text with thinking budget
+zero, no tools, grounding, files, explicit cache, streaming or model fallback.
+The model ID is configuration, not a runtime constant. Metadata must prove both
+`generateContent` and `countTokens` support and sufficient input/output limits.
+The existing whole-line release approval and process-local payload seal protect
+both remote counting and generation. A fresh package validation precedes counting;
+another precedes inference dispatch.
+
+`FreeQualification` is a **trusted local operator/reviewer record**, not an API
+attestation or model-supplied claim. It records an authenticated AI Studio check
+of the exact project, billing disabled, Free tier, country, reviewed pricing and
+unpaid data use. Unknown/paid/enabled/expired qualification fails closed. Its maximum
+lifetime is one hour; recheck AI Studio immediately before a live probe. This limited
+slice does not continuously monitor external billing changes. Do not edit timestamps
+to make old evidence fresh. The credential's project association must be independently
+verified; `models.list` cannot establish it. The transport pins the Windows User key
+identity from metadata through counting and generation, without persisting the key
+or its fingerprint in configuration, DTOs or evidence.
+
+Migration 5 adds `gemini_preflights`. Before the content-bearing count call, a short
+transaction permanently claims the project-scoped count permit, including the
+qualification and exact generation-request hash. One count attempt is allowed even
+across threads/restarts; a crash or timeout cannot automatically repeat it. The
+full `generateContentRequest`, including system instructions and generation settings,
+is passed to `countTokens`. Successful counting records its positive count durably;
+only then may the shared Controller reserve inference. A failed count leaves no
+inference reservation and the count permit remains consumed. The count method's
+provider quota consumption remains unknown; its local one-shot ceiling is separate.
+
+The Controller checks the stored Free qualification at reservation and dispatch,
+requires the counted input amount, and applies Gemini **input** TPM semantics. The
+one-inference permit is project-scoped, so another key/model does not grant another
+attempt in this ledger. UI limits are recorded separately from remaining capacity:
+historical peaks, including zero, never become remaining quota. Daily reset is
+midnight America/Los_Angeles; no rollover/replenishment is implemented for this
+one-shot permit. Gemini does not borrow Groq's rate-limit header names. Only numeric
+Retry-After and sanitized structured RetryInfo/QuotaFailure evidence are retained;
+there is no retry. Unknown remaining quotas stay null.
+
+The count, offline byte proxy and actual usage remain separate. Usage requires an
+exact response model ID and complete prompt/candidate/total counts with conservation.
+Thought tokens contribute to generated output; cached tokens are already included
+in prompt count. Absent optional dimensions remain null. A missing candidate count,
+including on a blocked response, is not invented as zero. Complete usage settles
+before output validation, including invalid JSON, safety or truncation. Incomplete
+usage, transport ambiguity and post-dispatch failures retain `unknown_usage`.
+
+Credentials are loaded only from Windows User `GEMINI_API_KEY`, never process env,
+files or MCP arguments. HTTPS uses a fixed Google hostname and exact model paths,
+with no redirects, proxies, retries or fallback; provider messages are not logged.
+
+## Validation
+
+Offline tests cover the full shared MCP path, pre-send dispatch commit, canary
+rejection before remote counting, explicit redaction, stale source after count,
+immutable counted body, exact request counting, Free/billing/terms expiry gates,
+count permit concurrency/restart, inference crash/recovery, provider errors,
+thought/cache conservation, missing usage and malformed output. Existing Groq,
+Ollama, Controller and Brain tests remain regression coverage.
 
 ## Reuse the accepted boundary
 

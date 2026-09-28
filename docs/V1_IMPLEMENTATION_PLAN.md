@@ -116,7 +116,8 @@ Execution/accounting gate passed; semantic quality not yet established.
 [Stage 3D Groq](STAGE3D.md) is **CLOSED** after owner acceptance of PR #17 and
 UTF-8 documentation cleanup. Its bounded probe consumed one durable authorization;
 unknown provider quota dimensions remain unknown. [Stage 3E Gemini](STAGE3E.md)
-is next, with shared export/accounting and separate provider data-use/token/quota gates.
+is implemented for review, with shared export/accounting and separate provider
+data-use/token/quota gates. Stage 3E remains open until owner acceptance.
 
 The owner revised adapter implementation order at Stage 2 acceptance. Keep these
 as separate review slices; this sequence does not prescribe routing priority.
