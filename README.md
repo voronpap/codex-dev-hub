@@ -20,7 +20,10 @@ explicit local-only MCP entry point, with model-specific token admission and rea
 Codex smoke evidence. Execution/accounting gate passed; semantic quality not yet
 established. The default status server remains offline. [Stage 3D Groq](docs/STAGE3D.md)
 adds an opt-in, one-shot Free probe through the same accounting boundary and explicit
-public/redacted export. Stage 3D is awaiting review; Gemini remains unimplemented.
+public/redacted export. **Stage 3D CLOSED** after owner acceptance of PR #17 and
+UTF-8 documentation cleanup. [Stage 3E Gemini gates](docs/STAGE3E.md) preserve the
+same boundary and require separate data-use, quota and token-accounting verification;
+the Gemini adapter remains unimplemented.
 
 ## Core idea
 

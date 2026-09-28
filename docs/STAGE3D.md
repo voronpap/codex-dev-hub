@@ -1,8 +1,9 @@
 # Stage 3D: bounded Groq execution
 
-Status: implementation awaiting review. Stage 3C remains CLOSED with its local
-execution/accounting gate passed; semantic quality remains unestablished. Gemini,
-general cloud routing and the B-arm benchmark are not enabled by this slice.
+Status: **CLOSED**, following owner acceptance of [PR #17](https://github.com/voronpap/codex-dev-hub/pull/17)
+and the requested UTF-8 documentation cleanup. Execution/accounting is accepted;
+semantic quality remains unestablished. General cloud routing and the B-arm benchmark
+are not enabled by this slice. [Stage 3E Gemini gates](STAGE3E.md) are the next scope.
 
 ## Shared execution boundary
 
@@ -141,7 +142,7 @@ The account plan is still operator-declared. The one-shot permit is now consumed
 
 A synthetic smoke cannot
 establish semantic quality, Delegation Value, savings or benchmark quality; these
-remain null. Stage 3E/Gemini waits for review of this PR.
+remain null. Stage 3E/Gemini follows its separate provider-specific gates.
 
 ## Upstream contracts
 

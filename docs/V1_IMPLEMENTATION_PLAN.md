@@ -112,10 +112,11 @@ Its token accounting remains an explicitly labeled offline proxy until model-spe
 validation is introduced with Ollama.
 
 Stage 3C is **CLOSED + Local E2E Gate PASSED**: [local execution and smoke evidence](STAGE3C.md).
-Execution/accounting gate passed; semantic quality not yet established. The next
-slice implements a bounded, opt-in [Stage 3D Groq probe](STAGE3D.md), awaiting review.
-Gemini remains blocked until that review. Unknown quota dimensions are not unlimited;
-the initial probe uses a separate durable single-attempt authorization.
+Execution/accounting gate passed; semantic quality not yet established.
+[Stage 3D Groq](STAGE3D.md) is **CLOSED** after owner acceptance of PR #17 and
+UTF-8 documentation cleanup. Its bounded probe consumed one durable authorization;
+unknown provider quota dimensions remain unknown. [Stage 3E Gemini](STAGE3E.md)
+is next, with shared export/accounting and separate provider data-use/token/quota gates.
 
 The owner revised adapter implementation order at Stage 2 acceptance. Keep these
 as separate review slices; this sequence does not prescribe routing priority.
