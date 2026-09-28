@@ -3,7 +3,7 @@
 Status: partial implementation accepted and merged in PR #18 on 2026-09-28.
 At the PR #18 merge: **Stage 3E OPEN; live gate NOT_PASSED**.
 The separately approved PR #19 follow-up now demonstrates **execution/accounting
-gate PASSED; Stage 3E CLOSED proposed pending CI and review**. Output validation
+gate PASSED; Stage 3E CLOSED**. Output validation
 returned `invalid_output` after complete usage settlement; semantic acceptance is null.
 Merge accepts the adapter, fail-closed behavior, offline contract investigation and
 provider catalogs; it does not establish successful Gemini execution.

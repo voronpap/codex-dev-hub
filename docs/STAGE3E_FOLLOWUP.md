@@ -1,8 +1,7 @@
 # Stage 3E follow-up: candidate and one-shot grant review
 
 Status: operator-approved follow-up executed once on accepted implementation
-`a1037e2`. **Live execution/accounting gate PASSED; Stage 3E CLOSED proposed,
-pending CI and review.** PR #19 remains unmerged. Runtime output validation failed
+`a1037e2`. **Live execution/accounting gate PASSED; Stage 3E CLOSED.** PR #19 accepted and merged. Runtime output validation failed
 (`invalid_output`); complete actual usage was settled before returning failure.
 This gate establishes execution/accounting only, not semantic acceptance or quality.
 The original 2.5 Flash Lite HTTP 404 and consumed claim remain unchanged;
