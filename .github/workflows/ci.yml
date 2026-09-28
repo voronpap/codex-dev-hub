@@ -1,4 +1,4 @@
-name: Offline Stage 1
+name: Offline core
 
 on:
   push:

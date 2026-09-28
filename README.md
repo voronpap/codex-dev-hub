@@ -4,9 +4,11 @@
 
 ## Status
 
-**Offline Stage 1.** The V1 design is accepted. The first executable slice exposes
-MCP status, strict configuration and synthetic test resources; cloud inference,
-routing and paid execution are not implemented. See [Stage 1 runbook](docs/STAGE1.md).
+**Offline Stage 2 review.** Stage 1 is merged and verified. MCP exposes status,
+strict configuration and synthetic test resources. Internal offline resource APIs
+add SQLite accounting, reservations, capabilities, deterministic routing and recovery.
+Cloud inference and paid execution are not implemented. See the
+[Stage 1 runbook](docs/STAGE1.md) and [Stage 2 scope and evidence](docs/STAGE2.md).
 
 ## Core idea
 

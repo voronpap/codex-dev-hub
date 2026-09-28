@@ -95,3 +95,48 @@ Acknowledgement does not touch accounting, and replay is not a second settlement
 This is an internal single-operator boundary, not an authentication service.
 No remote telemetry sink is configured. Older reservations remain authoritative;
 migration does not invent historical events for them.
+
+## 2F: recovery and concurrency
+
+`ResourceController.recover(now_ms=...)` is an idempotent operator/startup sweep.
+Only expired reserved leases release counters. Expired dispatched leases become
+unknown_usage, retaining holds until explicit complete settlement. A durable
+dispatch marker is intentionally conservative even if a crash happened before
+the physical send: the ledger cannot prove whether the provider received it.
+Never replay that attempt. A later quota window cannot hide an unresolved hold
+in the same pool. Disabling paid simulation also blocks previously reserved paid
+dispatches after restart.
+
+The clock and token/price evidence are trusted runtime inputs. A future live
+integration must use a reliable clock, run recovery at startup and periodically,
+handle cancellation/timeouts as unknown, and reconcile from provider evidence.
+This slice has no live scheduler, provider SDK or automatic reconciliation.
+
+Tests start four independent spawned processes competing for the last shared
+slot, and hard-exit child processes before commit, after reserve and after the
+dispatch marker. Reopening the database verifies rollback/durability, expiry,
+unknown holds, reconciliation, outbox and SQLite integrity. A fake post-send
+timeout verifies null actual usage and unchanged liability. These tests establish
+offline accounting behavior, not real provider transport correctness.
+
+## Verification and review order
+
+Verified 2026-09-28 on Windows Python 3.12.10 and WSL Ubuntu 24.04 Python 3.12.3:
+54 tests pass, including the existing MCP/schema/config/baseline suite. Windows
+Ruff lint/format, strict mypy and offline config validation pass. No dependencies
+were added. CI runs the full suite on Ubuntu 24.04 and Windows; authoritative
+run status is attached to each PR rather than inferred from local results.
+
+| Slice | Review |
+|---|---|
+| 2A ledger/migrations | [PR #4](https://github.com/voronpap/codex-dev-hub/pull/4) |
+| 2B reservations | [PR #5](https://github.com/voronpap/codex-dev-hub/pull/5) |
+| 2C registry | [PR #6](https://github.com/voronpap/codex-dev-hub/pull/6) |
+| 2D router | [PR #7](https://github.com/voronpap/codex-dev-hub/pull/7) |
+| 2E events | [PR #8](https://github.com/voronpap/codex-dev-hub/pull/8) |
+| 2F recovery/concurrency | Final slice on top of 2E |
+
+These PRs are stacked: review and merge in order, update each successor onto main
+and rerun CI before its merge. Stage 2 is not auto-merged. Stage 3 remains gated
+on review; real account limits, token counting, transport cancellation and live
+usage reconciliation still require adapter-specific evidence.
