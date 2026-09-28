@@ -107,7 +107,7 @@ core operates on synthetic resources only; no real provider has been implemented
 Stage 3A is **CLOSED**, accepted and merged: [scope, API and retrieval evidence](STAGE3A.md).
 It does not expose a new MCP tool or implement Context Builder/provider execution.
 
-Stage 3B is implemented for review: [selection, budget and validation contract](STAGE3B.md).
+Stage 3B is **CLOSED**, accepted and merged: [selection, budget and validation contract](STAGE3B.md).
 Its token accounting remains an explicitly labeled offline proxy until model-specific
 validation is introduced with Ollama.
 

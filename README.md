@@ -12,7 +12,7 @@ Cloud inference and paid execution are not implemented. See the
 
 [Stage 3A Project Brain + FTS5](docs/STAGE3A.md) is **CLOSED**, accepted and merged as an
 internal, project-scoped retrieval API. [Stage 3B Context Builder](docs/STAGE3B.md)
-is implemented for review with immutable, budgeted and revalidated packages;
+is **CLOSED**, accepted and merged with immutable, budgeted and revalidated packages;
 cloud adapters remain gated by the local Ollama end-to-end smoke.
 
 ## Core idea
