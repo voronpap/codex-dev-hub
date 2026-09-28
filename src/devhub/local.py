@@ -1,6 +1,7 @@
 """Opt-in local delegation composition; no fallback, retries or model pulls."""
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -216,6 +217,8 @@ class LocalRuntime:
             raise Denied("unexpected_route_or_attempt")
         try:
             self.adapter.check_digest()
+            if (self.state / "tokenizer-mismatch.block").exists():
+                raise OllamaError("tokenizer_verification_required")
             if not self.builder.validate_package(
                 self.scope,
                 package,
@@ -251,6 +254,12 @@ class LocalRuntime:
         ):
             self.core.unknown(ticket.id, project=self.config.project)
             return LocalHandoff(status="unknown_usage", reason="usage_incomplete", **base)
+        if inputs != prepared.model_input_tokens:
+            # Persist the block before settlement releases the global live slot.
+            with (self.state / "tokenizer-mismatch.block").open("w", encoding="utf-8") as marker:
+                marker.write("Operator verification required.\n")
+                marker.flush()
+                os.fsync(marker.fileno())
         self.core.settle(
             ticket.id,
             project=self.config.project,
@@ -263,9 +272,6 @@ class LocalRuntime:
         )
         base.update(actual_model_input_tokens=inputs, actual_model_output_tokens=outputs)
         if inputs != prepared.model_input_tokens:
-            (self.state / "tokenizer-mismatch.block").write_text(
-                "Operator verification required.\n"
-            )
             return LocalHandoff(status="failed", reason="tokenizer_count_mismatch", **base)
         try:
             if response.get("done_reason") != "stop":

@@ -117,11 +117,14 @@ and Brain/context suites remain in the full CI matrix. No CI inference requires
 an installed model or external credentials.
 
 Local verification: Ruff lint/format, mypy and offline config validation pass.
-Windows Python 3.12: **111 passed, 1 skipped** (existing symlink privilege check).
-WSL Ubuntu 24.04: **112 passed**, including 19 new local-adapter cases.
+Initial full verification: Windows Python 3.12 **111 passed, 1 skipped** (existing
+symlink privilege check); WSL Ubuntu 24.04 **112 passed**. A subsequent regression
+also verifies that a tokenizer mismatch blocks dispatch before releasing the live slot.
 
 The separate real Windows smoke used the already installed `qwen2.5:14b-instruct`
-manifest `7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6`.
+and the implementation captured in commit `d4b3635`; the subsequent race fix only
+strengthens the mismatch failure path, covered by the regression suite. Model
+manifest: `7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6`.
 A direct run measured proxy 3080, preflight/actual input 919/919 and output 99.
 A genuine Codex CLI MCP call traversed the full path and measured proxy 3114,
 preflight/actual input 931/931 and output 49, with a settled reservation and three

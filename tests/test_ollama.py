@@ -123,9 +123,17 @@ def test_local_accounting_and_no_replay(local):
         ("tokenizer_mismatch", "failed"),
     ],
 )
-def test_usage_survives_failure(local, mode, status):
+def test_usage_survives_failure(local, mode, status, monkeypatch):
     runtime, task, calls, setting = local
     setting["value"] = mode
+    if mode == "tokenizer_mismatch":
+        original_settle = runtime.core.settle
+
+        def check_block(*args, **kwargs):
+            assert (runtime.state / "tokenizer-mismatch.block").exists()
+            return original_settle(*args, **kwargs)
+
+        monkeypatch.setattr(runtime.core, "settle", check_block)
     result = runtime.run(task)
     assert result.status == status
     events = EventOutbox(runtime.core.ledger).pending(project="p")
@@ -297,3 +305,23 @@ def test_live_execution_disabled_by_default(local):
     )
     with pytest.raises(Denied, match="local_execution_disabled"):
         core.reserve(request, now_ms=1)
+
+
+def test_concurrent_tokenizer_block_is_checked_before_dispatch(local, monkeypatch):
+    runtime, task, calls, _ = local
+    original = runtime.adapter.check_digest
+    inspections = 0
+
+    def block_before_dispatch():
+        nonlocal inspections
+        inspections += 1
+        original()
+        if inspections == 3:
+            (runtime.state / "tokenizer-mismatch.block").write_text("blocked")
+
+    monkeypatch.setattr(runtime.adapter, "check_digest", block_before_dispatch)
+    assert runtime.run(task).reason == "tokenizer_verification_required"
+    assert "/api/generate" not in calls
+    assert [
+        event.transition for event in EventOutbox(runtime.core.ledger).pending(project="p")
+    ] == ["reserved", "released"]
