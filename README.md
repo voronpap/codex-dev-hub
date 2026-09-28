@@ -11,7 +11,8 @@ Cloud inference and paid execution are not implemented. See the
 [Stage 1 runbook](docs/STAGE1.md) and [Stage 2 scope and evidence](docs/STAGE2.md).
 
 [Stage 3A Project Brain + FTS5](docs/STAGE3A.md) is **CLOSED**, accepted and merged as an
-internal, project-scoped retrieval API. Stage 3B Context Builder is next;
+internal, project-scoped retrieval API. [Stage 3B Context Builder](docs/STAGE3B.md)
+is implemented for review with immutable, budgeted and revalidated packages;
 cloud adapters remain gated by the local Ollama end-to-end smoke.
 
 ## Core idea

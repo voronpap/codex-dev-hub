@@ -107,6 +107,10 @@ core operates on synthetic resources only; no real provider has been implemented
 Stage 3A is **CLOSED**, accepted and merged: [scope, API and retrieval evidence](STAGE3A.md).
 It does not expose a new MCP tool or implement Context Builder/provider execution.
 
+Stage 3B is implemented for review: [selection, budget and validation contract](STAGE3B.md).
+Its token accounting remains an explicitly labeled offline proxy until model-specific
+validation is introduced with Ollama.
+
 The owner revised adapter implementation order at Stage 2 acceptance. Keep these
 as separate review slices; this sequence does not prescribe routing priority.
 
