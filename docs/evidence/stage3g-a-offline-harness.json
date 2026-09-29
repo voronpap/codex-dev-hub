@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "stage": "3G-A",
+  "kind": "offline_harness_validation",
+  "implementation_commit": "253c87c42922e341ef086a095e1479c0ea8d9ebb",
+  "run_id": "stage3g-offline-002",
+  "manifest_sha256": "e9eddb583ee60b668ac6103db15a80fb7cb3989de0843e76cc3b2f44893b466b",
+  "config_sha256": "a1be05ffc1953d4ff195d7ef8d3770aa896ec5af1dd2a5f53c54bf6982011a95",
+  "seed_manifest_sha256": "0c0eaccdb5109ff80dea115a75f0965b6948585cedb2e71351094de748ce3e5c",
+  "fixture_count": 12,
+  "task_classes": [
+    "code_review",
+    "do_not_delegate",
+    "document_reduction",
+    "research",
+    "structured_extraction",
+    "test_draft"
+  ],
+  "executor_packets": 24,
+  "prepared_records": 24,
+  "all_records_status": "not_run",
+  "fixture_oracle_hashes": "Verified against unchanged benchmarks/manifest.json seed-1.",
+  "task_and_input_bytes_equivalent": true,
+  "oracle_content_in_executor_packets": false,
+  "cli_prepare": "passed",
+  "cli_verify": "passed",
+  "actual_benchmark_executed": false,
+  "codex_executions": 0,
+  "provider_sends": 0,
+  "cloud_inference": 0,
+  "measurements": {
+    "codex_tokens": null,
+    "delegated_tokens": null,
+    "provider_api_cost": null,
+    "wall_clock": null,
+    "retries": null,
+    "semantic_acceptance": null,
+    "quality_benchmark": null,
+    "delegation_value": null,
+    "savings": null
+  },
+  "local_offline_tests": {
+    "passed": 24,
+    "skipped": 1,
+    "skip_reason": "Windows symlink privilege unavailable"
+  },
+  "local_windows_smoke": {
+    "passed": 13,
+    "skipped": 1,
+    "duration_seconds": 5.98,
+    "scope": "test suite duration, not benchmark latency"
+  },
+  "stage3g": "OPEN",
+  "next_gate": "Review harness before real execution configuration/launcher.",
+  "reproduce": "Checkout implementation_commit; use docs/STAGE3G-A.md commands with run_id stage3g-offline-002 and a new external directory."
+}

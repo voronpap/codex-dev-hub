@@ -28,3 +28,6 @@ remains historical evidence. Semantic quality remains unestablished.
 Stage 3G OPEN: the next slice is offline harness only, pending review before any
 paired execution. semantic_acceptance, quality_benchmark, delegation_value and
 savings remain null.
+
+Stage 3G-A [offline harness](STAGE3G-A.md) is under review. No real paired
+benchmark has run; Stage 3G remains OPEN.
