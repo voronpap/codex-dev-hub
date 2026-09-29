@@ -4,12 +4,62 @@ import json
 import re
 import subprocess
 import tempfile
+import threading
+import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
+from devhub.baseline import verified_cases
 from devhub.benchmark import canonical, digest, read_sealed, write_new
+from devhub.experiment import ExperimentProtocol, plan
 from devhub.experiment_launch import DOCKER, AttemptResult, mount, safe_artifacts
+
+
+def capture_evaluator(cid: str) -> tuple[bytes, bytes, bool, bool]:
+    """Bound untrusted stdout/stderr in memory; stop the entire container on overflow."""
+    process = subprocess.Popen(
+        [*DOCKER, "start", "--attach", cid], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    assert process.stdout is not None and process.stderr is not None
+    overflow = threading.Event()
+    streams: list[bytes] = [b"", b""]
+
+    def read(stream: BinaryIO, index: int) -> None:
+        data = bytearray()
+        while chunk := stream.read(65536):
+            if len(data) + len(chunk) > 1024 * 1024:
+                overflow.set()
+                break
+            data.extend(chunk)
+        streams[index] = bytes(data)
+
+    threads = [
+        threading.Thread(target=read, args=(stream, index), daemon=True)
+        for index, stream in enumerate((process.stdout, process.stderr))
+    ]
+    for thread in threads:
+        thread.start()
+    deadline = time.monotonic() + 60
+    timed_out = False
+    try:
+        while process.poll() is None:
+            timed_out = time.monotonic() >= deadline
+            if timed_out or overflow.is_set():
+                subprocess.run([*DOCKER, "kill", cid], capture_output=True, timeout=15, check=False)
+                process.kill()
+                break
+            time.sleep(0.05)
+        process.wait(timeout=10)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+        for thread in threads:
+            thread.join(timeout=5)
+        process.stdout.close()
+        process.stderr.close()
+    return streams[0], streams[1], timed_out, overflow.is_set()
 
 
 def frozen_pair(
@@ -19,6 +69,7 @@ def frozen_pair(
     if len(set(expected_sessions)) != 2 or attempts[0].resolve() == attempts[1].resolve():
         raise ValueError("Independent A/B attempts required")
     outputs = []
+    plans = set()
     for path, session in zip(attempts, expected_sessions, strict=True):
         receipt = AttemptResult.model_validate_json(read_sealed(path / "result.json"))
         raw = (path / "output.bin").read_bytes()
@@ -29,6 +80,9 @@ def frozen_pair(
         ):
             raise ValueError("Both arms must be frozen before review")
         outputs.append(raw)
+        plans.add(receipt.provenance.plan_sha256)
+    if len(plans) != 1:
+        raise ValueError("Both arms must belong to the same frozen plan")
     return outputs[0], outputs[1]
 
 
@@ -100,22 +154,8 @@ def evaluate_bytes(
             cid = subprocess.check_output(command, timeout=30).decode().strip()
             if re.fullmatch(r"[a-f0-9]{64}", cid) is None:
                 raise ValueError("Invalid evaluator provenance")
-            timeout = False
             try:
-                try:
-                    completed = subprocess.run(
-                        [*DOCKER, "start", "--attach", cid],
-                        capture_output=True,
-                        timeout=60,
-                        check=False,
-                    )
-                    stdout, stderr = completed.stdout, completed.stderr
-                except subprocess.TimeoutExpired:
-                    timeout = True
-                    stdout, stderr = b"", b""
-                    subprocess.run(
-                        [*DOCKER, "kill", cid], capture_output=True, timeout=15, check=True
-                    )
+                stdout, stderr, timeout, overflow = capture_evaluator(cid)
                 state = json.loads(
                     subprocess.check_output(
                         [*DOCKER, "inspect", "--format", "{{json .State}}", cid], timeout=10
@@ -129,6 +169,7 @@ def evaluate_bytes(
                 results[label] = {
                     "reference_hash": digest(raw),
                     "timeout": timeout,
+                    "output_limit_exceeded": overflow,
                     "exit_status": state["ExitCode"],
                     "container_id": cid,
                     "stdout_sha256": digest(stdout),
@@ -139,7 +180,7 @@ def evaluate_bytes(
                     [*DOCKER, "rm", "--force", cid], capture_output=True, timeout=20, check=False
                 )
     passed = (
-        not any(r["timeout"] for r in results.values())
+        not any(r["timeout"] or r["output_limit_exceeded"] for r in results.values())
         and results["buggy"]["exit_status"] == 1
         and results["corrected"]["exit_status"] == 0
     )
@@ -157,3 +198,51 @@ def evaluate_bytes(
     safe_artifacts((raw,))
     write_new(destination / "result.json", raw)
     return evidence
+
+
+def evaluate_pair_test(
+    repo: Path,
+    frozen_plan: dict[str, Any],
+    attempts_root: Path,
+    fixture_id: str,
+    arm: str,
+    image: str,
+    runner: Path,
+    destination: Path,
+) -> dict[str, Any]:
+    """Only real reviewer entry point: verify pair/plan before opening reviewer material."""
+    if fixture_id not in {"tests-01", "tests-02"} or arm not in {"A", "B"}:
+        raise ValueError("Only reviewed test-draft pairs")
+    protocol = ExperimentProtocol.model_validate_json(json.dumps(frozen_plan["protocol"]))
+    if plan(repo, protocol, frozen_plan["run_id"]) != frozen_plan:
+        raise ValueError("Reviewer plan changed")
+    sessions = {
+        s["arm"]: s["session_id"] for s in frozen_plan["sessions"] if s["fixture_id"] == fixture_id
+    }
+    expected = (sessions["A"], sessions["B"])
+    outputs = frozen_pair((attempts_root / expected[0], attempts_root / expected[1]), expected)
+    # The execution gate does not replace the frozen oracle's required-case/fact review.
+    case = next(c for c in verified_cases(repo / "benchmarks") if c["id"] == fixture_id)
+    fixture = json.loads((repo / "benchmarks" / case["fixture"]).read_bytes())
+    oracle = json.loads((repo / "benchmarks" / case["oracle"]).read_bytes())
+    if "execution_gate" not in oracle:
+        raise ValueError("Oracle does not authorize this evaluator")
+    corrected = (
+        b"from datetime import date, timedelta\n"
+        b"def next_day(value): return (date.fromisoformat(value)+timedelta(days=1)).isoformat()\n"
+        if fixture_id == "tests-01"
+        else b"from threading import Lock\nclass Quota:\n"
+        b"    def __init__(self): self.remaining=1; self.lock=Lock()\n"
+        b"    def reserve(self,gap):\n        gap()\n        with self.lock:\n"
+        b"            if self.remaining<=0: return False\n"
+        b"            self.remaining-=1\n            return True\n"
+    )
+    return evaluate_bytes(
+        outputs[0 if arm == "A" else 1],
+        fixture["input"].encode(),
+        corrected,
+        image,
+        runner,
+        destination,
+        review_barrier_passed=True,
+    )

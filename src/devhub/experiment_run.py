@@ -89,7 +89,7 @@ def environment_guard(repo: Path, bindings: RuntimeBindings, protocol: Experimen
     version = (
         subprocess.check_output(
             [
-                "docker",
+                *DOCKER,
                 "run",
                 "--rm",
                 "--pull=never",

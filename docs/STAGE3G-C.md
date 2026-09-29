@@ -59,7 +59,8 @@ The evaluator image is separate and contains Python + exact pytest wheels verifi
 against uv.lock. It has no Codex binary, credentials, model, MCP or ledger. Only
 generated test bytes, one reference and the minimal runner are mounted read-only.
 Network none; nonroot; capabilities dropped; no-new-privileges; read-only root;
-256 MiB RAM, one CPU, 32 PIDs, 32 MiB tmpfs and a 60-second timeout per reference.
+256 MiB RAM, one CPU, 32 PIDs, 32 MiB tmpfs, a 60-second timeout per reference
+and a 1 MiB capture limit per output stream (overflow stops the whole container).
 The controller stops/removes the entire container, including on failure.
 
 The trusted reviewer first verifies both frozen A/B launch receipts and output hashes
@@ -116,3 +117,23 @@ full + Windows smoke. Full Windows remains a final Stage 3G closure gate.
 Stage 3G-C remains OPEN until all gates pass together on the intended Linux execution
 host. Stop for review before any rehearsal, even after readiness. All quality,
 semantic acceptance, Delegation Value and savings claims remain null.
+
+## Frozen configuration blocker: review required
+
+Metadata-only qualification found that the exact CLI rejects the frozen
+`model_providers.openai.request_max_retries=0` and
+`model_providers.openai.stream_max_retries=0` overrides: built-in `openai` is reserved
+and cannot be overridden. This occurs before any task. The initial probe additionally
+found that --strict-config is supported for exec, not features/mcp metadata commands;
+only the probe invocation was corrected. Actual frozen exec configuration is unchanged.
+
+The config qualification step deliberately reports failure and stores cli_config=false;
+CI continues collecting the independent evaluator evidence. A green report workflow
+therefore does NOT mean runtime readiness. Linux full/Windows smoke remain required.
+
+Proposed next review: version the Codex configuration hash to remove the two rejected
+built-in provider overrides, retaining zero launcher retries/reruns and null unknown
+internal Codex retries, or first establish a supported zero-internal-retry mechanism.
+No replacement/custom provider, auth mode, model or endpoint is selected here. Neither
+proposal has been applied. The existing frozen config remains blocked. Review is
+required before any revised protocol, and again before rehearsal. No silent fallback.

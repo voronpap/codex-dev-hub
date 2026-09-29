@@ -11,7 +11,8 @@ cfg = []
 for i, arg in enumerate(argv):
     if arg == "-c":
         cfg.extend(argv[i : i + 2])
-cli = ["codex", "--strict-config", *cfg]
+# --strict-config is exec-only in this exact CLI; metadata commands still load overrides.
+cli = ["codex", *cfg]
 # Exercise the actual bootstrap's tmpfs auth-copy path using CLI --version only.
 packet["codex_argv"] = ["codex", "--version"]
 # Patch packet reading only in this synthetic metadata probe.
@@ -82,6 +83,9 @@ print(
             and scope
             and all(rows.get(k) == "false" for k in disabled),
             "auth_tmpfs": auth_ok,
+            "config_error": "reserved_builtin_provider_override"
+            if b"reserved built-in provider IDs" in features.stderr
+            else None,
             "egress_runtime": denied,
         }
     )

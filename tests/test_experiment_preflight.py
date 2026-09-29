@@ -2,6 +2,8 @@
 
 import json
 import socket
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -124,3 +126,32 @@ def test_generated_text_never_imported_on_host(tmp_path):
     with pytest.raises(ValueError):
         evaluate_bytes(generated, b"", b"", "mutable", Path("unused"), tmp_path / "out")
     assert not canary.exists()
+
+
+@pytest.mark.parametrize("mode", ["normal", "overflow", "timeout"])
+def test_evaluator_bounded_capture_uses_only_synthetic_process(monkeypatch, mode):
+    import devhub.experiment_evaluate as mod
+
+    real_popen = subprocess.Popen
+    source = {
+        "normal": "print('synthetic')",
+        "overflow": "print('x'*2200000)",
+        "timeout": "import time; time.sleep(10)",
+    }[mode]
+    monkeypatch.setattr(
+        mod.subprocess,
+        "Popen",
+        lambda *a, **kw: real_popen(
+            [sys.executable, "-c", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        ),
+    )
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **kw: None)
+    if mode == "timeout":
+        ticks = iter([0, 61])
+        monkeypatch.setattr(mod.time, "monotonic", lambda: next(ticks, 61))
+    out, err, timeout, overflow = mod.capture_evaluator("synthetic-not-a-container")
+    assert len(out) <= 1024 * 1024 and len(err) <= 1024 * 1024
+    assert timeout is (mode == "timeout")
+    assert overflow is (mode == "overflow")
+    if mode == "normal":
+        assert out.strip() == b"synthetic"
