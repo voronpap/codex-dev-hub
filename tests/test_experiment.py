@@ -395,6 +395,13 @@ def test_synthetic_engine_freezes_unmodified_output_and_failure(
         return events(), b"", exit_code, timed_out, now, now, 10
 
     monkeypatch.setattr(mod, "capture_process", process)
+    monkeypatch.setattr(
+        mod.subprocess,
+        "check_output",
+        lambda *args, **kwargs: json.dumps(
+            {"Running": False, "ExitCode": exit_code if exit_code is not None else 137}
+        ).encode(),
+    )
     dest = tmp_path / "attempt"
     result = launch_container(
         session(),

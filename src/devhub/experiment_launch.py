@@ -38,6 +38,7 @@ class ExecutorProvenance(Contract):
     ended_at: datetime
     duration_ns: Annotated[int, Field(ge=0)]
     exit_code: int | None
+    launcher_exit_code: int | None
     timed_out: bool
     task_exposed: bool
     stdout_sha256: Digest
@@ -397,9 +398,22 @@ def launch_container(
             }
         ),
     )
-    created = subprocess.run(
-        command, capture_output=True, check=False, env={"PATH": os.defpath}, timeout=30
-    )
+    try:
+        created = subprocess.run(
+            command, capture_output=True, check=False, env={"PATH": os.defpath}, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        write_sealed(
+            destination / "not-run.json",
+            canonical(
+                {
+                    "status": "not_run",
+                    "reason": "container_creation_unconfirmed",
+                    "task_exposed": False,
+                }
+            ),
+        )
+        raise
     if created.returncode != 0:
         write_sealed(
             destination / "not-run.json",
@@ -422,6 +436,14 @@ def launch_container(
         )
         if timeout:
             subprocess.run([*DOCKER, "kill", cid], capture_output=True, timeout=15, check=False)
+        state = json.loads(
+            subprocess.check_output(
+                [*DOCKER, "inspect", "--format", "{{json .State}}", cid], timeout=10
+            )
+        )
+        if state.get("Running") is not False or type(state.get("ExitCode")) is not int:
+            raise RuntimeError("Container did not reach a verified exit state")
+        container_code = state["ExitCode"]
         final_path = capture / "final.txt"
         raw = (
             final_path.read_bytes()
@@ -430,7 +452,7 @@ def launch_container(
         )
         end = datetime.now(UTC)
         elapsed = time.perf_counter_ns() - tick
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, ValueError, RuntimeError):
         write_sealed(
             destination / "failed.json",
             canonical(
@@ -448,7 +470,13 @@ def launch_container(
         subprocess.run([*DOCKER, "kill", cid], capture_output=True, timeout=15, check=False)
     safe_artifacts((out, err, raw or b""), secret_values)
     usage = codex_usage(out, bindings.environment.codex_cli_version, protocol.codex_cli_version)
-    complete = code == 0 and not timeout and raw is not None and completed_turn(out)
+    complete = (
+        code == 0
+        and container_code == 0
+        and not timeout
+        and raw is not None
+        and completed_turn(out)
+    )
     receipt = ExecutorProvenance(
         kind="linux_oci_process",
         session_id=session.session_id,
@@ -460,7 +488,8 @@ def launch_container(
         started_at=start,
         ended_at=end,
         duration_ns=elapsed,
-        exit_code=code,
+        exit_code=container_code,
+        launcher_exit_code=code,
         timed_out=timeout,
         task_exposed=True,
         stdout_sha256=digest(out),
