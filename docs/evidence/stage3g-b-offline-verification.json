@@ -2,8 +2,8 @@
   "schema_version": 1,
   "stage": "3G-B",
   "kind": "offline_protocol_launcher",
-  "implementation_commit": "40d00313edb07f05a9707f0cb07f339b29b903e3",
-  "dry_run_sha256": "ad255e18541ed586b04f5e6c3f8a1a367caf2ecc94859a312bbfcde744cc9cb6",
+  "implementation_commit": "3c83d9090c90f2aef8eb0ce394e1919b2f1cb15e",
+  "dry_run_sha256": "060b620094195100d0a0d5a294f029a87c9c6d290824ab4213dfa99d9e180c05",
   "planned_sessions": 24,
   "real_codex_executions": 0,
   "provider_sends": 0,
@@ -44,5 +44,14 @@
     "input_available": true,
     "output_available": true,
     "new_executions": 0
+  },
+  "dry_run_id": "stage3g-b-plan-002",
+  "synthetic_oci_recipe_probe": {
+    "ci_run": "https://github.com/voronpap/codex-dev-hub/actions/runs/36536227708",
+    "passed": true,
+    "checks_passed": 9,
+    "runtime_image_qualification": false,
+    "real_codex_executions": 0,
+    "provider_sends": 0
   }
 }

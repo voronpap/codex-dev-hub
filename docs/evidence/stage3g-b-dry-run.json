@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "run_id": "stage3g-b-plan-001",
-  "implementation_commit": "40d00313edb07f05a9707f0cb07f339b29b903e3",
+  "run_id": "stage3g-b-plan-002",
+  "implementation_commit": "3c83d9090c90f2aef8eb0ce394e1919b2f1cb15e",
   "seed_manifest_sha256": "0c0eaccdb5109ff80dea115a75f0965b6948585cedb2e71351094de748ce3e5c",
   "protocol": {
     "schema_version": 1,
@@ -64,7 +64,7 @@
       "fixture_sha256": "4075dbfef0141ad32073166ee6fbb209449ffa4022394b10f269a5bb4398aa0d",
       "oracle_sha256": "d0ba99e26f8c7805840e3d33cb7e6720dbcf467eea76f3a5d5698e22d3320cbb",
       "arm": "A",
-      "session_id": "s-8ee3120d98f55217a93fff7cd3970f9d",
+      "session_id": "s-7b97650e97945b4fbcecf6cbb0183594",
       "packet_path": "executors/direct-01/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -79,7 +79,7 @@
       "fixture_sha256": "4075dbfef0141ad32073166ee6fbb209449ffa4022394b10f269a5bb4398aa0d",
       "oracle_sha256": "d0ba99e26f8c7805840e3d33cb7e6720dbcf467eea76f3a5d5698e22d3320cbb",
       "arm": "B",
-      "session_id": "s-12fb47d0353455f4a1633cdc5b46f901",
+      "session_id": "s-ab00759f6a8b5f5f905179ba83fcb614",
       "packet_path": "executors/direct-01/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -96,7 +96,7 @@
       "fixture_sha256": "a740146976a5b9590ccb730803bf8f65ba8c9de979ff68d8eec4ad5efc39e847",
       "oracle_sha256": "4b3fd6d9ad0ff94f44eaff4a9500de9a01f9e07024a914b35dd85a7df802bfd7",
       "arm": "B",
-      "session_id": "s-6298ae1a3ca2555aa15fd4a2f2cfb822",
+      "session_id": "s-7ee24ef087865ad682b45d7014aec680",
       "packet_path": "executors/direct-02/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -113,7 +113,7 @@
       "fixture_sha256": "a740146976a5b9590ccb730803bf8f65ba8c9de979ff68d8eec4ad5efc39e847",
       "oracle_sha256": "4b3fd6d9ad0ff94f44eaff4a9500de9a01f9e07024a914b35dd85a7df802bfd7",
       "arm": "A",
-      "session_id": "s-86654c85319653959a00de9c4cbe19aa",
+      "session_id": "s-aec94dacef065f51aeaa723cadb1890c",
       "packet_path": "executors/direct-02/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -128,7 +128,7 @@
       "fixture_sha256": "1324e95da26b6e7e0c77169d0d5ee2149148aef30ad2058e4f96858ba3af0f80",
       "oracle_sha256": "ce2e4f1669c2d5dda896e6e52ab901120e06907ea7e186cd4e2fa1be4e88f1d4",
       "arm": "A",
-      "session_id": "s-227df74d8cf55f3aa4cd10bbaf605da4",
+      "session_id": "s-9bcfdf9bb1e351c2b512741697443520",
       "packet_path": "executors/extract-01/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -143,7 +143,7 @@
       "fixture_sha256": "1324e95da26b6e7e0c77169d0d5ee2149148aef30ad2058e4f96858ba3af0f80",
       "oracle_sha256": "ce2e4f1669c2d5dda896e6e52ab901120e06907ea7e186cd4e2fa1be4e88f1d4",
       "arm": "B",
-      "session_id": "s-4bff4e2c13d65ab18380f47f01734dcf",
+      "session_id": "s-dce93ba733405b2f8420e1ad9e9920f0",
       "packet_path": "executors/extract-01/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -160,7 +160,7 @@
       "fixture_sha256": "a7a9765134ab4748e788f8a0fe478263d723e242284942e6d952961b80f58849",
       "oracle_sha256": "c389eee787d5473dfe7bc30a3e524a2b444d267dc8a8b810e7a611687210b4b5",
       "arm": "B",
-      "session_id": "s-714d18762df75318b28c46496016ee67",
+      "session_id": "s-f0874d93f31e5f1aaf657f17dda080ee",
       "packet_path": "executors/extract-02/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -177,7 +177,7 @@
       "fixture_sha256": "a7a9765134ab4748e788f8a0fe478263d723e242284942e6d952961b80f58849",
       "oracle_sha256": "c389eee787d5473dfe7bc30a3e524a2b444d267dc8a8b810e7a611687210b4b5",
       "arm": "A",
-      "session_id": "s-3170bbf0e3e25d218b64106be386f053",
+      "session_id": "s-f9a01fc981d753ddac670942dc8de399",
       "packet_path": "executors/extract-02/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -192,7 +192,7 @@
       "fixture_sha256": "7c9dc1507a832e27f80b5a6831b7a3d965d831de413f801fd89ef249e631b7bb",
       "oracle_sha256": "6cde1dee7c19874aaadfe0dcf821fce2736932d4963ef85d5a9bd912e4a5d597",
       "arm": "A",
-      "session_id": "s-40764207903b53b0917a1e40a9723c9f",
+      "session_id": "s-205320358d045f11b751355891abf707",
       "packet_path": "executors/research-01/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -207,7 +207,7 @@
       "fixture_sha256": "7c9dc1507a832e27f80b5a6831b7a3d965d831de413f801fd89ef249e631b7bb",
       "oracle_sha256": "6cde1dee7c19874aaadfe0dcf821fce2736932d4963ef85d5a9bd912e4a5d597",
       "arm": "B",
-      "session_id": "s-bb22af2ceda05727a9213d224569c838",
+      "session_id": "s-71c60e37e6a75c2fb625e39af754adcd",
       "packet_path": "executors/research-01/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -224,7 +224,7 @@
       "fixture_sha256": "101b109bbdf5f182a36fc50de7e05e6949e30459ccc939cb5bef200bea1c77d5",
       "oracle_sha256": "60378c1a6b5703bd1647e7897eab905a91f738b0436ce675bf4114210ae8af4c",
       "arm": "B",
-      "session_id": "s-611af9a38f9d56da92a0d5ed1f820607",
+      "session_id": "s-3df710f0314c55e8baaa49f4fd06d459",
       "packet_path": "executors/research-02/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -241,7 +241,7 @@
       "fixture_sha256": "101b109bbdf5f182a36fc50de7e05e6949e30459ccc939cb5bef200bea1c77d5",
       "oracle_sha256": "60378c1a6b5703bd1647e7897eab905a91f738b0436ce675bf4114210ae8af4c",
       "arm": "A",
-      "session_id": "s-424c3e00797156e6abdad0d631f9f376",
+      "session_id": "s-ee5f4e46010750f7b9ce49aa13e53b74",
       "packet_path": "executors/research-02/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -256,7 +256,7 @@
       "fixture_sha256": "a6fa44fb3538dc0be10d7e6104fc22c2a96243368922ac9b7e3f95764e8df8a0",
       "oracle_sha256": "b5d02d975a861e00c587545a23aeea1a8461ffdbce4345a7e541ead20c793da0",
       "arm": "A",
-      "session_id": "s-18a5054a81da5c93b9b0d084fa81ef94",
+      "session_id": "s-877285f47a6c55a6ad3889383e204fa6",
       "packet_path": "executors/review-01/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -271,7 +271,7 @@
       "fixture_sha256": "a6fa44fb3538dc0be10d7e6104fc22c2a96243368922ac9b7e3f95764e8df8a0",
       "oracle_sha256": "b5d02d975a861e00c587545a23aeea1a8461ffdbce4345a7e541ead20c793da0",
       "arm": "B",
-      "session_id": "s-ba06f291c7715868a36d3ed8feb64cda",
+      "session_id": "s-f03550cf871354498732c1103eee0321",
       "packet_path": "executors/review-01/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -288,7 +288,7 @@
       "fixture_sha256": "74fd860790676acfd7a5bf45dce0703d1e49350b5165836283d112c7e59be799",
       "oracle_sha256": "c1c30d1f9428007591b7c949529a46511a025544aa5ef2ec2f0e9689ff3df49b",
       "arm": "B",
-      "session_id": "s-5ecdc0f5aad35ba5ac8ae8ff8ad81558",
+      "session_id": "s-e01a7eab147b5e84bffe82a1b6e238d9",
       "packet_path": "executors/review-02/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -305,7 +305,7 @@
       "fixture_sha256": "74fd860790676acfd7a5bf45dce0703d1e49350b5165836283d112c7e59be799",
       "oracle_sha256": "c1c30d1f9428007591b7c949529a46511a025544aa5ef2ec2f0e9689ff3df49b",
       "arm": "A",
-      "session_id": "s-fd635e284f4b5de2bb57d40ad629852e",
+      "session_id": "s-ff23eb92d1ab5bf180e3a7216ba2d237",
       "packet_path": "executors/review-02/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -320,7 +320,7 @@
       "fixture_sha256": "1ae4a1a0a96a0803bdc870eda8cc43067f7dd03c75456e69833e992087344dee",
       "oracle_sha256": "e4b82a11ff9fa35ffa353cea76881bb61e8c2c47fb40ad6fe9e1b13b16eabc4d",
       "arm": "A",
-      "session_id": "s-6413c70da1f45cf7ade72c3afb5f4468",
+      "session_id": "s-215fe8b616a95c81aa36abeab9e25cec",
       "packet_path": "executors/summary-01/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -335,7 +335,7 @@
       "fixture_sha256": "1ae4a1a0a96a0803bdc870eda8cc43067f7dd03c75456e69833e992087344dee",
       "oracle_sha256": "e4b82a11ff9fa35ffa353cea76881bb61e8c2c47fb40ad6fe9e1b13b16eabc4d",
       "arm": "B",
-      "session_id": "s-9950f1b2d4f1585e91863345a1e2d3a2",
+      "session_id": "s-637270e477bc5b459896f22b9b2a51f1",
       "packet_path": "executors/summary-01/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -352,7 +352,7 @@
       "fixture_sha256": "94741a807d58d3c68ec136639ae087fcb1db8976872ac08e2ebecb0ba2b47972",
       "oracle_sha256": "ea520bb12fbf10f773640a19bd2a1297cdb16367dbdd368216deab6040ad97c7",
       "arm": "B",
-      "session_id": "s-89bd9425b3105d7eb85c7754e8a1f4a4",
+      "session_id": "s-5d77b9859add5f989f1111b80e80a55a",
       "packet_path": "executors/summary-02/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -369,7 +369,7 @@
       "fixture_sha256": "94741a807d58d3c68ec136639ae087fcb1db8976872ac08e2ebecb0ba2b47972",
       "oracle_sha256": "ea520bb12fbf10f773640a19bd2a1297cdb16367dbdd368216deab6040ad97c7",
       "arm": "A",
-      "session_id": "s-26104ef2c80a5830b8f1b9ab061121a1",
+      "session_id": "s-30d0272541485b748ab4b6465e9bb199",
       "packet_path": "executors/summary-02/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -384,7 +384,7 @@
       "fixture_sha256": "7342202105217e212c0bada86afc97ff8fa65fccdb45389b190d16d15d0fa646",
       "oracle_sha256": "85a81dd537b1ee53108a471bd98f02d3a092072ccc65e1a4ec8e2a3dcba23bae",
       "arm": "A",
-      "session_id": "s-e40c8f4081485b19986a6fed250fe90e",
+      "session_id": "s-9e8d611de4895728a11b9ae2716fbcc0",
       "packet_path": "executors/tests-01/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
@@ -399,7 +399,7 @@
       "fixture_sha256": "7342202105217e212c0bada86afc97ff8fa65fccdb45389b190d16d15d0fa646",
       "oracle_sha256": "85a81dd537b1ee53108a471bd98f02d3a092072ccc65e1a4ec8e2a3dcba23bae",
       "arm": "B",
-      "session_id": "s-f71af0985f905e28b4d022759860a8b9",
+      "session_id": "s-58a793781d8c5665a16f8d6568e615e6",
       "packet_path": "executors/tests-01/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -416,7 +416,7 @@
       "fixture_sha256": "945008e24e906cf3672ff7a263dea6c5779b4f14970361185d44c9e4556ee79e",
       "oracle_sha256": "9b50ae6cb3a933223637849d6b8bf4534ec6e83a6011ab368ee571d9cf2bbb53",
       "arm": "B",
-      "session_id": "s-73508f41eb24580e996a1f232b1ddb50",
+      "session_id": "s-123c170751295dedb91c5129a71fa52e",
       "packet_path": "executors/tests-02/B",
       "available_mcp_tools": [
         "devhub_delegate"
@@ -433,7 +433,7 @@
       "fixture_sha256": "945008e24e906cf3672ff7a263dea6c5779b4f14970361185d44c9e4556ee79e",
       "oracle_sha256": "9b50ae6cb3a933223637849d6b8bf4534ec6e83a6011ab368ee571d9cf2bbb53",
       "arm": "A",
-      "session_id": "s-47940a96fdf65b3a9fee806b239bdb3e",
+      "session_id": "s-834e65b0395457df8696633671d4168d",
       "packet_path": "executors/tests-02/A",
       "available_mcp_tools": [],
       "isolation": "linux_oci_network_none_scoped_unix_bridges",
