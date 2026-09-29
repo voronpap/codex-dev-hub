@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "stage": "3F",
+  "implementation_commit": "5b59bd5ad67d48387dcfe39abf4bb0cdcf10ab48",
+  "client": "real Codex CLI with MCP stdio",
+  "codex_version": "codex-cli 0.155.0-alpha.9.2",
+  "codex_exit": 0,
+  "task": {
+    "schema_version": 1,
+    "project": "devhub-smoke",
+    "task_id": "stage3f-local-delegate",
+    "request_key": "stage3f-local-delegate-1",
+    "instructions": "Summarize the closed execution gates and the remaining limits on semantic quality claims.",
+    "acceptance_criteria": [
+      "Identify the closed provider execution gates and distinguish them from semantic acceptance."
+    ],
+    "query": "docs/STAGES.md",
+    "task_class": "summarize",
+    "privacy": "local_only",
+    "allow_cloud": false,
+    "require_citations": true
+  },
+  "privacy": "local_only",
+  "selected_provider": "ollama",
+  "selected_model": "qwen2.5:14b-instruct",
+  "model_digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+  "ledger_reused_from_stage3c": true,
+  "handoff": {
+    "schema_version": 1,
+    "status": "completed",
+    "reason": "validated",
+    "provider": "ollama",
+    "model": "qwen2.5:14b-instruct",
+    "summary": "The execution gates for providers Ollama, Groq, and Gemini are closed, indicating that their execution/accounting gates have been passed. However, semantic quality has not been established for any provider, and fields such as `semantic_acceptance`, `quality_benchmark`, `delegation_value`, and `savings` remain null. This means that while the providers have passed their execution gates, no claims can be made about the semantic success or quality of their outputs.",
+    "citations": [
+      "s1"
+    ],
+    "package_hash": "e7e0abdc6fdb4bcdf4c88d6b6be0c78bca2febdf5c827e3a8859839f04923547",
+    "export_hash": null,
+    "context_estimate": 2184,
+    "input_preflight": 767,
+    "actual_input_tokens": 767,
+    "actual_output_tokens": 119,
+    "latency_ms": 20311,
+    "accounting_reference": "8c842260da994abdb10a69120f4fcc53",
+    "execution": "completed",
+    "accounting": "settled",
+    "output_validation": "passed",
+    "citations_validation": "passed",
+    "selection": [
+      {
+        "schema_version": 1,
+        "profile": "installed-local",
+        "provider": "ollama",
+        "reason": "candidate"
+      }
+    ],
+    "retries": 0,
+    "fallback": false,
+    "semantic_acceptance": null,
+    "quality_benchmark": null,
+    "delegation_value": null,
+    "savings": null
+  },
+  "http_trace": [
+    {
+      "event": "before_send",
+      "timestamp_ms": 1790625942203,
+      "reservation": "8c842260da994abdb10a69120f4fcc53",
+      "state": "dispatched",
+      "request_hash": "43447f69e967110ed5c960ce924edcfd264a8df5fdb5d70d0a57be81062a21f0"
+    },
+    {
+      "event": "response",
+      "timestamp_ms": 1790625962510,
+      "http_status": 200,
+      "model": "qwen2.5:14b-instruct",
+      "done": true,
+      "done_reason": "stop",
+      "prompt_eval_count": 767,
+      "eval_count": 119,
+      "response_hash": "5ffd1065807ec399ad87b3c3ff1486c341298412bca4acd2cea8f46a8de9ebbd"
+    }
+  ],
+  "accounting_events": [
+    {
+      "schema_version": 1,
+      "id": "300f606061ec4f459800e16d23a5f31d",
+      "project": "devhub-smoke",
+      "task": "stage3f-local-delegate",
+      "reservation": "8c842260da994abdb10a69120f4fcc53",
+      "resource": "ollama-360995948bc813b4cbc2ddb3d584ffe4",
+      "transition": "reserved",
+      "recorded_ms": 1790625941617,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-input_tokens",
+          "reserved": 767,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-output_tokens",
+          "reserved": 256,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-requests",
+          "reserved": 1,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-total_tokens",
+          "reserved": 1023,
+          "actual": null
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "id": "46bc88a8cc4d4e359137e94696785d8c",
+      "project": "devhub-smoke",
+      "task": "stage3f-local-delegate",
+      "reservation": "8c842260da994abdb10a69120f4fcc53",
+      "resource": "ollama-360995948bc813b4cbc2ddb3d584ffe4",
+      "transition": "dispatched",
+      "recorded_ms": 1790625942198,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-input_tokens",
+          "reserved": 767,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-output_tokens",
+          "reserved": 256,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-requests",
+          "reserved": 1,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-total_tokens",
+          "reserved": 1023,
+          "actual": null
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "id": "badf29a9b95442f4b9fac8efc9fbcf7c",
+      "project": "devhub-smoke",
+      "task": "stage3f-local-delegate",
+      "reservation": "8c842260da994abdb10a69120f4fcc53",
+      "resource": "ollama-360995948bc813b4cbc2ddb3d584ffe4",
+      "transition": "settled",
+      "recorded_ms": 1790625962514,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-input_tokens",
+          "reserved": 767,
+          "actual": 767
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-output_tokens",
+          "reserved": 256,
+          "actual": 119
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-requests",
+          "reserved": 1,
+          "actual": 1
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-360995948bc813b4cbc2ddb3d584ffe4-total_tokens",
+          "reserved": 1023,
+          "actual": 886
+        }
+      ]
+    }
+  ],
+  "package_sources": [
+    {
+      "citation": "s1",
+      "selected_sha256": "0d665dffb8a13fce71610fd9e47d3f04020298e1af1c6e837ac8bf6baedb682d",
+      "sources": [
+        {
+          "schema_version": 1,
+          "path": "docs/STAGES.md",
+          "source_sha256": "0d665dffb8a13fce71610fd9e47d3f04020298e1af1c6e837ac8bf6baedb682d",
+          "original_chunk_sha256": "0d665dffb8a13fce71610fd9e47d3f04020298e1af1c6e837ac8bf6baedb682d",
+          "start_line": 1,
+          "original_end_line": 21,
+          "end_line": 21,
+          "trust": "repository_untrusted",
+          "sensitivity": "project_private"
+        }
+      ]
+    }
+  ],
+  "inference_sends": 1,
+  "retries": 0,
+  "fallback": false,
+  "codex_transcript_sha256": "f929e8fc29328e79520f7986b2069ac656738c182d3efc8ec0c887a8094f923c",
+  "observer_sha256": "38dfc518efc7f5f12c261f1d0545f8831be660e482040055a29bf9c07d85d635",
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "local_gate": "PASSED",
+  "codex_completed_tool_calls": 1,
+  "context_estimator": "utf8_byte_proxy_v1",
+  "stage_decision": "CLOSED_PROPOSED_PENDING_FINAL_CI_REVIEW",
+  "host_approval": {
+    "scope": "invocation-only, devhub_delegate tool, one exact local request",
+    "read_only_sandbox": true,
+    "cloud_enabled": false,
+    "documentation": "https://learn.chatgpt.com/docs/config-file/config-reference"
+  },
+  "prior_host_setup_failure": {
+    "reason": "MCP tool call requires approval, but approval policy is never",
+    "runtime_calls": 0,
+    "reservations": 0,
+    "inference_sends": 0,
+    "codex_transcript_sha256": "3a8d35159ad0cb434ce2105d3cb87c431f835b9a441e1dd5ba6f17537958c92e"
+  }
+}

@@ -3,8 +3,11 @@ on:
   pull_request:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['*']
   workflow_dispatch:
+concurrency:
+  group: offline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:

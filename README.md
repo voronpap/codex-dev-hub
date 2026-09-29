@@ -216,3 +216,6 @@ V1 succeeds if Codex can use Dev Hub during real development work and we can dem
 - remain observable and reversible.
 
 The objective is not “delegate as much as possible.” The objective is **make Codex development more efficient**.
+
+Normal delegation entry point: [Stage 3F contract and configuration](docs/STAGE3F.md),
+`python -m devhub.delegate_server --config <trusted-local-json>`.

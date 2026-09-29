@@ -27,5 +27,6 @@ integration smoke or Linux-specific local evidence.
 Historical full Windows PR #19 job: 12m10s (pytest 676.98s, 228 passed), run
 36469413327, job 109087583054. Its push job took 9m21s (pytest 519.29s), run
 36469409002. Current local Windows smoke: 11 passed, 1 skipped in 3.76s;
-this excludes hosted setup and is not a hosted CI duration. Hosted smoke timing
-will be recorded after its first run. This change does not alter runtime semantics.
+this excludes hosted setup and is not a hosted CI duration. Hosted PR #20 smoke took 52s including setup (12 passed in 10.80s), run
+36473605267. Its full Windows job took 9m15s (229 passed). Manual dispatch
+36473604341 completed successfully, including full Windows. This change does not alter runtime semantics.

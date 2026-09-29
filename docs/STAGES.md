@@ -19,3 +19,6 @@ No diagnostic repeat inference is authorized.
 Semantic quality is not established for any provider. `semantic_acceptance`,
 `quality_benchmark`, `delegation_value` and `savings` remain null. HTTP 200 and
 settlement do not establish semantic success. Stage 3F is next; Stage 3G is not started.
+
+Stage 3F: local unified delegation proof PASSED in PR #21; CLOSED proposed pending
+final full-platform CI and review. Stage 3G remains not started.

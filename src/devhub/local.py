@@ -18,6 +18,7 @@ from devhub.execution import dispatch_execution, reserve_execution, settle_execu
 from devhub.ledger import Ledger
 from devhub.models import Contract, Identifier
 from devhub.ollama import OllamaAdapter, OllamaConfig, OllamaError
+from devhub.output import OutputPolicy, validate_output
 from devhub.registry import CapabilityRecord
 from devhub.resources import Bucket, ResourcePolicy
 from devhub.router import RouteRequest
@@ -58,10 +59,15 @@ class LocalHandoff(Contract):
     model_input_tokens_preflight: int | None = None
     actual_model_input_tokens: int | None = None
     actual_model_output_tokens: int | None = None
+    latency_ms: int | None = None
+    output_validation: Literal["passed", "failed", "not_checked"] = "not_checked"
+    citations_validation: Literal["passed", "failed", "not_checked"] = "not_checked"
+    citations: tuple[str, ...] = ()
 
 
 class LocalRuntime:
-    def __init__(self, config: LocalConfig) -> None:
+    def __init__(self, config: LocalConfig, *, output_policy: OutputPolicy | None = None) -> None:
+        self.output_policy = output_policy
         self.config = config
         root = Path(config.root).resolve(strict=True)
         state = Path(config.state_root).resolve()
@@ -73,7 +79,7 @@ class LocalRuntime:
         self.scope = self.brain.scope(config.project)
         self.builder = ContextBuilder(self.brain)
         self.core = ResourceController(Ledger(state / "ledger.db"), allow_local_execution=True)
-        self.adapter = OllamaAdapter(config.ollama)
+        self.adapter = OllamaAdapter(config.ollama, output_policy=output_policy)
         self.resource = "ollama-" + sha256(canonical(config.ollama.model_dump()).encode())[:32]
         self.buckets = {}
         for unit in ("requests", "input_tokens", "output_tokens", "total_tokens"):
@@ -233,7 +239,9 @@ class LocalRuntime:
             model_input_tokens_preflight=prepared.model_input_tokens,
         )
         try:
+            send_started = now_ms()
             response = self.adapter.send(prepared)
+            base["latency_ms"] = now_ms() - send_started
         except OllamaError:
             self.core.unknown(ticket.id, project=self.config.project)
             return LocalHandoff(status="unknown_usage", reason="send_outcome_unknown", **base)
@@ -261,8 +269,29 @@ class LocalRuntime:
         try:
             if response.get("done_reason") != "stop":
                 raise ValueError("incomplete output")
+            if self.output_policy is not None:
+                checked = validate_output(
+                    response.get("response", ""),
+                    tuple(f"s{i + 1}" for i in range(len(package.items))),
+                    self.output_policy,
+                )
+                base.update(
+                    output_validation=checked.output_validation,
+                    citations_validation=checked.citations_validation,
+                )
+                if checked.output is None:
+                    return LocalHandoff(status="failed", reason=checked.reason, **base)
+                return LocalHandoff(
+                    status="completed",
+                    reason="validated",
+                    summary=checked.output.summary,
+                    citations=checked.output.citations,
+                    **base,
+                )
             output = json.loads(response.get("response", ""))
             summary = Summary.model_validate(output)
         except (TypeError, ValueError, ValidationError):
+            if self.output_policy is not None:
+                base["output_validation"] = "failed"
             return LocalHandoff(status="failed", reason="invalid_output", **base)
         return LocalHandoff(status="completed", reason="settled", summary=summary.summary, **base)
