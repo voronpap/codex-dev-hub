@@ -29,6 +29,7 @@ jobs:
       - run: uv run --locked ruff format --check .
       - run: uv run --locked mypy
       - run: uv run --locked pytest -q
+      - run: uv run --locked python scripts/probe_oci_boundary.py
       - run: uv run --locked devhub validate-config --config config/offline.toml
       - run: uv run --locked python scripts/check_evidence.py
       - id: scope

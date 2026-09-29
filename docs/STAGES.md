@@ -31,3 +31,6 @@ savings remain null.
 Stage 3G-A CLOSED. Offline benchmark harness accepted and merged as PR #22.
 Linux full and Windows smoke passed on ddbc04a (run 36524734606).
 Real paired executions = 0. Stage 3G remains OPEN.
+
+Stage 3G-B protocol/isolated launcher is under review; see [protocol](STAGE3G-B.md).
+No real Codex benchmark sessions or provider sends; Stage 3G OPEN.

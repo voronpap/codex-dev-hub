@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "stage": "3G-B",
+  "kind": "offline_protocol_launcher",
+  "implementation_commit": "3c83d9090c90f2aef8eb0ce394e1919b2f1cb15e",
+  "dry_run_sha256": "060b620094195100d0a0d5a294f029a87c9c6d290824ab4213dfa99d9e180c05",
+  "planned_sessions": 24,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "local_cli_metadata": {
+    "version": "codex-cli 0.155.0-alpha.9.2",
+    "model_identity": null,
+    "commands": [
+      "--version",
+      "exec --help",
+      "sandbox --help",
+      "features list"
+    ]
+  },
+  "local_docker_daemon_available": false,
+  "runtime_image_qualified": false,
+  "accepted_stage3f_ollama_config_reused": true,
+  "new_ollama_calls": 0,
+  "local_tests": {
+    "passed": 22,
+    "skipped": 1,
+    "reason": "Unix-only synthetic MCP bridge requires Linux"
+  },
+  "review_required": true,
+  "stage3g": "OPEN",
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "remaining_gates": [
+    "review protocol/launcher",
+    "bind actual Linux image and environment",
+    "non-benchmark isolation probe on exact runtime image",
+    "Codex auth/config/tool preflight review"
+  ],
+  "codex_usage_parser_historical_check": {
+    "source": "existing accepted Stage 3F transcript",
+    "parser": "exec_jsonl_turn_completed_v1",
+    "input_available": true,
+    "output_available": true,
+    "new_executions": 0
+  },
+  "dry_run_id": "stage3g-b-plan-002",
+  "synthetic_oci_recipe_probe": {
+    "ci_run": "https://github.com/voronpap/codex-dev-hub/actions/runs/36536227708",
+    "passed": true,
+    "checks_passed": 9,
+    "runtime_image_qualification": false,
+    "real_codex_executions": 0,
+    "provider_sends": 0
+  }
+}
