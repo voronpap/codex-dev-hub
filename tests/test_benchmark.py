@@ -280,14 +280,14 @@ def test_utf8_packets_and_exclusive_files_with_spaced_path(prepared):
     config = BenchmarkConfig(
         **{
             **config.model_dump(),
-            "shared_instructions": "РЈРєСЂР°С—РЅСЃСЊРєРёР№ С‚РµРєСЃС‚ вЂ” рџ§Є",
+            "shared_instructions": "Український текст — 🧪",
         }
     )
-    target = run.parent / "РїР°РєРµС‚Рё Р· РїСЂРѕР±С–Р»Р°РјРё"
+    target = run.parent / "пакети з пробілами"
     prepare(repo, config, target, "unicode")
     assert verify(repo, target, config)
     assert (target / "executors/direct-01/A/instructions.txt").read_text(encoding="utf-8") == (
-        "РЈРєСЂР°С—РЅСЃСЊРєРёР№ С‚РµРєСЃС‚ вЂ” рџ§Є"
+        config.shared_instructions + "\n" + config.arm_a_instructions
     )
     with pytest.raises(FileExistsError):
         prepare(repo, config, target, "unicode")
