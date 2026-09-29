@@ -25,12 +25,16 @@ citation s1, 767 input / 119 output tokens, one send, no retry/fallback, and
 reserved -> dispatched -> settled. The initial zero-send host-approval block
 remains historical evidence. Semantic quality remains unestablished.
 
-Stage 3G OPEN: real protocol and isolated launcher are next; execution requires review. semantic_acceptance, quality_benchmark, delegation_value and
+Stage 3G OPEN: real benchmark not started; runtime qualification and execution require review. semantic_acceptance, quality_benchmark, delegation_value and
 savings remain null.
 
 Stage 3G-A CLOSED. Offline benchmark harness accepted and merged as PR #22.
 Linux full and Windows smoke passed on ddbc04a (run 36524734606).
 Real paired executions = 0. Stage 3G remains OPEN.
 
-Stage 3G-B protocol/isolated launcher is under review; see [protocol](STAGE3G-B.md).
-No real Codex benchmark sessions or provider sends; Stage 3G OPEN.
+Stage 3G-B CLOSED. Frozen paired protocol + isolated launcher accepted and merged as PR #23.
+Linux full, Windows smoke, lint/type/secret checks and synthetic OCI probe passed
+on a338656 (run 36537078227). See [accepted protocol](STAGE3G-B.md).
+Stage 3G OPEN. Real benchmark not started. real_codex_executions = 0;
+provider_sends = 0; execution_ready = false. Stage 3G-C qualifies the exact runtime
+without executing benchmark fixtures or provider inference.
