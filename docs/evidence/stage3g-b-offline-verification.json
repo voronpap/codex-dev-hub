@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "stage": "3G-B",
+  "kind": "offline_protocol_launcher",
+  "implementation_commit": "40d00313edb07f05a9707f0cb07f339b29b903e3",
+  "dry_run_sha256": "ad255e18541ed586b04f5e6c3f8a1a367caf2ecc94859a312bbfcde744cc9cb6",
+  "planned_sessions": 24,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "local_cli_metadata": {
+    "version": "codex-cli 0.155.0-alpha.9.2",
+    "model_identity": null,
+    "commands": [
+      "--version",
+      "exec --help",
+      "sandbox --help",
+      "features list"
+    ]
+  },
+  "local_docker_daemon_available": false,
+  "runtime_image_qualified": false,
+  "accepted_stage3f_ollama_config_reused": true,
+  "new_ollama_calls": 0,
+  "local_tests": {
+    "passed": 22,
+    "skipped": 1,
+    "reason": "Unix-only synthetic MCP bridge requires Linux"
+  },
+  "review_required": true,
+  "stage3g": "OPEN",
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "remaining_gates": [
+    "review protocol/launcher",
+    "bind actual Linux image and environment",
+    "non-benchmark isolation probe on exact runtime image",
+    "Codex auth/config/tool preflight review"
+  ]
+}
