@@ -1,0 +1,38 @@
+{
+  "kind": "static_revision_review_not_harness_execution",
+  "schema_version": 1,
+  "protocol_id": "stage3g-seed1-paired-v2",
+  "protocol_sha256": "fd6d696a20e70aab4eff59343ef8527ee121efca2707ef08b3d748e1b549a2e6",
+  "codex_config_sha256": "da291cc0265727ba6f86dac58725f891b41fb837cad8529a91a480732c3477d7",
+  "plan_sha256": null,
+  "session_ids": null,
+  "harness_dry_run_executed": false,
+  "verified_fixtures": 12,
+  "verified_oracles": 12,
+  "expected_planned_sessions": 24,
+  "v1_hashes_verified": true,
+  "v2_only_protocol_id_changed_in_json": true,
+  "removed_overrides": [
+    "model_providers.openai.request_max_retries=0",
+    "model_providers.openai.stream_max_retries=0"
+  ],
+  "syntax_checked": true,
+  "pytest_result": null,
+  "linux_ci_result": null,
+  "windows_smoke_result": null,
+  "exact_image_config_result": null,
+  "pr24_merge_verified": false,
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "codex_internal_retries": null,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "blockers": [
+    "GitHub network unavailable and gh config access denied",
+    "workspace Python unavailable and native pydantic DLL load denied",
+    "Docker daemon unavailable; Docker config and WSL enumeration access denied"
+  ]
+}

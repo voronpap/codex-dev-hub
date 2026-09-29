@@ -54,7 +54,9 @@ ARM_B = (
 
 
 class ExperimentProtocol(Contract):
-    protocol_id: Literal["stage3g-seed1-paired-v1"] = "stage3g-seed1-paired-v1"
+    protocol_id: Literal["stage3g-seed1-paired-v1", "stage3g-seed1-paired-v2"] = (
+        "stage3g-seed1-paired-v1"
+    )
     ordering: Literal["manifest_order_alternating_AB_BA"] = "manifest_order_alternating_AB_BA"
     timeout_seconds: Literal[900] = 900
     executor_retries: Literal[0] = 0
@@ -91,13 +93,18 @@ class ExperimentProtocol(Contract):
             raise ValueError("Frozen citation policy required")
         return self
 
+    def codex_overrides(self) -> tuple[str, ...]:
+        # Preserve rejected v1 configuration and hashes as historical evidence.
+        # v2 changes only the two unsupported built-in provider retry overrides.
+        return CODEX_OVERRIDES if self.protocol_id.endswith("-v1") else CODEX_OVERRIDES[:-2]
+
     def hashes(self) -> dict[str, str]:
         return {
             "protocol": digest(canonical(self.model_dump(mode="json"))),
             "codex_config": digest(
                 canonical(
                     {
-                        "overrides": list(CODEX_OVERRIDES),
+                        "overrides": list(self.codex_overrides()),
                         "mode": self.codex_mode,
                         "model": self.codex_model,
                     }
@@ -233,6 +240,19 @@ def plan(repo: Path, protocol: ExperimentProtocol, run_id: str) -> dict[str, Any
         "provider_sends": 0,
         "runtime_bindings": None,
         "execution_ready": False,
+        **(
+            {
+                "retry_semantics": {
+                    "launcher_retries": 0,
+                    "benchmark_reruns": 0,
+                    "devhub_provider_retries": 0,
+                    "devhub_fallback_after_dispatch": 0,
+                    "codex_internal_retries": None,
+                }
+            }
+            if protocol.protocol_id == "stage3g-seed1-paired-v2"
+            else {}
+        ),
         "remaining_gates": [
             "protocol review",
             "Linux image and environment binding",

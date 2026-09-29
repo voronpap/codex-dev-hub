@@ -16,10 +16,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-id", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--protocol", type=Path, required=True)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     protocol = ExperimentProtocol.model_validate_json(
-        (repo / "benchmarks/real-protocol.json").read_bytes()
+        args.protocol.read_bytes()
     )
     bootstrap = repo / "scripts/benchmark_guest.py"
     results = []
