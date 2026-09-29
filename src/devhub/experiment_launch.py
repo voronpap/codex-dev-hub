@@ -273,6 +273,9 @@ def container_command(
 
 def safe_artifacts(blobs: tuple[bytes, ...], secret_values: tuple[bytes, ...] = ()) -> None:
     patterns = (
+        rb"sk-[A-Za-z0-9_-]{20,}",
+        rb"gh[pousr]_[A-Za-z0-9]{20,}",
+        rb"github_pat_[A-Za-z0-9_]{20,}",
         rb"gsk_[A-Za-z0-9]{30,}",
         rb"AIza[A-Za-z0-9_-]{30,}",
         rb"AQ\.[A-Za-z0-9_-]{30,}",

@@ -20,6 +20,12 @@ C_SOURCE = r"""
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <string.h>
+#include <stdlib.h>
+int has(const char *path, const char *wanted) {
+  FILE *f=fopen(path,"r"); if (!f) return 0;
+  char b[8192]; size_t n=fread(b,1,sizeof(b)-1,f); b[n]=0; fclose(f);
+  return strstr(b,wanted)!=NULL;
+}
 int main(int argc, char **argv) {
   if (argc != 4) return 2;
   int hidden = access(argv[1], F_OK) != 0;
@@ -42,14 +48,28 @@ int main(int argc, char **argv) {
   int packet = access("/packet/input.txt", R_OK) == 0;
   int readonly = access("/packet/input.txt", W_OK) != 0;
   int uid = geteuid() == 1000;
+  int caps = has("/proc/self/status", "CapEff:\t0000000000000000") &&
+             has("/proc/self/status", "CapBnd:\t0000000000000000");
+  int nnp = has("/proc/self/status", "NoNewPrivs:\t1");
+  int limits = has("/sys/fs/cgroup/memory.max", "2147483648") &&
+               has("/sys/fs/cgroup/pids.max", "128") &&
+               has("/sys/fs/cgroup/cpu.max", "200000 100000");
+  int docker = access("/var/run/docker.sock", F_OK) != 0;
+  int hosthome = access("/root/.codex", F_OK) != 0 && access("/mnt/c/Users", F_OK) != 0;
+  int repo = access("/workspace/.git", F_OK) != 0 && access("/app/src/devhub", F_OK) != 0;
   printf("{\"host_canary_hidden\":%s,\"other_arm_hidden\":%s,"
          "\"source_and_oracle_hidden\":%s,\"network_denied\":%s,"
          "\"only_scoped_bridges\":%s,\"fresh_home\":%s,"
-         "\"packet_readable\":%s,\"packet_readonly\":%s,\"nonroot\":%s}\n",
+         "\"packet_readable\":%s,\"packet_readonly\":%s,\"nonroot\":%s,\"capabilities_dropped\":%s,"
+         "\"no_new_privileges\":%s,\"resource_limits_effective\":%s,"
+         "\"docker_socket_absent\":%s,\"host_home_absent\":%s,\"repository_absent\":%s}\n",
          hidden?"true":"false", other?"true":"false", oracle?"true":"false",
          denied?"true":"false", allowed?"true":"false", home?"true":"false",
-         packet?"true":"false", readonly?"true":"false", uid?"true":"false");
-  return !(hidden && other && oracle && denied && allowed && home && packet && readonly && uid);
+         packet?"true":"false", readonly?"true":"false", uid?"true":"false", caps?"true":"false",
+         nnp?"true":"false", limits?"true":"false", docker?"true":"false",
+         hosthome?"true":"false", repo?"true":"false");
+  return !(hidden && other && oracle && denied && allowed && home && packet && readonly && uid &&
+           caps && nnp && limits && docker && hosthome && repo);
 }
 """
 

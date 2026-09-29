@@ -38,3 +38,6 @@ on a338656 (run 36537078227). See [accepted protocol](STAGE3G-B.md).
 Stage 3G OPEN. Real benchmark not started. real_codex_executions = 0;
 provider_sends = 0; execution_ready = false. Stage 3G-C qualifies the exact runtime
 without executing benchmark fixtures or provider inference.
+
+Stage 3G-C OPEN: exact runtime qualification implementation is under review.
+See [qualification](STAGE3G-C.md). execution_ready = false; no real benchmark started.
