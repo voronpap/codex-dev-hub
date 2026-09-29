@@ -137,3 +137,13 @@ internal Codex retries, or first establish a supported zero-internal-retry mecha
 No replacement/custom provider, auth mode, model or endpoint is selected here. Neither
 proposal has been applied. The existing frozen config remains blocked. Review is
 required before any revised protocol, and again before rehearsal. No silent fallback.
+
+Evidence is stored in [the machine-readable summary](evidence/stage3g-c/summary.json).
+At implementation f74e665 Linux full passed 318 tests (1 skip), Windows smoke 14;
+Ruff/format/mypy/config/secret scans passed. Runtime CI built the exact CLI image,
+passed 15 isolation checks, synthetic auth/negative-egress and evaluator proof,
+and recorded reserved_builtin_provider_override for both A and B. The image existed
+on an ephemeral CI host; this is not a provisioned local benchmark runtime. The
+Windows metadata-only preflight confirms accepted Ollama version/model/digest and
+read-only ledger availability, while correctly refusing Linux execution readiness.
+These separate environments are not combined into a fabricated all-green manifest.

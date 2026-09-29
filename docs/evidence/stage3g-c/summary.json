@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "stage3g_c": "OPEN",
+  "stage3g": "OPEN",
+  "implementation_commit": "f74e6655f09f25d97de795606dc208823300842b",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "runtime_ci": "https://github.com/voronpap/codex-dev-hub/actions/runs/36600484425",
+  "offline_ci": "https://github.com/voronpap/codex-dev-hub/actions/runs/36600484470",
+  "linux_tests": {
+    "passed": 318,
+    "skipped": 1
+  },
+  "windows_smoke": {
+    "passed": 14
+  },
+  "isolation_checks_passed": 15,
+  "synthetic_evaluator_passed": true,
+  "auth_tmpfs_synthetic_passed": true,
+  "negative_egress_passed": true,
+  "cli_config_passed": false,
+  "blockers": [
+    "frozen_builtin_provider_overrides_rejected_by_exact_cli",
+    "local_linux_docker_daemon_unavailable"
+  ],
+  "runtime_image_location": "ephemeral Linux CI runner; not installed on benchmark host",
+  "config_failure_history": [
+    {
+      "ci_run": 36599938553,
+      "reason": "metadata_subcommands_reject_strict_config"
+    },
+    {
+      "ci_run": 36600484425,
+      "reason": "reserved_builtin_provider_override",
+      "arms": [
+        "A",
+        "B"
+      ]
+    }
+  ],
+  "protocol_unchanged": true,
+  "artifact_sha256": {
+    "runtime-build.json": "5f555f55d249e4516a83e32343a146cb69a0ebe5a8b8099568aae8f90603cafe",
+    "isolation.json": "a7739a5ac22623ae6de7392711e43bd2afa92eb6087a39c56d16ff5e26bd601e",
+    "runtime-checks.json": "1c3d99e4d5f7c813094af5e3a69a106bf63770a7cb5aaf2719c94ab59ddef6dd",
+    "evaluator-build.json": "2dd1bc638a4dd3635f8d12c924c45b829c110570f8db4ab388314d352a1bd2d0",
+    "evaluator-proof.json": "7063513c7669dafea20ecd9466601495714727147a89b9d21c66d7fbfa4c3930",
+    "local-preflight.json": "d80b45e118baf7b73ea2254a4c682caf2fb80276ad103d3f035ba548a2e83b49",
+    "local-plan.json": "6363c2d48b29f122c8acbc3b9d00e78a1b855befefa6f81c05076ad84320fe13"
+  },
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null
+}

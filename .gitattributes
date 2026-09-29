@@ -2,3 +2,5 @@ benchmarks/** text eol=lf
 schemas/** text eol=lf
 uv.lock text eol=lf
 docs/evidence/stage3g-b-*.json text eol=lf
+
+docs/evidence/stage3g-c/** text eol=lf
