@@ -4,27 +4,10 @@ No inference, scoring, code execution or network access occurs here.
 """
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 
-
-def verified_cases(root: Path) -> list[dict]:
-    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    seen = set()
-    cases = manifest["cases"]
-    for case in cases:
-        if case["id"] in seen:
-            raise ValueError("Duplicate fixture ID")
-        seen.add(case["id"])
-        for kind in ("fixture", "oracle"):
-            path = (root / case[kind]).resolve()
-            if not path.is_relative_to(root.resolve()):
-                raise ValueError("Fixture path escapes benchmark root")
-            actual = hashlib.sha256(path.read_bytes()).hexdigest()
-            if actual != case[f"{kind}_sha256"]:
-                raise ValueError(f"Fixture integrity failure: {case['id']}")
-    return cases
+from devhub.baseline import verified_cases
 
 
 def prepare(root: Path, fixture_id: str, arm: str, destination: Path) -> None:

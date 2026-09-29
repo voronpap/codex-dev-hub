@@ -32,3 +32,6 @@ Verification: three packet tests passed on Windows Python 3.12.10 and WSL Ubuntu
 24.04 Python 3.12.3 (22 tests total together with the skeleton). They detect edited
 oracles, verify six classes/twelve cases, ensure no gold answers enter packets,
 refuse run-directory reuse and preserve null measurements.
+
+Stage 3G-A adds the [offline paired harness](../docs/STAGE3G-A.md). It preserves
+these exact seeds and prepares all 12 pairs; real execution requires later review.
