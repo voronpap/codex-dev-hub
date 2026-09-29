@@ -33,3 +33,7 @@ this excludes hosted setup and is not a hosted CI duration. Hosted PR #20 smoke 
 
 PR #21 closure restores `v*` tag triggering: this policy requires full Windows
 for release tags, not arbitrary repository tags. Manual full runs remain available.
+
+Stage 3G-B adds a Linux-only synthetic OCI boundary probe after pytest. It uses a
+locally built FROM-scratch static program, no image pull, Codex, provider, or benchmark
+fixture execution. This tests isolation infrastructure, not benchmark quality.
