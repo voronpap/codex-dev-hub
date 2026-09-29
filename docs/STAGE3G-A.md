@@ -1,8 +1,9 @@
 # Stage 3G-A: offline paired benchmark harness
 
 Stage 3F CLOSED; local unified delegation gate PASSED (PR #21). Stage 3G OPEN.
-This slice is storage, input isolation and integrity infrastructure only. Review
-this PR before preparing the real experiment. No Codex/provider executor, model
+Stage 3G-A CLOSED; offline harness accepted in PR #22.
+This slice is storage, input isolation and integrity infrastructure only.
+The next protocol/launcher slice requires review before real execution. No Codex/provider executor, model
 pull, network client, generated-test execution, provider comparison or Router
 change is included. CI uses synthetic captures, never a real benchmark.
 

@@ -25,9 +25,9 @@ citation s1, 767 input / 119 output tokens, one send, no retry/fallback, and
 reserved -> dispatched -> settled. The initial zero-send host-approval block
 remains historical evidence. Semantic quality remains unestablished.
 
-Stage 3G OPEN: the next slice is offline harness only, pending review before any
-paired execution. semantic_acceptance, quality_benchmark, delegation_value and
+Stage 3G OPEN: real protocol and isolated launcher are next; execution requires review. semantic_acceptance, quality_benchmark, delegation_value and
 savings remain null.
 
-Stage 3G-A [offline harness](STAGE3G-A.md) is under review. No real paired
-benchmark has run; Stage 3G remains OPEN.
+Stage 3G-A CLOSED. Offline benchmark harness accepted and merged as PR #22.
+Linux full and Windows smoke passed on ddbc04a (run 36524734606).
+Real paired executions = 0. Stage 3G remains OPEN.
