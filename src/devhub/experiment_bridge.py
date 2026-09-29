@@ -167,10 +167,10 @@ class UnixBridge:
     """One private directory per session; close all connections at teardown."""
 
     def __init__(self, path: Path, handler: Callable[[socket.socket], None], *, once: bool = False):
-        self.socket = socket.socket(
-            socket.AF_UNIX,  # type: ignore[attr-defined]
-            socket.SOCK_STREAM,
-        )
+        family = getattr(socket, "AF_UNIX", None)
+        if family is None:
+            raise ValueError("Unix sockets unavailable; no transport fallback")
+        self.socket = socket.socket(family, socket.SOCK_STREAM)
         self.socket.bind(str(path))
         path.chmod(0o666)  # parent is private; bind-mount is scoped to one container
         self.socket.listen(8)

@@ -37,5 +37,12 @@
     "bind actual Linux image and environment",
     "non-benchmark isolation probe on exact runtime image",
     "Codex auth/config/tool preflight review"
-  ]
+  ],
+  "codex_usage_parser_historical_check": {
+    "source": "existing accepted Stage 3F transcript",
+    "parser": "exec_jsonl_turn_completed_v1",
+    "input_available": true,
+    "output_available": true,
+    "new_executions": 0
+  }
 }

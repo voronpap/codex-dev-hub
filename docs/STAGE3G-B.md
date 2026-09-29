@@ -131,7 +131,8 @@ Codex metrics use the documented top-level turn.completed JSONL usage event with
 exact version, single fresh thread/turn and integer-shape validation. UI text,
 agent prose, proxy counts, ambiguous/multiple turns, malformed data and version drift
 produce null. Input/output/cached-input are distinct; cached input is not added twice.
-Context usage and internal Codex retries remain null. Requested HTTP/SSE retries and
+The parser also accepted usage from the existing approved Stage 3F transcript
+without rerunning it. Context usage and internal Codex retries remain null. Requested HTTP/SSE retries and
 launcher retries are zero, but a setting is not proof of unobservable internal retries.
 Missing usage alone does not turn a completed execution into a failure.
 
