@@ -3,7 +3,7 @@ on:
   pull_request:
   push:
     branches: [main]
-    tags: ['*']
+    tags: ['v*']
   workflow_dispatch:
 concurrency:
   group: offline-${{ github.workflow }}-${{ github.ref }}

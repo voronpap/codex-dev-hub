@@ -18,7 +18,13 @@ No diagnostic repeat inference is authorized.
 
 Semantic quality is not established for any provider. `semantic_acceptance`,
 `quality_benchmark`, `delegation_value` and `savings` remain null. HTTP 200 and
-settlement do not establish semantic success. Stage 3F is next; Stage 3G is not started.
+settlement do not establish semantic success. Stage 3F CLOSED. Local unified delegation gate PASSED; PR #21 accepted and merged.
+Linux full, Windows smoke and stage-close Windows full passed on 2b8c5d8
+(Actions run 36476939766). The real Codex proof returned validated output and
+citation s1, 767 input / 119 output tokens, one send, no retry/fallback, and
+reserved -> dispatched -> settled. The initial zero-send host-approval block
+remains historical evidence. Semantic quality remains unestablished.
 
-Stage 3F: local unified delegation proof PASSED in PR #21; CLOSED proposed pending
-final full-platform CI and review. Stage 3G remains not started.
+Stage 3G OPEN: the next slice is offline harness only, pending review before any
+paired execution. semantic_acceptance, quality_benchmark, delegation_value and
+savings remain null.

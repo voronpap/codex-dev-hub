@@ -1,8 +1,9 @@
 # Stage 3F: unified delegation
 
-Status: local real-Codex delegation gate PASSED; Stage 3F CLOSED proposed
-pending final Linux/Windows full CI and review. PR remains unmerged. Stage 3G is not started. Accepted 3C/3D/3E execution gates remain
-closed; semantic quality and provider comparisons remain unestablished.
+Status: Stage 3F CLOSED; Local unified delegation gate PASSED. PR #21 accepted
+and merged after full Linux, Windows smoke and full Windows CI on 2b8c5d8
+(Actions run 36476939766). Accepted 3C/3D/3E execution gates remain closed;
+semantic quality and provider comparisons remain unestablished.
 
 ## Normal MCP contract
 

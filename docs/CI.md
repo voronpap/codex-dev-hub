@@ -30,3 +30,6 @@ Historical full Windows PR #19 job: 12m10s (pytest 676.98s, 228 passed), run
 this excludes hosted setup and is not a hosted CI duration. Hosted PR #20 smoke took 52s including setup (12 passed in 10.80s), run
 36473605267. Its full Windows job took 9m15s (229 passed). Manual dispatch
 36473604341 completed successfully, including full Windows. This change does not alter runtime semantics.
+
+PR #21 closure restores `v*` tag triggering: this policy requires full Windows
+for release tags, not arbitrary repository tags. Manual full runs remain available.
