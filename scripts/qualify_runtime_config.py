@@ -78,6 +78,7 @@ def main():
                 for k in ("auth_tmpfs", "cli_config", "egress_runtime")
             },
             "config_errors": [r.get("config_error") for r in results],
+            "config_diagnostics": [r.get("config_diagnostics") for r in results],
             "auth_material": "synthetic only; real auth presence is a separate preflight gate",
             "real_codex_executions": 0,
             "provider_sends": 0,
