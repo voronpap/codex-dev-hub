@@ -88,3 +88,27 @@ false regardless of those independent CI checks.
 semantic_acceptance=null; quality_benchmark=null; delegation_value=null; savings=null;
 codex_internal_retries=null. Stop for review before any rehearsal, even after a future
 all-green preflight.
+
+## Validated offline result and new gate failure
+
+At implementation a723094, Linux full passed 320 tests (1 skip), Windows smoke 14,
+Ruff/format/strict mypy/config/secret scans green. Canonical tooling verified the
+minimal semantic diff and produced 24 v2 sessions, unchanged AB/BA order and fixture/
+oracle bindings, all session IDs new. See [summary](evidence/stage3g-v2/summary.json)
+and its hash-bound plan/semantic diff. Plan is bound to that implementation commit;
+subsequent evidence-only commits do not rewrite its identity.
+
+The exact Linux CLI accepts v2 metadata commands (both return 0); A has no MCP and
+B only devhub_delegate. Eight required feature states are false. However, the exact
+CLI reports **unified_exec=true despite features.unified_exec=false**, for both arms.
+Thus cli_config=false and the required runtime job fails. The earlier reserved
+provider error is gone, but the frozen disabled-feature gate has not passed. No
+conclusion about actual tool availability is substituted for this failed check.
+No additional override was removed, no custom provider was added, and no config
+check was weakened. Further protocol/boundary changes require review.
+
+CI isolation (15/15), synthetic auth/negative egress and evaluator regression passed
+on the recorded exact image, but the intended WSL host still has no Docker socket
+and its frozen 127.0.0.1:11434 metadata endpoint refuses connection. There is no
+all-green qualification receipt. Do not combine those CI and local observations.
+Stage 3G-C OPEN; execution_ready=false; all real execution/send counters remain zero.

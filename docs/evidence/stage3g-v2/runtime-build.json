@@ -1,0 +1,13 @@
+{
+  "base_image": "python@sha256:1aaa65a85fda306ffb8b910824d4e93bdce61e212c7e87168123ea3073b41a1a",
+  "codex_archive_sha256": "8e388748bcd88082272594fe75982645c55eb03f441e54954063061c766be5b0",
+  "codex_binary_sha256": "c544a899873ce1a51506304bb2818af6975a97715bb8c4c9ff0abd566a3fe3f6",
+  "codex_version": "codex-cli 0.155.0-alpha.9.2",
+  "dockerfile_sha256": "3645c5987ae987dfb0f903751024df7d03c8be089f50cb991362cfa3b345aa77",
+  "image_id": "sha256:353c6027eb71469025be6b1627c8a903eafafd5c161d000d35b63893cec7743a",
+  "kind": "runtime_image_build",
+  "provider_sends": 0,
+  "real_codex_executions": 0,
+  "runtime_lock_sha256": "7b9f6c47406763540f93e424f92edb71111a42c304fa6dc95735e7a4ce9402ba",
+  "schema_version": 1
+}

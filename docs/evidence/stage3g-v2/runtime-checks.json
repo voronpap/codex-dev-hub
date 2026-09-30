@@ -1,0 +1,52 @@
+{
+  "auth_material": "synthetic only; real auth presence is a separate preflight gate",
+  "bootstrap_sha256": "924c6c4e78deaee0645de06e9f536202fdd17a03f34cd4b14e95e8a802c03f74",
+  "checks": {
+    "auth_tmpfs": true,
+    "cli_config": false,
+    "egress_runtime": true
+  },
+  "config_diagnostics": [
+    {
+      "features_exit_code": 0,
+      "mcp_list_exit_code": 0,
+      "mcp_scope_matches": true,
+      "required_feature_states": {
+        "apps": "false",
+        "goals": "false",
+        "hooks": "false",
+        "memories": "false",
+        "multi_agent": "false",
+        "remote_plugin": "false",
+        "shell_snapshot": "false",
+        "shell_tool": "false",
+        "unified_exec": "true"
+      }
+    },
+    {
+      "features_exit_code": 0,
+      "mcp_list_exit_code": 0,
+      "mcp_scope_matches": true,
+      "required_feature_states": {
+        "apps": "false",
+        "goals": "false",
+        "hooks": "false",
+        "memories": "false",
+        "multi_agent": "false",
+        "remote_plugin": "false",
+        "shell_snapshot": "false",
+        "shell_tool": "false",
+        "unified_exec": "true"
+      }
+    }
+  ],
+  "config_errors": [
+    null,
+    null
+  ],
+  "image_id": "sha256:353c6027eb71469025be6b1627c8a903eafafd5c161d000d35b63893cec7743a",
+  "kind": "runtime_config_probe",
+  "protocol_sha256": "fd6d696a20e70aab4eff59343ef8527ee121efca2707ef08b3d748e1b549a2e6",
+  "provider_sends": 0,
+  "real_codex_executions": 0
+}

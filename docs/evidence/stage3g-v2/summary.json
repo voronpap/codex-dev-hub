@@ -1,0 +1,68 @@
+{
+  "all_session_ids_rebound": true,
+  "alternating_AB_BA_verified": true,
+  "artifact_sha256": {
+    "evaluator-build.json": "e01b0bced865c19fed6b08478e6dbddfda4a8a804bd55cb85eb6cded4cb8ea5a",
+    "evaluator-proof.json": "d79f1b85b15a7dfaba5c578538ae48973ffe017eea436ad34338fdedd64eabe0",
+    "isolation.json": "ac36f4783f7a2bce83f88ea5668a218ed6faf6c2ddf823b04df3d8e46a7e64dd",
+    "plan.json": "ef28c5e3d17cad16d220449270952eb14eb1b8e2c0e88b2507a8b3625498f130",
+    "runtime-build.json": "5e1f89e3de231073a9e301d4220e52b5db9d77203b61583bee5f3dd383bfa5fc",
+    "runtime-checks.json": "22c5afafbdd0bacaa6c6575d4dff4af3e1a60acadc0d91ad22f1abcea2a98f00",
+    "semantic-diff.json": "b6d154dd0f747630c6ec70a4b7fd95357be2f7309e68a9cba3e59098b47996d8"
+  },
+  "ci": {
+    "accepted_ledger": null,
+    "auth_tmpfs_synthetic": true,
+    "cli_commands_accepted": true,
+    "cli_config": false,
+    "expected_unified_exec": "false",
+    "image_id": "sha256:353c6027eb71469025be6b1627c8a903eafafd5c161d000d35b63893cec7743a",
+    "isolation_checks_passed": 15,
+    "linux_full": {
+      "passed": 320,
+      "skipped": 1
+    },
+    "mcp_scope_matches": true,
+    "negative_egress": true,
+    "observed_unified_exec": "true",
+    "offline_run": "https://github.com/voronpap/codex-dev-hub/actions/runs/36671423750",
+    "ollama_identity": null,
+    "real_auth_presence": null,
+    "runtime_job_conclusion": "failure",
+    "runtime_run": "https://github.com/voronpap/codex-dev-hub/actions/runs/36671423755",
+    "synthetic_evaluator": true,
+    "windows_smoke": {
+      "passed": 14
+    }
+  },
+  "codex_internal_retries": null,
+  "config_hash": "da291cc0265727ba6f86dac58725f891b41fb837cad8529a91a480732c3477d7",
+  "delegation_value": null,
+  "execution_ready": false,
+  "fixture_oracle_hashes_unchanged": true,
+  "implementation_commit": "a7230943256e3587da16fa29c900650fe8896226",
+  "intended_host": {
+    "candidate": "existing local Ubuntu-24.04 WSL with Docker Desktop Linux backend",
+    "docker_daemon_available": false,
+    "docker_service_status": "stopped",
+    "kernel": "6.18.33.2-microsoft-standard-WSL2",
+    "ollama_loopback_metadata": "connection_refused",
+    "qualification_receipt": null,
+    "reversible_socket_rename": "failed; no filesystem change",
+    "runtime_image_id": null,
+    "startup_error": "inaccessible sailor-ingest.sock during rename"
+  },
+  "plan_hash": "df13ccc3f3a30d88d02089e64e14a406b58a6ea13f989c0ea7ab6e1b99292001",
+  "planned_sessions": 24,
+  "pr24_merge_commit": "cb72a0c07e0e546458cd320b7374ead1913f28a1",
+  "protocol_hash": "fd6d696a20e70aab4eff59343ef8527ee121efca2707ef08b3d748e1b549a2e6",
+  "provider_sends": 0,
+  "quality_benchmark": null,
+  "real_codex_executions": 0,
+  "savings": null,
+  "schema_version": 1,
+  "semantic_acceptance": null,
+  "stage3g": "OPEN",
+  "stage3g_c": "OPEN",
+  "stop_reason": "Exact CLI reports unified_exec=true despite frozen false override; no further protocol change authorized; intended host also unavailable."
+}
