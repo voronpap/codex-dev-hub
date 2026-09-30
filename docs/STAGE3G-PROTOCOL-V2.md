@@ -1,9 +1,9 @@
 # Stage 3G protocol v2: minimal retry configuration revision
 
-PR #24 was accepted as partial Stage 3G-C by the operator. Merge and main sync
-have not been performed in this session: GitHub network and GitHub CLI config
-access are blocked by the current execution environment. This local branch is
-based on accepted #24 head `8d05939`; rebase onto main after that merge.
+PR #24 was accepted as partial Stage 3G-C and merged as cb72a0c. Main was
+synchronized and the candidate rebased without semantic conflicts. The initial
+permissions-blocked attempt remains in stage3g-v2-local-review.json as historical
+evidence; it is not the current validation result.
 
 Stage 3G-C OPEN. Stage 3G OPEN. execution_ready=false.
 real_codex_executions=0; provider_sends=0. No rehearsal is authorized.
@@ -40,7 +40,7 @@ internal retries and zero real execution. The exact-image workflow now explicitl
 selects v2 and requires the config probe to pass (no continue-on-error). The evaluator,
 image lock/build, base digest, binary/archive verification and isolation remain unchanged.
 
-After network/runtime access is restored and PR #24 is merged:
+Reproduce offline validation, then run planning from a clean committed checkout:
 
 ```sh
 uv run --locked ruff check .
@@ -61,23 +61,29 @@ receipts. No qualified image/config result is asserted before these checks run.
 
 ## Intended execution host investigation
 
-Priority remains existing local Docker Desktop/WSL Linux backend. Read-only diagnosis
-observed com.docker.service stopped (manual start). Docker daemon access could not be
-established; Docker config access is denied. WSL enumeration returns E_ACCESSDENIED,
-so backend state is unknown in this restricted session. No system configuration,
-service start mode, installation, VM, forwarding, auth or endpoint was changed.
+Priority remains existing local Docker Desktop/WSL Linux backend. GitHub, Python
+3.12.10, uv 0.12.10 and pydantic 2.12.5 access were restored on 2026-09-30. WSL
+Ubuntu 24.04 starts with kernel 6.18.33.2 and Python 3.12.3, but has no running
+Docker socket/native dockerd. Docker Desktop Linux mode is configured, yet its
+Linux named pipe is absent and the optional Windows service is stopped.
 
-Restore access and diagnose the existing Desktop Linux engine first. A dedicated
-controlled Linux VM is the next candidate only if it can satisfy the frozen numeric
-loopback Ollama endpoint, exact identity, reviewed auth, scoped bridge and the same
-persistent accounting history together. Neither an ephemeral CI host nor a copied
-reset ledger is a substitute. Native Windows/WSL cwd-only execution remains forbidden.
+Backend logs identify startup failure while renaming sailor-ingest.sock to .stale.
+Both Docker processes were confirmed absent. A reversible rename to a held name
+also failed with "The file cannot be accessed by the system"; no socket or system
+configuration was changed. This needs operator environment repair before local
+qualification. No native Windows/cwd-only fallback is introduced.
 
-The workspace venv cannot start its original Python, and its pydantic native DLL
-cannot load under current permissions. Bundled Python can perform stdlib syntax,
-hash and seed-integrity checks only; those are not pytest, mypy, the actual planner
-or exact-image qualification. Current plan hash and config-probe outcome remain null
-until executed. No protocol-ready/environment-ready claim is made.
+A dedicated controlled Linux VM remains the next candidate only if it can satisfy
+the frozen numeric loopback Ollama endpoint, exact identity, reviewed auth, scoped
+bridge and same persistent accounting history together. Neither an ephemeral CI
+host nor a copied reset ledger is a substitute. CI image/config probes and Windows
+Ollama/ledger observations are never combined into a qualified environment.
+
+The canonical verifier scripts/verify_protocol_revision.py fails on any change
+outside protocol_id and the two approved override removals. The real planner is
+used only after green offline validation. Exact-image CLI config and synthetic
+evaluator gates run in Linux CI without tasks/inference. Local readiness remains
+false regardless of those independent CI checks.
 
 semantic_acceptance=null; quality_benchmark=null; delegation_value=null; savings=null;
 codex_internal_retries=null. Stop for review before any rehearsal, even after a future

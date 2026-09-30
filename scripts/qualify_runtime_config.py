@@ -19,9 +19,7 @@ def main():
     parser.add_argument("--protocol", type=Path, required=True)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    protocol = ExperimentProtocol.model_validate_json(
-        args.protocol.read_bytes()
-    )
+    protocol = ExperimentProtocol.model_validate_json(args.protocol.read_bytes())
     bootstrap = repo / "scripts/benchmark_guest.py"
     results = []
     with tempfile.TemporaryDirectory(prefix="devhub-config-probe-") as temporary:
