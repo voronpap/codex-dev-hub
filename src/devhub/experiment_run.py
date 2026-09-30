@@ -89,7 +89,7 @@ def environment_guard(repo: Path, bindings: RuntimeBindings, protocol: Experimen
     version = (
         subprocess.check_output(
             [
-                "docker",
+                *DOCKER,
                 "run",
                 "--rm",
                 "--pull=never",
@@ -133,6 +133,7 @@ def execute_next(
     accounting_root: Path,
     *,
     operator_reviewed: bool = False,
+    qualification: Path | None = None,
 ) -> AttemptResult:
     """Opt-in API for the next reviewed phase, never called by 3G-B CLI/tests on fixtures.
 
@@ -141,29 +142,29 @@ def execute_next(
     """
     if not operator_reviewed:
         raise ValueError("Explicit protocol/environment review required")
+    from devhub.experiment_preflight import isolation_valid, require_ready
+
+    if qualification is None or bindings.qualification_sha256 is None:
+        raise ValueError("Stage 3G-C qualification required")
+    qualification_raw = qualification.read_bytes()
+    if digest(qualification_raw) != bindings.qualification_sha256:
+        raise ValueError("Qualification evidence changed")
+    require_ready(
+        qualification_raw,
+        {
+            "image_id": bindings.image_id,
+            "implementation_commit": bindings.environment.devhub_commit,
+            "protocol_sha256": bindings.protocol_sha256,
+            "plan_sha256": bindings.reviewed_plan_sha256,
+            "bootstrap_sha256": bindings.bootstrap_sha256,
+        },
+    )
     proof_raw = isolation_probe.read_bytes()
     if digest(proof_raw) != bindings.isolation_probe_sha256:
         raise ValueError("Isolation proof changed")
     proof = json.loads(proof_raw)
-    if (
-        proof.get("image_id") != bindings.image_id
-        or proof.get("bootstrap_sha256") != bindings.bootstrap_sha256
-        or proof.get("kind") != "synthetic_oci_isolation_probe"
-        or proof.get("runtime_image_qualification") is not True
-        or proof.get("checks")
-        != {
-            "host_canary_hidden": True,
-            "other_arm_hidden": True,
-            "source_and_oracle_hidden": True,
-            "network_denied": True,
-            "only_scoped_bridges": True,
-            "fresh_home": True,
-            "packet_readable": True,
-            "packet_readonly": True,
-            "nonroot": True,
-        }
-    ):
-        raise ValueError("Reviewed OS isolation proof required")
+    if not isolation_valid(proof, bindings.image_id, bindings.bootstrap_sha256):
+        raise ValueError("Exact-image isolation proof required")
     current = plan(repo, protocol, frozen_plan["run_id"])
     if current != frozen_plan or digest(canonical(current)) != bindings.reviewed_plan_sha256:
         raise ValueError("Plan/config/implementation changed")

@@ -1,0 +1,49 @@
+name: Runtime qualification (no benchmark)
+on:
+  pull_request:
+    paths:
+      - 'benchmarks/runtime-lock.json'
+      - 'scripts/*benchmark*'
+      - 'scripts/*qualify*'
+      - 'scripts/probe_oci_boundary.py'
+      - 'src/devhub/experiment*.py'
+      - '.github/workflows/runtime-qualification.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv==0.12.10
+      - run: uv sync --locked
+      - name: Build exact executor and evaluator images
+        run: |
+          mkdir -p "$RUNNER_TEMP/qualification"
+          uv run --locked python scripts/build_benchmark_runtime.py --output "$RUNNER_TEMP/qualification/build.json"
+          uv run --locked python scripts/build_benchmark_evaluator.py --output "$RUNNER_TEMP/qualification/evaluator-build.json"
+      - name: Exact-image isolation
+        run: |
+          image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/build.json"))["image_id"])')
+          uv run --locked python scripts/probe_oci_boundary.py --image-id "$image" --output "$RUNNER_TEMP/qualification/isolation.json"
+      - name: Report config qualification (blocked protocol remains false)
+        continue-on-error: true
+        run: |
+          image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/build.json"))["image_id"])')
+          uv run --locked python scripts/qualify_runtime_config.py --image-id "$image" --output "$RUNNER_TEMP/qualification/runtime-checks.json"
+      - name: Synthetic evaluator (no frozen fixtures)
+        if: success() || failure()
+        run: |
+          image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/evaluator-build.json"))["image_id"])')
+          uv run --locked python scripts/qualify_evaluator.py --image-id "$image" --output "$RUNNER_TEMP/qualification/evaluator-proof"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synthetic-runtime-qualification
+          path: ${{ runner.temp }}/qualification
+          if-no-files-found: error

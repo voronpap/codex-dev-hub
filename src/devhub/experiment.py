@@ -163,6 +163,7 @@ class RuntimeBindings(Contract):
     reviewed_plan_sha256: Digest
     # Attestation is operator trust, not a cryptographic proof of OS security.
     boundary_reviewed: Literal[True]
+    qualification_sha256: Digest | None = None
 
 
 class PlannedSession(Contract):

@@ -1,0 +1,18 @@
+{
+  "auth_material": "synthetic only; real auth presence is a separate preflight gate",
+  "bootstrap_sha256": "924c6c4e78deaee0645de06e9f536202fdd17a03f34cd4b14e95e8a802c03f74",
+  "checks": {
+    "auth_tmpfs": true,
+    "cli_config": false,
+    "egress_runtime": true
+  },
+  "config_errors": [
+    "reserved_builtin_provider_override",
+    "reserved_builtin_provider_override"
+  ],
+  "image_id": "sha256:b11d286cf5b5a602bbabb95998e31278e18fd375c587ce6c3fdd0f97c59fd2d8",
+  "kind": "runtime_config_probe",
+  "protocol_sha256": "662685e71cd945b6b1eee795a2366e75d7ec2882ea53e020626e0ed00a1a3e87",
+  "provider_sends": 0,
+  "real_codex_executions": 0
+}
