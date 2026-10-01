@@ -1,0 +1,247 @@
+{
+  "core/src/tools/spec_plan.rs:1031-1069": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 1031,
+    "end": 1069,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "fn add_shell_tools(context: &CoreToolPlanContext<'_>, registry: &mut ToolRegistry) {\n    let turn_context = context.turn_context;\n    let features = turn_context.config.features.get();\n    let environment_mode = tool_environment_mode(context.environments);\n    if !environment_mode.has_environment()\n        || !features.enabled(Feature::ShellTool)\n        || matches!(context.model_info.shell_type, ConfigShellToolType::Disabled)\n    {\n        return;\n    }\n\n    let allow_login_shell = any_environment_allows_login_shell(context.environments);\n    let is_guardian = crate::guardian::is_basic_session_source(&turn_context.session_source);\n    if is_guardian && !features.enabled(Feature::UnifiedExec) {\n        return;\n    }\n    let exec_permission_approvals_enabled =\n        features.enabled(Feature::ExecPermissionApprovals) && !is_guardian;\n    let include_environment_id = matches!(environment_mode, ToolEnvironmentMode::Multiple);\n    let options = ExecCommandHandlerOptions {\n        allow_login_shell,\n        allow_tty: features.enabled(Feature::UnifiedExecTty),\n        exec_permission_approvals_enabled,\n        include_environment_id,\n        include_shell_parameter: unified_exec_should_include_shell_parameter(\n            turn_context,\n            context.environments,\n        ),\n        include_windows_shell_guidance: should_include_windows_shell_guidance(context.environments),\n    };\n    if features.enabled(Feature::UnifiedExec) {\n        registry.add(ExecCommandHandler::new(options));\n        registry.add(WriteStdinHandler);\n    } else {\n        // Managed requirements are the only configuration path that can keep\n        // unified exec disabled. Preserve command execution without exposing a\n        // resumable process or write_stdin authority prohibited by policy.\n        registry.add(ExecCommandHandler::one_shot(options));\n    }"
+  },
+  "core/src/tools/spec_plan.rs:1213-1216": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 1213,
+    "end": 1216,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "    if environment_mode.has_environment() && context.model_info.apply_patch_tool_type.is_some() {\n        let include_environment_id = matches!(environment_mode, ToolEnvironmentMode::Multiple);\n        registry.add(ApplyPatchHandler::new(include_environment_id));\n    }"
+  },
+  "core/src/tools/handlers/apply_patch.rs:294-350": {
+    "path": "codex-rs/core/src/tools/handlers/apply_patch.rs",
+    "start": 294,
+    "end": 350,
+    "file_sha256": "a6913113c21cd9b27024b32a18166e7cace548db21f658db29127e4f82621f29",
+    "excerpt": "    context: &FileSystemSandboxPolicyContext<'_>,\n    sandbox_route: PatchSandboxRoute,\n) -> (\n    Vec<PathUri>,\n    crate::tools::handlers::EffectiveAdditionalPermissions,\n    codex_protocol::permissions::FileSystemSandboxPolicy,\n) {\n    let environment_id = environment.selection.environment_id.as_str();\n    let file_paths = file_paths_for_action(action);\n    let granted_permissions = merge_permission_profiles(\n        session\n            .granted_session_permissions(environment_id)\n            .await\n            .as_ref(),\n        session\n            .granted_turn_permissions(environment_id)\n            .await\n            .as_ref(),\n    );\n    let base_file_system_sandbox_policy = environment\n        .permission_profile()\n        .file_system_sandbox_policy();\n    let file_system_sandbox_policy = effective_file_system_sandbox_policy(\n        &base_file_system_sandbox_policy,\n        granted_permissions.as_ref(),\n    );\n    let effective_additional_permissions = apply_granted_turn_permissions(\n        session,\n        environment,\n        context.cwd,\n        crate::sandboxing::SandboxPermissions::UseDefault,\n        write_permissions_for_paths(\n            &file_paths,\n            &file_system_sandbox_policy,\n            context,\n            sandbox_route,\n        ),\n    )\n    .await;\n\n    (\n        file_paths,\n        effective_additional_permissions,\n        file_system_sandbox_policy,\n    )\n}\n\nimpl ToolExecutor<ToolInvocation> for ApplyPatchHandler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::plain(\"apply_patch\")\n    }\n\n    fn spec(&self) -> ToolSpec {\n        create_apply_patch_freeform_tool(self.multi_environment)\n    }\n\n    fn handle<'a>(&'a self, invocation: ToolInvocation) -> codex_tools::ToolExecutorFuture<'a>"
+  },
+  "ext/history-notes/src/tools.rs:44-94": {
+    "path": "codex-rs/ext/history-notes/src/tools.rs",
+    "start": 44,
+    "end": 94,
+    "file_sha256": "d5866ac0ef06863c310dbbbc10eeddea6e2aede794ebc9a6edc6c1daff98bddb",
+    "excerpt": "impl HistoryNotesAction {\n    pub(crate) const ALL: [Self; 9] = [\n        Self::HistoryListWindows,\n        Self::HistoryListItems,\n        Self::HistoryReadItem,\n        Self::HistorySearchContents,\n        Self::NotesListFilesByPrefix,\n        Self::NotesReadFile,\n        Self::NotesSearchContents,\n        Self::NotesAppendToFile,\n        Self::NotesWriteFile,\n    ];\n\n    fn namespace(self) -> &'static str {\n        match self {\n            Self::HistoryListWindows\n            | Self::HistoryListItems\n            | Self::HistoryReadItem\n            | Self::HistorySearchContents => HISTORY_NAMESPACE,\n            Self::NotesListFilesByPrefix\n            | Self::NotesReadFile\n            | Self::NotesSearchContents\n            | Self::NotesAppendToFile\n            | Self::NotesWriteFile => NOTES_NAMESPACE,\n        }\n    }\n\n    fn name(self) -> &'static str {\n        match self {\n            Self::HistoryListWindows => \"list_windows\",\n            Self::HistoryListItems => \"list_items\",\n            Self::HistoryReadItem => \"read_item\",\n            Self::HistorySearchContents => \"search_contents\",\n            Self::NotesListFilesByPrefix => \"list_files_by_prefix\",\n            Self::NotesReadFile => \"read_file\",\n            Self::NotesSearchContents => \"search_contents\",\n            Self::NotesAppendToFile => \"append_to_file\",\n            Self::NotesWriteFile => \"write_file\",\n        }\n    }\n\n    fn endpoint(self) -> &'static str {\n        match self {\n            Self::HistoryListWindows => \"alpha/history/v2/list_windows\",\n            Self::HistoryListItems => \"alpha/history/v2/list_items\",\n            Self::HistoryReadItem => \"alpha/history/v2/read_item\",\n            Self::HistorySearchContents => \"alpha/history/v2/search_contents\",\n            Self::NotesListFilesByPrefix => \"alpha/notes/v2/list_files_by_prefix\",\n            Self::NotesReadFile => \"alpha/notes/v2/read_file\",\n            Self::NotesSearchContents => \"alpha/notes/v2/search_contents\",\n            Self::NotesAppendToFile => \"alpha/notes/v2/append_to_file\","
+  },
+  "ext/history-notes/src/extension.rs:45-63": {
+    "path": "codex-rs/ext/history-notes/src/extension.rs",
+    "start": 45,
+    "end": 63,
+    "file_sha256": "c28a5bb1c4be2f523ca22f2eb646432e63dec7461c1fa1f86a6c65b2e3eb58ce",
+    "excerpt": "impl HistoryNotesExtension {\n    fn update_config(&self, thread_store: &ExtensionData, config: &Config) {\n        if config\n            .token_budget\n            .as_ref()\n            .is_some_and(|token_budget| token_budget.use_history_notes_extension)\n            && config.model_provider.is_openai()\n            && self.auth_manager.current_auth_uses_codex_backend()\n        {\n            thread_store.insert(HistoryNotesExtensionConfig {\n                backend: HistoryNotesBackend::new(create_model_provider(\n                    config.model_provider.clone(),\n                    Some(self.auth_manager.clone()),\n                )),\n            });\n        } else {\n            thread_store.remove::<HistoryNotesExtensionConfig>();\n        }\n    }"
+  },
+  "core/src/config/mod.rs:2770-2782": {
+    "path": "codex-rs/core/src/config/mod.rs",
+    "start": 2770,
+    "end": 2782,
+    "file_sha256": "a3dced718dcc19a925e9d49095be8bbcf84a37ded53ee86334fb3a20823ee642",
+    "excerpt": "pub(crate) fn resolve_token_budget_config(\n    config_toml: &ConfigToml,\n    features: &ManagedFeatures,\n) -> std::io::Result<Option<TokenBudgetConfig>> {\n    if !features.enabled(Feature::TokenBudget) {\n        return Ok(None);\n    }\n\n    let token_budget_config = token_budget_toml_config(config_toml.features.as_ref());\n    let use_history_notes_extension = token_budget_config\n        .and_then(|config| config.use_history_notes_extension)\n        .unwrap_or_default();\n    let reminder_threshold_tokens ="
+  },
+  "ext/memories/src/lib.rs:18-22": {
+    "path": "codex-rs/ext/memories/src/lib.rs",
+    "start": 18,
+    "end": 22,
+    "file_sha256": "a6c7915326ad8420a70ec838d7cd40184967505734e2179923deb13b43c5b653",
+    "excerpt": "pub(crate) const MEMORY_TOOLS_NAMESPACE: &str = \"memories\";\npub(crate) const ADD_AD_HOC_NOTE_TOOL_NAME: &str = \"add_ad_hoc_note\";\npub(crate) const LIST_TOOL_NAME: &str = \"list\";\npub(crate) const READ_TOOL_NAME: &str = \"read\";\npub(crate) const SEARCH_TOOL_NAME: &str = \"search\";"
+  },
+  "ext/memories/src/extension.rs:40-52": {
+    "path": "codex-rs/ext/memories/src/extension.rs",
+    "start": 40,
+    "end": 52,
+    "file_sha256": "d5f4e55a138a4479e9b6286bd08954a7438d2bfb516c5c8717626a2b38736873",
+    "excerpt": "    pub(crate) dedicated_tools: bool,\n    pub(crate) codex_home: AbsolutePathBuf,\n    pub(crate) version: MemoryVersion,\n}\n\nimpl MemoriesExtensionConfig {\n    fn from_config(config: &Config) -> Self {\n        Self {\n            enabled: config.features.enabled(Feature::MemoryTool) && config.memories.use_memories,\n            dedicated_tools: config.memories.dedicated_tools,\n            codex_home: config.codex_home.clone(),\n            version: config.memories.version,\n        }"
+  },
+  "ext/memories/src/extension.rs:135-157": {
+    "path": "codex-rs/ext/memories/src/extension.rs",
+    "start": 135,
+    "end": 157,
+    "file_sha256": "d5f4e55a138a4479e9b6286bd08954a7438d2bfb516c5c8717626a2b38736873",
+    "excerpt": "impl ToolContributor for MemoriesExtension {\n    fn tools(\n        &self,\n        _session_store: &ExtensionData,\n        thread_store: &ExtensionData,\n    ) -> Vec<\n        Arc<dyn for<'call> codex_extension_api::ToolExecutor<codex_extension_api::ToolCall<'call>>>,\n    > {\n        let Some(config) = thread_store.get::<MemoriesExtensionConfig>() else {\n            return Vec::new();\n        };\n        if !config.enabled || !config.dedicated_tools {\n            return Vec::new();\n        }\n\n        tools::memory_tools(\n            LocalMemoriesBackend::from_memory_root(\n                config\n                    .codex_home\n                    .join(config.version.directory_name())\n                    .to_path_buf(),\n            ),\n            self.metrics_client.clone(),"
+  },
+  "ext/memories/src/tools/ad_hoc_note.rs:44-86": {
+    "path": "codex-rs/ext/memories/src/tools/ad_hoc_note.rs",
+    "start": 44,
+    "end": 86,
+    "file_sha256": "b1107010c398f20906d7de2238416a9ecdb6923f84a98ff90df17231e28fa877",
+    "excerpt": "impl<'call, B> ToolExecutor<ToolCall<'call>> for AddAdHocNoteTool<B>\nwhere\n    B: MemoriesBackend,\n{\n    fn tool_name(&self) -> ToolName {\n        memory_tool_name(ADD_AD_HOC_NOTE_TOOL_NAME)\n    }\n\n    fn spec(&self) -> ToolSpec {\n        memory_function_tool::<AddAdHocNoteArgs, AddAdHocMemoryNoteResponse>(\n            ADD_AD_HOC_NOTE_TOOL_NAME,\n            \"Create one append-only ad-hoc memory note after the user explicitly asks Codex to remember, forget, or update something.\",\n        )\n    }\n\n    fn handle<'a>(&'a self, call: ToolCall<'call>) -> codex_extension_api::ToolExecutorFuture<'a>\n    where\n        'call: 'a,\n    {\n        Box::pin(self.handle_call(call))\n    }\n}\n\nimpl<B> AddAdHocNoteTool<B>\nwhere\n    B: MemoriesBackend,\n{\n    async fn handle_call(\n        &self,\n        call: ToolCall<'_>,\n    ) -> Result<Box<dyn codex_extension_api::ToolOutput>, codex_extension_api::FunctionCallError>\n    {\n        let backend = self.backend.clone();\n        let args: AddAdHocNoteArgs = parse_args(&call)?;\n        let response = backend\n            .add_ad_hoc_note(AddAdHocMemoryNoteRequest {\n                filename: args.filename,\n                note: args.note,\n            })\n            .await;\n        record_tool_call(\n            self.metrics_client.as_ref(),\n            ADD_AD_HOC_NOTE_TOOL_NAME,"
+  },
+  "core/src/tools/spec_plan.rs:692-727": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 692,
+    "end": 727,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "fn image_generation_available(turn_context: &TurnContext, model_info: &ModelInfo) -> bool {\n    if !turn_context\n        .config\n        .features\n        .get()\n        .enabled(Feature::ImageGeneration)\n    {\n        return false;\n    }\n\n    if turn_context\n        .auth_manager\n        .as_deref()\n        .and_then(AuthManager::auth_cached)\n        .and_then(|auth| auth.account_plan_type())\n        == Some(PlanType::Free)\n    {\n        return false;\n    }\n\n    let capabilities = turn_context.provider.capabilities();\n    if !capabilities.image_generation || !capabilities.namespace_tools {\n        return false;\n    }\n\n    if !model_info.input_modalities.contains(&InputModality::Image) {\n        return false;\n    }\n\n    let provider = turn_context.provider.info();\n    provider.uses_openai_actor_authorization()\n        || (provider.requires_openai_auth\n            && turn_context\n                .auth_manager\n                .as_deref()\n                .is_some_and(AuthManager::current_auth_uses_codex_backend))"
+  },
+  "ext/image-generation/src/tool.rs:281-321": {
+    "path": "codex-rs/ext/image-generation/src/tool.rs",
+    "start": 281,
+    "end": 321,
+    "file_sha256": "66b992ca79053c7418c30230999d730bf85d0aa21208299facf45e2cd1674fe8",
+    "excerpt": "async fn save_image_generation_result(\n    save_root: Option<&AbsolutePathBuf>,\n    environment: Option<&ToolEnvironment<'_>>,\n    session_id: &str,\n    call_id: &str,\n    result: &str,\n) -> Option<AbsolutePathBuf> {\n    let (output_dir, save_result) = match save_root {\n        Some(save_root) => {\n            let path = image_generation_artifact_path(save_root, session_id, call_id);\n            let output_dir = path.parent().unwrap_or_else(|| save_root.clone());\n            let save_result: io::Result<AbsolutePathBuf> = async {\n                let bytes = BASE64_STANDARD\n                    .decode(result.trim().as_bytes())\n                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;\n                if let Some(parent) = path.parent() {\n                    LOCAL_FS\n                        .create_directory(\n                            &PathUri::from_abs_path(&parent),\n                            CreateDirectoryOptions {\n                                recursive: true,\n                                follow_symlinks: true,\n                            },\n                            /*sandbox*/ None,\n                        )\n                        .await?;\n                }\n                LOCAL_FS\n                    .write_file(\n                        &PathUri::from_abs_path(&path),\n                        bytes,\n                        Default::default(),\n                        /*sandbox*/ None,\n                    )\n                    .await?;\n                Ok(path)\n            }\n            .await;\n            (output_dir, save_result)\n        }\n        None => {"
+  },
+  "app-server/src/extensions.rs:74-104": {
+    "path": "codex-rs/app-server/src/extensions.rs",
+    "start": 74,
+    "end": 104,
+    "file_sha256": "66731b23ebe7bf2882b6afbbccc943ccbe9ff0f94860af78c12a3bcbf648bb69",
+    "excerpt": "    codex_history_notes_extension::install(&mut builder, auth_manager.clone());\n    if let Some(state_db) = state_db {\n        codex_goal_extension::install_with_backend(\n            &mut builder,\n            state_db,\n            analytics_events_client,\n            codex_otel::global(),\n            thread_manager.clone(),\n            goal_service,\n            |config: &Config| GoalExtensionConfig {\n                enabled: config.features.enabled(codex_features::Feature::Goals),\n                max_goal_token_budget: config.max_goal_token_budget,\n            },\n        );\n    }\n    codex_git_attribution::install(\n        &mut builder,\n        auth_manager.clone(),\n        git_attribution_base_url,\n        http_client_factory,\n    );\n    codex_guardian_v2::install(&mut builder, auth_manager.clone(), thread_manager);\n    codex_memories_extension::install(&mut builder, codex_otel::global());\n    codex_mcp_extension::install(&mut builder);\n    codex_mcp_extension::install_executor_plugins(&mut builder, environment_manager);\n    codex_web_search_extension::install(&mut builder, auth_manager.clone());\n    codex_image_generation_extension::install(&mut builder, auth_manager, |config: &Config| {\n        Some(config.codex_home.clone())\n    });\n    let skill_providers = codex_skills_extension::SkillProviders::new()\n        .with_executor_provider(executor_skill_provider)"
+  },
+  "core/src/tools/spec_plan.rs:1383-1411": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 1383,
+    "end": 1411,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "fn append_extension_tool_executors(\n    turn_context: &TurnContext,\n    model_info: &ModelInfo,\n    executors: impl IntoIterator<Item = Arc<dyn for<'call> ToolExecutor<ExtensionToolCall<'call>>>>,\n    registry: &mut ToolRegistry,\n) -> Option<ToolName> {\n    let standalone_web_search_enabled = standalone_web_search_enabled(turn_context, model_info);\n    let web_search_mode_on = turn_context.config.web_search_mode.value() != WebSearchMode::Disabled;\n    let mut standalone_web_search_tool = None;\n\n    for executor in executors {\n        let tool_name = executor.tool_name();\n        let is_standalone_web_search = tool_name == ToolName::namespaced(\"web\", \"run\");\n        if is_standalone_web_search && (!standalone_web_search_enabled || !web_search_mode_on) {\n            continue;\n        }\n        if tool_name == ToolName::namespaced(IMAGE_GEN_NAMESPACE, IMAGEGEN_TOOL_NAME)\n            && !image_generation_available(turn_context, model_info)\n        {\n            continue;\n        }\n        let runtime = Arc::new(ExtensionToolAdapter::new(executor));\n        if registry.register_external(runtime) && is_standalone_web_search {\n            standalone_web_search_tool = Some(tool_name);\n        }\n    }\n\n    standalone_web_search_tool\n}"
+  },
+  "code-mode-protocol/src/lib.rs:49-52": {
+    "path": "codex-rs/code-mode-protocol/src/lib.rs",
+    "start": 49,
+    "end": 52,
+    "file_sha256": "c1c852edadb044f8941741d432ee8343e15df1d9d01776642c6eb0fa05b18893",
+    "excerpt": "pub use session::ToolInvocationFuture;\n\npub const PUBLIC_TOOL_NAME: &str = \"exec\";\npub const WAIT_TOOL_NAME: &str = \"wait\";"
+  },
+  "core/src/tools/spec_plan.rs:784-807": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 784,
+    "end": 807,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "fn register_code_mode_executors(\n    turn_context: &TurnContext,\n    model_info: &ModelInfo,\n    registry: &mut ToolRegistry,\n) -> BTreeMap<String, ToolName> {\n    let tool_mode = effective_tool_mode(turn_context, model_info);\n    if !matches!(tool_mode, ToolMode::CodeMode | ToolMode::CodeModeOnly) {\n        return BTreeMap::new();\n    }\n\n    let mut code_mode_tool_names = BTreeMap::new();\n    let mut code_mode_nested_tool_specs = Vec::new();\n    let mut exec_prompt_tool_specs = Vec::new();\n    let mut deferred_exec_prompt_tool_specs = Vec::new();\n    let mut included_deferred_mcp_output_schema = false;\n    let deferred_tools_guidance_enabled = search_tool_enabled(turn_context, model_info);\n    for tool in registry.entries() {\n        let exposure = tool.exposure;\n        if !exposure.is_available_in_code_mode() {\n            continue;\n        }\n\n        let tool_name = tool.runtime.tool_name();\n        if is_excluded_from_code_mode(turn_context, &tool_name) {"
+  },
+  "ext/goal/src/spec.rs:9-11": {
+    "path": "codex-rs/ext/goal/src/spec.rs",
+    "start": 9,
+    "end": 11,
+    "file_sha256": "db48400d291ecb642b0d1189c73eea81a412f4b13bc9f7d917dc0dbd3f7828ea",
+    "excerpt": "pub const GET_GOAL_TOOL_NAME: &str = \"get_goal\";\npub const CREATE_GOAL_TOOL_NAME: &str = \"create_goal\";\npub const UPDATE_GOAL_TOOL_NAME: &str = \"update_goal\";"
+  },
+  "core/src/tools/spec_plan.rs:1197-1210": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 1197,
+    "end": 1210,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "    if tool_suggest_enabled(turn_context)\n        && let Some(candidates) = context\n            .tool_suggest_candidates\n            .filter(|candidates| !candidates.tools.is_empty())\n    {\n        if candidates.presentation == crate::tools::router::ToolSuggestPresentation::ListTool {\n            registry.add(ListAvailablePluginsToInstallHandler::new(\n                collect_request_plugin_install_entries(&candidates.tools),\n            ));\n        }\n        registry.add(RequestPluginInstallHandler::new(\n            candidates.tools.clone(),\n            candidates.presentation,\n        ));"
+  },
+  "core/src/tools/handlers/request_plugin_install.rs:240-263": {
+    "path": "codex-rs/core/src/tools/handlers/request_plugin_install.rs",
+    "start": 240,
+    "end": 263,
+    "file_sha256": "4c6c6f7d0727ff7eca2d84306b45e4a35c52f3696e76025c0d27d959ea6d6227",
+    "excerpt": "                            connector_ids: plugin.app_connector_ids.clone(),\n                        }],\n                        source,\n                    },\n                );\n        }\n\n        let request =\n            build_request_plugin_install_elicitation_request(suggest_reason, &tool, &suggestion_id);\n        let request_id = RequestId::String(suggestion_id.into());\n        let elicitation = session\n            .request_mcp_server_elicitation(\n                turn.as_ref(),\n                CODEX_APPS_MCP_SERVER_NAME.to_string(),\n                request_id,\n                request,\n            )\n            .await;\n        let response = elicitation.response;\n        if let Some(response) = response.as_ref() {\n            maybe_persist_disabled_install_request(&session, &turn, &tool, response).await;\n        }\n        let user_confirmed = response\n            .as_ref()"
+  },
+  "models-manager/src/manager.rs:152-167": {
+    "path": "codex-rs/models-manager/src/manager.rs",
+    "start": 152,
+    "end": 167,
+    "file_sha256": "8ae229b8587990f9f9643d019a56703f48465172ddf75bc22a158c09f489ed90",
+    "excerpt": "    /// Build picker-ready presets from the active catalog snapshot.\n    fn build_available_models(&self, mut remote_models: Vec<ModelInfo>) -> Vec<ModelPreset> {\n        remote_models.sort_by_key(|model| model.priority);\n\n        let mut presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();\n        let uses_codex_backend = self\n            .auth_manager()\n            .is_some_and(AuthManager::current_auth_uses_codex_backend);\n        presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);\n\n        ModelPreset::mark_default_by_picker_visibility(&mut presets);\n\n        presets\n    }\n\n    /// List collaboration mode presets."
+  },
+  "models-manager/src/manager.rs:186-202": {
+    "path": "codex-rs/models-manager/src/manager.rs",
+    "start": 186,
+    "end": 202,
+    "file_sha256": "8ae229b8587990f9f9643d019a56703f48465172ddf75bc22a158c09f489ed90",
+    "excerpt": "    fn get_default_model<'a>(\n        &'a self,\n        model: &'a Option<String>,\n        allow_provider_model_fallback: bool,\n        refresh_strategy: RefreshStrategy,\n        http_client_factory: HttpClientFactory,\n    ) -> ModelsManagerFuture<'a, String> {\n        Box::pin(\n            async move {\n                if let Some(model) = model.as_ref() {\n                    return model.to_string();\n                }\n                default_model_from_available(\n                    self.list_models(refresh_strategy, http_client_factory)\n                        .await,\n                )\n            }"
+  },
+  "protocol/src/openai_models.rs:887-908": {
+    "path": "codex-rs/protocol/src/openai_models.rs",
+    "start": 887,
+    "end": 908,
+    "file_sha256": "d7947323af29877aaa30b1426f1c1b7f83339334d37cfd77b7abbda980f273f5",
+    "excerpt": "    ///\n    /// In ChatGPT mode, all models are visible. Otherwise, only API-supported models are shown.\n    pub fn filter_by_auth(models: Vec<ModelPreset>, chatgpt_mode: bool) -> Vec<ModelPreset> {\n        models\n            .into_iter()\n            .filter(|model| chatgpt_mode || model.supported_in_api)\n            .collect()\n    }\n\n    /// Recompute the single default preset using picker visibility.\n    ///\n    /// The first picker-visible model wins; if none are picker-visible, the first model wins.\n    pub fn mark_default_by_picker_visibility(models: &mut [ModelPreset]) {\n        for preset in models.iter_mut() {\n            preset.is_default = false;\n        }\n        if let Some(default) = models.iter_mut().find(|preset| preset.show_in_picker) {\n            default.is_default = true;\n        } else if let Some(default) = models.first_mut() {\n            default.is_default = true;\n        }\n    }"
+  },
+  "codex-api/src/endpoint/models.rs:30-65": {
+    "path": "codex-rs/codex-api/src/endpoint/models.rs",
+    "start": 30,
+    "end": 65,
+    "file_sha256": "31a685084b8d0fb0b6fd2957c320030fad25a643610e3111f687e99603ca09b6",
+    "excerpt": "\n    fn path() -> &'static str {\n        \"models\"\n    }\n\n    fn append_client_version_query(req: &mut codex_client::Request, client_version: &str) {\n        let separator = if req.url.contains('?') { '&' } else { '?' };\n        req.url = format!(\"{}{}client_version={client_version}\", req.url, separator);\n    }\n\n    pub fn request_url(provider: &Provider, client_version: &str) -> String {\n        let mut request = provider.build_request(Method::GET, Self::path());\n        Self::append_client_version_query(&mut request, client_version);\n        request.url\n    }\n\n    pub async fn list_models(\n        &self,\n        request_url: String,\n        extra_headers: HeaderMap,\n    ) -> Result<(Vec<ModelInfo>, Option<String>), ApiError> {\n        let resp = self\n            .session\n            .execute_with(\n                Method::GET,\n                Self::path(),\n                extra_headers,\n                /*body*/ None,\n                move |req| {\n                    req.url.clone_from(&request_url);\n                },\n            )\n            .await?;\n\n        let header_etag = resp\n            .headers"
+  },
+  "protocol/src/openai_models.rs:439-447": {
+    "path": "codex-rs/protocol/src/openai_models.rs",
+    "start": 439,
+    "end": 447,
+    "file_sha256": "d7947323af29877aaa30b1426f1c1b7f83339334d37cfd77b7abbda980f273f5",
+    "excerpt": "    #[serde(default = \"default_true\", skip_serializing_if = \"is_true\")]\n    pub supports_reasoning_summary_parameter: bool,\n    #[serde(default)]\n    pub default_reasoning_summary: ReasoningSummary,\n    pub support_verbosity: bool,\n    pub default_verbosity: Option<Verbosity>,\n    pub apply_patch_tool_type: Option<ApplyPatchToolType>,\n    #[serde(default)]\n    pub web_search_tool_type: WebSearchToolType,"
+  },
+  "core/src/tools/handlers/multi_agents/send_input.rs:8-13": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents/send_input.rs",
+    "start": 8,
+    "end": 13,
+    "file_sha256": "749b06d3b1f08f67c39c2664dc62f480f0a2e8678e9d039b67b5602ca4acf3fa",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::namespaced(MULTI_AGENT_V1_NAMESPACE, \"send_input\")\n    }\n"
+  },
+  "core/src/tools/spec_plan.rs:1243-1332": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 1243,
+    "end": 1332,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut ToolRegistry) {\n    let turn_context = context.turn_context;\n    if collab_tools_enabled(turn_context, context.model_info) {\n        if multi_agent_v2_enabled(turn_context) {\n            let exposure = if turn_context.config.multi_agent_v2.non_code_mode_only {\n                ToolExposure::DirectModelOnly\n            } else {\n                ToolExposure::Direct\n            };\n            let tool_namespace = namespace_tools_enabled(turn_context)\n                .then_some(turn_context.config.multi_agent_v2.tool_namespace.as_deref())\n                .flatten();\n            let agent_type_description =\n                agent_type_description(turn_context, context.default_agent_type_description);\n            let hide_spawn_agent_metadata =\n                turn_context.config.multi_agent_v2.hide_spawn_agent_metadata;\n            registry.register_trusted_with_exposure(\n                multi_agent_v2_handler(\n                    SpawnAgentHandlerV2::new(SpawnAgentToolOptions {\n                        available_models: turn_context.available_models.clone(),\n                        agent_type_description,\n                        expose_agent_type: !turn_context.config.agent_roles.is_empty(),\n                        hide_agent_type_model_reasoning: hide_spawn_agent_metadata,\n                        expose_spawn_agent_model_overrides: turn_context\n                            .config\n                            .multi_agent_v2\n                            .expose_spawn_agent_model_overrides,\n                        multi_agent_version: turn_context.multi_agent_version,\n                        usage_hint_text: turn_context.config.multi_agent_v2.usage_hint_text.clone(),\n                    }),\n                    tool_namespace,\n                ),\n                exposure,\n            );\n            registry.register_trusted_with_exposure(\n                multi_agent_v2_handler(SendMessageHandlerV2, tool_namespace),\n                exposure,\n            );\n            registry.register_trusted_with_exposure(\n                multi_agent_v2_handler(FollowupTaskHandlerV2, tool_namespace),\n                exposure,\n            );\n            if turn_context.config.multi_agent_v2.wait_agent_enabled {\n                registry.register_trusted_with_exposure(\n                    multi_agent_v2_handler(\n                        WaitAgentHandlerV2::new(context.wait_agent_timeouts),\n                        tool_namespace,\n                    ),\n                    exposure,\n                );\n            }\n            registry.register_trusted_with_exposure(\n                multi_agent_v2_handler(InterruptAgentHandler, tool_namespace),\n                exposure,\n            );\n            registry.register_trusted_with_exposure(\n                multi_agent_v2_handler(ListAgentsHandlerV2, tool_namespace),\n                exposure,\n            );\n        } else {\n            let agent_type_description =\n                agent_type_description(turn_context, context.default_agent_type_description);\n            let exposure = if search_tool_enabled(turn_context, context.model_info) {\n                ToolExposure::Deferred\n            } else {\n                ToolExposure::Direct\n            };\n            registry.add_with_exposure(\n                SpawnAgentHandler::new(SpawnAgentToolOptions {\n                    available_models: turn_context.available_models.clone(),\n                    agent_type_description,\n                    expose_agent_type: !turn_context.config.agent_roles.is_empty(),\n                    hide_agent_type_model_reasoning: false,\n                    expose_spawn_agent_model_overrides: true,\n                    multi_agent_version: turn_context.multi_agent_version,\n                    usage_hint_text: turn_context.config.multi_agent_v2.usage_hint_text.clone(),\n                }),\n                exposure,\n            );\n            registry.add_with_exposure(SendInputHandler, exposure);\n            registry.add_with_exposure(ResumeAgentHandler, exposure);\n            registry\n                .add_with_exposure(WaitAgentHandler::new(context.wait_agent_timeouts), exposure);\n            registry.add_with_exposure(CloseAgentHandler, exposure);\n        }\n    }\n}\n\n#[instrument(level = \"trace\", skip_all, fields(dynamic_tool_count = dynamic_tools.len()))]\nfn append_dynamic_tool_runtimes(dynamic_tools: &[DynamicToolSpec], registry: &mut ToolRegistry) {"
+  },
+  "core/src/tools/handlers/multi_agents/spawn.rs:25-30": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents/spawn.rs",
+    "start": 25,
+    "end": 30,
+    "file_sha256": "8b0619e9452bfaf7da62169e1d4fb3ea4257c3c714e607bcb6213405aaed53bd",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::namespaced(MULTI_AGENT_V1_NAMESPACE, \"spawn_agent\")\n    }\n"
+  },
+  "core/src/tools/handlers/multi_agents_v2/followup_task.rs:10-15": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents_v2/followup_task.rs",
+    "start": 10,
+    "end": 15,
+    "file_sha256": "7d38e147a26e031f621337f9d0964a569bc9660b60b898c216bdfde6adf4386f",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::plain(\"followup_task\")\n    }\n"
+  },
+  "core/src/tools/handlers/multi_agents_v2/send_message.rs:10-15": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents_v2/send_message.rs",
+    "start": 10,
+    "end": 15,
+    "file_sha256": "8966c7b11ebaa5ae47e5a0d743b0e9e082077c5227374a2863f29809477d4ba5",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::plain(\"send_message\")\n    }\n"
+  },
+  "core/src/tools/handlers/multi_agents_v2/spawn.rs:34-39": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs",
+    "start": 34,
+    "end": 39,
+    "file_sha256": "665b737270a5751554db1704653445f1e43fa47cd919722bcf7395181bc40e5f",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::plain(\"spawn_agent\")\n    }\n"
+  },
+  "multi_agents_spec.rs:14": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
+    "start": 14,
+    "end": 14,
+    "file_sha256": "7479ea6ccc066f263e84c4b795e13a635f2cab692c2fd86ddccfdb6e6cbc0996",
+    "excerpt": "pub const MULTI_AGENT_V1_NAMESPACE: &str = \"multi_agent_v1\";"
+  },
+  "models-manager/src/lib.rs:18-26": {
+    "path": "codex-rs/models-manager/src/lib.rs",
+    "start": 18,
+    "end": 26,
+    "file_sha256": "b31b6e8fdaebedbbf07999b27c02201020e8d876ae293ac05a8fe4bf051244d3",
+    "excerpt": "/// Convert the client version string to a whole version string (e.g. \"1.2.3-alpha.4\" -> \"1.2.3\").\npub fn client_version_to_whole() -> String {\n    format!(\n        \"{}.{}.{}\",\n        env!(\"CARGO_PKG_VERSION_MAJOR\"),\n        env!(\"CARGO_PKG_VERSION_MINOR\"),\n        env!(\"CARGO_PKG_VERSION_PATCH\")\n    )\n}"
+  },
+  "core/src/tools/handlers/multi_agents/resume_agent.rs:11-16": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents/resume_agent.rs",
+    "start": 11,
+    "end": 16,
+    "file_sha256": "f1b758ca5172eaccbc9c1210761c9f92f6a20a986bf7c5cb7b18b39c634562ab",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::namespaced(MULTI_AGENT_V1_NAMESPACE, \"resume_agent\")\n    }\n"
+  },
+  "core/src/tools/handlers/multi_agents/close_agent.rs:7-12": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents/close_agent.rs",
+    "start": 7,
+    "end": 12,
+    "file_sha256": "2c49ffdc009d8aaba96f19c86aca530bb99cf3cb42d0fbd1bc4bd8ed06301dcf",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::namespaced(MULTI_AGENT_V1_NAMESPACE, \"close_agent\")\n    }\n"
+  },
+  "core/src/tools/handlers/multi_agents_v2/interrupt_agent.rs:9-14": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents_v2/interrupt_agent.rs",
+    "start": 9,
+    "end": 14,
+    "file_sha256": "7f8f5768f8ead355125feb99c77dfec4875ff8fbfc350ca0f3fb4a781b518aa5",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::plain(\"interrupt_agent\")\n    }\n"
+  }
+}

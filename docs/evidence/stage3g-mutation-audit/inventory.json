@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "exact_codex_version": "codex-cli 0.155.0-alpha.9.2",
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "observation_method": "metadata_bound_source_derived",
+  "service_default_model_id": "gpt-6-astra",
+  "metadata_requests": 1,
+  "inference_requests": 0,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "execution_ready": false,
+  "canonical_tool_inventory": [
+    {
+      "tool_name": "exec_command",
+      "kind": "direct",
+      "mutation_capability": "command execution; arbitrary filesystem effects",
+      "registration_condition": "environment and ShellTool and model shell type not Disabled",
+      "guard": "effective shell_tool=false",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1031-1069"
+      ]
+    },
+    {
+      "tool_name": "write_stdin",
+      "kind": "direct",
+      "mutation_capability": "stdin/control of live execution process",
+      "registration_condition": "shell guards plus UnifiedExec",
+      "guard": "effective shell_tool=false",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1031-1069"
+      ]
+    },
+    {
+      "tool_name": "apply_patch",
+      "kind": "direct",
+      "mutation_capability": "create/update/delete/move files",
+      "registration_condition": "environment and model_info.apply_patch_tool_type.is_some(); normal non-guardian session; no additional AllowedTools exclusion",
+      "guard": "sandbox checked during handling, not registration",
+      "absent": false,
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1213-1216",
+        "core/src/tools/handlers/apply_patch.rs:294-350"
+      ]
+    },
+    {
+      "tool_name": "notes.write_file",
+      "kind": "extension",
+      "mutation_capability": "create/replace or append remote notes; not arbitrary local file API",
+      "registration_condition": "installed HistoryNotes extension plus token_budget.use_history_notes_extension and OpenAI/Codex auth and thread identity",
+      "guard": "token_budget configuration defaults false; complete effective extension state not runtime observed",
+      "absent": null,
+      "source_refs": [
+        "ext/history-notes/src/tools.rs:44-94",
+        "ext/history-notes/src/extension.rs:45-63",
+        "core/src/config/mod.rs:2770-2782"
+      ]
+    },
+    {
+      "tool_name": "notes.append_to_file",
+      "kind": "extension",
+      "mutation_capability": "create/replace or append remote notes; not arbitrary local file API",
+      "registration_condition": "installed HistoryNotes extension plus token_budget.use_history_notes_extension and OpenAI/Codex auth and thread identity",
+      "guard": "token_budget configuration defaults false; complete effective extension state not runtime observed",
+      "absent": null,
+      "source_refs": [
+        "ext/history-notes/src/tools.rs:44-94",
+        "ext/history-notes/src/extension.rs:45-63",
+        "core/src/config/mod.rs:2770-2782"
+      ]
+    },
+    {
+      "tool_name": "memories.add_ad_hoc_note",
+      "kind": "extension",
+      "mutation_capability": "append-only local memory note file",
+      "registration_condition": "MemoryTool feature and use_memories and dedicated_tools",
+      "guard": "effective memories=false",
+      "absent": true,
+      "source_refs": [
+        "ext/memories/src/lib.rs:18-22",
+        "ext/memories/src/extension.rs:40-52",
+        "ext/memories/src/extension.rs:135-157",
+        "ext/memories/src/tools/ad_hoc_note.rs:44-86"
+      ]
+    },
+    {
+      "tool_name": "image_gen.imagegen",
+      "kind": "extension",
+      "mutation_capability": "generates and saves image artifact under save_root or execution environment",
+      "registration_condition": "OpenAI image extension plus ImageGeneration/provider/namespace/modalities/auth guards",
+      "guard": "feature/model/account conditions not fully observed; no image request made",
+      "absent": null,
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:692-727",
+        "ext/image-generation/src/tool.rs:281-321",
+        "app-server/src/extensions.rs:74-104",
+        "core/src/tools/spec_plan.rs:1383-1411"
+      ]
+    },
+    {
+      "tool_name": "exec",
+      "kind": "orchestration",
+      "mutation_capability": "code-mode execution/resume; can call registered nested mutation tools",
+      "registration_condition": "effective ToolMode is CodeMode or CodeModeOnly",
+      "guard": "not a shell alias; transitive tool availability must be checked",
+      "absent": null,
+      "source_refs": [
+        "code-mode-protocol/src/lib.rs:49-52",
+        "core/src/tools/spec_plan.rs:784-807"
+      ]
+    },
+    {
+      "tool_name": "wait",
+      "kind": "orchestration",
+      "mutation_capability": "code-mode execution/resume; can call registered nested mutation tools",
+      "registration_condition": "effective ToolMode is CodeMode or CodeModeOnly",
+      "guard": "not a shell alias; transitive tool availability must be checked",
+      "absent": null,
+      "source_refs": [
+        "code-mode-protocol/src/lib.rs:49-52",
+        "core/src/tools/spec_plan.rs:784-807"
+      ]
+    },
+    {
+      "tool_name": "create_goal",
+      "kind": "state_mutation",
+      "mutation_capability": "persist goal state in state database",
+      "registration_condition": "state_db exists and goal extension enabled",
+      "guard": "effective goals=false",
+      "absent": true,
+      "source_refs": [
+        "ext/goal/src/spec.rs:9-11",
+        "app-server/src/extensions.rs:74-104"
+      ]
+    },
+    {
+      "tool_name": "update_goal",
+      "kind": "state_mutation",
+      "mutation_capability": "persist goal state in state database",
+      "registration_condition": "state_db exists and goal extension enabled",
+      "guard": "effective goals=false",
+      "absent": true,
+      "source_refs": [
+        "ext/goal/src/spec.rs:9-11",
+        "app-server/src/extensions.rs:74-104"
+      ]
+    },
+    {
+      "tool_name": "request_plugin_install",
+      "kind": "capability_expansion",
+      "mutation_capability": "requests installation; persists installation-choice state",
+      "registration_condition": "tool_suggest_enabled and candidates nonempty",
+      "guard": "client-mediated; not evidence that mutation impossible",
+      "absent": null,
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1197-1210",
+        "core/src/tools/handlers/request_plugin_install.rs:240-263"
+      ]
+    },
+    {
+      "tool_name": "multi_agent_v1.send_input",
+      "kind": "delegated_execution",
+      "mutation_capability": "start or resume agent work with possible filesystem effects",
+      "registration_condition": "collaboration registration enabled and version/depth guards",
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/send_input.rs:8-13",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool_name": "multi_agent_v1.spawn_agent",
+      "kind": "delegated_execution",
+      "mutation_capability": "start or resume agent work with possible filesystem effects",
+      "registration_condition": "collaboration registration enabled and version/depth guards",
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/spawn.rs:25-30",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool_name": "followup_task",
+      "kind": "delegated_execution",
+      "mutation_capability": "start or resume agent work with possible filesystem effects",
+      "registration_condition": "collaboration registration enabled and version/depth guards",
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents_v2/followup_task.rs:10-15",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool_name": "send_message",
+      "kind": "delegated_execution",
+      "mutation_capability": "start or resume agent work with possible filesystem effects",
+      "registration_condition": "collaboration registration enabled and version/depth guards",
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents_v2/send_message.rs:10-15",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool_name": "spawn_agent",
+      "kind": "delegated_execution",
+      "mutation_capability": "start or resume agent work with possible filesystem effects",
+      "registration_condition": "collaboration registration enabled and version/depth guards",
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents_v2/spawn.rs:34-39",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool_name": "multi_agent_v1.resume_agent",
+      "kind": "delegated_execution_control",
+      "mutation_capability": "resume or stop agent execution; indirect process authority",
+      "registration_condition": "collaboration version/depth guards",
+      "guard": "effective multi_agent=false",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/resume_agent.rs:11-16",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool_name": "multi_agent_v1.close_agent",
+      "kind": "delegated_execution_control",
+      "mutation_capability": "resume or stop agent execution; indirect process authority",
+      "registration_condition": "collaboration version/depth guards",
+      "guard": "effective multi_agent=false",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/close_agent.rs:7-12",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool_name": "interrupt_agent",
+      "kind": "delegated_execution_control",
+      "mutation_capability": "resume or stop agent execution; indirect process authority",
+      "registration_condition": "collaboration version/depth guards",
+      "guard": "effective multi_agent=false",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents_v2/interrupt_agent.rs:9-14",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    }
+  ],
+  "canonical_direct_forbidden_set": [
+    "exec_command",
+    "write_stdin",
+    "apply_patch",
+    "notes.write_file",
+    "notes.append_to_file",
+    "memories.add_ad_hoc_note",
+    "image_gen.imagegen"
+  ],
+  "other_mutation_tools_absent": null,
+  "exec_command_absent": true,
+  "write_stdin_absent": true,
+  "apply_patch_absent": false,
+  "forbidden_execution_tools_absent": false,
+  "decision": "Case B: STOP; patch registration condition satisfied for catalog-selected default and planned environment",
+  "source_refs": [
+    "models-manager/src/manager.rs:152-167",
+    "models-manager/src/manager.rs:186-202",
+    "models-manager/src/lib.rs:18-26",
+    "protocol/src/openai_models.rs:887-908",
+    "codex-api/src/endpoint/models.rs:30-65",
+    "protocol/src/openai_models.rs:439-447"
+  ],
+  "inventory_scope": "Core registry, built-in extensions and code-mode/delegation wrappers. External MCP/dynamic plugins are open-ended, not a finite canonical set; only reviewed devhub_delegate is authorized. No truth-by-omission.",
+  "actual_runtime_tool_list_observed": false,
+  "filesystem_mutation_attempted": false,
+  "filesystem_mutation_possible": null,
+  "qualification_policy_sha256": "e3aa6f28641e7b9c8e73b36f5943dd4af946a4641fecc061dae8ecf122d0a8ec",
+  "protocol_config_changed": false
+}
