@@ -18,6 +18,7 @@ from devhub.experiment import EnvironmentManifest, ExperimentProtocol, plan
 from devhub.experiment_bridge import CODEX_HOSTS, connect_target
 from devhub.experiment_launch import DOCKER, safe_artifacts
 from devhub.experiment_run import secret_strings
+from devhub.experiment_tool_gate import policy_hash
 from devhub.ledger import MIGRATIONS
 from devhub.ollama import OllamaAdapter
 
@@ -232,6 +233,7 @@ def preflight(
             checks["image_id"] == image
             and checks["bootstrap_sha256"] == bootstrap
             and checks["protocol_sha256"] == protocol.hashes()["protocol"]
+            and checks.get("qualification_policy_sha256") == policy_hash()
         ):
             for key in ("auth_tmpfs", "cli_config", "egress_runtime"):
                 gates[key] = checks["checks"].get(key) is True

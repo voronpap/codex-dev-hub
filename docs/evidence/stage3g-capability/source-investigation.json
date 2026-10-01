@@ -1,0 +1,82 @@
+{
+  "kind": "exact_cli_metadata_semantics_only",
+  "codex_version": "codex-cli 0.155.0-alpha.9.2",
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "binary_sha256": "c544a899873ce1a51506304bb2818af6975a97715bb8c4c9ff0abd566a3fe3f6",
+  "archive_sha256": "8e388748bcd88082272594fe75982645c55eb03f441e54954063061c766be5b0",
+  "diagnostic_image_id": "sha256:ef6c281978dcd6927d9b3829484e4c4fdfc5d98de5acbd6312c04565d2d58cbf",
+  "accepted_runtime_image": false,
+  "network": "none",
+  "auth_mounted": false,
+  "repo_mounted": false,
+  "cases": [
+    {
+      "case": "false_false",
+      "argv": [
+        "-c",
+        "features.unified_exec=false",
+        "-c",
+        "features.shell_tool=false",
+        "features",
+        "list"
+      ],
+      "exit_code": 0,
+      "unified_exec": "true",
+      "shell_tool": "false",
+      "stderr": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp\"))\n",
+      "stdout_sha256": "47a1c285d49c572ef84d80ea4b1dd4016408b88be62742531d75a7b142f20f29"
+    },
+    {
+      "case": "true_false",
+      "argv": [
+        "-c",
+        "features.unified_exec=true",
+        "-c",
+        "features.shell_tool=false",
+        "features",
+        "list"
+      ],
+      "exit_code": 0,
+      "unified_exec": "true",
+      "shell_tool": "false",
+      "stderr": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp\"))\n",
+      "stdout_sha256": "47a1c285d49c572ef84d80ea4b1dd4016408b88be62742531d75a7b142f20f29"
+    },
+    {
+      "case": "disable_switch",
+      "argv": [
+        "--disable",
+        "unified_exec",
+        "--disable",
+        "shell_tool",
+        "features",
+        "list"
+      ],
+      "exit_code": 0,
+      "unified_exec": "true",
+      "shell_tool": "false",
+      "stderr": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp\"))\n",
+      "stdout_sha256": "47a1c285d49c572ef84d80ea4b1dd4016408b88be62742531d75a7b142f20f29"
+    }
+  ],
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "execution_ready": false,
+  "diagnostic_home": "/tmp (fresh tmpfs each invocation)",
+  "prior_probe": "metadata-probe.json (failed before config load: nonexistent temporary CODEX_HOME)",
+  "source_file_sha256": {
+    "managed_features.rs": "94cd6d897ecf7c33ad9cb1f401425f5437671f278e7b8cc74331f389e0afef22",
+    "core_src_tools_spec_plan.rs": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "spec_plan_tests.rs": "b856b5343784b4db9acbb44416fb24ee3eb9703cd0064c6df2af2a768eb700e3"
+  },
+  "source_line_bindings": {
+    "managed_features.rs": "153-167",
+    "core_src_tools_spec_plan.rs": [
+      "1031-1069",
+      "1213-1216"
+    ],
+    "spec_plan_tests.rs": "1100-1142"
+  },
+  "qualification_receipt": null,
+  "apply_patch_absent": null
+}
