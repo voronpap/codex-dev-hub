@@ -10,6 +10,7 @@ from devhub.benchmark import canonical, digest, write_new
 from devhub.experiment import ExperimentProtocol, PlannedSession, RuntimeBindings
 from devhub.experiment_bridge import UnixBridge, proxy
 from devhub.experiment_launch import DOCKER, codex_argv, container_command, mount, safe_artifacts
+from devhub.experiment_tool_gate import POLICY_VERSION, policy_hash
 
 
 def main():
@@ -62,7 +63,13 @@ def main():
                 argv[len(DOCKER)] = "run"
                 argv.insert(len(DOCKER) + 1, "--rm")
                 pos = argv.index("--entrypoint")
-                argv = argv[:pos] + mount(guest, "/probe.py") + argv[pos : pos + 3] + ["/probe.py"]
+                argv = (
+                    argv[:pos]
+                    + mount(guest, "/probe.py")
+                    + mount(repo / "src/devhub/experiment_tool_gate.py", "/tool_gate.py")
+                    + argv[pos : pos + 3]
+                    + ["/probe.py"]
+                )
                 raw = subprocess.check_output(argv, timeout=60)
                 safe_artifacts((raw,), (b"synthetic-auth-canary-only",))
                 results.append(json.loads(raw.splitlines()[-1]))
@@ -77,6 +84,9 @@ def main():
                 k: all(r[k] for r in results)
                 for k in ("auth_tmpfs", "cli_config", "egress_runtime")
             },
+            "qualification_policy_version": POLICY_VERSION,
+            "qualification_policy_sha256": policy_hash(),
+            "tool_surfaces": [r["tool_surface"] for r in results],
             "config_errors": [r.get("config_error") for r in results],
             "config_diagnostics": [r.get("config_diagnostics") for r in results],
             "auth_material": "synthetic only; real auth presence is a separate preflight gate",

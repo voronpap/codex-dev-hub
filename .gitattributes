@@ -6,3 +6,6 @@ docs/evidence/stage3g-b-*.json text eol=lf
 docs/evidence/stage3g-c/** text eol=lf
 
 docs/evidence/stage3g-v2/** text eol=lf
+
+src/devhub/experiment_tool_gate.py text eol=lf
+docs/evidence/stage3g-capability/** text eol=lf
