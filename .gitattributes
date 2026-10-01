@@ -11,3 +11,5 @@ src/devhub/experiment_tool_gate.py text eol=lf
 docs/evidence/stage3g-capability/** text eol=lf
 
 docs/evidence/stage3g-mutation-audit/** text eol=lf
+
+docs/evidence/stage3g-patch-controls/** text eol=lf
