@@ -2,6 +2,8 @@ name: Runtime qualification (no benchmark)
 on:
   pull_request:
     paths:
+      - 'scripts/check_patch_controls.py'
+      - 'docs/evidence/stage3g-patch-controls/**'
       - 'scripts/check_mutation_audit.py'
       - 'docs/evidence/stage3g-mutation-audit/**'
       - 'benchmarks/runtime-lock.json'
@@ -27,6 +29,8 @@ jobs:
       - run: uv sync --locked
       - name: Verify pinned mutation-tool source inventory
         run: uv run --locked python scripts/check_mutation_audit.py --verify-upstream
+      - name: Verify pinned patch control audit
+        run: uv run --locked python scripts/check_patch_controls.py --verify-upstream
       - name: Build exact executor and evaluator images
         run: |
           mkdir -p "$RUNNER_TEMP/qualification"

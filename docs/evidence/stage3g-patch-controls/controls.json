@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "exact_codex_version": "codex-cli 0.155.0-alpha.9.2",
+  "apply_patch_registration_rule": "ordinary non-guardian environment exists AND model_info.apply_patch_tool_type.is_some(), unless internal AllowedTools excludes it before registry insertion",
+  "supported_disable_controls": [
+    {
+      "mechanism": "AllowedTools excluding apply_patch",
+      "cli_config_exposure": "Rust ExtensionDataInit host API; no public ordinary CLI/config or thread/start field found",
+      "apply_patch_registered_after_control": false,
+      "apply_patch_invocable_after_control": false,
+      "filesystem_mutation_possible_after_control": null,
+      "model_independent": true,
+      "preserves_frozen_semantics": false,
+      "source_refs": [
+        "ext/extension-api/src/allowed_tools.rs:1-25",
+        "core/src/tools/registry.rs:331-398",
+        "core/src/session/session.rs:952-959",
+        "app-server/src/request_processors/thread_processor.rs:1459-1464",
+        "core/src/tools/spec_plan_tests.rs:518-579"
+      ],
+      "detail": "Filters trusted builtins and external tools before registry insertion. Startup ceiling; resume must resupply. Using it requires different host integration, not a frozen CLI override."
+    },
+    {
+      "mechanism": "app-server thread/start environments=[]",
+      "cli_config_exposure": "Experimental public app-server field; exec currently sends environments=None",
+      "apply_patch_registered_after_control": false,
+      "apply_patch_invocable_after_control": false,
+      "filesystem_mutation_possible_after_control": null,
+      "model_independent": true,
+      "preserves_frozen_semantics": false,
+      "source_refs": [
+        "app-server-protocol/src/protocol/v2/thread.rs:136-151",
+        "exec/src/lib.rs:1143-1155",
+        "core/src/tools/spec_plan.rs:1213-1216"
+      ],
+      "detail": "Removes environment-dependent tools, including patch. Changes environment selection/context and requires different launcher/session mode; other extension mutation surfaces remain."
+    },
+    {
+      "mechanism": "model with apply_patch_tool_type=null",
+      "cli_config_exposure": "Model selection/catalog metadata",
+      "apply_patch_registered_after_control": false,
+      "apply_patch_invocable_after_control": false,
+      "filesystem_mutation_possible_after_control": null,
+      "model_independent": false,
+      "preserves_frozen_semantics": false,
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1213-1216"
+      ],
+      "detail": "Requires reviewed model choice. No alternative model chosen or queried."
+    },
+    {
+      "mechanism": "model_catalog_json with modified patch metadata",
+      "cli_config_exposure": "Supported startup catalog path; thread override is a no-op",
+      "apply_patch_registered_after_control": false,
+      "apply_patch_invocable_after_control": false,
+      "filesystem_mutation_possible_after_control": null,
+      "model_independent": false,
+      "preserves_frozen_semantics": false,
+      "source_refs": [
+        "config/src/config_toml.rs:378-385",
+        "core/src/tools/spec_plan.rs:1213-1216"
+      ],
+      "detail": "Overriding catalog is not a generic tool denylist: changes authoritative model metadata/catalog behavior. No fabricated metadata installed."
+    },
+    {
+      "mechanism": "shell_tool=false / unified_exec=false",
+      "cli_config_exposure": "Existing feature config",
+      "apply_patch_registered_after_control": true,
+      "apply_patch_invocable_after_control": true,
+      "filesystem_mutation_possible_after_control": null,
+      "model_independent": true,
+      "preserves_frozen_semantics": true,
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1213-1216"
+      ],
+      "detail": "Neither is tested by patch registration. Existing guards only exclude shell handlers."
+    },
+    {
+      "mechanism": "apply_patch_freeform=false",
+      "cli_config_exposure": "Removed compatibility feature",
+      "apply_patch_registered_after_control": true,
+      "apply_patch_invocable_after_control": true,
+      "filesystem_mutation_possible_after_control": null,
+      "model_independent": true,
+      "preserves_frozen_semantics": true,
+      "source_refs": [
+        "features/src/lib.rs:600-607",
+        "features/src/lib.rs:1156-1174",
+        "core/src/tools/spec_plan.rs:1213-1216"
+      ],
+      "detail": "Ignored by feature-map loader; not a patch disable control. Streaming/line-ending flags change handling, not registration."
+    },
+    {
+      "mechanism": "read-only sandbox / readonly container",
+      "cli_config_exposure": "Supported permission mode and outer OCI boundary",
+      "apply_patch_registered_after_control": true,
+      "apply_patch_invocable_after_control": null,
+      "filesystem_mutation_possible_after_control": null,
+      "model_independent": true,
+      "preserves_frozen_semantics": true,
+      "source_refs": [
+        "core/src/tools/handlers/apply_patch.rs:294-344",
+        "core/src/tools/spec_plan.rs:1213-1216"
+      ],
+      "detail": "Invocation may be rejected by path/approval/OS controls. Does not remove registry entry; effects were not attempted."
+    },
+    {
+      "mechanism": "CodeModeOnly / excluded_tool_namespaces",
+      "cli_config_exposure": "Code-mode presentation/nesting config",
+      "apply_patch_registered_after_control": true,
+      "apply_patch_invocable_after_control": null,
+      "filesystem_mutation_possible_after_control": null,
+      "model_independent": true,
+      "preserves_frozen_semantics": false,
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:759-807"
+      ],
+      "detail": "Hides or changes nesting/exposure, not the original tool registration. No absence inference."
+    },
+    {
+      "mechanism": "MCP/plugin disabled_tools",
+      "cli_config_exposure": "MCP server/plugin filters, tool_suggest catalog exclusions",
+      "apply_patch_registered_after_control": true,
+      "apply_patch_invocable_after_control": true,
+      "filesystem_mutation_possible_after_control": null,
+      "model_independent": true,
+      "preserves_frozen_semantics": true,
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1213-1216"
+      ],
+      "detail": "Schema defines disabled_tools only in PluginMcpServerConfig, RawMcpServerConfig and ToolSuggestConfig; no built-in patch denylist."
+    }
+  ],
+  "supported_model_independent_disable_in_frozen_cli": false,
+  "internal_model_independent_filter_exists": true,
+  "recommended_case": "C_for_frozen_exec; internal host allowlist and experimental no-environment mode require separately reviewed launcher/protocol changes",
+  "model_pin_required": false,
+  "model_pin_note": "Not the only architectural option; no model pin selected or authorized. It would not prove all other mutation surfaces absent.",
+  "metadata_requests": 1,
+  "new_metadata_requests": 0,
+  "inference_requests": 0,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "execution_ready": false,
+  "stage3g_c": "OPEN",
+  "observation_method": "pinned_source_schema_and_cli_help",
+  "qualification_policy_sha256": "e3aa6f28641e7b9c8e73b36f5943dd4af946a4641fecc061dae8ecf122d0a8ec",
+  "protocol_config_changed": false,
+  "forbidden_inventory_changed": false,
+  "proposal_applied": false,
+  "expected_hash_impact_if_future_launcher_revision": "version protocol/mode/config and qualification; derive new plan/session IDs; keep fixture/oracle hashes unchanged",
+  "boundary_policy_revision_applied": false
+}

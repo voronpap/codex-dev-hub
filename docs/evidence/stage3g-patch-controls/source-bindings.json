@@ -1,0 +1,93 @@
+{
+  "ext/extension-api/src/allowed_tools.rs:1-25": {
+    "path": "codex-rs/ext/extension-api/src/allowed_tools.rs",
+    "start": 1,
+    "end": 25,
+    "file_sha256": "4b58b7fda8f0dd5acbc13f5a8e3402610b9367fa4c2bdf1018c2c4603a5b4fc9",
+    "excerpt": "//! A startup ceiling on the tools a thread may advertise or execute.\n\nuse crate::ToolName;\n\n/// Supply through `ExtensionDataInit` before starting a thread. The host captures\n/// this value once; changing extension state later cannot widen the tool set.\n/// Callers must supply it again when resuming a thread.\n///\n/// An absent value keeps ordinary tool setup. An empty list permits no tools.\n/// Names include their namespace; a plain name uses the default namespace.\n/// This only removes tools: configuration and permission checks still apply.\n/// Generated tools such as Code Mode's `exec` and `wait` must also be listed.\n#[derive(Clone, Debug, Default)]\npub struct AllowedTools(pub Vec<ToolName>);\n\nimpl AllowedTools {\n    pub fn contains(&self, tool: &ToolName) -> bool {\n        self.0.iter().any(|allowed| {\n            allowed.name == tool.name\n                && (allowed.namespace == tool.namespace\n                    || (allowed.is_default_namespace() && tool.is_default_namespace()))\n        })\n    }\n}"
+  },
+  "core/src/tools/registry.rs:331-398": {
+    "path": "codex-rs/core/src/tools/registry.rs",
+    "start": 331,
+    "end": 398,
+    "file_sha256": "52d6ec5de7282fd42bd9810edbe19d0c75ee9445254e33e2a1a39e0ba7dac7b5",
+    "excerpt": "\n    pub(crate) fn register_trusted_with_exposure(\n        &mut self,\n        runtime: Arc<dyn CoreToolRuntime>,\n        exposure: ToolExposure,\n    ) {\n        let tool_name = runtime.tool_name().with_default_namespace();\n        if self\n            .allowed_tools\n            .as_ref()\n            .is_some_and(|allowed| !allowed.contains(&tool_name))\n        {\n            return;\n        }\n        match self.tools.entry(tool_name) {\n            Entry::Vacant(entry) => {\n                entry.insert(RegisteredTool { runtime, exposure });\n            }\n            Entry::Occupied(entry) => {\n                let tool_name = entry.key();\n                error_or_panic(format!(\"tool {tool_name} already registered\"));\n            }\n        }\n    }\n\n    pub(crate) fn prepend_trusted(&mut self, runtime: Arc<dyn CoreToolRuntime>) {\n        let tool_name = runtime.tool_name().with_default_namespace();\n        if self\n            .allowed_tools\n            .as_ref()\n            .is_some_and(|allowed| !allowed.contains(&tool_name))\n        {\n            return;\n        }\n        if self.tools.contains_key(&tool_name) {\n            error_or_panic(format!(\"tool {tool_name} already registered\"));\n            return;\n        }\n\n        let exposure = runtime.exposure();\n        self.tools\n            .shift_insert(0, tool_name, RegisteredTool { runtime, exposure });\n    }\n\n    pub(crate) fn register_external(&mut self, runtime: Arc<dyn CoreToolRuntime>) -> bool {\n        let exposure = runtime.exposure();\n        self.register_external_with_exposure(runtime, exposure)\n    }\n\n    pub(crate) fn register_external_with_exposure(\n        &mut self,\n        runtime: Arc<dyn CoreToolRuntime>,\n        exposure: ToolExposure,\n    ) -> bool {\n        let tool_name = runtime.tool_name().with_default_namespace();\n        if self\n            .allowed_tools\n            .as_ref()\n            .is_some_and(|allowed| !allowed.contains(&tool_name))\n        {\n            return false;\n        }\n        if tool_name.is_default_namespace()\n            && matches!(tool_name.name.as_str(), \"exec_command\" | \"shell_command\")\n        {\n            tracing::warn!(tool_name = %tool_name, \"skipping external tool with reserved name\");\n            if self.tools.contains_key(&tool_name) {\n                self.record_collision(tool_name);"
+  },
+  "core/src/session/session.rs:952-959": {
+    "path": "codex-rs/core/src/session/session.rs",
+    "start": 952,
+    "end": 959,
+    "file_sha256": "62665a8f6023d126001cd0e27a33354766b604358513198459dc1ce171dd1820",
+    "excerpt": "        let allowed_tools = thread_extension_init\n            .get::<codex_extension_api::AllowedTools>()\n            .or_else(|| {\n                // Older reviewer rollouts predate the explicit startup setting.\n                crate::guardian::is_basic_session_source(&session_configuration.session_source)\n                    .then(|| Arc::new(codex_guardian_reviewer::reviewer_allowed_tools()))\n            });\n        let mcp_thread_init = thread_extension_init.clone();"
+  },
+  "app-server/src/request_processors/thread_processor.rs:1459-1464": {
+    "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
+    "start": 1459,
+    "end": 1464,
+    "file_sha256": "d4be28526badd6068db21c37312be718e51cd42e0a67ffb29665f526f56fd3f1",
+    "excerpt": "        let mut thread_extension_init = ExtensionDataInit::new();\n        if !selected_capability_roots.is_empty() {\n            thread_extension_init.insert(selected_capability_roots);\n        }\n        let mut start_options = StartThreadOptions::new(config);\n        let reserved_thread_id = if start_options.config.ephemeral {"
+  },
+  "app-server-protocol/src/protocol/v2/thread.rs:136-151": {
+    "path": "codex-rs/app-server-protocol/src/protocol/v2/thread.rs",
+    "start": 136,
+    "end": 151,
+    "file_sha256": "761fb1a61a8107ab37dcfd7f997a4983bd58aab81cf84355ae30197ed809c8ac",
+    "excerpt": "    /// Optional sticky environments for this thread.\n    ///\n    /// Omitted selects the default environment when environment access is\n    /// enabled. Empty disables environment access for turns that do not\n    /// provide a turn override. Non-empty selects the first environment as the\n    /// current turn environment.\n    #[experimental(\"thread/start.environments\")]\n    #[ts(optional = nullable)]\n    pub environments: Option<Vec<TurnEnvironmentParams>>,\n    #[experimental(\"thread/start.dynamicTools\")]\n    #[serde(\n        default,\n        deserialize_with = \"codex_protocol::dynamic_tools::deserialize_dynamic_tool_specs\"\n    )]\n    #[ts(optional = nullable)]\n    pub dynamic_tools: Option<Vec<DynamicToolSpec>>,"
+  },
+  "exec/src/lib.rs:1143-1155": {
+    "path": "codex-rs/exec/src/lib.rs",
+    "start": 1143,
+    "end": 1155,
+    "file_sha256": "68011a6b31e31c758a3b7a353ecf01a22937e3031152b392e350ebd551c16840",
+    "excerpt": "                        thread_id: primary_thread_id_for_span.clone(),\n                        turn_trigger: None,\n                        client_user_message_id: None,\n                        input: items.into_iter().map(Into::into).collect(),\n                        tool_output: None,\n                        responsesapi_client_metadata: None,\n                        additional_context: None,\n                        environments: None,\n                        cwd: Some(default_cwd),\n                        runtime_workspace_roots: None,\n                        approval_policy: Some(default_approval_policy.into()),\n                        approvals_reviewer: None,\n                        sandbox_policy: None,"
+  },
+  "core/src/tools/spec_plan.rs:1213-1216": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 1213,
+    "end": 1216,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "    if environment_mode.has_environment() && context.model_info.apply_patch_tool_type.is_some() {\n        let include_environment_id = matches!(environment_mode, ToolEnvironmentMode::Multiple);\n        registry.add(ApplyPatchHandler::new(include_environment_id));\n    }"
+  },
+  "core/src/tools/spec_plan.rs:759-807": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 759,
+    "end": 807,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "fn is_hidden_by_code_mode_only(\n    turn_context: &TurnContext,\n    model_info: &ModelInfo,\n    tool_name: &ToolName,\n    exposure: ToolExposure,\n) -> bool {\n    let tool_mode = effective_tool_mode(turn_context, model_info);\n    tool_mode == ToolMode::CodeModeOnly\n        && exposure.is_available_in_code_mode()\n        && codex_code_mode::is_code_mode_nested_tool(&codex_tools::code_mode_name_for_tool_name(\n            tool_name,\n        ))\n}\n\nfn is_excluded_from_code_mode(turn_context: &TurnContext, tool_name: &ToolName) -> bool {\n    let tool_name = tool_name.clone().with_default_namespace();\n    tool_name.namespace.as_ref().is_some_and(|namespace| {\n        turn_context\n            .config\n            .code_mode\n            .excluded_tool_namespaces\n            .contains(namespace)\n    })\n}\n\nfn register_code_mode_executors(\n    turn_context: &TurnContext,\n    model_info: &ModelInfo,\n    registry: &mut ToolRegistry,\n) -> BTreeMap<String, ToolName> {\n    let tool_mode = effective_tool_mode(turn_context, model_info);\n    if !matches!(tool_mode, ToolMode::CodeMode | ToolMode::CodeModeOnly) {\n        return BTreeMap::new();\n    }\n\n    let mut code_mode_tool_names = BTreeMap::new();\n    let mut code_mode_nested_tool_specs = Vec::new();\n    let mut exec_prompt_tool_specs = Vec::new();\n    let mut deferred_exec_prompt_tool_specs = Vec::new();\n    let mut included_deferred_mcp_output_schema = false;\n    let deferred_tools_guidance_enabled = search_tool_enabled(turn_context, model_info);\n    for tool in registry.entries() {\n        let exposure = tool.exposure;\n        if !exposure.is_available_in_code_mode() {\n            continue;\n        }\n\n        let tool_name = tool.runtime.tool_name();\n        if is_excluded_from_code_mode(turn_context, &tool_name) {"
+  },
+  "features/src/lib.rs:600-607": {
+    "path": "codex-rs/features/src/lib.rs",
+    "start": 600,
+    "end": 607,
+    "file_sha256": "610e3db5e5cd328d4be1317798b0b7372f7ab6dc5c29cc5498819becd961cea4",
+    "excerpt": "                }\n                \"remote_control\" | \"remote_compaction_v2\" => {\n                    continue;\n                }\n                \"apply_patch_freeform\" => {\n                    continue;\n                }\n                \"tool_search\" | \"tool_search_always_defer_mcp_tools\" | \"apps_mcp_path_override\" => {"
+  },
+  "features/src/lib.rs:1156-1174": {
+    "path": "codex-rs/features/src/lib.rs",
+    "start": 1156,
+    "end": 1174,
+    "file_sha256": "610e3db5e5cd328d4be1317798b0b7372f7ab6dc5c29cc5498819becd961cea4",
+    "excerpt": "    FeatureSpec {\n        id: Feature::ApplyPatchFreeform,\n        key: \"apply_patch_freeform\",\n        stage: Stage::Removed,\n        default_enabled: false,\n    },\n    FeatureSpec {\n        id: Feature::ApplyPatchStreamingEvents,\n        key: \"apply_patch_streaming_events\",\n        stage: Stage::UnderDevelopment,\n        default_enabled: false,\n    },\n    FeatureSpec {\n        id: Feature::ApplyPatchPreserveLineEndings,\n        key: \"apply_patch_preserve_line_endings\",\n        stage: Stage::UnderDevelopment,\n        default_enabled: false,\n    },\n    FeatureSpec {"
+  },
+  "core/src/tools/handlers/apply_patch.rs:294-344": {
+    "path": "codex-rs/core/src/tools/handlers/apply_patch.rs",
+    "start": 294,
+    "end": 344,
+    "file_sha256": "a6913113c21cd9b27024b32a18166e7cace548db21f658db29127e4f82621f29",
+    "excerpt": "    context: &FileSystemSandboxPolicyContext<'_>,\n    sandbox_route: PatchSandboxRoute,\n) -> (\n    Vec<PathUri>,\n    crate::tools::handlers::EffectiveAdditionalPermissions,\n    codex_protocol::permissions::FileSystemSandboxPolicy,\n) {\n    let environment_id = environment.selection.environment_id.as_str();\n    let file_paths = file_paths_for_action(action);\n    let granted_permissions = merge_permission_profiles(\n        session\n            .granted_session_permissions(environment_id)\n            .await\n            .as_ref(),\n        session\n            .granted_turn_permissions(environment_id)\n            .await\n            .as_ref(),\n    );\n    let base_file_system_sandbox_policy = environment\n        .permission_profile()\n        .file_system_sandbox_policy();\n    let file_system_sandbox_policy = effective_file_system_sandbox_policy(\n        &base_file_system_sandbox_policy,\n        granted_permissions.as_ref(),\n    );\n    let effective_additional_permissions = apply_granted_turn_permissions(\n        session,\n        environment,\n        context.cwd,\n        crate::sandboxing::SandboxPermissions::UseDefault,\n        write_permissions_for_paths(\n            &file_paths,\n            &file_system_sandbox_policy,\n            context,\n            sandbox_route,\n        ),\n    )\n    .await;\n\n    (\n        file_paths,\n        effective_additional_permissions,\n        file_system_sandbox_policy,\n    )\n}\n\nimpl ToolExecutor<ToolInvocation> for ApplyPatchHandler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::plain(\"apply_patch\")\n    }"
+  },
+  "core/src/tools/spec_plan_tests.rs:518-579": {
+    "path": "codex-rs/core/src/tools/spec_plan_tests.rs",
+    "start": 518,
+    "end": 579,
+    "file_sha256": "b856b5343784b4db9acbb44416fb24ee3eb9703cd0064c6df2af2a768eb700e3",
+    "excerpt": "async fn allowed_tools_filter_sources_before_code_mode_and_discovery() {\n    use crate::tools::registry::ToolRegistry;\n    use codex_extension_api::AllowedTools;\n\n    for allowed in [\n        None,\n        Some(AllowedTools(vec![\n            ToolName::namespaced(\"kept\", \"lookup\"),\n            ToolName::plain(\"exec\"),\n            ToolName::plain(\"wait\"),\n        ])),\n        Some(AllowedTools::default()),\n    ] {\n        let (_, mut turn) = make_session_and_context().await;\n        set_feature(&mut turn, Feature::CodeMode, /*enabled*/ true);\n        set_web_search_mode(&mut turn, WebSearchMode::Live);\n        update_turn_settings_for_test(&mut turn, |settings| {\n            let model = Arc::make_mut(&mut settings.model_info);\n            model.supports_search_tool = true;\n            model.use_responses_lite = false;\n        });\n        let mut registry = ToolRegistry::with_allowed_tools(allowed.clone().map(Arc::new));\n        registry.add(crate::tools::handlers::PlanHandler);\n        let hosted = append_source_tools(\n            &turn,\n            turn.model_info(),\n            &mut registry,\n            vec![\n                mcp_runtime(\"kept\", \"kept\", \"lookup\", ToolExposure::Deferred),\n                mcp_runtime(\"excluded\", \"excluded\", \"lookup\", ToolExposure::Deferred),\n            ],\n            [Arc::new(DeferredExtensionTool)\n                as Arc<\n                    dyn for<'call> ToolExecutor<ExtensionToolCall<'call>>,\n                >],\n            &[dynamic_tool(\n                /*namespace*/ None,\n                \"dynamic_echo\",\n                /*defer_loading*/ false,\n            )],\n        );\n        assert!(!hosted.is_empty(), \"exercise hosted tool filtering too\");\n        let router = ToolRouter::from_registry(\n            &turn,\n            turn.model_info(),\n            registry,\n            hosted,\n            &Default::default(),\n        );\n        let plan = ToolPlanProbe::from_router(router);\n        match allowed {\n            None => {\n                plan.assert_registered_contains(&[\"update_plan\", \"extension_echo\", \"dynamic_echo\"]);\n                plan.assert_visible_contains(&[\"web_search\", \"tool_search\", \"exec\", \"wait\"]);\n            }\n            Some(allowed) if allowed.0.is_empty() => {\n                assert_eq!(plan.registered_names, Vec::<String>::new());\n                assert_eq!(plan.visible_specs, Vec::<ToolSpec>::new());\n                assert_eq!(plan.code_mode_tool_names, BTreeMap::new());\n            }\n            Some(_) => {\n                assert_eq!(plan.registered_names, vec![\"exec\", \"wait\", \"keptlookup\"]);"
+  },
+  "config/src/config_toml.rs:378-385": {
+    "path": "codex-rs/config/src/config_toml.rs",
+    "start": 378,
+    "end": 385,
+    "file_sha256": "7571539192069df8f4b389ebad03d1f7c9eaf5764d945bd01b4b795457ba7517",
+    "excerpt": "    pub model_reasoning_summary: Option<ReasoningSummary>,\n    /// Optional verbosity control for GPT-5 models (Responses API `text.verbosity`).\n    pub model_verbosity: Option<Verbosity>,\n\n    /// Optional path to a JSON model catalog (applied on startup only).\n    /// Per-thread `config` overrides are accepted but do not reapply this (no-ops).\n    pub model_catalog_json: Option<AbsolutePathBuf>,\n"
+  }
+}
