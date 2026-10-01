@@ -1,0 +1,366 @@
+{
+  "schema_version": 1,
+  "decision": "NOT_VIABLE_PENDING_CRITICAL_EFFECT_PROOF",
+  "qualification_policy_v2_sha256": null,
+  "historical_qualification_policy_sha256": "e3aa6f28641e7b9c8e73b36f5943dd4af946a4641fecc061dae8ecf122d0a8ec",
+  "protocol_changed": false,
+  "config_changed": false,
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "codex_internal_retries": null,
+  "matrix": [
+    {
+      "tool": "exec_command",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective shell_tool=false",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1031-1069"
+      ]
+    },
+    {
+      "tool": "write_stdin",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective shell_tool=false",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1031-1069"
+      ]
+    },
+    {
+      "tool": "apply_patch",
+      "registered": true,
+      "invocable": null,
+      "protected_state_read_possible": null,
+      "protected_state_write_possible": null,
+      "external_process_possible": null,
+      "network_expansion_possible": null,
+      "persistent_effect_possible": null,
+      "remote_effect_if_enabled": null,
+      "guard": "sandbox checked during handling, not registration",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1213-1216",
+        "core/src/tools/handlers/apply_patch.rs:294-350"
+      ]
+    },
+    {
+      "tool": "notes.write_file",
+      "registered": null,
+      "invocable": null,
+      "protected_state_read_possible": null,
+      "protected_state_write_possible": null,
+      "external_process_possible": null,
+      "network_expansion_possible": null,
+      "persistent_effect_possible": null,
+      "remote_effect_if_enabled": true,
+      "guard": "token_budget configuration defaults false; complete effective extension state not runtime observed",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "ext/history-notes/src/tools.rs:44-94",
+        "ext/history-notes/src/extension.rs:45-63",
+        "core/src/config/mod.rs:2770-2782"
+      ]
+    },
+    {
+      "tool": "notes.append_to_file",
+      "registered": null,
+      "invocable": null,
+      "protected_state_read_possible": null,
+      "protected_state_write_possible": null,
+      "external_process_possible": null,
+      "network_expansion_possible": null,
+      "persistent_effect_possible": null,
+      "remote_effect_if_enabled": true,
+      "guard": "token_budget configuration defaults false; complete effective extension state not runtime observed",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "ext/history-notes/src/tools.rs:44-94",
+        "ext/history-notes/src/extension.rs:45-63",
+        "core/src/config/mod.rs:2770-2782"
+      ]
+    },
+    {
+      "tool": "memories.add_ad_hoc_note",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective memories=false",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "ext/memories/src/lib.rs:18-22",
+        "ext/memories/src/extension.rs:40-52",
+        "ext/memories/src/extension.rs:135-157",
+        "ext/memories/src/tools/ad_hoc_note.rs:44-86"
+      ]
+    },
+    {
+      "tool": "image_gen.imagegen",
+      "registered": null,
+      "invocable": null,
+      "protected_state_read_possible": null,
+      "protected_state_write_possible": null,
+      "external_process_possible": null,
+      "network_expansion_possible": null,
+      "persistent_effect_possible": null,
+      "remote_effect_if_enabled": null,
+      "guard": "feature/model/account conditions not fully observed; no image request made",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:692-727",
+        "ext/image-generation/src/tool.rs:281-321",
+        "app-server/src/extensions.rs:74-104",
+        "core/src/tools/spec_plan.rs:1383-1411"
+      ]
+    },
+    {
+      "tool": "exec",
+      "registered": null,
+      "invocable": null,
+      "protected_state_read_possible": null,
+      "protected_state_write_possible": null,
+      "external_process_possible": null,
+      "network_expansion_possible": null,
+      "persistent_effect_possible": null,
+      "remote_effect_if_enabled": null,
+      "guard": "not a shell alias; transitive tool availability must be checked",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "code-mode-protocol/src/lib.rs:49-52",
+        "core/src/tools/spec_plan.rs:784-807"
+      ]
+    },
+    {
+      "tool": "wait",
+      "registered": null,
+      "invocable": null,
+      "protected_state_read_possible": null,
+      "protected_state_write_possible": null,
+      "external_process_possible": null,
+      "network_expansion_possible": null,
+      "persistent_effect_possible": null,
+      "remote_effect_if_enabled": null,
+      "guard": "not a shell alias; transitive tool availability must be checked",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "code-mode-protocol/src/lib.rs:49-52",
+        "core/src/tools/spec_plan.rs:784-807"
+      ]
+    },
+    {
+      "tool": "create_goal",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective goals=false",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "ext/goal/src/spec.rs:9-11",
+        "app-server/src/extensions.rs:74-104"
+      ]
+    },
+    {
+      "tool": "update_goal",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective goals=false",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "ext/goal/src/spec.rs:9-11",
+        "app-server/src/extensions.rs:74-104"
+      ]
+    },
+    {
+      "tool": "request_plugin_install",
+      "registered": null,
+      "invocable": null,
+      "protected_state_read_possible": null,
+      "protected_state_write_possible": null,
+      "external_process_possible": null,
+      "network_expansion_possible": null,
+      "persistent_effect_possible": null,
+      "remote_effect_if_enabled": null,
+      "guard": "client-mediated; not evidence that mutation impossible",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/spec_plan.rs:1197-1210",
+        "core/src/tools/handlers/request_plugin_install.rs:240-263"
+      ]
+    },
+    {
+      "tool": "multi_agent_v1.send_input",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/send_input.rs:8-13",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool": "multi_agent_v1.spawn_agent",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/spawn.rs:25-30",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool": "followup_task",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents_v2/followup_task.rs:10-15",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool": "send_message",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents_v2/send_message.rs:10-15",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool": "spawn_agent",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective multi_agent=false; v2 namespace configurable",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents_v2/spawn.rs:34-39",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool": "multi_agent_v1.resume_agent",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective multi_agent=false",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/resume_agent.rs:11-16",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool": "multi_agent_v1.close_agent",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective multi_agent=false",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/close_agent.rs:7-12",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool": "interrupt_agent",
+      "registered": false,
+      "invocable": false,
+      "protected_state_read_possible": false,
+      "protected_state_write_possible": false,
+      "external_process_possible": false,
+      "network_expansion_possible": false,
+      "persistent_effect_possible": false,
+      "remote_effect_if_enabled": null,
+      "guard": "effective multi_agent=false",
+      "evidence_method": "pinned-source-derived; not runtime invocation",
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents_v2/interrupt_agent.rs:9-14",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    }
+  ],
+  "critical_unknowns": [
+    "effective notes extension absence",
+    "image extension remote effects",
+    "plugin installation state/expansion",
+    "code-mode transitive authority",
+    "unintended server-side persistence through permitted TLS destination"
+  ],
+  "note": "False effects for absent tools are conditional on accepted feature evidence. Filesystem probes do not establish handler invocability, auth secrecy or remote effects. Intended host remains unqualified."
+}

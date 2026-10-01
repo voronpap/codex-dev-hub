@@ -2,6 +2,10 @@ name: Runtime qualification (no benchmark)
 on:
   pull_request:
     paths:
+      - 'scripts/probe_effects_boundary.py'
+      - 'scripts/effects_guest.py'
+      - 'scripts/check_effects_review.py'
+      - 'docs/evidence/stage3g-effects-boundary/**'
       - 'scripts/check_patch_controls.py'
       - 'docs/evidence/stage3g-patch-controls/**'
       - 'scripts/check_mutation_audit.py'
@@ -40,6 +44,10 @@ jobs:
         run: |
           image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/build.json"))["image_id"])')
           uv run --locked python scripts/probe_oci_boundary.py --image-id "$image" --output "$RUNNER_TEMP/qualification/isolation.json"
+      - name: Synthetic A/B filesystem effects (no model)
+        run: |
+          image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/build.json"))["image_id"])')
+          uv run --locked python scripts/probe_effects_boundary.py --image-id "$image" --output "$RUNNER_TEMP/qualification/effects.json"
       - name: Require exact-image v2 config qualification
         run: |
           image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/build.json"))["image_id"])')

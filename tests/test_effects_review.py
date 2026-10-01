@@ -1,0 +1,54 @@
+import importlib.util
+import json
+from pathlib import Path
+
+import pytest
+
+
+def load(name):
+    spec = importlib.util.spec_from_file_location(name, f"scripts/{name}.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def records():
+    root = Path("docs/evidence")
+    return (
+        json.loads((root / "stage3g-effects-boundary/review.json").read_bytes()),
+        json.loads((root / "stage3g-mutation-audit/inventory.json").read_bytes()),
+    )
+
+
+def test_review_covers_every_canonical_surface():
+    load("check_effects_review").validate(*records())
+
+
+@pytest.mark.parametrize("fault", ["missing", "remote_safe", "ready", "new_policy"])
+def test_critical_unknown_cannot_become_approval(fault):
+    review, inventory = records()
+    if fault == "missing":
+        review["matrix"].pop()
+    elif fault == "remote_safe":
+        next(r for r in review["matrix"] if r["tool"] == "notes.write_file")[
+            "persistent_effect_possible"
+        ] = False
+    elif fault == "ready":
+        review["execution_ready"] = True
+    else:
+        review["qualification_policy_v2_sha256"] = "0" * 64
+    with pytest.raises(AssertionError):
+        load("check_effects_review").validate(review, inventory)
+
+
+def test_probe_rejects_successful_protected_mutation():
+    report = {
+        "protected": {
+            "/packet/task.txt": {"unchanged": True, "operations": {"overwrite": {"denied": False}}}
+        },
+        "hidden": {},
+        "writable": {},
+        "system_files": {},
+    }
+    assert not load("probe_effects_boundary").validate(report)
