@@ -20,7 +20,7 @@ from pydantic import Field, JsonValue, model_validator
 from devhub.benchmark import Digest, canonical, digest, write_new, write_sealed
 from devhub.delegate import DelegationResult
 from devhub.events import AccountingEvent
-from devhub.experiment import CODEX_OVERRIDES, ExperimentProtocol, PlannedSession, RuntimeBindings
+from devhub.experiment import ExperimentProtocol, PlannedSession, RuntimeBindings
 from devhub.models import Contract
 
 DOCKER = ("docker", "--host=unix:///var/run/docker.sock")
@@ -178,7 +178,7 @@ def codex_argv(session: PlannedSession, protocol: ExperimentProtocol) -> list[st
     ]
     if protocol.codex_model is not None:
         args += ["--model", protocol.codex_model]
-    for option in CODEX_OVERRIDES:
+    for option in protocol.codex_overrides():
         args += ["-c", option]
     if session.arm == "B":
         # No host paths, secrets, diagnostic tools or arbitrary endpoints.

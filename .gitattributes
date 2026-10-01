@@ -4,3 +4,5 @@ uv.lock text eol=lf
 docs/evidence/stage3g-b-*.json text eol=lf
 
 docs/evidence/stage3g-c/** text eol=lf
+
+docs/evidence/stage3g-v2/** text eol=lf

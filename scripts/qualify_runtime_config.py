@@ -16,11 +16,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-id", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--protocol", type=Path, required=True)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    protocol = ExperimentProtocol.model_validate_json(
-        (repo / "benchmarks/real-protocol.json").read_bytes()
-    )
+    protocol = ExperimentProtocol.model_validate_json(args.protocol.read_bytes())
     bootstrap = repo / "scripts/benchmark_guest.py"
     results = []
     with tempfile.TemporaryDirectory(prefix="devhub-config-probe-") as temporary:
@@ -79,6 +78,7 @@ def main():
                 for k in ("auth_tmpfs", "cli_config", "egress_runtime")
             },
             "config_errors": [r.get("config_error") for r in results],
+            "config_diagnostics": [r.get("config_diagnostics") for r in results],
             "auth_material": "synthetic only; real auth presence is a separate preflight gate",
             "real_codex_executions": 0,
             "provider_sends": 0,

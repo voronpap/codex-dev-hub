@@ -1,0 +1,26 @@
+{
+  "kind": "synthetic_oci_isolation_probe",
+  "image_id": "sha256:353c6027eb71469025be6b1627c8a903eafafd5c161d000d35b63893cec7743a",
+  "bootstrap_sha256": "924c6c4e78deaee0645de06e9f536202fdd17a03f34cd4b14e95e8a802c03f74",
+  "checks": {
+    "host_canary_hidden": true,
+    "other_arm_hidden": true,
+    "source_and_oracle_hidden": true,
+    "network_denied": true,
+    "only_scoped_bridges": true,
+    "fresh_home": true,
+    "packet_readable": true,
+    "packet_readonly": true,
+    "nonroot": true,
+    "capabilities_dropped": true,
+    "no_new_privileges": true,
+    "resource_limits_effective": true,
+    "docker_socket_absent": true,
+    "host_home_absent": true,
+    "repository_absent": true
+  },
+  "codex_executions": 0,
+  "provider_sends": 0,
+  "runtime_image_qualification": true,
+  "limitation": "Kernel boundary only; Codex preflight still required."
+}

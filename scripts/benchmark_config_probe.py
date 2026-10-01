@@ -87,6 +87,12 @@ print(
             if b"reserved built-in provider IDs" in features.stderr
             else None,
             "egress_runtime": denied,
+            "config_diagnostics": {
+                "features_exit_code": features.returncode,
+                "mcp_list_exit_code": mcp.returncode,
+                "mcp_scope_matches": scope,
+                "required_feature_states": {key: rows.get(key) for key in disabled},
+            },
         }
     )
 )

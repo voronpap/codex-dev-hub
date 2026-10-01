@@ -31,6 +31,52 @@ from devhub.experiment_run import execute_next, packet_bytes
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_protocol_v2_removes_only_rejected_overrides(protocol):
+    from devhub.experiment import CODEX_OVERRIDES
+
+    revised = ExperimentProtocol.model_validate_json(
+        (ROOT / "benchmarks/real-protocol-v2.json").read_bytes()
+    )
+    assert revised.model_dump(exclude={"protocol_id"}) == protocol.model_dump(
+        exclude={"protocol_id"}
+    )
+    assert protocol.codex_overrides() == CODEX_OVERRIDES
+    assert revised.codex_overrides() == CODEX_OVERRIDES[:-2]
+    assert CODEX_OVERRIDES[-2:] == (
+        "model_providers.openai.request_max_retries=0",
+        "model_providers.openai.stream_max_retries=0",
+    )
+    historical = json.loads((ROOT / "docs/evidence/stage3g-c/local-plan.json").read_bytes())
+    assert protocol.hashes() == historical["hashes"]
+    assert revised.hashes()["protocol"] != protocol.hashes()["protocol"]
+    assert revised.hashes()["codex_config"] != protocol.hashes()["codex_config"]
+    for key in ("routing_policy", "context_policy", "output_policy", "instructions"):
+        assert revised.hashes()[key] == protocol.hashes()[key]
+    for arm in ("A", "B"):
+        argv = codex_argv(session(arm), revised)
+        assert not any("model_providers.openai" in value for value in argv)
+        assert ("mcp_servers.devhub_delegate.required=true" in argv) is (arm == "B")
+
+
+def test_v2_plan_rebinds_all_sessions_without_changing_order(repo, protocol):
+    revised = ExperimentProtocol.model_validate_json(
+        (ROOT / "benchmarks/real-protocol-v2.json").read_bytes()
+    )
+    old = plan(repo, protocol, "revision-test")
+    new = plan(repo, revised, "revision-test")
+    assert len(new["sessions"]) == 24
+    assert len({s["session_id"] for s in new["sessions"]}) == 24
+    for a, b in zip(old["sessions"], new["sessions"], strict=True):
+        assert a["session_id"] != b["session_id"]
+        assert {k: v for k, v in a.items() if k != "session_id"} == {
+            k: v for k, v in b.items() if k != "session_id"
+        }
+    assert old["reviewer_rules_sha256"] == new["reviewer_rules_sha256"]
+    assert new["retry_semantics"]["codex_internal_retries"] is None
+    assert new["execution_ready"] is False
+    assert new["provider_sends"] == new["real_codex_executions"] == 0
+
+
 @pytest.fixture
 def protocol():
     return ExperimentProtocol.model_validate_json(
