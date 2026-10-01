@@ -1,0 +1,37 @@
+{
+  "validated_commit": "8b9fbbd0bf6b87a6343ad68258d7d495e585ff1c",
+  "pr29_merge_commit": "24c7840b0418d28a94b7ef31d673126797f56dac",
+  "offline_ci_run": 36897709757,
+  "runtime_ci_run": 36897709717,
+  "source_files_verified": 25,
+  "rust_method_slice_tests_passed": 7,
+  "linux_tests_passed": 344,
+  "linux_tests_skipped": 1,
+  "windows_smoke_passed": 14,
+  "ruff": true,
+  "format": true,
+  "strict_mypy": true,
+  "secret_history_scan": true,
+  "oci_isolation": true,
+  "synthetic_effects": true,
+  "synthetic_evaluator": true,
+  "absence_gate": false,
+  "effects_based_policy": "NOT_ACCEPTED",
+  "classification": "UNKNOWN",
+  "full_core_registry_proof": null,
+  "host_wrapper_compiled": false,
+  "initial_ci_failure": {
+    "run": 36897453050,
+    "reason": "new source manifest paths lacked codex-rs/ prefix; corrected without source/hash changes"
+  },
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "runtime_artifact_hashes": {
+    "build.json": "9cd53048fdec187a461dc53a322af51d351e31585cfde997bef72c2a6d6c9c1c",
+    "isolation.json": "9ccc60a1c3fece5b3e3ad6168533d227967863fa3ff0a7cbd657c1b7d1e98bae",
+    "effects.json": "7eac3d96be57e5411cd289219fcdd44882066434391324dbaf4460ee701e918b",
+    "runtime-checks.json": "b0ddb5f682e340d5b58cdcbefac115997ff279b1e241c6b942c8866746152a6e",
+    "evaluator-proof/result.json": "87e9f7fb8e5283a39ace505193a422789f3696f9cca2e1f35b1c2aea40d347c9"
+  }
+}

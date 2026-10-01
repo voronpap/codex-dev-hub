@@ -15,3 +15,6 @@ docs/evidence/stage3g-mutation-audit/** text eol=lf
 docs/evidence/stage3g-patch-controls/** text eol=lf
 
 docs/evidence/stage3g-effects-boundary/** text eol=lf
+
+docs/evidence/stage3g-allowed-tools/** text eol=lf
+scripts/allowed_tools_synthetic.rs text eol=lf

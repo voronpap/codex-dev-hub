@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "codex_version": "0.155.0-alpha.9.2",
+  "classification": "UNKNOWN",
+  "reason": "Public core startup accepts ceiling, but full host composition/visible B exposure/output equivalence not proven; method-slice proof is not full core integration.",
+  "effects_based_policy": "NOT_ACCEPTED",
+  "canonical_b": {
+    "namespace": "mcp__devhub_delegate",
+    "name": "devhub_delegate"
+  },
+  "canonical_b_conditions": [
+    "default prefix enabled",
+    "no non-prefixed override",
+    "single approved MCP server/tool",
+    "no normalization collision"
+  ],
+  "arm_a_allowlist": [],
+  "b_code_mode_alias": "mcp__devhub_delegate__devhub_delegate",
+  "full_core_registry_proof": null,
+  "model_visible_b_exactly_one": null,
+  "host_wrapper_compiled": false,
+  "resume_policy": "no resume/fork/recover ever; fresh process and thread per arm",
+  "v3_created": false,
+  "launcher_changed": false,
+  "protocol_changed": false,
+  "config_changed": false,
+  "policy_hash": null,
+  "execution_ready": false,
+  "intended_host_qualified": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "codex_internal_retries": null,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null
+}

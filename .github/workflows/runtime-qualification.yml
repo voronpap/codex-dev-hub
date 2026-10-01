@@ -2,6 +2,9 @@ name: Runtime qualification (no benchmark)
 on:
   pull_request:
     paths:
+      - 'scripts/check_allowed_tools.py'
+      - 'scripts/allowed_tools_synthetic.rs'
+      - 'docs/evidence/stage3g-allowed-tools/**'
       - 'scripts/probe_effects_boundary.py'
       - 'scripts/effects_guest.py'
       - 'scripts/check_effects_review.py'
@@ -40,6 +43,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/qualification"
           uv run --locked python scripts/build_benchmark_runtime.py --output "$RUNNER_TEMP/qualification/build.json"
           uv run --locked python scripts/build_benchmark_evaluator.py --output "$RUNNER_TEMP/qualification/evaluator-build.json"
+      - name: Pinned AllowedTools method-slice proof (no host or model)
+        run: uv run --locked python scripts/check_allowed_tools.py --verify-upstream --compile-proof --output "$RUNNER_TEMP/qualification/allowed-tools.json"
       - name: Exact-image isolation
         run: |
           image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/build.json"))["image_id"])')
