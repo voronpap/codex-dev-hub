@@ -1,0 +1,90 @@
+{
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "client_version": "0.155.0",
+  "method": "GET",
+  "endpoint": "https://chatgpt.com/backend-api/codex/models?client_version=0.155.0",
+  "metadata_requests": 1,
+  "inference_requests": 0,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "service_default_model_id": "gpt-6-astra",
+  "apply_patch_absent": false,
+  "timestamp": "2026-10-01T12:34:17.667614+00:00",
+  "observation_method": "metadata_only_http_no_task",
+  "retries": 0,
+  "http_status": 200,
+  "default_selection": "pinned ModelPreset priority/visibility algorithm; metadata snapshot only, not future session guarantee",
+  "status": "metadata_received",
+  "metadata_fields_used": {
+    "slug": "gpt-6-astra",
+    "priority": 2,
+    "visibility": "list",
+    "supported_in_api": true,
+    "apply_patch_tool_type": "freeform",
+    "shell_type": "shell_command",
+    "token_budget": null,
+    "experimental_supported_tools": [
+      "send_user_message_async",
+      "clock"
+    ]
+  },
+  "selection_scope": "ChatGPT-auth catalog; priority ascending then first visibility=list; selected snapshot, not runtime session identity",
+  "model_override_written": false,
+  "raw_response_retained": false,
+  "selection_candidates": [
+    {
+      "slug": "gpt-6-astra",
+      "priority": 2,
+      "visibility": "list",
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-6-sol",
+      "priority": 3,
+      "visibility": "list",
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-6-luna",
+      "priority": 4,
+      "visibility": "list",
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-reserve",
+      "priority": 4,
+      "visibility": "hide",
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-5.6-sol",
+      "priority": 5,
+      "visibility": "list",
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-5.6-terra",
+      "priority": 8,
+      "visibility": "list",
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-5.6-luna",
+      "priority": 9,
+      "visibility": "list",
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-5.5",
+      "priority": 13,
+      "visibility": "list",
+      "supported_in_api": true
+    },
+    {
+      "slug": "codex-auto-review",
+      "priority": 43,
+      "visibility": "hide",
+      "supported_in_api": true
+    }
+  ]
+}
