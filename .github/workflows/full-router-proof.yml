@@ -1,0 +1,28 @@
+name: Pinned full router (no model)
+on:
+  pull_request:
+    paths:
+      - 'scripts/full_router_test.rs'
+      - 'scripts/build_full_router_proof.py'
+      - 'docs/evidence/stage3g-full-router/**'
+      - '.github/workflows/full-router-proof.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pinned-router:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Build and test actual pinned router
+        run: python scripts/build_full_router_proof.py --workspace "$RUNNER_TEMP/router-source" --output "$RUNNER_TEMP/router-proof/result.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: actual-pinned-router-proof
+          path: ${{ runner.temp }}/router-proof
+          if-no-files-found: error
