@@ -194,3 +194,21 @@ per-tool remote denylist audit. UNKNOWN means neither adoption nor rejection of
 the core-host design. Review this feasibility result before authorizing such
 integration work. Docker/WSL, Ollama endpoint, ledger and network settings are
 unchanged; intended Linux host remains separately blocked. No rehearsal.
+
+## Recorded validation
+
+[Synthetic proof](evidence/stage3g-allowed-tools/synthetic-proof.json): seven
+Rust method-slice tests passed with rustc 1.98.1; 25 exact upstream file hashes
+and excerpts verified. A membership is empty; B membership is the canonical
+delegate only. Full core registry, model-visible B and host equivalence are not
+established by that executable. It runs no model or MCP process.
+
+[Results](evidence/stage3g-allowed-tools/results.json) bind commit `8b9fbbd` to
+offline run 36897709757 (Linux 344 passed/1 skipped, Windows smoke 14 passed;
+Ruff/format/mypy/scans passed) and runtime run 36897709717 (source/synthetic
+proof, OCI, effects and evaluator passed; unchanged absence gate failed).
+The later receipt-binding regression adds one offline test. The initial audit
+run failed because new source paths omitted `codex-rs/`; source bytes and hashes
+were not changed to repair it. No full Windows run. 133 historical Git-object
+files remain unchanged. These are design/synthetic validation records, not
+an execution-ready receipt or benchmark result.

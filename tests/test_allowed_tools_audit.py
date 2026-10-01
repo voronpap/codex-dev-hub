@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import sys
@@ -31,6 +32,17 @@ def test_pinned_method_slices_and_review():
         "register_external_with_exposure",
     ):
         assert audit.block(bindings["registry"]["excerpt"], f"pub(crate) fn {name}") in code
+
+
+def test_compiled_receipt_binds_current_method_slices():
+    bindings, _ = records()
+    proof = json.loads((audit.EVIDENCE / "synthetic-proof.json").read_bytes())
+    assert (
+        hashlib.sha256(audit.rust_source(bindings).encode()).hexdigest()
+        == proof["generated_rust_sha256"]
+    )
+    assert proof["full_core_registry_proof"] is None
+    assert proof["host_wrapper_compiled"] is False
 
 
 @pytest.mark.parametrize("fault", ["plain_name", "host_a", "full_proof", "ready", "v3"])
