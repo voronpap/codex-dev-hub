@@ -222,5 +222,26 @@
     "end": 26,
     "file_sha256": "b31b6e8fdaebedbbf07999b27c02201020e8d876ae293ac05a8fe4bf051244d3",
     "excerpt": "/// Convert the client version string to a whole version string (e.g. \"1.2.3-alpha.4\" -> \"1.2.3\").\npub fn client_version_to_whole() -> String {\n    format!(\n        \"{}.{}.{}\",\n        env!(\"CARGO_PKG_VERSION_MAJOR\"),\n        env!(\"CARGO_PKG_VERSION_MINOR\"),\n        env!(\"CARGO_PKG_VERSION_PATCH\")\n    )\n}"
+  },
+  "core/src/tools/handlers/multi_agents/resume_agent.rs:11-16": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents/resume_agent.rs",
+    "start": 11,
+    "end": 16,
+    "file_sha256": "f1b758ca5172eaccbc9c1210761c9f92f6a20a986bf7c5cb7b18b39c634562ab",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::namespaced(MULTI_AGENT_V1_NAMESPACE, \"resume_agent\")\n    }\n"
+  },
+  "core/src/tools/handlers/multi_agents/close_agent.rs:7-12": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents/close_agent.rs",
+    "start": 7,
+    "end": 12,
+    "file_sha256": "2c49ffdc009d8aaba96f19c86aca530bb99cf3cb42d0fbd1bc4bd8ed06301dcf",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::namespaced(MULTI_AGENT_V1_NAMESPACE, \"close_agent\")\n    }\n"
+  },
+  "core/src/tools/handlers/multi_agents_v2/interrupt_agent.rs:9-14": {
+    "path": "codex-rs/core/src/tools/handlers/multi_agents_v2/interrupt_agent.rs",
+    "start": 9,
+    "end": 14,
+    "file_sha256": "7f8f5768f8ead355125feb99c77dfec4875ff8fbfc350ca0f3fb4a781b518aa5",
+    "excerpt": "\nimpl ToolExecutor<ToolInvocation> for Handler {\n    fn tool_name(&self) -> ToolName {\n        ToolName::plain(\"interrupt_agent\")\n    }\n"
   }
 }

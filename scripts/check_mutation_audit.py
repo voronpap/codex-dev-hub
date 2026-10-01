@@ -17,6 +17,9 @@ REQUIRED = {
     "notes.append_to_file",
     "memories.add_ad_hoc_note",
     "image_gen.imagegen",
+    "multi_agent_v1.resume_agent",
+    "multi_agent_v1.close_agent",
+    "interrupt_agent",
 }
 
 

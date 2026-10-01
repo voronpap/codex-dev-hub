@@ -217,6 +217,42 @@
         "core/src/tools/handlers/multi_agents_v2/spawn.rs:34-39",
         "core/src/tools/spec_plan.rs:1243-1332"
       ]
+    },
+    {
+      "tool_name": "multi_agent_v1.resume_agent",
+      "kind": "delegated_execution_control",
+      "mutation_capability": "resume or stop agent execution; indirect process authority",
+      "registration_condition": "collaboration version/depth guards",
+      "guard": "effective multi_agent=false",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/resume_agent.rs:11-16",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool_name": "multi_agent_v1.close_agent",
+      "kind": "delegated_execution_control",
+      "mutation_capability": "resume or stop agent execution; indirect process authority",
+      "registration_condition": "collaboration version/depth guards",
+      "guard": "effective multi_agent=false",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents/close_agent.rs:7-12",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
+    },
+    {
+      "tool_name": "interrupt_agent",
+      "kind": "delegated_execution_control",
+      "mutation_capability": "resume or stop agent execution; indirect process authority",
+      "registration_condition": "collaboration version/depth guards",
+      "guard": "effective multi_agent=false",
+      "absent": true,
+      "source_refs": [
+        "core/src/tools/handlers/multi_agents_v2/interrupt_agent.rs:9-14",
+        "core/src/tools/spec_plan.rs:1243-1332"
+      ]
     }
   ],
   "canonical_direct_forbidden_set": [
