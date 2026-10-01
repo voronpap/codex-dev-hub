@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -23,6 +24,13 @@ def records():
 
 def test_review_covers_every_canonical_surface():
     load("check_effects_review").validate(*records())
+
+
+def test_frozen_evidence_bytes_match_manifest():
+    root = Path("docs/evidence/stage3g-effects-boundary")
+    manifest = json.loads((root / "results.json").read_bytes())
+    for name, expected in manifest["artifacts_sha256"].items():
+        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected
 
 
 @pytest.mark.parametrize("fault", ["missing", "remote_safe", "ready", "new_policy"])
