@@ -1,0 +1,725 @@
+{
+  "kind": "synthetic_filesystem_equivalent_effects",
+  "image_id": "sha256:b517eaf9d36f48467da29652cf65cd0240e8b6c819783ce43552498c58e3c055",
+  "guest_sha256": "6fedb7cc02a9f0f2f2ab17b31f29c8483cfdc030634875bacebf0170aeffdfad",
+  "bootstrap_sha256": "924c6c4e78deaee0645de06e9f536202fdd17a03f34cd4b14e95e8a802c03f74",
+  "arms": {
+    "A": {
+      "protected": {
+        "/packet/input.txt": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/packet/task.txt": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/packet/instructions.txt": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/packet/session.json": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/bootstrap.py": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/auth.json": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        }
+      },
+      "hidden": {
+        "/host": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/workspace": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/repository": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/root/.codex": {
+          "stat": {
+            "denied": true,
+            "errno": 13
+          },
+          "create": {
+            "denied": true,
+            "errno": 13
+          }
+        },
+        "/ledger": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/oracle": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/opposite-arm": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/previous-session": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/future-session": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/reviewer": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/evaluator": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/var/run/docker.sock": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        }
+      },
+      "writable": {
+        "/tmp": true,
+        "/home/runner": true,
+        "/capture": true,
+        "/dev/shm": true
+      },
+      "system_files": {
+        "/etc/hosts": {
+          "denied": true,
+          "errno": 13
+        },
+        "/etc/hostname": {
+          "denied": true,
+          "errno": 13
+        },
+        "/etc/resolv.conf": {
+          "denied": true,
+          "errno": 13
+        }
+      },
+      "mountinfo": "411 384 0:49 / / ro,relatime - overlay overlay rw,lowerdir=/var/lib/docker/overlay2/l/FL3I253AYPC2BUIYS2BGDDCKSB:/var/lib/docker/overlay2/l/WU7YKTF3CLASDP5JLT7NEMNVGI:/var/lib/docker/overlay2/l/YGESXBDDL27KPKD6JJ2VFCY2H6,upperdir=/var/lib/docker/overlay2/dfa99187da7b922e1a86e105537f3a3fcfc03a00ee4aca4963ddba12a542460a/diff,workdir=/var/lib/docker/overlay2/dfa99187da7b922e1a86e105537f3a3fcfc03a00ee4aca4963ddba12a542460a/work,nouserxattr\n413 411 0:58 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw\n414 411 0:59 / /dev rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n415 414 0:60 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,gid=5,mode=620,ptmxmode=666\n416 411 0:61 / /sys ro,nosuid,nodev,noexec,relatime - sysfs sysfs ro\n417 416 0:30 / /sys/fs/cgroup ro,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw,nsdelegate,memory_recursiveprot\n418 414 0:56 / /dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw\n419 414 0:62 / /dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs shm rw,size=65536k,inode64\n420 411 259:1 /usr/libexec/docker/docker-init /usr/sbin/docker-init ro,relatime master:1 - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n421 411 0:63 / /tmp rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,size=65536k,inode64\n422 411 259:1 /tmp/synthetic-effects-orr3q3kz/capture /capture rw,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n423 411 259:1 /home/runner/work/codex-dev-hub/codex-dev-hub/scripts/benchmark_guest.py /bootstrap.py ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n424 411 259:1 /tmp/synthetic-effects-orr3q3kz/auth.json /auth.json ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n425 411 259:1 /home/runner/work/codex-dev-hub/codex-dev-hub/scripts/effects_guest.py /probe.py ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n426 411 259:1 /tmp/synthetic-effects-orr3q3kz/packet /packet ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n427 411 259:1 /tmp/synthetic-effects-orr3q3kz/bridge /bridge ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n428 411 0:64 / /home/runner rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,size=65536k,uid=1000,gid=1000,inode64\n429 411 259:1 /var/lib/docker/containers/96513f90c03eadfb8957adfae13ba70db1a23c2b67b93eafc514482eba30231a/resolv.conf /etc/resolv.conf ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n430 411 259:1 /var/lib/docker/containers/96513f90c03eadfb8957adfae13ba70db1a23c2b67b93eafc514482eba30231a/hostname /etc/hostname ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n431 411 259:1 /var/lib/docker/containers/96513f90c03eadfb8957adfae13ba70db1a23c2b67b93eafc514482eba30231a/hosts /etc/hosts ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n385 413 0:58 /bus /proc/bus ro,nosuid,nodev,noexec,relatime - proc proc rw\n386 413 0:58 /fs /proc/fs ro,nosuid,nodev,noexec,relatime - proc proc rw\n387 413 0:58 /irq /proc/irq ro,nosuid,nodev,noexec,relatime - proc proc rw\n388 413 0:58 /sys /proc/sys ro,nosuid,nodev,noexec,relatime - proc proc rw\n389 413 0:58 /sysrq-trigger /proc/sysrq-trigger ro,nosuid,nodev,noexec,relatime - proc proc rw\n390 413 0:65 / /proc/acpi ro,relatime - tmpfs tmpfs ro,size=4k,nr_inodes=1,inode64\n391 413 0:59 /null /proc/interrupts rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n392 413 0:59 /null /proc/kcore rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n393 413 0:59 /null /proc/keys rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n394 413 0:59 /null /proc/latency_stats rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n395 413 0:59 /null /proc/timer_list rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n396 413 0:65 / /proc/scsi ro,relatime - tmpfs tmpfs ro,size=4k,nr_inodes=1,inode64\n397 416 0:65 / /sys/firmware ro,relatime - tmpfs tmpfs ro,size=4k,nr_inodes=1,inode64\n",
+      "namespaces": {
+        "net": "net:[4026532313]",
+        "uts": "uts:[4026532307]",
+        "ipc": "ipc:[4026532308]",
+        "pid": "pid:[4026532311]",
+        "pid_for_children": "pid:[4026532311]",
+        "user": "user:[4026531837]",
+        "mnt": "mnt:[4026532306]",
+        "cgroup": "cgroup:[4026532312]",
+        "time": "time:[4026531834]",
+        "time_for_children": "time:[4026531834]"
+      },
+      "visible_pids": [
+        "1",
+        "7"
+      ],
+      "devices": [
+        "core",
+        "fd",
+        "full",
+        "mqueue",
+        "null",
+        "ptmx",
+        "pts",
+        "random",
+        "shm",
+        "stderr",
+        "stdin",
+        "stdout",
+        "tty",
+        "urandom",
+        "zero"
+      ],
+      "unix_sockets": "Num       RefCount Protocol Flags    Type St Inode Path\n",
+      "status": "Name:\tpython3\nUmask:\t0022\nState:\tR (running)\nTgid:\t7\nNgid:\t0\nPid:\t7\nPPid:\t1\nTracerPid:\t0\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\nFDSize:\t64\nGroups:\t1000 \nNStgid:\t7\nNSpid:\t7\nNSpgid:\t7\nNSsid:\t1\nKthread:\t0\nVmPeak:\t   24188 kB\nVmSize:\t   23432 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t   19416 kB\nVmRSS:\t   19004 kB\nRssAnon:\t    9564 kB\nRssFile:\t    9440 kB\nRssShmem:\t       0 kB\nVmData:\t   10056 kB\nVmStk:\t     132 kB\nVmExe:\t       4 kB\nVmLib:\t    6832 kB\nVmPTE:\t      88 kB\nVmSwap:\t       0 kB\nHugetlbPages:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t1\nuntag_mask:\t0xffffffffffffffff\nThreads:\t1\nSigQ:\t0/31585\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000001001000\nSigCgt:\t0000000000000002\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapBnd:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\nSeccomp_filters:\t1\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\talways enabled\nCpus_allowed:\t3\nCpus_allowed_list:\t0-1\nMems_allowed:\t00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001\nMems_allowed_list:\t0\nvoluntary_ctxt_switches:\t0\nnonvoluntary_ctxt_switches:\t19\nx86_Thread_features:\t\nx86_Thread_features_locked:\t\n",
+      "host_config": {
+        "ReadonlyRootfs": true,
+        "NetworkMode": "none",
+        "PidMode": "",
+        "IpcMode": "private",
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ],
+        "Memory": 2147483648,
+        "NanoCpus": 2000000000,
+        "PidsLimit": 128
+      },
+      "namespace_separation": {
+        "pid": true,
+        "mnt": true,
+        "net": true,
+        "ipc": true,
+        "uts": true
+      },
+      "boundary_config_passed": true,
+      "passed": true
+    },
+    "B": {
+      "protected": {
+        "/packet/input.txt": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/packet/task.txt": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/packet/instructions.txt": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/packet/session.json": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/bootstrap.py": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        },
+        "/auth.json": {
+          "operations": {
+            "overwrite": {
+              "denied": true,
+              "errno": 30
+            },
+            "append": {
+              "denied": true,
+              "errno": 13
+            },
+            "unlink": {
+              "denied": true,
+              "errno": 30
+            },
+            "rename": {
+              "denied": true,
+              "errno": 30
+            },
+            "replace": {
+              "denied": true,
+              "errno": 18
+            }
+          },
+          "unchanged": true
+        }
+      },
+      "hidden": {
+        "/host": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/workspace": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/repository": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/root/.codex": {
+          "stat": {
+            "denied": true,
+            "errno": 13
+          },
+          "create": {
+            "denied": true,
+            "errno": 13
+          }
+        },
+        "/ledger": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/oracle": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/opposite-arm": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/previous-session": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/future-session": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/reviewer": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/evaluator": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        },
+        "/var/run/docker.sock": {
+          "stat": {
+            "denied": true,
+            "errno": 2
+          },
+          "create": {
+            "denied": true,
+            "errno": 30
+          }
+        }
+      },
+      "writable": {
+        "/tmp": true,
+        "/home/runner": true,
+        "/capture": true,
+        "/dev/shm": true
+      },
+      "system_files": {
+        "/etc/hosts": {
+          "denied": true,
+          "errno": 13
+        },
+        "/etc/hostname": {
+          "denied": true,
+          "errno": 13
+        },
+        "/etc/resolv.conf": {
+          "denied": true,
+          "errno": 13
+        }
+      },
+      "mountinfo": "411 384 0:49 / / ro,relatime - overlay overlay rw,lowerdir=/var/lib/docker/overlay2/l/ZLZTJNC5SW2E2V5XVGJ7HRBQUH:/var/lib/docker/overlay2/l/WU7YKTF3CLASDP5JLT7NEMNVGI:/var/lib/docker/overlay2/l/YGESXBDDL27KPKD6JJ2VFCY2H6,upperdir=/var/lib/docker/overlay2/96b2c9f5796cff6199e759b32fed10696b803ab2c4ce305b24721d2bff211dcd/diff,workdir=/var/lib/docker/overlay2/96b2c9f5796cff6199e759b32fed10696b803ab2c4ce305b24721d2bff211dcd/work,nouserxattr\n413 411 0:58 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw\n414 411 0:59 / /dev rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n415 414 0:60 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,gid=5,mode=620,ptmxmode=666\n416 411 0:61 / /sys ro,nosuid,nodev,noexec,relatime - sysfs sysfs ro\n417 416 0:30 / /sys/fs/cgroup ro,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw,nsdelegate,memory_recursiveprot\n418 414 0:56 / /dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw\n419 414 0:62 / /dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs shm rw,size=65536k,inode64\n420 411 259:1 /usr/libexec/docker/docker-init /usr/sbin/docker-init ro,relatime master:1 - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n421 411 0:63 / /tmp rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,size=65536k,inode64\n422 411 259:1 /tmp/synthetic-effects-lgkkg0mf/bridge /bridge ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n423 411 259:1 /tmp/synthetic-effects-lgkkg0mf/capture /capture rw,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n424 411 259:1 /home/runner/work/codex-dev-hub/codex-dev-hub/scripts/benchmark_guest.py /bootstrap.py ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n425 411 259:1 /tmp/synthetic-effects-lgkkg0mf/auth.json /auth.json ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n426 411 259:1 /home/runner/work/codex-dev-hub/codex-dev-hub/scripts/effects_guest.py /probe.py ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n427 411 259:1 /tmp/synthetic-effects-lgkkg0mf/packet /packet ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n428 411 0:64 / /home/runner rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,size=65536k,uid=1000,gid=1000,inode64\n429 411 259:1 /var/lib/docker/containers/cada543c1c41bf6006fee4377d906fecb28d02c1fad5df6fe51637cdb86df4c8/resolv.conf /etc/resolv.conf ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n430 411 259:1 /var/lib/docker/containers/cada543c1c41bf6006fee4377d906fecb28d02c1fad5df6fe51637cdb86df4c8/hostname /etc/hostname ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n431 411 259:1 /var/lib/docker/containers/cada543c1c41bf6006fee4377d906fecb28d02c1fad5df6fe51637cdb86df4c8/hosts /etc/hosts ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback\n385 413 0:58 /bus /proc/bus ro,nosuid,nodev,noexec,relatime - proc proc rw\n386 413 0:58 /fs /proc/fs ro,nosuid,nodev,noexec,relatime - proc proc rw\n387 413 0:58 /irq /proc/irq ro,nosuid,nodev,noexec,relatime - proc proc rw\n388 413 0:58 /sys /proc/sys ro,nosuid,nodev,noexec,relatime - proc proc rw\n389 413 0:58 /sysrq-trigger /proc/sysrq-trigger ro,nosuid,nodev,noexec,relatime - proc proc rw\n390 413 0:65 / /proc/acpi ro,relatime - tmpfs tmpfs ro,size=4k,nr_inodes=1,inode64\n391 413 0:59 /null /proc/interrupts rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n392 413 0:59 /null /proc/kcore rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n393 413 0:59 /null /proc/keys rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n394 413 0:59 /null /proc/latency_stats rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n395 413 0:59 /null /proc/timer_list rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64\n396 413 0:65 / /proc/scsi ro,relatime - tmpfs tmpfs ro,size=4k,nr_inodes=1,inode64\n397 416 0:65 / /sys/firmware ro,relatime - tmpfs tmpfs ro,size=4k,nr_inodes=1,inode64\n",
+      "namespaces": {
+        "net": "net:[4026532313]",
+        "uts": "uts:[4026532307]",
+        "ipc": "ipc:[4026532308]",
+        "pid": "pid:[4026532311]",
+        "pid_for_children": "pid:[4026532311]",
+        "user": "user:[4026531837]",
+        "mnt": "mnt:[4026532306]",
+        "cgroup": "cgroup:[4026532312]",
+        "time": "time:[4026531834]",
+        "time_for_children": "time:[4026531834]"
+      },
+      "visible_pids": [
+        "1",
+        "7"
+      ],
+      "devices": [
+        "core",
+        "fd",
+        "full",
+        "mqueue",
+        "null",
+        "ptmx",
+        "pts",
+        "random",
+        "shm",
+        "stderr",
+        "stdin",
+        "stdout",
+        "tty",
+        "urandom",
+        "zero"
+      ],
+      "unix_sockets": "Num       RefCount Protocol Flags    Type St Inode Path\n",
+      "status": "Name:\tpython3\nUmask:\t0022\nState:\tR (running)\nTgid:\t7\nNgid:\t0\nPid:\t7\nPPid:\t1\nTracerPid:\t0\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\nFDSize:\t64\nGroups:\t1000 \nNStgid:\t7\nNSpid:\t7\nNSpgid:\t7\nNSsid:\t1\nKthread:\t0\nVmPeak:\t   24188 kB\nVmSize:\t   23432 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t   19124 kB\nVmRSS:\t   18912 kB\nRssAnon:\t    9560 kB\nRssFile:\t    9352 kB\nRssShmem:\t       0 kB\nVmData:\t   10056 kB\nVmStk:\t     132 kB\nVmExe:\t       4 kB\nVmLib:\t    6832 kB\nVmPTE:\t      88 kB\nVmSwap:\t       0 kB\nHugetlbPages:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t1\nuntag_mask:\t0xffffffffffffffff\nThreads:\t1\nSigQ:\t0/31585\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000001001000\nSigCgt:\t0000000000000002\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapBnd:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\nSeccomp_filters:\t1\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\talways enabled\nCpus_allowed:\t3\nCpus_allowed_list:\t0-1\nMems_allowed:\t00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001\nMems_allowed_list:\t0\nvoluntary_ctxt_switches:\t0\nnonvoluntary_ctxt_switches:\t9\nx86_Thread_features:\t\nx86_Thread_features_locked:\t\n",
+      "host_config": {
+        "ReadonlyRootfs": true,
+        "NetworkMode": "none",
+        "PidMode": "",
+        "IpcMode": "private",
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ],
+        "Memory": 2147483648,
+        "NanoCpus": 2000000000,
+        "PidsLimit": 128
+      },
+      "namespace_separation": {
+        "pid": true,
+        "mnt": true,
+        "net": true,
+        "ipc": true,
+        "uts": true
+      },
+      "boundary_config_passed": true,
+      "passed": true
+    }
+  },
+  "direct_apply_patch_handler": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "execution_ready": false,
+  "limitations": "CI image only; inert sockets; no remote-effect or intended-host proof"
+}

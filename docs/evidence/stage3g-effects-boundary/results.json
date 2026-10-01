@@ -1,0 +1,57 @@
+{
+  "implementation_commit": "1f68e96f001fc659fc80ca231693171334f0dc6b",
+  "pr28_merge_commit": "5f76bf34439bee1f406c15c2ff212bf766817227",
+  "runtime_ci_run": 36874334663,
+  "offline_ci_run": 36874334588,
+  "first_probe_failure": {
+    "run": 36874010121,
+    "reason": "probe did not handle stat PermissionError; no effects verdict; retained Actions evidence"
+  },
+  "linux": {
+    "passed": 337,
+    "skipped": 1
+  },
+  "windows_smoke": {
+    "passed": 14
+  },
+  "ruff": true,
+  "format": true,
+  "strict_mypy": true,
+  "secret_history_scan": true,
+  "effects_A": true,
+  "effects_B": true,
+  "oci_isolation": true,
+  "synthetic_evaluator": true,
+  "absence_policy_passed": false,
+  "runtime_workflow": "failure_expected_unchanged_gate",
+  "runtime_image_id": "sha256:b517eaf9d36f48467da29652cf65cd0240e8b6c819783ce43552498c58e3c055",
+  "intended_host_qualified": false,
+  "new_policy_sha256": null,
+  "protocol_config_changed": false,
+  "stage3g_c": "OPEN",
+  "stage3g": "OPEN",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "codex_internal_retries": null,
+  "artifacts_sha256": {
+    "build.json": "8886b6a3be9bd12729756c1202706d07957f0d3b3b2060ef637f60e4ba007bbd",
+    "effects.json": "8f228ab3d58d7a469b77629ef95d48dc6ad9e940e2ae06f2db17c9f670bc7c5f",
+    "evaluator-build.json": "2e108e1b49a6ec9aa6207f775f07e0cdfc2e1fc1ec210b2e4d6b32dfb0a08658",
+    "evaluator-proof/buggy.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "evaluator-proof/buggy.stdout": "9d0fe6b5f9b31de16b712e9aea488119db36fdd5278506ffbd5e92340eb0f01e",
+    "evaluator-proof/claim.json": "92a3fed9d9cd361fe61cba49a3a0531e1bad948034e6b3248847d660a8d3efac",
+    "evaluator-proof/corrected.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "evaluator-proof/corrected.stdout": "bea5a77cc68582c0c66ca0fc860c9b8f449e679bec8d6a9178605ee7b7dc69a3",
+    "evaluator-proof/result.json": "ab4433b380532368375f3c67652b835fe49dbb1c455a3eb3d8ff94e1f6950143",
+    "history.json": "6bb9f6df426221fbec964e7669f7c9e4a95f2523dd8b3294f4c667b884c6195c",
+    "isolation.json": "7e8a48fd4ebc324b3a5574609aad500832d8d5711a2f7b56816c446ce36e9e31",
+    "mounts.json": "d9fed8a299cb0f42c23248af820ed075f754d6d75f4fa200ad65ebb723405ddb",
+    "review.json": "f1fa559f847ab4dd7aa605f3ef6debab99ce8fadb2e8f369159ef319ce8293ad",
+    "runtime-checks.json": "a2d04ade9e2428ceb46b31044e747af82eaf0232e52b92ea8cc7e685fb285640"
+  }
+}

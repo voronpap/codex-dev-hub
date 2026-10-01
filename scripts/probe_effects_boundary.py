@@ -1,0 +1,165 @@
+"""Synthetic A/B effects evidence on an immutable image; never starts Codex."""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+
+from devhub.benchmark import digest
+from devhub.experiment import PlannedSession, RuntimeBindings
+from devhub.experiment_launch import DOCKER, container_command
+
+
+def validate(report):
+    return (
+        len(report["protected"]) == 6
+        and len(report["hidden"]) == 12
+        and set(report["writable"]) == {"/tmp", "/home/runner", "/capture", "/dev/shm"}
+        and all(
+            row["unchanged"] and all(op["denied"] for op in row["operations"].values())
+            for row in report["protected"].values()
+        )
+        and all(
+            row["stat"]["denied"] and row["stat"]["errno"] in {2, 13} and row["create"]["denied"]
+            for row in report["hidden"].values()
+        )
+        and all(report["writable"].values())
+        and all(row["denied"] for row in report["system_files"].values())
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--image-id", required=True)
+    parser.add_argument("--output", required=True, type=Path)
+    opts = parser.parse_args()
+    if not re.fullmatch(r"sha256:[a-f0-9]{64}", opts.image_id):
+        parser.error("Immutable image ID required")
+    guest = Path(__file__).with_name("effects_guest.py").resolve()
+    bootstrap = Path(__file__).with_name("benchmark_guest.py").resolve()
+    reports = {}
+    for arm in ("A", "B"):
+        with tempfile.TemporaryDirectory(prefix="synthetic-effects-") as directory:
+            root = Path(directory)
+            for name in ("packet", "bridge", "capture"):
+                (root / name).mkdir()
+            (root / "capture").chmod(0o777)
+            for name in ("input.txt", "task.txt", "instructions.txt", "session.json"):
+                (root / "packet" / name).write_text("synthetic only")
+            # Inert markers, not live bridge endpoints. RPC/egress validated separately.
+            for name in ("proxy.sock", "mcp.sock") if arm == "B" else ("proxy.sock",):
+                (root / "bridge" / name).touch()
+            (root / "auth.json").write_text("{}")
+            bindings = RuntimeBindings.model_validate(
+                {
+                    "image_id": opts.image_id,
+                    "bootstrap_sha256": digest(bootstrap.read_bytes()),
+                    "environment": {
+                        "os": "synthetic Linux",
+                        "python": "image Python",
+                        "codex_cli_version": "not invoked",
+                        "devhub_commit": "0" * 40,
+                        "ollama_version": "not invoked",
+                        "ollama_model": "not invoked",
+                        "ollama_digest": "0" * 64,
+                        "cpu": "synthetic",
+                        "gpu": None,
+                        "ram_bytes": None,
+                        "captured_at": "not a benchmark",
+                    },
+                    "isolation_probe_sha256": "0" * 64,
+                    "protocol_sha256": "0" * 64,
+                    "reviewed_plan_sha256": "0" * 64,
+                    "boundary_reviewed": True,
+                }
+            )
+            session = PlannedSession(
+                order=1,
+                fixture_id="synthetic-only",
+                fixture_sha256="0" * 64,
+                oracle_sha256="0" * 64,
+                arm=arm,
+                session_id=f"synthetic-effects-{arm.lower()}-{os.getpid()}",
+                packet_path="synthetic",
+                available_mcp_tools=() if arm == "A" else ("devhub_delegate",),
+            )
+            argv = container_command(
+                session,
+                bindings,
+                root / "packet",
+                root / "bridge",
+                root / "capture",
+                bootstrap,
+                root / "auth.json",
+            )
+            position = argv.index("--entrypoint")
+            argv[position:position] = ["--mount", f"type=bind,src={guest},dst=/probe.py,readonly"]
+            argv[-2:] = ["/probe.py"]
+            cid = subprocess.check_output(argv, timeout=30).decode().strip()
+            try:
+                inspect = json.loads(subprocess.check_output([*DOCKER, "inspect", cid]))[0]
+                raw = subprocess.check_output([*DOCKER, "start", "--attach", cid], timeout=30)
+                report = json.loads(raw)
+                config = inspect["HostConfig"]
+                report["host_config"] = {
+                    k: config[k]
+                    for k in (
+                        "ReadonlyRootfs",
+                        "NetworkMode",
+                        "PidMode",
+                        "IpcMode",
+                        "CapDrop",
+                        "SecurityOpt",
+                        "Memory",
+                        "NanoCpus",
+                        "PidsLimit",
+                    )
+                }
+                report["namespace_separation"] = {
+                    name: report["namespaces"][name] != os.readlink(f"/proc/self/ns/{name}")
+                    for name in ("pid", "mnt", "net", "ipc", "uts")
+                }
+                report["boundary_config_passed"] = (
+                    config["ReadonlyRootfs"] is True
+                    and config["NetworkMode"] == "none"
+                    and config["PidMode"] == ""
+                    and config["IpcMode"] == "private"
+                    and config["CapDrop"] == ["ALL"]
+                    and "no-new-privileges" in config["SecurityOpt"]
+                    and config["Memory"] == 2147483648
+                    and config["NanoCpus"] == 2000000000
+                    and config["PidsLimit"] == 128
+                    and inspect["Config"]["User"] == "1000:1000"
+                )
+                report["passed"] = (
+                    validate(report)
+                    and report["boundary_config_passed"]
+                    and all(report["namespace_separation"].values())
+                )
+                reports[arm] = report
+            finally:
+                subprocess.run([*DOCKER, "rm", "-f", cid], check=True, capture_output=True)
+    evidence = {
+        "kind": "synthetic_filesystem_equivalent_effects",
+        "image_id": opts.image_id,
+        "guest_sha256": digest(guest.read_bytes()),
+        "bootstrap_sha256": digest(bootstrap.read_bytes()),
+        "arms": reports,
+        "direct_apply_patch_handler": False,
+        "real_codex_executions": 0,
+        "provider_sends": 0,
+        "execution_ready": False,
+        "limitations": "CI image only; inert sockets; no remote-effect or intended-host proof",
+    }
+    with opts.output.open("x", encoding="utf-8") as stream:
+        json.dump(evidence, stream, indent=2)
+        stream.write("\n")
+    if not all(report["passed"] for report in reports.values()):
+        raise SystemExit("Synthetic effects regression")
+
+
+if __name__ == "__main__":
+    main()
