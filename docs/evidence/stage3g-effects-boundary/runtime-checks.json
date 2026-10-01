@@ -1,0 +1,100 @@
+{
+  "auth_material": "synthetic only; real auth presence is a separate preflight gate",
+  "bootstrap_sha256": "924c6c4e78deaee0645de06e9f536202fdd17a03f34cd4b14e95e8a802c03f74",
+  "checks": {
+    "auth_tmpfs": true,
+    "cli_config": false,
+    "egress_runtime": true
+  },
+  "config_diagnostics": [
+    {
+      "features_exit_code": 0,
+      "mcp_list_exit_code": 0,
+      "mcp_scope_matches": true,
+      "required_feature_states": {
+        "apps": "false",
+        "goals": "false",
+        "hooks": "false",
+        "memories": "false",
+        "multi_agent": "false",
+        "remote_plugin": "false",
+        "shell_snapshot": "false",
+        "shell_tool": "false"
+      }
+    },
+    {
+      "features_exit_code": 0,
+      "mcp_list_exit_code": 0,
+      "mcp_scope_matches": true,
+      "required_feature_states": {
+        "apps": "false",
+        "goals": "false",
+        "hooks": "false",
+        "memories": "false",
+        "multi_agent": "false",
+        "remote_plugin": "false",
+        "shell_snapshot": "false",
+        "shell_tool": "false"
+      }
+    }
+  ],
+  "config_errors": [
+    null,
+    null
+  ],
+  "image_id": "sha256:b517eaf9d36f48467da29652cf65cd0240e8b6c819783ce43552498c58e3c055",
+  "kind": "runtime_config_probe",
+  "protocol_sha256": "fd6d696a20e70aab4eff59343ef8527ee121efca2707ef08b3d748e1b549a2e6",
+  "provider_sends": 0,
+  "qualification_policy_sha256": "e3aa6f28641e7b9c8e73b36f5943dd4af946a4641fecc061dae8ecf122d0a8ec",
+  "qualification_policy_version": "stage3g-tool-capabilities-v1",
+  "real_codex_executions": 0,
+  "tool_surfaces": [
+    {
+      "effective_shell_tool_disabled": true,
+      "exact_cli_matches": true,
+      "feature_diagnostics": {
+        "expected_behavior_for_exact_cli": "forced_true_without_managed_requirements",
+        "observed_unified_exec": "true",
+        "requested_unified_exec": false
+      },
+      "forbidden_execution_tools_absent": false,
+      "forbidden_tools_absent": {
+        "apply_patch": null,
+        "exec_command": true,
+        "write_stdin": true
+      },
+      "qualification_policy_sha256": "e3aa6f28641e7b9c8e73b36f5943dd4af946a4641fecc061dae8ecf122d0a8ec",
+      "qualification_policy_version": "stage3g-tool-capabilities-v1",
+      "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+      "tool_surface_observation": "source_derived",
+      "unresolved_surfaces": [
+        "apply_patch registration depends on unknown service-default model metadata",
+        "write_file: canonical mapping/extension surface not established"
+      ]
+    },
+    {
+      "effective_shell_tool_disabled": true,
+      "exact_cli_matches": true,
+      "feature_diagnostics": {
+        "expected_behavior_for_exact_cli": "forced_true_without_managed_requirements",
+        "observed_unified_exec": "true",
+        "requested_unified_exec": false
+      },
+      "forbidden_execution_tools_absent": false,
+      "forbidden_tools_absent": {
+        "apply_patch": null,
+        "exec_command": true,
+        "write_stdin": true
+      },
+      "qualification_policy_sha256": "e3aa6f28641e7b9c8e73b36f5943dd4af946a4641fecc061dae8ecf122d0a8ec",
+      "qualification_policy_version": "stage3g-tool-capabilities-v1",
+      "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+      "tool_surface_observation": "source_derived",
+      "unresolved_surfaces": [
+        "apply_patch registration depends on unknown service-default model metadata",
+        "write_file: canonical mapping/extension surface not established"
+      ]
+    }
+  ]
+}

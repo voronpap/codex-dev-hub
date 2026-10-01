@@ -132,3 +132,26 @@ No Docker/WSL repair is performed. The intended Linux host remains separately
 unqualified. `execution_ready=false`, `real_codex_executions=0`,
 `provider_sends=0`; semantic acceptance, quality, savings, Delegation Value and
 internal Codex retries remain null. STOP for review; no rehearsal.
+
+
+## Recorded validation
+
+[Machine-readable results](evidence/stage3g-effects-boundary/results.json) bind
+CI run 36874334663 to its exact image and raw A/B probe observations. Both arms
+passed filesystem effects and namespace separation; each observed only PID 1
+and the probe (PID 7). All 15 existing isolation checks and synthetic evaluator
+passed. Linux full: 337 passed, 1 skipped; Windows smoke: 14 passed. Ruff,
+formatting, strict mypy and secret/history checks passed. No full Windows run.
+
+The [complete observed mount list](evidence/stage3g-effects-boundary/mounts.json)
+includes Docker's read-only init binary and masked proc/sys paths. On this image,
+all three Docker-managed /etc binds were observed read-only, not merely denied
+by UID permissions. Device nodes are the standard null/zero/random/tty/IPC set;
+no host Docker socket is exposed. These observations are host/image specific.
+
+The initial synthetic probe (run 36874010121) failed on an unhandled denied stat,
+not a successful mutation. Its Actions evidence remains historical. Corrected
+probe records errno 13 separately from ENOENT and does not infer absence from a
+denied stat. The qualification workflow remains red solely at the unchanged
+absence gate; config parsing and A/B MCP scope pass, but `cli_config=false`
+retains the existing combined gate semantics. None of these are benchmark results.

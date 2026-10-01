@@ -1,0 +1,26 @@
+{
+  "acceptance_pass": null,
+  "buggy_result": {
+    "container_id": "dce0b047a9ffbda038cec084ca2e4ec46947d7826a51aad3f63fe17ed9e8d44e",
+    "exit_status": 1,
+    "output_limit_exceeded": false,
+    "reference_hash": "c206e79ea5f4acfc9a35d98bc0b43e7604ec4154b6f6376773eaaefa659f90cb",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_sha256": "9d0fe6b5f9b31de16b712e9aea488119db36fdd5278506ffbd5e92340eb0f01e",
+    "timeout": false
+  },
+  "corrected_result": {
+    "container_id": "192b56fa24cc489cd6fc1d3b9c8033a3173972db5a016eb510383c96eb2eb885",
+    "exit_status": 0,
+    "output_limit_exceeded": false,
+    "reference_hash": "4fd6a7977fc2ed0a50031ea6f20d922c91fea8903a823a043aa4d76530a731cf",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_sha256": "bea5a77cc68582c0c66ca0fc860c9b8f449e679bec8d6a9178605ee7b7dc69a3",
+    "timeout": false
+  },
+  "generated_test_hash": "a67237445133a0cc025420ca80081ec87b4341b29c94ea0acffc1c70366c32e2",
+  "image_id": "sha256:9c0a62d51a58c7cd6ca98acffd7c39371b77e55a60466f801387191df03a411a",
+  "runner_sha256": "e142cfeb6d960817aca77ce7f7c6332023c7175bc469efea55d7ffdf16e650d6",
+  "schema_version": 1,
+  "tests_pass": true
+}
