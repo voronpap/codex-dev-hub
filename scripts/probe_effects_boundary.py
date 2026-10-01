@@ -22,7 +22,10 @@ def validate(report):
             row["unchanged"] and all(op["denied"] for op in row["operations"].values())
             for row in report["protected"].values()
         )
-        and all(row["absent"] and row["create"]["denied"] for row in report["hidden"].values())
+        and all(
+            row["stat"]["denied"] and row["stat"]["errno"] in {2, 13} and row["create"]["denied"]
+            for row in report["hidden"].values()
+        )
         and all(report["writable"].values())
         and all(row["denied"] for row in report["system_files"].values())
     )

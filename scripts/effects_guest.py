@@ -54,7 +54,7 @@ def main():
     ):
         path = Path(name)
         hidden[name] = {
-            "absent": not path.exists(),
+            "stat": attempt(path.stat),
             "create": attempt(lambda path=path: path.mkdir(parents=True)),
         }
     writable = {}
