@@ -13,6 +13,7 @@ async fn devhub_review_full_router() {
     let mut records = Vec::new();
     for arm in ["A", "B"] {
         let (_, mut turn) = make_session_and_context().await;
+        use_chatgpt_auth(&mut turn);
         for feature in [Feature::ShellTool, Feature::Apps, Feature::Collab,
             Feature::Goals, Feature::CodexHooks, Feature::MemoryTool,
             Feature::RemotePlugin, Feature::ShellSnapshot] {
@@ -46,6 +47,7 @@ async fn devhub_review_full_router() {
             &[dynamic_tool(None, "late_dynamic", false)]);
         // Adversarial hosted source, even though frozen web policy is disabled.
         let (_, mut hosted_turn) = make_session_and_context().await;
+        use_chatgpt_auth(&mut hosted_turn);
         set_web_search_mode(&mut hosted_turn, WebSearchMode::Live);
         let mut scratch = ToolRegistry::default();
         hosted.extend(append_source_tools(&hosted_turn, hosted_turn.model_info(), &mut scratch,
