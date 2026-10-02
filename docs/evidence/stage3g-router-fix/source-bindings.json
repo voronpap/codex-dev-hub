@@ -44,7 +44,7 @@
   "mode_host_public_names": {
     "path": "codex-rs/code-mode-protocol/src/lib.rs",
     "start": 49,
-    "end": 54,
+    "end": 52,
     "file_sha256": "c1c852edadb044f8941741d432ee8343e15df1d9d01776642c6eb0fa05b18893",
     "excerpt": "pub use session::ToolInvocationFuture;\n\npub const PUBLIC_TOOL_NAME: &str = \"exec\";\npub const WAIT_TOOL_NAME: &str = \"wait\";"
   },
