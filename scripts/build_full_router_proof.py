@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import tarfile
+import time
 import urllib.request
 from pathlib import Path
 
@@ -21,6 +22,7 @@ def main():
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--derived-test-build-lock", action="store_true")
+    parser.add_argument("--candidate-fix", action="store_true")
     args = parser.parse_args()
     args.workspace.mkdir(parents=True, exist_ok=False)
     repo = Path(__file__).resolve().parents[1]
@@ -44,7 +46,9 @@ def main():
         (root / "Cargo.lock").write_bytes(derived)
     target = root / "core/src/tools/spec_plan_tests.rs"
     original = target.read_bytes()
-    test = (repo / "scripts/full_router_test.rs").read_bytes()
+    test_name = "router_fix_test.rs" if args.candidate_fix else "full_router_test.rs"
+    test_filter = "devhub_review_router_fix" if args.candidate_fix else "devhub_review_full_router"
+    test = (repo / "scripts" / test_name).read_bytes()
     target.write_bytes(original + b"\n" + test)
     metadata = (repo / "docs/evidence/stage3g-full-router/metadata.json").read_bytes()
     target.with_name("devhub_metadata.json").write_bytes(metadata)
@@ -63,11 +67,12 @@ def main():
         "-p",
         "codex-core",
         "--lib",
-        "devhub_review_full_router",
+        test_filter,
         "--no-run",
         "--message-format=json",
     ]
     timed_out = False
+    build_started = time.monotonic()
     with (args.output.parent / "build.jsonl").open("xb") as stdout:
         with (args.output.parent / "build.stderr").open("xb") as stderr:
             try:
@@ -88,6 +93,10 @@ def main():
         "source_commit": COMMIT,
         "archive_sha256": ARCHIVE,
         "test_sha256": hashlib.sha256(test).hexdigest(),
+        "test_file": test_name,
+        "metadata_sha256": hashlib.sha256(metadata).hexdigest(),
+        "implementation_commit": os.environ.get("GITHUB_SHA"),
+        "build_duration_seconds": time.monotonic() - build_started,
         "production_modified": False,
         "original_lock_sha256": ORIGINAL,
         "proof_build_lock_sha256": DERIVED if args.derived_test_build_lock else ORIGINAL,
@@ -120,7 +129,9 @@ def main():
             and e.get("target", {}).get("name") == "codex_core"
         ]
         assert len(binaries) == 1
+        receipt["test_binary_sha256"] = hashlib.sha256(Path(binaries[0]).read_bytes()).hexdigest()
         # Root is used only to create an isolated network namespace, then drop to runner UID.
+        test_started = time.monotonic()
         run = subprocess.run(
             [
                 "sudo",
@@ -132,7 +143,7 @@ def main():
                 f"--regid={os.getgid()}",
                 "--init-groups",
                 binaries[0],
-                "devhub_review_full_router",
+                test_filter,
                 "--nocapture",
             ],
             cwd=root,
@@ -143,6 +154,7 @@ def main():
         (args.output.parent / "test.stdout").write_bytes(run.stdout)
         (args.output.parent / "test.stderr").write_bytes(run.stderr)
         receipt["test_exit_code"] = run.returncode
+        receipt["test_duration_seconds"] = time.monotonic() - test_started
         for line in run.stdout.decode().splitlines():
             if line.startswith("DEVHUB_ROUTER_PROOF="):
                 receipt["proof"] = json.loads(line.split("=", 1)[1])

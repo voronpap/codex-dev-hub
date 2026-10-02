@@ -1,13 +1,19 @@
-name: Pinned full router (no model)
+name: Pinned router candidate (no model)
 on:
-  pull_request:
+  # Push diff filters are per-push. PR path filters use the whole PR diff and
+  # rerun expensive builds on later docs-only commits in the same PR.
+  push:
+    branches-ignore: [main]
     paths:
-      - 'scripts/full_router_test.rs'
+      - 'scripts/router_fix_test.rs'
       - 'scripts/build_full_router_proof.py'
       - 'scripts/derive_router_build_lock.py'
-      - 'docs/evidence/stage3g-full-router/**'
+      - 'docs/evidence/stage3g-full-router/metadata.json'
       - '.github/workflows/full-router-proof.yml'
   workflow_dispatch:
+concurrency:
+  group: pinned-router-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -25,7 +31,7 @@ jobs:
           sudo apt-get update -y
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev libasound2-dev bubblewrap
       - name: Build and test actual pinned router
-        run: python scripts/build_full_router_proof.py --workspace "$RUNNER_TEMP/router-source" --output "$RUNNER_TEMP/router-proof/result.json" --derived-test-build-lock
+        run: python scripts/build_full_router_proof.py --workspace "$RUNNER_TEMP/router-source" --output "$RUNNER_TEMP/router-proof/result.json" --derived-test-build-lock --candidate-fix
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
