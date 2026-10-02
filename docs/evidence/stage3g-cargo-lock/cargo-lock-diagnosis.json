@@ -1,0 +1,160 @@
+{
+  "accepted_derived_lock": true,
+  "accepted_derived_lock_sha256": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+  "archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+  "candidate_lock_sha256": "137be678a35b43ca2510f40049b76bce316cc4f268a2735d0b2af33eee2c5ac6",
+  "cargo_version": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\nrelease: 1.95.0\ncommit-hash: f2d3ce0bd7f24a49f8f72d9000448f8838c4e850\ncommit-date: 2026-03-21\nhost: x86_64-unknown-linux-gnu\nlibgit2: 1.9.2 (sys:0.20.4 vendored)\nlibcurl: 8.15.0-DEV (sys:0.4.83+curl-8.15.0 vendored ssl:OpenSSL/3.5.4)\nssl: OpenSSL 3.5.4 30 Sep 2025\nos: Ubuntu 24.4.0 (noble) [64-bit]\n",
+  "cause": "152 local lock versions are 0.0.0; their pinned manifests require inherited workspace.package.version 0.155.0-alpha.9.2",
+  "commands": {
+    "base-build": {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "codex-core",
+        "--lib",
+        "--no-run"
+      ],
+      "exit_code": 101,
+      "stderr_sha256": "b3a87afa12fdcc725a4db7e4eb994bd36f8179e3259ce15616a0eaac3cd7b9d1",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    "base-metadata": {
+      "command": [
+        "cargo",
+        "metadata",
+        "--locked",
+        "--format-version=1"
+      ],
+      "exit_code": 101,
+      "stderr_sha256": "cdbf0e9f6648d4e991b64611914e0c65dee58d2e9449de470c6171c4afd9e6fc",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    "candidate-offline": {
+      "command": [
+        "cargo",
+        "generate-lockfile",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stderr_sha256": "6dfa2548e184d3b00efcd16a5e1f44915bb686efc1fb2b99a03db65e8ca53c37",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    "cargo-version": {
+      "command": [
+        "cargo",
+        "--version",
+        "--verbose"
+      ],
+      "exit_code": 0,
+      "stderr_sha256": "537541b9927fc2ed6f36431943422a8edd0b110ca09d08e49980143e6f0a5532",
+      "stdout_sha256": "bfd735e736b354adabe72cea24bc1b393488223889b6ab95e974fd8fb963552e",
+      "timed_out": false
+    },
+    "injected-build": {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "codex-core",
+        "--lib",
+        "devhub_review_full_router",
+        "--no-run"
+      ],
+      "exit_code": 101,
+      "stderr_sha256": "18780afe15d85f92bdd1ddc63d3f482a34dd72e7c9694b213b5e53c4fda3f752",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    "minimal-metadata": {
+      "command": [
+        "cargo",
+        "metadata",
+        "--format-version=1"
+      ],
+      "exit_code": 0,
+      "stderr_sha256": "025ae8653db11ffd3064b8c5913f2fc17bd853191b64f58918a1486394fa595f",
+      "stdout_sha256": "27acb1b0bae87263341b0bc27fdf85ec210b3fc88d9531316bf38d23396025a4",
+      "timed_out": false
+    },
+    "rustc-version": {
+      "command": [
+        "rustc",
+        "--version",
+        "--verbose"
+      ],
+      "exit_code": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "4fdff2578428e9c5c08ddd7a0d3079c1a106b1cdaa46e73e46f7cd32b0fb9cad",
+      "timed_out": false
+    }
+  },
+  "derivation": "Manifest-bound local version substitution; byte-identical to minimal Cargo metadata resolution; no external version/source/checksum/edge changes",
+  "derived_lock_scope": "Disposable test build only; production source/binary unchanged",
+  "diagnostic_run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/36967187526",
+  "execution_ready": false,
+  "injection_changes": [
+    "codex-rs/core/src/tools/devhub_metadata.json",
+    "codex-rs/core/src/tools/spec_plan_tests.rs"
+  ],
+  "injection_is_cause": false,
+  "minimal_candidate_lock_sha256": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+  "original_lock_sha256": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+  "original_source_unchanged": true,
+  "provider_sends": 0,
+  "raw_artifact_hashes": {
+    "Cargo.lock.candidate": "137be678a35b43ca2510f40049b76bce316cc4f268a2735d0b2af33eee2c5ac6",
+    "Cargo.lock.minimal-candidate": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+    "Cargo.lock.original": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+    "base-build.json": "4b9acd36b841d6da91faf1a98eeb16924510b600d946a5bb4cc6e80fea1aca11",
+    "base-build.stderr": "b3a87afa12fdcc725a4db7e4eb994bd36f8179e3259ce15616a0eaac3cd7b9d1",
+    "base-build.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "base-metadata.json": "d7dca527bd11406881ba38caa0e50fad96b0411ac7b65abd4f82ee6741d5b350",
+    "base-metadata.stderr": "cdbf0e9f6648d4e991b64611914e0c65dee58d2e9449de470c6171c4afd9e6fc",
+    "base-metadata.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "candidate-offline.json": "49205690268dbd136d38e54019724b257b0dd11f2f25e433bd5816474fbd6168",
+    "candidate-offline.stderr": "6dfa2548e184d3b00efcd16a5e1f44915bb686efc1fb2b99a03db65e8ca53c37",
+    "candidate-offline.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "cargo-lock-candidate.sha256": "cdf7d64d5a2ac045ec699be6f17cc859a0814eb440b598a8d5fd7258e2fd4f4c",
+    "cargo-lock-diagnosis.json": "327c9dd3f8cce4e3ae1b74050bad5efd4204ef0ba6b2fb698f4e3c9c8127a246",
+    "cargo-lock-original.sha256": "9a707122a5a4dcf75609948ca1e0cbb1e4346f491c60178f37d97f92f16dcb62",
+    "cargo-lock-structural-diff.json": "3f55ef8782e43bb566b3290deae313bc426435ba441d0d1dcef1d196bbd7affd",
+    "cargo-version.json": "a481546a771d6a3ce0a8e2ec44ea78cb1287a3c7ea254da1ae1a99612187324b",
+    "cargo-version.stderr": "537541b9927fc2ed6f36431943422a8edd0b110ca09d08e49980143e6f0a5532",
+    "cargo-version.stdout": "bfd735e736b354adabe72cea24bc1b393488223889b6ab95e974fd8fb963552e",
+    "injected-build.json": "b662ffc7923761d74145544a0be44b3ce059ae90b6a650dde06e625b4116cf55",
+    "injected-build.stderr": "18780afe15d85f92bdd1ddc63d3f482a34dd72e7c9694b213b5e53c4fda3f752",
+    "injected-build.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "minimal-metadata.json": "3b82251a6e0cddc128ca3d04055c98c5e804eae7823fdcd4a1c4df7a7e0ca77a",
+    "minimal-metadata.stderr": "025ae8653db11ffd3064b8c5913f2fc17bd853191b64f58918a1486394fa595f",
+    "minimal-metadata.stdout": "27acb1b0bae87263341b0bc27fdf85ec210b3fc88d9531316bf38d23396025a4",
+    "minimal-structural-diff.json": "8a8a8d6ecfc4b94f2fd3c9dc08909aa1ed6b4fc6974059c021477a82bd798983",
+    "rustc-version.json": "a952a3d0e13e443fee7947634e4d8e573d9bbd9e8bdfdb5ddfeee675cf50ffd8",
+    "rustc-version.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "rustc-version.stdout": "4fdff2578428e9c5c08ddd7a0d3079c1a106b1cdaa46e73e46f7cd32b0fb9cad",
+    "source-inventory.json": "d1e665b286c9ec1dd2cee8e1955aa614311bdaf3d935f2fcd2734ee11bbf8230",
+    "upstream-build-context.tar.gz": "966427074104689db6c408c8a81c4ad4592b5be837201b93893779212cefa14a"
+  },
+  "raw_artifact_name": "pinned-cargo-lock-diagnosis",
+  "real_codex_executions": 0,
+  "regenerated_candidate_accepted": false,
+  "regenerated_candidate_rejection": "Unnecessary external upgrades; not used for build",
+  "root_cause": "STALE_UPSTREAM_LOCK",
+  "router_classification": "UNKNOWN",
+  "rustc_version": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+  "safe_build_path": "LOCK_B",
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "upstream_context": {
+    "cargo_target_config": "Only Windows MSVC/GNU rustflags; no Linux overrides",
+    "default_members": "not specified",
+    "difference": "Our codex-core lib filtered cargo test --no-run is a narrower build; the unchanged base invocation reproduces the same stale-lock failure",
+    "resolver": "2",
+    "target": "native x86_64-unknown-linux-gnu",
+    "test_recipe": "justfile invokes cargo nextest; CI builds nextest archives using profile/target/test-threads controls; Bazel also supported"
+  }
+}

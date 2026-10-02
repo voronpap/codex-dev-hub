@@ -1,0 +1,7 @@
+
+running 1 test
+DEVHUB_ROUTER_PROOF={"actual_pinned_router_code":true,"arms":[{"allowed_tools":[],"arm":"A","code_mode_map":{},"hosted_specs_exposed":[],"origin":[],"registered_tools":[],"tool_mode":"code_mode_only","visible_specs":[]},{"allowed_tools":[{"name":"devhub_delegate","namespace":"mcp__devhub_delegate"}],"arm":"B","code_mode_map":{"mcp__devhub_delegate__devhub_delegate":{"name":"devhub_delegate","namespace":"mcp__devhub_delegate"}},"hosted_specs_exposed":[],"origin":["devhub_delegate"],"registered_tools":["mcp__devhub_delegatedevhub_delegate"],"tool_mode":"code_mode_only","visible_specs":[]}],"collision_result":"wrong origin first survives; duplicate rejected and collision recorded","inference_requests":0,"method_slice_only":false,"origin_bound_by_allowed_tools":false,"provider_sends":0,"real_codex_executions":0}
+test tools::spec_plan::tests::devhub_review_full_router ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2528 filtered out; finished in 0.30s
+

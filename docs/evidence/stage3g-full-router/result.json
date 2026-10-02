@@ -1,0 +1,58 @@
+{
+  "exact_source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "exact_codex_version": "0.155.0-alpha.9.2",
+  "metadata_requests": 1,
+  "historical_plus_current_models_metadata_requests": 2,
+  "service_default_model": "gpt-6-astra",
+  "observed_model_tool_mode": "code_mode_only",
+  "derived_effective_tool_mode": "CodeModeOnly",
+  "derivation_method": "pinned source + observed field; not a full-router execution",
+  "A": {
+    "allowed_tools": [],
+    "registered_tools": null,
+    "visible_specs": null,
+    "code_mode_map": null,
+    "hosted_specs_exposed": null
+  },
+  "B": {
+    "allowed_tools": [
+      {
+        "namespace": "mcp__devhub_delegate",
+        "name": "devhub_delegate"
+      }
+    ],
+    "canonical_delegate_identity": {
+      "server_key": "devhub_delegate",
+      "raw_tool_name": "devhub_delegate",
+      "namespace": "mcp__devhub_delegate",
+      "name": "devhub_delegate"
+    },
+    "registered_tools": null,
+    "visible_specs": null,
+    "code_mode_map": null,
+    "origin_verified": null,
+    "collision_result": null
+  },
+  "actual_pinned_router_code": null,
+  "method_slice_only": false,
+  "test_executions": 0,
+  "classification": "UNKNOWN",
+  "execution_ready": false,
+  "protocol_changed": false,
+  "v3_created": false,
+  "build_blocker": "cargo test --locked exits 101: pinned Cargo.lock requires update; no unlock or dependency changes performed",
+  "build_root_cause": null,
+  "cargo_lock_exists": true,
+  "cargo_lock_sha256": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+  "build_ci_run": 36900321065,
+  "runtime_ci_run": 36900321062,
+  "intended_host_qualified": false,
+  "inference_requests": 0,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "codex_internal_retries": null
+}

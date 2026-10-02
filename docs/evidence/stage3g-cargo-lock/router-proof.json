@@ -1,0 +1,132 @@
+{
+  "classification": "ROUTER_BLOCKED_BOTH",
+  "receipt": {
+    "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+    "archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+    "test_sha256": "751a1d03a9a02909749b4294df8cb40b566ce4f5d5b0c2583292a9cce96b5c27",
+    "production_modified": false,
+    "original_lock_sha256": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+    "proof_build_lock_sha256": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+    "lock_strategy": "LOCK_B_derived_test_build",
+    "build_command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "codex-core",
+      "--lib",
+      "devhub_review_full_router",
+      "--no-run",
+      "--message-format=json"
+    ],
+    "build_exit_code": 0,
+    "actual_pinned_router_code": true,
+    "method_slice_only": false,
+    "inference_requests": 0,
+    "real_codex_executions": 0,
+    "provider_sends": 0,
+    "test_exit_code": 0,
+    "proof": {
+      "actual_pinned_router_code": true,
+      "arms": [
+        {
+          "allowed_tools": [],
+          "arm": "A",
+          "code_mode_map": {},
+          "hosted_specs_exposed": [],
+          "origin": [],
+          "registered_tools": [],
+          "tool_mode": "code_mode_only",
+          "visible_specs": []
+        },
+        {
+          "allowed_tools": [
+            {
+              "name": "devhub_delegate",
+              "namespace": "mcp__devhub_delegate"
+            }
+          ],
+          "arm": "B",
+          "code_mode_map": {
+            "mcp__devhub_delegate__devhub_delegate": {
+              "name": "devhub_delegate",
+              "namespace": "mcp__devhub_delegate"
+            }
+          },
+          "hosted_specs_exposed": [],
+          "origin": [
+            "devhub_delegate"
+          ],
+          "registered_tools": [
+            "mcp__devhub_delegatedevhub_delegate"
+          ],
+          "tool_mode": "code_mode_only",
+          "visible_specs": []
+        }
+      ],
+      "collision_result": "wrong origin first survives; duplicate rejected and collision recorded",
+      "inference_requests": 0,
+      "method_slice_only": false,
+      "origin_bound_by_allowed_tools": false,
+      "provider_sends": 0,
+      "real_codex_executions": 0
+    }
+  },
+  "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/36967419182",
+  "execution_ready": false,
+  "raw_artifact_hashes": {
+    "build.jsonl": "25afc7c51e9a0d432f7b4f3d847343fe0230b3774af88491ee4d1960bc7ef7e4",
+    "build.stderr": "4b77b42b37bed437eabbfec5f51068cf0808be2d74d323d2db22d79844b065c0",
+    "Cargo.lock.original": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+    "derived-lock-manifest-bindings.json": "c3a46561a4fea37ee56874a51f8d06b9bd84b5b2583560ccc22200b0eb4288c7",
+    "result.json": "4083cf4e18603bf8ac4392cb98848a49c572bdae8eac313bdfed894c45a504be",
+    "test.stderr": "f127f2eb675d15dad52174f84a1fc14d46dbb103f6b2529ddfbed90d0fa3bb89",
+    "test.stdout": "fda53008d26e684341692e8ccc1a8d579a1617a75eb5f20909548d221da1ad7b"
+  },
+  "A": {
+    "allowed_tools": [],
+    "arm": "A",
+    "code_mode_map": {},
+    "hosted_specs_exposed": [],
+    "origin": [],
+    "registered_tools": [],
+    "tool_mode": "code_mode_only",
+    "visible_specs": []
+  },
+  "B": {
+    "allowed_tools": [
+      {
+        "name": "devhub_delegate",
+        "namespace": "mcp__devhub_delegate"
+      }
+    ],
+    "arm": "B",
+    "code_mode_map": {
+      "mcp__devhub_delegate__devhub_delegate": {
+        "name": "devhub_delegate",
+        "namespace": "mcp__devhub_delegate"
+      }
+    },
+    "hosted_specs_exposed": [],
+    "origin": [
+      "devhub_delegate"
+    ],
+    "registered_tools": [
+      "mcp__devhub_delegatedevhub_delegate"
+    ],
+    "tool_mode": "code_mode_only",
+    "visible_specs": []
+  },
+  "origin_verified": false,
+  "collision_result": "wrong origin first survives; duplicate rejected and collision recorded",
+  "rehearsal": "not_run",
+  "benchmark": "not_run",
+  "v3_created": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "codex_internal_retries": null
+}

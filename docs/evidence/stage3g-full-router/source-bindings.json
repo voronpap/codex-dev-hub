@@ -1,0 +1,58 @@
+{
+  "mode_schema": {
+    "path": "codex-rs/protocol/src/openai_models.rs",
+    "start": 344,
+    "end": 360,
+    "file_sha256": "d7947323af29877aaa30b1426f1c1b7f83339334d37cfd77b7abbda980f273f5",
+    "excerpt": "#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, TS, JsonSchema)]\n#[serde(rename_all = \"snake_case\")]\npub enum ToolMode {\n    Direct,\n    CodeMode,\n    CodeModeOnly,\n}\n\nfn deserialize_optional_model_selector<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>\nwhere\n    D: Deserializer<'de>,\n    T: DeserializeOwned,\n{\n    let Some(value) = Option::<String>::deserialize(deserializer)? else {\n        return Ok(None);\n    };\n    Ok(serde_json::from_value(serde_json::Value::String(value)).ok())"
+  },
+  "mode_field": {
+    "path": "codex-rs/protocol/src/openai_models.rs",
+    "start": 490,
+    "end": 498,
+    "file_sha256": "d7947323af29877aaa30b1426f1c1b7f83339334d37cfd77b7abbda980f273f5",
+    "excerpt": "    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n    pub model_specialty: Option<String>,\n    #[serde(\n        default,\n        skip_serializing_if = \"Option::is_none\",\n        deserialize_with = \"deserialize_optional_model_selector\"\n    )]\n    pub tool_mode: Option<ToolMode>,\n    #[serde("
+  },
+  "mode_derivation": {
+    "path": "codex-rs/core/src/tools/mod.rs",
+    "start": 65,
+    "end": 91,
+    "file_sha256": "a1aadfb35c1b86d33e34aa99b8b0cddf74aef91ac7a1057e83b7d390f4a3d1ee",
+    "excerpt": "        crate::shell::ShellType::Cmd => codex_tools::ToolUserShellType::Cmd,\n    }\n}\n\npub(crate) fn requested_tool_mode(turn_context: &TurnContext, model_info: &ModelInfo) -> ToolMode {\n    model_info.tool_mode.unwrap_or_else(|| {\n        if turn_context.config.features.enabled(Feature::CodeModeOnly) {\n            ToolMode::CodeModeOnly\n        } else if turn_context.config.features.enabled(Feature::CodeMode) {\n            ToolMode::CodeMode\n        } else {\n            ToolMode::Direct\n        }\n    })\n}\n\npub(crate) fn effective_tool_mode(turn_context: &TurnContext, model_info: &ModelInfo) -> ToolMode {\n    let requested_tool_mode = requested_tool_mode(turn_context, model_info);\n    if !turn_context.code_mode_available\n        && requested_tool_mode == ToolMode::CodeMode\n        && !turn_context.config.code_mode.disable_in_process_fallback\n    {\n        ToolMode::Direct\n    } else {\n        requested_tool_mode\n    }\n}"
+  },
+  "selection": {
+    "path": "codex-rs/models-manager/src/manager.rs",
+    "start": 145,
+    "end": 203,
+    "file_sha256": "8ae229b8587990f9f9643d019a56703f48465172ddf75bc22a158c09f489ed90",
+    "excerpt": "    ///\n    /// Returns an error if the internal lock cannot be acquired.\n    fn try_get_remote_models(&self) -> Result<Vec<ModelInfo>, TryLockError>;\n\n    /// Return the auth manager used for picker filtering.\n    fn auth_manager(&self) -> Option<&AuthManager>;\n\n    /// Build picker-ready presets from the active catalog snapshot.\n    fn build_available_models(&self, mut remote_models: Vec<ModelInfo>) -> Vec<ModelPreset> {\n        remote_models.sort_by_key(|model| model.priority);\n\n        let mut presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();\n        let uses_codex_backend = self\n            .auth_manager()\n            .is_some_and(AuthManager::current_auth_uses_codex_backend);\n        presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);\n\n        ModelPreset::mark_default_by_picker_visibility(&mut presets);\n\n        presets\n    }\n\n    /// List collaboration mode presets.\n    ///\n    /// Returns a static set of presets seeded with the configured model.\n    fn list_collaboration_modes(&self) -> Vec<CollaborationModeMask>;\n\n    /// Attempt to list models without blocking, using the current cached state.\n    ///\n    /// Returns an error if the internal lock cannot be acquired.\n    fn try_list_models(&self) -> Result<Vec<ModelPreset>, TryLockError> {\n        let remote_models = self.try_get_remote_models()?;\n        Ok(self.build_available_models(remote_models))\n    }\n\n    // todo(aibrahim): should be visible to core only and sent on session_configured event\n    /// Get the model identifier to use, refreshing according to the specified strategy.\n    ///\n    /// If `model` is provided, preserves it unless the implementation supports and the policy\n    /// allows provider fallback. Otherwise selects the default based on auth mode and available\n    /// models.\n    fn get_default_model<'a>(\n        &'a self,\n        model: &'a Option<String>,\n        allow_provider_model_fallback: bool,\n        refresh_strategy: RefreshStrategy,\n        http_client_factory: HttpClientFactory,\n    ) -> ModelsManagerFuture<'a, String> {\n        Box::pin(\n            async move {\n                if let Some(model) = model.as_ref() {\n                    return model.to_string();\n                }\n                default_model_from_available(\n                    self.list_models(refresh_strategy, http_client_factory)\n                        .await,\n                )\n            }\n            .instrument(tracing::info_span!("
+  },
+  "visibility": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 526,
+    "end": 565,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "fn build_model_visible_specs(\n    turn_context: &TurnContext,\n    model_info: &ModelInfo,\n    registry: &ToolRegistry,\n    code_mode_tool_names: &BTreeMap<String, ToolName>,\n    hosted_specs: Vec<ToolSpec>,\n) -> Vec<ToolSpec> {\n    let mut specs = Vec::new();\n    for tool in registry.entries() {\n        let exposure = tool.exposure;\n        if !exposure.is_direct() {\n            continue;\n        }\n\n        let tool_name = tool.runtime.tool_name();\n        if is_hidden_by_code_mode_only(turn_context, model_info, &tool_name, exposure) {\n            continue;\n        }\n\n        let spec = tool.runtime.spec();\n        specs.push(spec_for_model_request(\n            turn_context,\n            model_info,\n            exposure,\n            &tool_name,\n            code_mode_tool_names,\n            spec,\n        ));\n    }\n    specs.extend(hosted_specs);\n\n    merge_into_namespaces(specs)\n        .into_iter()\n        .filter(|spec| {\n            namespace_tools_enabled(turn_context) || !matches!(spec, ToolSpec::Namespace(_))\n        })\n        .collect()\n}\n\nfn spec_for_model_request("
+  },
+  "code_only_hiding": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 759,
+    "end": 771,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "fn is_hidden_by_code_mode_only(\n    turn_context: &TurnContext,\n    model_info: &ModelInfo,\n    tool_name: &ToolName,\n    exposure: ToolExposure,\n) -> bool {\n    let tool_mode = effective_tool_mode(turn_context, model_info);\n    tool_mode == ToolMode::CodeModeOnly\n        && exposure.is_available_in_code_mode()\n        && codex_code_mode::is_code_mode_nested_tool(&codex_tools::code_mode_name_for_tool_name(\n            tool_name,\n        ))\n}"
+  },
+  "registry_collision": {
+    "path": "codex-rs/core/src/tools/registry.rs",
+    "start": 379,
+    "end": 424,
+    "file_sha256": "52d6ec5de7282fd42bd9810edbe19d0c75ee9445254e33e2a1a39e0ba7dac7b5",
+    "excerpt": "\n    pub(crate) fn register_external_with_exposure(\n        &mut self,\n        runtime: Arc<dyn CoreToolRuntime>,\n        exposure: ToolExposure,\n    ) -> bool {\n        let tool_name = runtime.tool_name().with_default_namespace();\n        if self\n            .allowed_tools\n            .as_ref()\n            .is_some_and(|allowed| !allowed.contains(&tool_name))\n        {\n            return false;\n        }\n        if tool_name.is_default_namespace()\n            && matches!(tool_name.name.as_str(), \"exec_command\" | \"shell_command\")\n        {\n            tracing::warn!(tool_name = %tool_name, \"skipping external tool with reserved name\");\n            if self.tools.contains_key(&tool_name) {\n                self.record_collision(tool_name);\n            }\n            return false;\n        }\n\n        match self.tools.entry(tool_name) {\n            Entry::Vacant(entry) => {\n                entry.insert(RegisteredTool { runtime, exposure });\n                true\n            }\n            Entry::Occupied(entry) => {\n                tracing::warn!(\n                    tool_name = %entry.key(),\n                    \"skipping duplicate external tool that is already registered\"\n                );\n                self.first_collision\n                    .get_or_insert_with(|| entry.key().clone());\n                false\n            }\n        }\n    }\n\n    pub(crate) fn record_collision(&mut self, tool_name: ToolName) {\n        self.first_collision.get_or_insert(tool_name);\n    }\n\n    pub(crate) fn first_collision(&self) -> Option<&ToolName> {"
+  },
+  "collision_finalization": {
+    "path": "codex-rs/core/src/tools/spec_plan.rs",
+    "start": 411,
+    "end": 419,
+    "file_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+    "excerpt": "\n    if turn_context.config.tool_registry.error_on_tool_collisions {\n        if let Some(tool_name) = registry.first_collision() {\n            let namespace = tool_name.namespace.as_deref().unwrap_or(\"functions\");\n            let name = format!(\"{namespace}.{}\", tool_name.name);\n            return Err(CodexErrorDetails::ToolCollision(name).into());\n        }\n\n        let mut namespace_descriptions = BTreeMap::new();"
+  }
+}

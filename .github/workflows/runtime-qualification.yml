@@ -2,6 +2,8 @@ name: Runtime qualification (no benchmark)
 on:
   pull_request:
     paths:
+      - 'scripts/full_router_test.rs'
+      - 'docs/evidence/stage3g-full-router/**'
       - 'scripts/check_allowed_tools.py'
       - 'scripts/allowed_tools_synthetic.rs'
       - 'docs/evidence/stage3g-allowed-tools/**'
@@ -38,6 +40,8 @@ jobs:
         run: uv run --locked python scripts/check_mutation_audit.py --verify-upstream
       - name: Verify pinned patch control audit
         run: uv run --locked python scripts/check_patch_controls.py --verify-upstream
+      - name: Verify observed ToolMode evidence
+        run: uv run --locked python scripts/check_full_router_evidence.py --verify-upstream
       - name: Build exact executor and evaluator images
         run: |
           mkdir -p "$RUNNER_TEMP/qualification"
