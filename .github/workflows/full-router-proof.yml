@@ -4,6 +4,7 @@ on:
     paths:
       - 'scripts/full_router_test.rs'
       - 'scripts/build_full_router_proof.py'
+      - 'scripts/derive_router_build_lock.py'
       - 'docs/evidence/stage3g-full-router/**'
       - '.github/workflows/full-router-proof.yml'
   workflow_dispatch:
@@ -19,7 +20,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Build and test actual pinned router
-        run: python scripts/build_full_router_proof.py --workspace "$RUNNER_TEMP/router-source" --output "$RUNNER_TEMP/router-proof/result.json"
+        run: python scripts/build_full_router_proof.py --workspace "$RUNNER_TEMP/router-source" --output "$RUNNER_TEMP/router-proof/result.json" --derived-test-build-lock
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

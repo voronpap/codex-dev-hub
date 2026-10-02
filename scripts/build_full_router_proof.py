@@ -10,6 +10,8 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
+from derive_router_build_lock import DERIVED, ORIGINAL, derive
+
 COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 ARCHIVE = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
 
@@ -18,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--derived-test-build-lock", action="store_true")
     args = parser.parse_args()
     args.workspace.mkdir(parents=True, exist_ok=False)
     repo = Path(__file__).resolve().parents[1]
@@ -28,6 +31,17 @@ def main():
     with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
         archive.extractall(args.workspace, filter="data")
     root = args.workspace / f"codex-{COMMIT}" / "codex-rs"
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    original_lock = (root / "Cargo.lock").read_bytes()
+    assert hashlib.sha256(original_lock).hexdigest() == ORIGINAL
+    (args.output.parent / "Cargo.lock.original").write_bytes(original_lock)
+    if args.derived_test_build_lock:
+        derived, changes = derive(root)
+        (args.output.parent / "derived-lock-manifest-bindings.json").write_text(
+            json.dumps(changes, indent=2) + "\n", encoding="utf-8"
+        )
+        # Disposable proof tree only; original bytes retained separately, production unchanged.
+        (root / "Cargo.lock").write_bytes(derived)
     target = root / "core/src/tools/spec_plan_tests.rs"
     original = target.read_bytes()
     test = (repo / "scripts/full_router_test.rs").read_bytes()
@@ -57,18 +71,24 @@ def main():
         command,
         cwd=root,
         env=environment,
-        stdout=subprocess.PIPE,
-        stderr=None,
+        capture_output=True,
         timeout=2400,
         check=False,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     (args.output.parent / "build.jsonl").write_bytes(build.stdout)
+    (args.output.parent / "build.stderr").write_bytes(build.stderr)
     receipt = {
         "source_commit": COMMIT,
         "archive_sha256": ARCHIVE,
         "test_sha256": hashlib.sha256(test).hexdigest(),
         "production_modified": False,
+        "original_lock_sha256": ORIGINAL,
+        "proof_build_lock_sha256": DERIVED if args.derived_test_build_lock else ORIGINAL,
+        "lock_strategy": "LOCK_B_derived_test_build"
+        if args.derived_test_build_lock
+        else "original",
+        "build_command": command,
         "build_exit_code": build.returncode,
         "actual_pinned_router_code": None,
         "method_slice_only": False,
@@ -76,6 +96,10 @@ def main():
         "real_codex_executions": 0,
         "provider_sends": 0,
     }
+    assert (
+        hashlib.sha256((root / "Cargo.lock").read_bytes()).hexdigest()
+        == receipt["proof_build_lock_sha256"]
+    )
     if build.returncode == 0:
         events = [json.loads(line) for line in build.stdout.splitlines()]
         binaries = [
