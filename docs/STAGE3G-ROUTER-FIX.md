@@ -114,9 +114,53 @@ Required assertions:
 - Core runtimes, extra same-namespace MCP diagnostic tool, deferred extension,
   dynamic tool and adversarial hosted web spec cannot widen the ceiling.
 
-Until actual compilation and assertions succeed the outcome is UNKNOWN, not
-ROUTER_FIX_FEASIBLE. A successful proof would establish feasibility of this narrow
-composition only; it would not qualify an executor or close Stage 3G-C.
+The outcome may be promoted from UNKNOWN only after actual compilation and
+assertions succeed. This establishes feasibility of the narrow composition only;
+it does not qualify an executor or close Stage 3G-C.
+
+## Actual result: ROUTER_FIX_FEASIBLE (unit composition only)
+
+[Candidate run 37036845126](https://github.com/voronpap/codex-dev-hub/actions/runs/37036845126)
+compiled the pinned code and executed the candidate test successfully. Implementation
+commit `946dde344abf76f132e39dfcdcc348ad3b876fcb`; test and metadata hashes are in the
+receipt. **One Rust build**, 845.287948413 seconds (about 14m05s); test process
+0.381324958 seconds. Build/test exit codes are both 0. No duplicate/superseded
+candidate Rust build was launched.
+
+| Actual observation | A | B |
+| --- | --- | --- |
+| Registered tools | empty | devhub_delegate canonical identity |
+| Visible schemas | empty | one namespace, one devhub_delegate function |
+| Nested code-mode map | empty | empty |
+| Hosted specs | empty | empty |
+| Effective ToolMode | CodeModeOnly | CodeModeOnly |
+| Origin seal | passed (empty) | passed (exact approved runtime) |
+
+Actual compiled assertions passed for wrong-origin-first rejection, spoofed trusted
+channel, raw-name mismatch, namespace alias, forged same-server runtime and
+bypassed-ingress collision failure during actual router finalization. The test
+also asserted DirectModelOnly exposure for B; it did not force global Direct mode.
+
+Model-facing identity remains namespace `mcp__devhub_delegate`, function
+`devhub_delegate`. There is no new wrapper identity. Raw ToolName display rendering
+`mcp__devhub_delegatedevhub_delegate` is retained verbatim in the receipt. A synthetic
+zero-property tool schema is used to test router exposure, not the production
+delegation schema or an MCP service execution.
+
+`result.json`, `test.stdout`, `test.stderr`, `source-audit.json` and the source
+bindings under `docs/evidence/stage3g-router-fix/` preserve the proof and its scope.
+The warning about failure to create PATH aliases is retained in stderr; the unit
+test still exited 0. The test binary SHA-256 is
+`699dbe9931307bd3d3f29e68e91874a5f0850b376364dae2ad4e7f79b395f7df`.
+
+Validate with `uv run --locked python scripts/check_router_fix_evidence.py`; add
+`--verify-upstream` to verify all 11 exact pinned source files. This does not start
+a Rust build or model task. The accepted #31 result remains ROUTER_BLOCKED_BOTH for
+the old composition; the new feasible result applies only to this candidate.
+
+The production origin hook, reviewed process/config binding, wrapper parity,
+protocol revision and intended-host qualification are still outstanding. Feasibility
+does not authorize those steps automatically in this investigation. STOP for review.
 
 ## Build budget and validation
 

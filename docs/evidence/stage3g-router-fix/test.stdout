@@ -1,0 +1,7 @@
+
+running 1 test
+DEVHUB_ROUTER_PROOF={"actual_pinned_router_code":true,"arms":[{"arm":"A","code_mode_map":{},"hosted_specs_exposed":[],"namespace_functions":{},"origin_seal_passed":true,"registered_tools":[],"tool_mode":"code_mode_only","visible_specs":[]},{"arm":"B","code_mode_map":{},"hosted_specs_exposed":[],"namespace_functions":{"mcp__devhub_delegate":["devhub_delegate"]},"origin_seal_passed":true,"registered_tools":["mcp__devhub_delegatedevhub_delegate"],"tool_mode":"code_mode_only","visible_specs":[{"description":"Tools from devhub_delegate.","name":"mcp__devhub_delegate","tools":[{"description":"devhub_delegate test tool","name":"devhub_delegate","parameters":{"additionalProperties":false,"properties":{},"type":"object"},"strict":false,"type":"function"}],"type":"namespace"}]}],"bypassed_guard_collision_finalization_failed":true,"candidate":"B_direct_model_only_namespace_plus_trusted_ingress_seal","classification":"ROUTER_FIX_FEASIBLE","execution_ready":false,"forged_runtime_rejected":true,"method_slice_only":false,"namespace_alias_rejected":true,"origin_scope":"test-local typed ingress and exact runtime object seal; production host not implemented","production_modified":false,"provider_sends":0,"raw_name_mismatch_rejected":true,"real_codex_executions":0,"spoofed_channel_rejected":true,"wrong_origin_first_rejected":true}
+test tools::spec_plan::tests::devhub_review_router_fix ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2528 filtered out; finished in 0.31s
+

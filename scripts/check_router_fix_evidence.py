@@ -50,6 +50,11 @@ def validate_proof(receipt):
     assert b["registered_tools"] == ["mcp__devhub_delegatedevhub_delegate"]
     assert b["namespace_functions"] == {"mcp__devhub_delegate": ["devhub_delegate"]}
     assert len(b["visible_specs"]) == 1
+    namespace = b["visible_specs"][0]
+    assert namespace["type"] == "namespace" and namespace["name"] == "mcp__devhub_delegate"
+    assert len(namespace["tools"]) == 1
+    assert namespace["tools"][0]["type"] == "function"
+    assert namespace["tools"][0]["name"] == "devhub_delegate"
     return "ROUTER_FIX_FEASIBLE"
 
 
@@ -99,6 +104,12 @@ def validate_record(root=ROOT):
     assert result["v3_created"] is False
     assert result["real_codex_executions"] == result["provider_sends"] == 0
     assert receipt["source_commit"] == COMMIT and receipt["proof_build_lock_sha256"] == DERIVED
+    assert receipt["production_modified"] is False
+    assert "--locked" in receipt["build_command"]
+    assert receipt["test_file"] == "router_fix_test.rs"
+    assert receipt["metadata_sha256"] == sha(
+        (REPO / "docs/evidence/stage3g-full-router/metadata.json").read_bytes()
+    )
     assert receipt["test_sha256"] == sha((REPO / "scripts/router_fix_test.rs").read_bytes())
     if receipt["actual_pinned_router_code"] is True:
         for name in ("test.stdout", "test.stderr"):

@@ -32,7 +32,13 @@ def synthetic_receipt():
         **a,
         "arm": "B",
         "registered_tools": ["mcp__devhub_delegatedevhub_delegate"],
-        "visible_specs": [{"synthetic": True}],
+        "visible_specs": [
+            {
+                "type": "namespace",
+                "name": "mcp__devhub_delegate",
+                "tools": [{"type": "function", "name": "devhub_delegate"}],
+            }
+        ],
         "namespace_functions": {"mcp__devhub_delegate": ["devhub_delegate"]},
     }
     return {
@@ -89,3 +95,16 @@ def test_exact_source_excerpts_present():
         assert len(source["file_sha256"]) == 64
     assert "DirectModelOnly" in bindings["tool_exposure"]["excerpt"]
     assert "direct_only_tool_namespaces" in bindings["direct_only_override_visibility"]["excerpt"]
+
+
+def test_actual_receipt_and_frozen_bytes():
+    assert module.validate_record() == "ROUTER_FIX_FEASIBLE"
+
+
+def test_visible_schema_cannot_disagree_with_names():
+    receipt = synthetic_receipt()
+    receipt["proof"]["arms"][1]["visible_specs"][0]["tools"].append(
+        {"type": "function", "name": "shell"}
+    )
+    with pytest.raises(AssertionError):
+        module.validate_proof(receipt)
