@@ -98,3 +98,58 @@ Resolving the lock mismatch is not router feasibility. A/B sets, tool-mode
 exposure and wrong-origin collision must come from the actual compiled router.
 No wrapper, v3, Direct forcing or exec/wait expansion is authorized by this
 diagnosis alone. Stage 3G-C and Stage 3G remain OPEN; execution_ready=false.
+
+## Actual full router result: ROUTER_BLOCKED_BOTH
+
+[Proof job 36967419182](https://github.com/voronpap/codex-dev-hub/actions/runs/36967419182)
+built the actual pinned core using the derived proof lock and `--locked` (exit 0).
+The actual unit test then ran in an isolated network namespace with dummy auth:
+**1 passed, 2528 filtered out, 0.30 seconds**, exit 0. This is not a method-slice
+test. The proof build implementation commit was
+`1dae4d0d8658d770555a53b3426323bb8785c436`.
+
+| Observation | A | B |
+| --- | --- | --- |
+| Registered tools | empty | exact canonical delegate |
+| Visible model specs | empty | **empty** |
+| Code-mode map | empty object | delegate mapping present |
+| Hosted specs exposed | empty | empty |
+| Effective mode | CodeModeOnly | CodeModeOnly |
+| Normal-case server origin | none | devhub_delegate |
+
+The raw `ToolName::to_string()` output for B is
+`mcp__devhub_delegatedevhub_delegate`. It is retained verbatim, not rewritten as
+another identity. The structured identity in AllowedTools and the code-mode map is
+`namespace=mcp__devhub_delegate`, `name=devhub_delegate`; the synthetic MCP helper
+constructs the raw tool with that name and server key `devhub_delegate`.
+
+The separate actual collision case registers `wrong_origin` under this same
+canonical name first, then registers the approved server. The first registration
+survives; the duplicate is rejected and the collision recorded. AllowedTools does
+not independently bind origin. Normal-case origin observation does not establish
+a fail-closed provenance guarantee.
+
+Thus the successful test proves two blockers, not feasibility:
+
+1. **Tool mode:** B is registered but has no model-visible delegate under the
+   observed service-default CodeModeOnly mode and the frozen ceiling.
+2. **Collision:** name matching alone permits the wrong-origin first registrant.
+
+No candidate host origin guard has been independently proven. Classification is
+**ROUTER_BLOCKED_BOTH**. No exec/wait allowance, Direct override, host wrapper,
+protocol v3, rehearsal or benchmark follows. Model metadata was not refreshed.
+
+`router-proof.json` binds the actual receipt, raw artifact hashes and classification.
+`router-test.stdout` and `.stderr` retain test output bytes. The stderr warning
+about inability to create PATH aliases is retained; it did not fail the unit test
+and is not promoted to host-wrapper qualification.
+
+After this decisive result, redundant build 36968308134 was cancelled. It was
+triggered by log-capture/prerequisite maintenance, with unchanged pinned source,
+test, metadata and derived lock. It is not additional proof or a passing check.
+Future documentation-only reruns may likewise be cancelled; the linked completed
+proof remains bound to its exact implementation and inputs.
+
+Final state: Stage 3G-C OPEN, Stage 3G OPEN, execution_ready=false,
+real_codex_executions=0, provider_sends=0. Semantic acceptance, quality benchmark,
+Delegation Value, savings and internal Codex retries remain null.

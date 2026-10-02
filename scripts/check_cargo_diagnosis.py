@@ -1,9 +1,11 @@
 """Fail closed if proof-lock evidence claims anything beyond manifest-required local versions."""
 
+import hashlib
 import json
 from pathlib import Path
 
 from derive_router_build_lock import DERIVED, ORIGINAL
+from record_router_proof import classify
 
 ROOT = Path(__file__).resolve().parents[1] / "docs/evidence/stage3g-cargo-lock"
 
@@ -55,6 +57,41 @@ def main():
         )
     )
     print("LOCK_B: 152 manifest-required local versions; external graph unchanged")
+    validate_router(ROOT)
+    print("Actual pinned router: ROUTER_BLOCKED_BOTH; execution_ready=false")
+
+
+def validate_router(root):
+    result = json.loads((root / "router-proof.json").read_bytes())
+    assert result["classification"] == classify(result["receipt"]) == "ROUTER_BLOCKED_BOTH"
+    assert result["execution_ready"] is False
+    assert result["real_codex_executions"] == result["provider_sends"] == 0
+    for metric in ("semantic_acceptance", "quality_benchmark", "delegation_value", "savings"):
+        assert result[metric] is None
+    for suffix in ("stdout", "stderr"):
+        raw = (root / f"router-test.{suffix}").read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == result["raw_artifact_hashes"][f"test.{suffix}"]
+    lines = (root / "router-test.stdout").read_text(encoding="utf-8").splitlines()
+    proof = [
+        json.loads(line.split("=", 1)[1])
+        for line in lines
+        if line.startswith("DEVHUB_ROUTER_PROOF=")
+    ]
+    assert proof == [result["receipt"]["proof"]]
+    current_test_hash = hashlib.sha256(
+        (ROOT.parents[2] / "scripts/full_router_test.rs").read_bytes()
+    ).hexdigest()
+    assert current_test_hash == result["receipt"]["test_sha256"]
+    a, b = result["A"], result["B"]
+    assert a["tool_mode"] == b["tool_mode"] == "code_mode_only"
+    assert b["registered_tools"] == ["mcp__devhub_delegatedevhub_delegate"]
+    assert b["code_mode_map"] == {
+        "mcp__devhub_delegate__devhub_delegate": {
+            "name": "devhub_delegate",
+            "namespace": "mcp__devhub_delegate",
+        }
+    }
+    assert result["origin_verified"] is False
 
 
 if __name__ == "__main__":

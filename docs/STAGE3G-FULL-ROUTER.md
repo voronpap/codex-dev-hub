@@ -1,5 +1,10 @@
 # Stage 3G-C: observed ToolMode; full router build blocked
 
+Historical build-blocked report retained below. The subsequent
+[lock diagnosis and actual router proof](STAGE3G-CARGO-LOCK.md) resolved the lock
+mismatch and established **ROUTER_BLOCKED_BOTH**. Its additive evidence does not
+replace the original failed attempts.
+
 PR #30 merged as UNKNOWN feasibility/design evidence. This investigation is
 limited to service-default ToolMode and actual pinned ToolRouter/origin behavior.
 No production host, protocol v3, rehearsal or benchmark was created.

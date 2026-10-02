@@ -96,6 +96,12 @@ def test_router_classification_requires_execution_not_build_or_source():
     )
 
 
+def test_actual_router_evidence_matches_frozen_output_bytes():
+    from check_cargo_diagnosis import ROOT, validate_router
+
+    validate_router(ROOT)
+
+
 def test_successful_synthetic_probe_can_prove_two_blockers():
     from record_router_proof import classify
 
