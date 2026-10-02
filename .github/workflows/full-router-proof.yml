@@ -19,6 +19,11 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
+      - name: Install pinned upstream Linux build prerequisites
+        # Exact source .github/workflows/rust-ci-full-nextest-platform.yml:79-85.
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev libasound2-dev bubblewrap
       - name: Build and test actual pinned router
         run: python scripts/build_full_router_proof.py --workspace "$RUNNER_TEMP/router-source" --output "$RUNNER_TEMP/router-proof/result.json" --derived-test-build-lock
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

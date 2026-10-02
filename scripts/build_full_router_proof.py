@@ -67,17 +67,23 @@ def main():
         "--no-run",
         "--message-format=json",
     ]
-    build = subprocess.run(
-        command,
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        timeout=2400,
-        check=False,
-    )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    (args.output.parent / "build.jsonl").write_bytes(build.stdout)
-    (args.output.parent / "build.stderr").write_bytes(build.stderr)
+    timed_out = False
+    with (args.output.parent / "build.jsonl").open("xb") as stdout:
+        with (args.output.parent / "build.stderr").open("xb") as stderr:
+            try:
+                build = subprocess.run(
+                    command,
+                    cwd=root,
+                    env=environment,
+                    stdout=stdout,
+                    stderr=stderr,
+                    timeout=2400,
+                    check=False,
+                )
+                build_exit_code = build.returncode
+            except subprocess.TimeoutExpired:
+                build_exit_code = None
+                timed_out = True
     receipt = {
         "source_commit": COMMIT,
         "archive_sha256": ARCHIVE,
@@ -89,7 +95,8 @@ def main():
         if args.derived_test_build_lock
         else "original",
         "build_command": command,
-        "build_exit_code": build.returncode,
+        "build_exit_code": build_exit_code,
+        "build_timed_out": timed_out,
         "actual_pinned_router_code": None,
         "method_slice_only": False,
         "inference_requests": 0,
@@ -100,8 +107,11 @@ def main():
         hashlib.sha256((root / "Cargo.lock").read_bytes()).hexdigest()
         == receipt["proof_build_lock_sha256"]
     )
-    if build.returncode == 0:
-        events = [json.loads(line) for line in build.stdout.splitlines()]
+    if build_exit_code == 0:
+        events = [
+            json.loads(line)
+            for line in (args.output.parent / "build.jsonl").read_bytes().splitlines()
+        ]
         binaries = [
             e["executable"]
             for e in events

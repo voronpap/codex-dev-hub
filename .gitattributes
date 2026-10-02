@@ -21,3 +21,4 @@ scripts/allowed_tools_synthetic.rs text eol=lf
 
 docs/evidence/stage3g-full-router/** text eol=lf
 scripts/full_router_test.rs text eol=lf
+docs/evidence/stage3g-cargo-lock/** text eol=lf

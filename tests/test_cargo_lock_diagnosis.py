@@ -1,6 +1,7 @@
 """Structural reports must distinguish harmless serialization from dependency drift."""
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -66,3 +67,63 @@ def test_duplicate_package_identity_rejected():
     package = b'[[package]]\nname="a"\nversion="1"\n'
     with pytest.raises(ValueError, match="duplicate"):
         diff(b"version=4\n" + package + package, b"version=4\n")
+
+
+def test_recorded_lock_strategy_rejects_external_drift():
+    from check_cargo_diagnosis import ROOT, validate
+
+    receipt, diffs, bindings = [
+        json.loads((ROOT / name).read_bytes())
+        for name in (
+            "cargo-lock-diagnosis.json",
+            "cargo-lock-structural-diff.json",
+            "manifest-bindings.json",
+        )
+    ]
+    validate(receipt, diffs, bindings)
+    diffs["minimal_derived_proof_lock"]["packages_changed"][0]["old_identity"]["source"] = "git+x"
+    with pytest.raises(AssertionError):
+        validate(receipt, diffs, bindings)
+
+
+def test_router_classification_requires_execution_not_build_or_source():
+    from record_router_proof import classify
+
+    assert classify({"build_exit_code": 0}) == "UNKNOWN"
+    assert (
+        classify({"actual_pinned_router_code": True, "build_exit_code": 0, "test_exit_code": 1})
+        == "UNKNOWN"
+    )
+
+
+def test_successful_synthetic_probe_can_prove_two_blockers():
+    from record_router_proof import classify
+
+    # Synthetic parser test only, never published as actual router evidence.
+    a = {
+        "arm": "A",
+        "registered_tools": [],
+        "visible_specs": [],
+        "code_mode_map": {},
+        "hosted_specs_exposed": [],
+    }
+    b = {"arm": "B", "registered_tools": ["delegate"], "visible_specs": []}
+    receipt = {
+        "actual_pinned_router_code": True,
+        "build_exit_code": 0,
+        "test_exit_code": 0,
+        "proof": {
+            "actual_pinned_router_code": True,
+            "method_slice_only": False,
+            "real_codex_executions": 0,
+            "provider_sends": 0,
+            "arms": [a, b],
+            "origin_bound_by_allowed_tools": False,
+            "collision_result": "wrong origin first survives; duplicate rejected "
+            "and collision recorded",
+        },
+    }
+    assert classify(receipt) == "ROUTER_BLOCKED_BOTH"
+    a["registered_tools"] = ["unexpected"]
+    with pytest.raises(AssertionError):
+        classify(receipt)
