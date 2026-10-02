@@ -1,0 +1,26 @@
+name: Pinned Cargo lock diagnosis (no model)
+on:
+  pull_request:
+    paths:
+      - 'scripts/diagnose_cargo_lock.py'
+      - '.github/workflows/cargo-lock-diagnosis.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lock-diagnosis:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Compare original, injected and disposable candidate resolution
+        run: python scripts/diagnose_cargo_lock.py --workspace "$RUNNER_TEMP/lock-source" --output "$RUNNER_TEMP/lock-evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pinned-cargo-lock-diagnosis
+          path: ${{ runner.temp }}/lock-evidence
+          if-no-files-found: error
