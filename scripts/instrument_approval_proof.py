@@ -66,6 +66,73 @@ def instrument(root: Path) -> dict[str, str]:
                 + marker("prepared_execution_entered")
                 + "            let mut result = prepared_call\n                .call_with_preparation(",  # noqa: E501
             ),
+            (
+                "                .call_with_preparation(/*requested_timeout*/ None, || async {\n",
+                "                .call_with_preparation(/*requested_timeout*/ None, || async {\n                    "
+                + marker("preparation_closure_entered"),
+            ),
+            (
+                "                    if let McpToolApprovalApplication::Apply { decision, policy } =\n",
+                "                    "
+                + marker("approval_application_enter")
+                + "                    if let McpToolApprovalApplication::Apply { decision, policy } =\n",
+            ),
+            (
+                "                        .await;\n                    }\n                    maybe_mark_thread_memory_mode_polluted",
+                "                        .await;\n                    }\n                    "
+                + marker("approval_application_exit")
+                + "                    "
+                + marker("memory_pollution_enter")
+                + "                    maybe_mark_thread_memory_mode_polluted",
+            ),
+            (
+                "                    maybe_mark_thread_memory_mode_polluted(sess, turn_context, &prepared_call)\n                        .await;\n",
+                "                    maybe_mark_thread_memory_mode_polluted(sess, turn_context, &prepared_call)\n                        .await;\n                    "
+                + marker("memory_pollution_exit")
+                + "                    "
+                + marker("rewrite_args_enter"),
+            ),
+            (
+                "                    .await\n                    .map_err(anyhow::Error::msg)?;\n",
+                "                    .await\n                    .map_err(anyhow::Error::msg)?;\n                    "
+                + marker("rewrite_args_exit"),
+            ),
+            (
+                "                    let request_meta = build_mcp_tool_call_request_meta(\n                        step_context,\n                        &server,\n                        call_id,\n                        Some(&metadata),\n                    );",
+                "                    "
+                + marker("request_meta_build_enter")
+                + "                    let request_meta = build_mcp_tool_call_request_meta(\n                        step_context,\n                        &server,\n                        call_id,\n                        Some(&metadata),\n                    );\n                    "
+                + marker("request_meta_build_exit"),
+            ),
+            (
+                "                    let request_meta = with_mcp_tool_call_ids_meta(\n                        request_meta,\n                        &sess.thread_id.to_string(),\n                        &sess.session_id().to_string(),\n                        originating_call,\n                    );",
+                "                    "
+                + marker("request_ids_enter")
+                + "                    let request_meta = with_mcp_tool_call_ids_meta(\n                        request_meta,\n                        &sess.thread_id.to_string(),\n                        &sess.session_id().to_string(),\n                        originating_call,\n                    );\n                    "
+                + marker("request_ids_exit"),
+            ),
+            (
+                "                    let request_meta = augment_mcp_tool_request_meta_with_sandbox_state(\n                        step_context,\n                        &prepared_call,\n                        request_meta,\n                    )\n                    .await?;",
+                "                    "
+                + marker("sandbox_meta_enter")
+                + "                    let request_meta = augment_mcp_tool_request_meta_with_sandbox_state(\n                        step_context,\n                        &prepared_call,\n                        request_meta,\n                    )\n                    .await?;\n                    "
+                + marker("sandbox_meta_exit"),
+            ),
+            (
+                "                    let mcp_call_trace = sess\n                        .services\n                        .rollout_thread_trace\n                        .start_mcp_call_trace(call_id);",
+                "                    "
+                + marker("trace_enter")
+                + "                    let mcp_call_trace = sess\n                        .services\n                        .rollout_thread_trace\n                        .start_mcp_call_trace(call_id);\n                    "
+                + marker("trace_exit"),
+            ),
+            (
+                "                    Ok((\n                        rewritten_arguments,\n                        mcp_call_trace.add_request_meta(request_meta),\n                    ))",
+                "                    "
+                + marker("add_request_meta_enter")
+                + "                    let request_meta = mcp_call_trace.add_request_meta(request_meta);\n                    "
+                + marker("add_request_meta_exit")
+                + "                    Ok((rewritten_arguments, request_meta))",
+            ),
         ],
         """
 #[cfg(test)]
