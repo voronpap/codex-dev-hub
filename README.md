@@ -17,6 +17,33 @@ The repository remains `codex-dev-hub`; see the [naming policy](docs/NAMING.md).
 The paired benchmark has not run; semantic quality, savings and Delegation Value
 are not yet established. This is not a production-ready release.
 
+## Try DevFabric
+
+Run one bounded repository explanation through **Codex → MCP → Ollama**.
+Requires Python 3.12, uv, Codex and an already installed reviewed Ollama model.
+
+```sh
+git clone https://github.com/voronpap/codex-dev-hub.git
+cd codex-dev-hub
+uv sync --locked
+```
+
+Follow the [local demo guide](docs/DEMO1.md): verify Ollama/model identity,
+copy the [local config](config/devfabric-local.example.json), connect Codex,
+and ask why the output validator rejects fabricated citations. The guide includes
+an exact MCP config, task and route/accounting fields to inspect.
+
+Canonical stdio server command, from the repository root:
+
+```sh
+uv run --locked python -m devhub.delegate_server --config .devhub/local.json
+```
+
+Codex normally starts this child process itself; it is not an HTTP service.
+The demo uses local Ollama only. No cloud generation, paid execution or automatic
+model pull is enabled. Docker/OCI is used for benchmark/isolation work, **not**
+one-command DevFabric deployment. Docker Compose startup remains future work.
+
 ## Why this exists
 
 As coding workflows add model clients and tools, context can be duplicated,
@@ -38,7 +65,7 @@ tools, rather than a separate coding agent.
 
 | Agent / client | Status |
 | --- | --- |
-| Codex | Current primary integration — first and deepest integration |
+| Codex | Current primary integration вЂ” first and deepest integration |
 | Cursor | Planned; not implemented |
 | Claude | Planned; not implemented |
 | Other coding agents / IDE assistants | Future candidates |
@@ -50,7 +77,7 @@ Cross-client operation is a design direction, not an already validated capabilit
 
 ## Project status
 
-“Complete” below means the accepted implementation and its scoped gate are complete;
+вЂњCompleteвЂќ below means the accepted implementation and its scoped gate are complete;
 it does not establish general task quality or full production qualification.
 
 | Area | Status |
@@ -59,9 +86,9 @@ it does not establish general task quality or full production qualification.
 | Project Brain and Context Builder | Complete |
 | ResourceController and durable accounting | Complete |
 | Ollama local execution/delegation | Complete |
-| Groq and Gemini adapters | Complete — scoped execution/accounting gates |
-| Unified `devhub_delegate` | Complete — local unified delegation gate passed |
-| Frozen benchmark harness | Complete — offline harness accepted |
+| Groq and Gemini adapters | Complete вЂ” scoped execution/accounting gates |
+| Unified `devhub_delegate` | Complete вЂ” local unified delegation gate passed |
+| Frozen benchmark harness | Complete вЂ” offline harness accepted |
 | Execution boundary and isolated runtime qualification | In progress |
 | Real paired delegation benchmark | Not run |
 
@@ -88,7 +115,7 @@ DevFabric
 Current Codex delegation path:
 
 ```text
-Codex — orchestrator
+Codex вЂ” orchestrator
   |
   v
 MCP: devhub_delegate
@@ -140,7 +167,7 @@ Uncertain post-dispatch usage remains a liability; it is not recorded as zero.
 **Provider adapters** implement accepted Ollama, Groq and Gemini execution paths.
 Cloud probes use explicit permits and public/redacted payloads. Accepted probe
 history is not reusable account authorization or unlimited available quota.
-[Ollama](docs/STAGE3C.md) · [Groq](docs/STAGE3D.md) · [Gemini](docs/STAGE3E_FOLLOWUP.md)
+[Ollama](docs/STAGE3C.md) В· [Groq](docs/STAGE3D.md) В· [Gemini](docs/STAGE3E_FOLLOWUP.md)
 
 **Unified delegation** exposes `devhub_delegate` for bounded summarize, explain
 and extract tasks, with trusted provider configuration, privacy checks, structured
@@ -153,7 +180,7 @@ validation does not prove that a claim is semantically supported.
 independent A/B packets, artifact hashes, null unknown metrics and a blind review
 protocol. The launcher/evaluator isolation design uses separate Linux OCI guests;
 its final runtime qualification is unfinished. Real sessions and evaluation have
-not started. [Harness](docs/STAGE3G-A.md) · [Protocol and launcher](docs/STAGE3G-B.md)
+not started. [Harness](docs/STAGE3G-A.md) В· [Protocol and launcher](docs/STAGE3G-B.md)
 
 ## What makes it different
 
@@ -161,7 +188,7 @@ These are differences in scope, not claims about every gateway implementation.
 
 | Typical AI gateway focus | DevFabric focus |
 | --- | --- |
-| Routes prompts to models | Agent → context → policy → provider delegation |
+| Routes prompts to models | Agent в†’ context в†’ policy в†’ provider delegation |
 | Stateless request handling | Shared Project Brain |
 | Provider switching | Deterministic eligibility and resource control |
 | Retry/fallback handling | Explicit post-dispatch rules |
@@ -190,7 +217,7 @@ See [security design](docs/SECURITY.md) and [runtime qualification](docs/STAGE3G
 
 ## Current milestone
 
-Validate the real Codex ↔ DevFabric execution boundary before the paired benchmark:
+Validate the real Codex в†” DevFabric execution boundary before the paired benchmark:
 
 - Arm A exposes no delegated tools.
 - Arm B exposes only the reviewed `devhub_delegate` capability.

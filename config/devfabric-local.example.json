@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "cloud_enabled": false,
+  "profiles": [
+    {
+      "schema_version": 1,
+      "id": "local-demo",
+      "task_classes": [
+        "summarize",
+        "explain",
+        "extract"
+      ],
+      "config": {
+        "schema_version": 1,
+        "project": "devfabric-demo",
+        "root": ".",
+        "state_root": "../devfabric-state",
+        "approved_paths": [
+          "src/devhub/output.py"
+        ],
+        "authoritative_paths": [
+          "src/devhub/output.py"
+        ],
+        "ollama": {
+          "schema_version": 1,
+          "endpoint": "http://127.0.0.1:11434",
+          "model": "qwen2.5:14b-instruct",
+          "model_digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+          "version": "0.35.0",
+          "context_tokens": 8192,
+          "max_output_tokens": 256,
+          "safety_tokens": 128,
+          "timeout_seconds": 90
+        }
+      }
+    }
+  ]
+}

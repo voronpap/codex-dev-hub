@@ -40,7 +40,7 @@ class OllamaConfig(Contract):
     endpoint: str
     model: Annotated[str, Field(min_length=1, max_length=200)]
     model_digest: Digest
-    version: Literal["0.34.2"] = "0.34.2"
+    version: Literal["0.34.2", "0.35.0"] = "0.34.2"
     context_tokens: Annotated[int, Field(ge=512, le=32768)] = 8192
     max_output_tokens: Annotated[int, Field(ge=1, le=2048)] = 256
     safety_tokens: Annotated[int, Field(ge=32, le=2048)] = 128
