@@ -56,3 +56,9 @@ V1 favors simple local/self-hosted deployment, likely Docker Compose plus a smal
 
 ## Observability
 For delegated operations record route reason, provider/tool/agent, latency, quota/cost, success/failure and whether Codex had to redo the work. These measurements decide whether DevFabric is actually useful.
+
+## Proposed role-aware extension
+
+The [role-aware orchestration proposal](docs/ROLE_ORCHESTRATION_PROPOSAL.md)
+separates task/role selection from provider routing while reusing the existing core.
+It is a design for review, not implemented behavior or a Stage 3G scope change.
