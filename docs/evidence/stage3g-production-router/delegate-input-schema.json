@@ -1,0 +1,96 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "task_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "request_key": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "title": "Request Key",
+      "type": "string"
+    },
+    "instructions": {
+      "maxLength": 64000,
+      "minLength": 1,
+      "title": "Instructions",
+      "type": "string"
+    },
+    "acceptance_criteria": {
+      "items": {
+        "maxLength": 8000,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 15,
+      "minItems": 1,
+      "title": "Acceptance Criteria",
+      "type": "array"
+    },
+    "query": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+    },
+    "project": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "title": "Project",
+      "type": "string"
+    },
+    "task_class": {
+      "default": "summarize",
+      "enum": [
+        "summarize",
+        "explain",
+        "extract"
+      ],
+      "title": "Task Class",
+      "type": "string"
+    },
+    "privacy": {
+      "default": "local_only",
+      "enum": [
+        "local_only",
+        "project_private",
+        "public",
+        "redacted"
+      ],
+      "title": "Privacy",
+      "type": "string"
+    },
+    "allow_cloud": {
+      "default": false,
+      "title": "Allow Cloud",
+      "type": "boolean"
+    },
+    "require_citations": {
+      "default": true,
+      "title": "Require Citations",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "task_id",
+    "request_key",
+    "instructions",
+    "acceptance_criteria",
+    "query",
+    "project"
+  ],
+  "title": "DelegationRequest",
+  "type": "object"
+}
