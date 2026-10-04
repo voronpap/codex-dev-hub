@@ -1,0 +1,124 @@
+{
+  "classification": "ROUTER_FIX_FEASIBLE",
+  "receipt": {
+    "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+    "archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+    "test_sha256": "cc853a3dfb54f4349aa18d5f4eb2e8019e5303abdf41a3b863ddc81fc55ded7f",
+    "test_file": "router_fix_test.rs",
+    "metadata_sha256": "2fa8cca691183999933c2fec3e67f353e9d3f9de831edbcb4d768de11d59a9b1",
+    "implementation_commit": "946dde344abf76f132e39dfcdcc348ad3b876fcb",
+    "build_duration_seconds": 845.287948413,
+    "production_modified": false,
+    "original_lock_sha256": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+    "proof_build_lock_sha256": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+    "lock_strategy": "LOCK_B_derived_test_build",
+    "build_command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "codex-core",
+      "--lib",
+      "devhub_review_router_fix",
+      "--no-run",
+      "--message-format=json"
+    ],
+    "build_exit_code": 0,
+    "build_timed_out": false,
+    "actual_pinned_router_code": true,
+    "method_slice_only": false,
+    "inference_requests": 0,
+    "real_codex_executions": 0,
+    "provider_sends": 0,
+    "test_binary_sha256": "699dbe9931307bd3d3f29e68e91874a5f0850b376364dae2ad4e7f79b395f7df",
+    "test_exit_code": 0,
+    "test_duration_seconds": 0.3813249580000502,
+    "proof": {
+      "actual_pinned_router_code": true,
+      "arms": [
+        {
+          "arm": "A",
+          "code_mode_map": {},
+          "hosted_specs_exposed": [],
+          "namespace_functions": {},
+          "origin_seal_passed": true,
+          "registered_tools": [],
+          "tool_mode": "code_mode_only",
+          "visible_specs": []
+        },
+        {
+          "arm": "B",
+          "code_mode_map": {},
+          "hosted_specs_exposed": [],
+          "namespace_functions": {
+            "mcp__devhub_delegate": [
+              "devhub_delegate"
+            ]
+          },
+          "origin_seal_passed": true,
+          "registered_tools": [
+            "mcp__devhub_delegatedevhub_delegate"
+          ],
+          "tool_mode": "code_mode_only",
+          "visible_specs": [
+            {
+              "description": "Tools from devhub_delegate.",
+              "name": "mcp__devhub_delegate",
+              "tools": [
+                {
+                  "description": "devhub_delegate test tool",
+                  "name": "devhub_delegate",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {},
+                    "type": "object"
+                  },
+                  "strict": false,
+                  "type": "function"
+                }
+              ],
+              "type": "namespace"
+            }
+          ]
+        }
+      ],
+      "bypassed_guard_collision_finalization_failed": true,
+      "candidate": "B_direct_model_only_namespace_plus_trusted_ingress_seal",
+      "classification": "ROUTER_FIX_FEASIBLE",
+      "execution_ready": false,
+      "forged_runtime_rejected": true,
+      "method_slice_only": false,
+      "namespace_alias_rejected": true,
+      "origin_scope": "test-local typed ingress and exact runtime object seal; production host not implemented",
+      "production_modified": false,
+      "provider_sends": 0,
+      "raw_name_mismatch_rejected": true,
+      "real_codex_executions": 0,
+      "spoofed_channel_rejected": true,
+      "wrong_origin_first_rejected": true
+    }
+  },
+  "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37036845126",
+  "rust_build_count": 1,
+  "build_duration_seconds": 845.287948413,
+  "execution_ready": false,
+  "production_integration_proven": false,
+  "v3_created": false,
+  "metadata_refreshes": 0,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "codex_internal_retries": null,
+  "raw_artifact_hashes": {
+    "build.jsonl": "c6fd2f409062e130c97fd6371692d9ed1da7e5650e61867f5da7713a08df7164",
+    "build.stderr": "aab09e662eeba5bdd0fcb917d75b4667f5fcb6d451cf41b08757a9c8d0c031fc",
+    "Cargo.lock.original": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+    "derived-lock-manifest-bindings.json": "c3a46561a4fea37ee56874a51f8d06b9bd84b5b2583560ccc22200b0eb4288c7",
+    "result.json": "6198ff0101c0f071b2089a6681780bce668e0e5cf6c7dc1c441995e5b27c574c",
+    "test.stderr": "f127f2eb675d15dad52174f84a1fc14d46dbb103f6b2529ddfbed90d0fa3bb89",
+    "test.stdout": "4ef044e70aceef1282547147de8aa400d702456335c00bceb02c06e0504aa347"
+  }
+}

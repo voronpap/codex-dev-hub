@@ -1,0 +1,17 @@
+{
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "source_archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+  "source_files_verified": 11,
+  "excerpts": 15,
+  "bindings_sha256": "c387c58db698a3a36a60dce49a88e6f76fa2d775f3e36204678025b7900e8e19",
+  "selected_candidate": "B",
+  "visibility_mechanism": "code_mode.direct_only_tool_namespaces -> DirectModelOnly; effective ToolMode remains CodeModeOnly",
+  "origin_design": "test-local trusted-channel admission plus raw/canonical/server equality and exact runtime Arc seal; error_on_tool_collisions=true",
+  "production_origin_integration_proven": false,
+  "production_patched": false,
+  "v3_created": false,
+  "execution_ready": false,
+  "metadata_refreshes": 0,
+  "real_codex_executions": 0,
+  "provider_sends": 0
+}
