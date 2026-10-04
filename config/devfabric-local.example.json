@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "cloud_enabled": false,
+  "telemetry_footer": "off",
   "profiles": [
     {
       "schema_version": 1,

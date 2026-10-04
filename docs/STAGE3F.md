@@ -123,3 +123,10 @@ Do not copy a broad approval into a cloud-enabled configuration without reviewin
 its export and account permissions. This proof's configuration had cloud disabled
 and only the verified local profile. Raw context/provenance stays local; the handoff
 is compact and untrusted. Semantic acceptance/value/savings/quality stay null.
+
+## Optional observability
+
+The trusted delegation config may enable `telemetry_footer` (`off` by default).
+A derived summary is attached after execution; the structured handoff and accounting
+remain authoritative and unchanged. See [task usage](USAGE_FOOTER.md) for scope,
+unknown values, baseline provenance and API-cost limitations.

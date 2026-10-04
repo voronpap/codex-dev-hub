@@ -298,3 +298,11 @@ qualification. Changes should preserve frozen fixture/oracle bytes, evidence
 history, privacy rules and accounting semantics. Discuss major architectural
 changes before implementation. Keep this overview current using the
 [README maintenance policy](docs/CI.md#readme-maintenance).
+
+### Optional task usage footer
+
+Trusted delegation config supports `telemetry_footer: off | compact | verbose`
+(default `off`). It reports observed task usage without changing routing or accounting:
+`DF task: Codex unknown | delegated 724 | saving unknown | 16.3s | API $0.00`.
+This illustrative demo rendering is not a savings or semantic-quality claim.
+See [usage scope, evidence and configuration](docs/USAGE_FOOTER.md).
