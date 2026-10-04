@@ -18,11 +18,18 @@ The policy demands exact AllowedTools and CodeModeOnly, and constructs only the
 approved handler. Canonical-name cache lookup is not used for admission.
 
 This is **incomplete, unvalidated implementation**, not a production gate pass.
-The first compiled probe exercises A/B through production router construction,
+The first probe is intended to exercise A/B through production router construction,
 real-schema comparison, synthetic stdio dispatch and reconnect invalidation.
 It intentionally reports UNKNOWN even if this subset succeeds. It does not yet
 establish the entire required adversarial matrix or an exact CLI/host metadata
 process proof. The synthetic process is not Dev Hub or an inference provider.
+
+Build 001 failed before test execution with E0728: the synchronous
+`refresh_mcp_servers` caller contains an `await`. Its receipt and compiler
+diagnostics are preserved in `docs/evidence/stage3g-approved-call/`.
+Build time was 642.1814258400001 seconds. No compiled A/B, dispatch or security
+result was obtained; those fields remain null and classification remains UNKNOWN.
+This failure is implementation work remaining, not evidence against the design.
 
 Outstanding gates include complete trusted launch/config-file/project/state-root
 attestation and explicit path normalization, both collision orders, forged runtime,
