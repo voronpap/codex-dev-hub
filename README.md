@@ -1,13 +1,17 @@
-# Codex Dev Hub
+# DevFabric
 
-Codex-first AI development hub for controlled delegation across local and cloud
-models, with shared project context, deterministic resource policy, and auditable execution.
+A developer-first AI orchestration fabric for coding agents, local models,
+cloud providers, shared project context, deterministic routing, and auditable execution.
 
-- **Codex stays in control:** delegate bounded tasks through one MCP contract.
-- **Local-first, free-first intent:** approved providers, explicit eligibility, no paid fallback.
-- **Shared project context:** Git-backed retrieval and selective context packages.
-- **Durable accounting:** reserve before dispatch; preserve uncertainty after ambiguous sends.
-- **Explicit boundaries:** project isolation, reviewed cloud export, and minimal tool exposure.
+- Shared project context, designed for reuse across coding-agent integrations.
+- Controlled delegation to local and cloud models.
+- Deterministic privacy and resource policy.
+- Durable accounting and provenance.
+- Evidence-driven execution and benchmarking.
+
+DevFabric is the public project name. Some internal identifiers retain the
+historical `devhub` naming for compatibility and evidence stability.
+The repository remains `codex-dev-hub`; see the [naming policy](docs/NAMING.md).
 
 **Active development. Execution-boundary qualification is in progress.**
 The paired benchmark has not run; semantic quality, savings and Delegation Value
@@ -19,14 +23,30 @@ As coding workflows add model clients and tools, context can be duplicated,
 local/cloud choices can become implicit, and retries can obscure what actually ran.
 A successful model call also says little about whether delegation helped the developer.
 
-Dev Hub keeps Codex as the orchestrator and puts delegation behind explicit context,
+DevFabric keeps the coding agent as the orchestrator (currently Codex), with delegation
+behind explicit context,
 privacy, capability and resource rules. It combines Project Brain, Context Builder,
 Capability Registry, deterministic Router, ResourceController and provider adapters.
 A frozen paired benchmark is the next step toward measuring usefulness.
 
-The scope extends beyond a provider proxy or model frontend: Dev Hub manages the
-project evidence and execution/accounting boundary around a delegated task.
-It does not replace Codex or require a separate coding-agent UI.
+DevFabric is not a replacement for Codex, Cursor or Claude, just a model proxy,
+just an Ollama frontend, an MCP collection, or a generic autonomous multi-agent
+framework. It is the shared orchestration, control and context layer around those
+tools, rather than a separate coding agent.
+
+## Agent integrations
+
+| Agent / client | Status |
+| --- | --- |
+| Codex | Current primary integration — first and deepest integration |
+| Cursor | Planned; not implemented |
+| Claude | Planned; not implemented |
+| Other coding agents / IDE assistants | Future candidates |
+
+Each client should connect through an Agent Adapter / Client Adapter boundary.
+The shared Brain, Context Builder, routing, privacy, accounting and provider
+infrastructure are designed to be reused rather than reimplemented per agent.
+Cross-client operation is a design direction, not an already validated capability.
 
 ## Project status
 
@@ -49,6 +69,23 @@ See [accepted milestones](docs/STAGES.md), [unified delegation](docs/STAGE3F.md)
 and the [offline benchmark harness](docs/STAGE3G-A.md) for scope and evidence.
 
 ## Architecture
+
+```text
+DevFabric
+|-- Agent / Client adapters
+|   |-- Codex (current primary integration)
+|   |-- Cursor (planned)
+|   `-- Claude / other coding agents (planned)
+|-- Project Brain + Context Builder
+|-- ResourceController + Router / Policy
+|-- Privacy + durable accounting
+`-- Provider adapters
+    |-- Ollama
+    |-- Groq
+    `-- Gemini / future providers
+```
+
+Current Codex delegation path:
 
 ```text
 Codex — orchestrator
@@ -122,15 +159,16 @@ not started. [Harness](docs/STAGE3G-A.md) · [Protocol and launcher](docs/STAGE3
 
 These are differences in scope, not claims about every gateway implementation.
 
-| Gateway-oriented concern | Dev Hub focus |
+| Typical AI gateway focus | DevFabric focus |
 | --- | --- |
-| Provider request forwarding | Codex-controlled task delegation |
-| Prompt routing | Shared Brain and selective Context Builder |
-| Fallback configuration | Deterministic eligibility and resource admission |
-| Retry handling | No automatic retry after ambiguous dispatch |
-| Provider abstraction | Provider, privacy, quota and budget authority |
-| Model availability | Frozen paired experiments before quality claims |
-| Tool configuration | Explicit admission/origin boundary under qualification |
+| Routes prompts to models | Agent → context → policy → provider delegation |
+| Stateless request handling | Shared Project Brain |
+| Provider switching | Deterministic eligibility and resource control |
+| Retry/fallback handling | Explicit post-dispatch rules |
+| Provider-centric abstraction | Agent + context + policy + provider architecture |
+| Per-client context | Reusable project context |
+| Quality assumptions | Frozen benchmark and evidence approach |
+| One frontend | Designed for multiple coding-agent clients |
 
 ## Security and accounting principles
 
@@ -152,7 +190,7 @@ See [security design](docs/SECURITY.md) and [runtime qualification](docs/STAGE3G
 
 ## Current milestone
 
-Validate the real Codex ↔ Dev Hub execution boundary before the paired benchmark:
+Validate the real Codex ↔ DevFabric execution boundary before the paired benchmark:
 
 - Arm A exposes no delegated tools.
 - Arm B exposes only the reviewed `devhub_delegate` capability.
@@ -202,7 +240,8 @@ and platform-change gate. See [CI policy](docs/CI.md).
 6. Review raw quality, latency, resource use and correction requirements.
 7. Publish Delegation Value conclusions only where the evidence supports them.
 
-Future research includes additional providers, optional integration with the
+Future research includes Agent Adapters for Cursor and Claude, additional providers,
+optional integration with the
 separate AI Platform project, improved retrieval, reversible context compression,
 and reviewed observer/strategy proposals. These are research directions, not
 installed components. See the [research catalog](docs/catalog/README.md).

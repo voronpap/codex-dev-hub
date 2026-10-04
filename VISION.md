@@ -1,36 +1,39 @@
-# Vision
+# DevFabric vision
 
 ## Mission
-Build a **Codex-first development extension** that makes software development more efficient by giving Codex access to inexpensive compute, reusable project context, research capabilities, and specialist workers without replacing Codex as the primary orchestrator.
 
-## Problem
-A strong coding agent can do most work itself, but broad research, large-document reduction, repetitive extraction, repository indexing and independent subtasks can waste scarce context or premium quota. Free cloud tiers, local models and other agents exist, but manual switching fragments context and configuration.
+Build a developer-first AI orchestration fabric connecting coding agents to shared
+project context, controlled local/cloud model delegation and auditable resources.
+Codex is the first deeply integrated orchestration client. Cursor, Claude and other
+coding agents / IDE assistants are planned integrations, not current capabilities.
 
 ## Product thesis
-Codex decides what work matters. Dev Hub helps execute supporting work efficiently.
+
+The coding agent remains the orchestrator. DevFabric provides reusable context,
+privacy, routing and accounting services through an Agent Adapter / Client Adapter
+boundary. Provider Adapters connect the other side to model resources.
 
 ```text
-Developer -> Codex -> Dev Hub -> capability/provider/worker
-                   <- compact result/handoff <-
+Developer -> Coding agent -> Client Adapter -> DevFabric shared services
+                                             -> Provider Adapter -> AI resource
+                          <- compact handoff <-
 ```
 
-## Non-goals
-Dev Hub is not a second Codex, a giant shared prompt, a mandatory runtime dependency for applications, a provider-specific product, or a reason to delegate trivial work.
+## Principles
 
-## Design priorities
-1. Codex-first.
-2. Efficiency-first.
-3. Free-first resources.
-4. Local control/fallback.
-5. Paid by explicit policy.
-6. Shared context with selective delivery.
-7. Replaceable adapters.
-8. Git as source of truth.
-9. Safe/sandboxed execution.
-10. Observable routing and outcomes.
+- Git-backed project evidence and selective context, not a shared giant prompt.
+- Deterministic eligibility/resource policy and explicit privacy boundaries.
+- Durable accounting and no automatic retry after ambiguous dispatch.
+- Replaceable client and provider adapters; no forced dependency on one vendor.
+- Paid execution only through explicit reviewed policy; no automatic paid fallback.
+- Benchmark evidence before semantic-quality, savings or Delegation Value claims.
 
-## Long-term direction
-Selected capabilities may later be exposed to applications built with Dev Hub, but the first product is a **development module for Codex**.
+## Scope and maturity
 
-## Desired experience
-The developer works normally in Codex. Codex can call Dev Hub to research, search/extract the web, use free/local models for bounded work, retrieve project decisions, parse documents, run sandboxed work or delegate isolated coding tasks. Dev Hub returns concise structured results, not full worker transcripts.
+DevFabric is not another coding agent or a replacement for Codex, Cursor or Claude.
+Current accepted integrations and the open execution-boundary milestone are listed
+in the [README](README.md). Research tools, specialist workers, broader client
+support and one-command startup remain future directions unless explicitly marked
+implemented. Stage 3G remains open; production readiness is not claimed.
+
+See [naming policy](docs/NAMING.md) for retained technical identifiers.
