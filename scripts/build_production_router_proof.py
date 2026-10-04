@@ -201,9 +201,7 @@ def main():
             manifest["binaries"][crate] = {
                 "artifact_path": str(binary.relative_to(args.output.parent)),
                 "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
-                "runtime_requirements": (
-                    ldd.stdout if ldd.returncode == 0 else ldd.stderr
-                ),
+                "runtime_requirements": (ldd.stdout if ldd.returncode == 0 else ldd.stderr),
             }
         (artifact_dir / "binary-manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
@@ -221,22 +219,13 @@ def main():
                 check=True,
             )
             (artifact_dir / f"{crate}-tests.txt").write_text(listed.stdout, encoding="utf-8")
-            return [
-                line[:-6]
-                for line in listed.stdout.splitlines()
-                if line.endswith(": test")
-            ]
+            return [line[:-6] for line in listed.stdout.splitlines() if line.endswith(": test")]
 
-        test_names = {
-            crate: list_tests(crate, binary)
-            for crate, binary in preserved.items()
-        }
+        test_names = {crate: list_tests(crate, binary) for crate, binary in preserved.items()}
 
         def exact_name(crate, short):
             matches = [
-                name
-                for name in test_names[crate]
-                if name == short or name.endswith("::" + short)
+                name for name in test_names[crate] if name == short or name.endswith("::" + short)
             ]
             assert len(matches) == 1, (crate, short, matches)
             return matches[0]
@@ -255,9 +244,7 @@ def main():
                 exact_name("codex_mcp", "devhub_production_admission_path_catalog"),
             ),
         }
-        receipt["exact_test_names"] = {
-            key: value[1] for key, value in exact.items()
-        }
+        receipt["exact_test_names"] = {key: value[1] for key, value in exact.items()}
         receipt["test_runs"] = []
 
         def receipt_state(path):
@@ -375,15 +362,11 @@ def main():
 
         baseline_crate, baseline_name = exact["baseline"]
         baseline = run_exact("baseline", baseline_crate, baseline_name)
-        receipt["baseline_passed"] = (
-            baseline["exit_code"] == 0 and not baseline["timed_out"]
-        )
+        receipt["baseline_passed"] = baseline["exit_code"] == 0 and not baseline["timed_out"]
 
         if receipt["baseline_passed"]:
             handler_crate, handler_name = exact["handler"]
-            handler = run_exact(
-                "handler-normal", handler_crate, handler_name, backtrace=True
-            )
+            handler = run_exact("handler-normal", handler_crate, handler_name, backtrace=True)
             receipt["handler_normal"] = handler
             if handler["stack_overflow_observed"]:
                 receipt["handler_large_stack"] = run_exact(
@@ -405,14 +388,10 @@ def main():
         handler_normal = receipt.get("handler_normal")
         catalog = receipt.get("catalog")
         receipt["handler_dispatch"] = bool(
-            handler_normal
-            and handler_normal["exit_code"] == 0
-            and "adversarial_proof" in receipt
+            handler_normal and handler_normal["exit_code"] == 0 and "adversarial_proof" in receipt
         )
         receipt["catalog_refresh_after_preparation"] = bool(
-            catalog
-            and catalog["exit_code"] == 0
-            and "catalog_proof" in receipt
+            catalog and catalog["exit_code"] == 0 and "catalog_proof" in receipt
         )
         receipt["process_proof"] = None
         receipt["actual_pinned_router_code"] = bool(
