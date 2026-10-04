@@ -1,5 +1,6 @@
 """Synthetic stdio MCP process for admission proof; no model/provider code."""
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -21,9 +22,19 @@ for line in sys.stdin.buffer:
     elif method == "tools/list":
         result = {"tools": [{"name": "devhub_delegate", "inputSchema": schema}]}
     elif method == "tools/call":
-        record = {"endpoint_identity": identity, "raw_tool": request["params"]["name"]}
-        with receipt.open("x", encoding="utf-8") as stream:
-            json.dump(record, stream)
+        record = {
+            "endpoint_identity": identity,
+            "raw_tool": request["params"]["name"],
+            "schema_hash": hashlib.sha256(
+                json.dumps(
+                    schema, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                ).encode()
+            ).hexdigest(),
+            "arguments": request["params"]["arguments"],
+        }
+        # Every attempted synthetic send leaves a line, including unexpected repeats.
+        with receipt.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record) + "\n")
         result = {"content": [{"type": "text", "text": json.dumps(record)}]}
     elif method == "ping":
         result = {}

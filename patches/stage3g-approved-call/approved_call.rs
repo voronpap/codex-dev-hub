@@ -12,7 +12,9 @@ pub(crate) struct AdmissionGeneration {
 
 impl AdmissionGeneration {
     pub(crate) fn new() -> Self {
-        Self { active: Arc::new(RwLock::new(true)) }
+        Self {
+            active: Arc::new(RwLock::new(true)),
+        }
     }
 
     pub(crate) async fn invalidate(&self) {
@@ -36,9 +38,13 @@ pub struct ApprovedMcpCall {
 }
 
 impl ApprovedMcpCall {
-    pub fn tool_info(&self) -> &crate::ToolInfo { self.call.tool_info() }
+    pub fn tool_info(&self) -> &crate::ToolInfo {
+        self.call.tool_info()
+    }
 
     /// The cloned prepared call retains the admission generation and its exact
     /// client/catalog. Execution takes a lease before irreversible preparation.
-    pub fn prepared_call(&self) -> crate::PreparedMcpCall { self.call.clone() }
+    pub fn prepared_call(&self) -> crate::PreparedMcpCall {
+        self.call.clone()
+    }
 }

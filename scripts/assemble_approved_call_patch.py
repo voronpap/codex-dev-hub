@@ -5,13 +5,16 @@
 
 import argparse
 import difflib
+import hashlib
+import json
+import subprocess
 from pathlib import Path
 
 PIN = "4607249e430dac1c961df4dc615beae88e33cec8"
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def build(source: Path, output: Path) -> None:
+def build(source: Path, output: Path, rustfmt: str | None = None) -> None:
     changes: dict[str, tuple[str, str]] = {}
 
     def edit(name: str, old: str, new: str, count: int = 1) -> None:
@@ -126,12 +129,7 @@ def build(source: Path, output: Path) -> None:
     edit(
         runtime,
         "        let (publish, publication_gate) = McpPublicationGate::pending();",
-        "        // Invalidate before reconciling/replacing any connection. Only opted-in\n        // admitted sends hold this generation lease. Ordinary calls are unchanged.\n        self.current.load_full().admission_generation.invalidate().await;\n        let (publish, publication_gate) = McpPublicationGate::pending();",
-    )
-    edit(
-        runtime,
-        "    pub fn reconnect_on_next_refresh(&self) {",
-        "    pub async fn reconnect_on_next_refresh(&self) {\n        self.current.load_full().admission_generation.invalidate().await;",
+        "        // Publication, not the synchronous reconnect marker, replaces authority.\n        let current = self.current.load_full();\n        current.admission_generation.invalidate().await;\n        let (publish, publication_gate) = McpPublicationGate::pending();",
     )
     edit(
         runtime,
@@ -145,13 +143,8 @@ def build(source: Path, output: Path) -> None:
     )
     edit(
         runtime,
-        "    pub async fn shutdown(&self) {",
-        "    pub async fn shutdown(&self) {\n        self.current.load_full().admission_generation.invalidate().await;",
-    )
-    edit(
-        "codex-rs/core/src/session/handlers.rs",
-        "sess.services.mcp_runtime.reconnect_on_next_refresh();",
-        "sess.services.mcp_runtime.reconnect_on_next_refresh().await;",
+        "    pub async fn shutdown(&self) {\n        self.latest_connections().shutdown().await;",
+        "    pub async fn shutdown(&self) {\n        let _publication = self.admission_publication.lock().await;\n        let current = self.current.load_full();\n        current.admission_generation.invalidate().await;\n        current.connections.shutdown().await;",
     )
     handler = "codex-rs/core/src/tools/handlers/mcp.rs"
     edit(
@@ -217,7 +210,30 @@ def build(source: Path, output: Path) -> None:
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     patch = ""
+    audit = {}
     for name, (before, after) in changes.items():
+        if rustfmt:
+            after = subprocess.run(
+                [
+                    rustfmt,
+                    "--edition",
+                    "2024",
+                    "--config",
+                    "skip_children=true",
+                    "--emit",
+                    "stdout",
+                ],
+                input=after,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+        audit[name] = {
+            "upstream_sha256": hashlib.sha256((source / name).read_bytes()).hexdigest()
+            if before
+            else None,
+            "patched_sha256": hashlib.sha256(after.encode()).hexdigest(),
+        }
         patch += "".join(
             difflib.unified_diff(
                 before.splitlines(True),
@@ -227,6 +243,14 @@ def build(source: Path, output: Path) -> None:
             )
         )
     output.write_text(patch, encoding="utf-8", newline="\n")
+    output.with_suffix(".sources.json").write_text(
+        json.dumps(
+            {"pinned_source": PIN, "files": audit, "rustfmt_applied": bool(rustfmt)}, indent=2
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     print(f"Generated {len(changes)}-file patch; no source tree modified")
 
 
@@ -234,5 +258,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--rustfmt")
     args = parser.parse_args()
-    build(args.source, args.output)
+    build(args.source, args.output, args.rustfmt)

@@ -58,6 +58,8 @@ def main():
         repo / "docs/evidence/stage3g-production-router/delegate-input-schema.json"
     ).read_bytes()
     target.with_name("devhub_real_schema.json").write_bytes(schema)
+    payload = (repo / "patches/stage3g-approved-call/synthetic-payload.json").read_bytes()
+    target.with_name("devhub_synthetic_payload.json").write_bytes(payload)
     environment = dict(
         os.environ,
         DEVHUB_SYNTHETIC_MCP=str(repo / "scripts/synthetic_approved_mcp.py"),
@@ -99,6 +101,8 @@ def main():
                 timed_out = True
     receipt = {
         "source_commit": COMMIT,
+        "build_id": "build-002",
+        "payload_sha256": hashlib.sha256(payload).hexdigest(),
         "archive_sha256": ARCHIVE,
         "test_sha256": hashlib.sha256(test).hexdigest(),
         "test_file": test_name,
@@ -147,6 +151,7 @@ def main():
         run = subprocess.run(
             [
                 "sudo",
+                "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA",
                 "unshare",
                 "--net",
                 "--",

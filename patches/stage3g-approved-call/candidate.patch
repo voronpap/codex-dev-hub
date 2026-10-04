@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/codex-rs/codex-mcp/src/approved_call.rs
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,50 @@
 +//! Opt-in authority for one host-admitted MCP call.
 +//!
 +//! The runtime owns invalidation. Callers cannot construct the generation token.
@@ -15,7 +15,9 @@
 +
 +impl AdmissionGeneration {
 +    pub(crate) fn new() -> Self {
-+        Self { active: Arc::new(RwLock::new(true)) }
++        Self {
++            active: Arc::new(RwLock::new(true)),
++        }
 +    }
 +
 +    pub(crate) async fn invalidate(&self) {
@@ -39,19 +41,25 @@
 +}
 +
 +impl ApprovedMcpCall {
-+    pub fn tool_info(&self) -> &crate::ToolInfo { self.call.tool_info() }
++    pub fn tool_info(&self) -> &crate::ToolInfo {
++        self.call.tool_info()
++    }
 +
 +    /// The cloned prepared call retains the admission generation and its exact
 +    /// client/catalog. Execution takes a lease before irreversible preparation.
-+    pub fn prepared_call(&self) -> crate::PreparedMcpCall { self.call.clone() }
++    pub fn prepared_call(&self) -> crate::PreparedMcpCall {
++        self.call.clone()
++    }
 +}
 --- a/codex-rs/codex-mcp/src/lib.rs
 +++ b/codex-rs/codex-mcp/src/lib.rs
-@@ -100,6 +100,8 @@
+@@ -98,8 +98,10 @@
+ pub use mcp::mcp_permission_prompt_is_auto_approved;
+ pub use mcp::qualified_mcp_tool_name_prefix;
  
++mod approved_call;
  mod auth_changes;
  pub(crate) mod auth_elicitation;
-+mod approved_call;
 +pub use approved_call::ApprovedMcpCall;
  mod binding;
  pub(crate) mod binding_clients;
@@ -74,7 +82,7 @@
              connections,
              clients,
              config,
-@@ -95,6 +97,38 @@
+@@ -95,6 +97,53 @@
              .get(&(server.to_string(), tool.to_string()))
              .filter(|call| crate::tool_is_model_visible(call.tool_info()))
              .cloned()
@@ -92,28 +100,43 @@
 +        expected_server: &codex_config::McpServerConfig,
 +        expected_schema: &serde_json::Value,
 +    ) -> anyhow::Result<crate::ApprovedMcpCall> {
-+        anyhow::ensure!(self.tools.len() == 1, "approved binding must contain exactly one tool");
-+        let generation = self.admission_generation.as_ref()
++        anyhow::ensure!(
++            self.tools.len() == 1,
++            "approved binding must contain exactly one tool"
++        );
++        let generation = self
++            .admission_generation
++            .as_ref()
 +            .ok_or_else(|| anyhow::anyhow!("binding has no runtime generation"))?;
-+        let registration = self.config.mcp_server_catalog.server(server)
++        let registration = self
++            .config
++            .mcp_server_catalog
++            .server(server)
 +            .ok_or_else(|| anyhow::anyhow!("reviewed server missing"))?;
-+        anyhow::ensure!(matches!(registration.source(), crate::McpServerSource::Config)
-+            && registration.config() == expected_server, "reviewed server binding mismatch");
-+        let mut call = self.prepare_call(server, raw_name)
++        anyhow::ensure!(
++            matches!(registration.source(), crate::McpServerSource::Config)
++                && registration.config() == expected_server,
++            "reviewed server binding mismatch"
++        );
++        let mut call = self
++            .prepare_call(server, raw_name)
 +            .ok_or_else(|| anyhow::anyhow!("reviewed call missing"))?;
 +        let info = call.tool_info();
-+        anyhow::ensure!(info.server_name == server && info.tool.name.as_ref() == raw_name
-+            && info.callable_namespace == canonical_namespace
-+            && info.callable_name == canonical_name
-+            && serde_json::to_value(&info.tool.input_schema)? == *expected_schema,
-+            "approved identity/schema mismatch");
++        anyhow::ensure!(
++            info.server_name == server
++                && info.tool.name.as_ref() == raw_name
++                && info.callable_namespace == canonical_namespace
++                && info.callable_name == canonical_name
++                && serde_json::to_value(&info.tool.input_schema)? == *expected_schema,
++            "approved identity/schema mismatch"
++        );
 +        anyhow::ensure!(self.tools[0] == *info, "catalog/dispatch identity mismatch");
 +        call.admission_generation = Some(Arc::clone(generation));
 +        Ok(crate::ApprovedMcpCall { call })
      }
  
      pub fn has_servers(&self) -> bool {
-@@ -170,6 +204,7 @@
+@@ -170,6 +219,7 @@
  /// one [`McpBinding`].
  #[derive(Clone)]
  pub struct PreparedMcpCall {
@@ -121,7 +144,7 @@
      connections: Arc<McpConnectionSet>,
      client: Arc<ManagedClient>,
      config: Arc<McpConfig>,
-@@ -199,6 +234,7 @@
+@@ -199,6 +249,7 @@
          let server_name = tool_info.server_name.clone();
          config.permission_profile_for_server(&server_name)?;
          Some(Self {
@@ -129,7 +152,7 @@
              connections,
              client,
              config,
-@@ -311,6 +347,11 @@
+@@ -311,6 +362,11 @@
          F: FnOnce() -> Fut,
          Fut: Future<Output = Result<(Option<JsonValue>, Option<JsonValue>)>>,
      {
@@ -180,9 +203,9 @@
  
      async fn publish(&self, input: McpRuntimeInput, previous: Option<&McpConnectionSet>) {
 +        let _publication = self.admission_publication.lock().await;
-+        // Invalidate before reconciling/replacing any connection. Only opted-in
-+        // admitted sends hold this generation lease. Ordinary calls are unchanged.
-+        self.current.load_full().admission_generation.invalidate().await;
++        // Publication, not the synchronous reconnect marker, replaces authority.
++        let current = self.current.load_full();
++        current.admission_generation.invalidate().await;
          let (publish, publication_gate) = McpPublicationGate::pending();
          let config = Arc::clone(&input.config);
          let auth = input.auth.clone();
@@ -190,85 +213,75 @@
              ready_selected_capability_roots,
              selected_environments,
              cached_binding: Mutex::new(None),
-+                admission_generation: Arc::new(crate::approved_call::AdmissionGeneration::new()),
++            admission_generation: Arc::new(crate::approved_call::AdmissionGeneration::new()),
          }));
          let _ = publish.send(true);
          cancellation.event_server_available = hosted_event_server_retained;
-@@ -353,7 +362,8 @@
-     }
- 
-     /// Ensures the next refresh creates fresh connections for every configured server.
--    pub fn reconnect_on_next_refresh(&self) {
-+    pub async fn reconnect_on_next_refresh(&self) {
-+        self.current.load_full().admission_generation.invalidate().await;
-         self.reconnect_pending.store(true, Ordering::Release);
-     }
- 
-@@ -401,8 +411,7 @@
+@@ -401,17 +410,17 @@
              }
          }
  
 -        let binding = Arc::new(
 -            current
-+        let mut captured = current
-                 .connections
-                 .capture_binding_with_metadata(
-                     config,
-@@ -410,8 +419,9 @@
-                     required_servers,
-                     required_plugins,
-                 )
+-                .connections
+-                .capture_binding_with_metadata(
+-                    config,
+-                    current.plugins_available,
+-                    required_servers,
+-                    required_plugins,
+-                )
 -                .await,
 -        );
-+                .await;
++        let mut captured = current
++            .connections
++            .capture_binding_with_metadata(
++                config,
++                current.plugins_available,
++                required_servers,
++                required_plugins,
++            )
++            .await;
 +        captured.admission_generation = Some(Arc::clone(&current.admission_generation));
 +        let binding = Arc::new(captured);
          if let Some(catalog_revisions) = stable_catalog_revisions
              && current
                  .connections
-@@ -714,6 +724,7 @@
+@@ -714,7 +723,10 @@
      }
  
      pub async fn shutdown(&self) {
-+        self.current.load_full().admission_generation.invalidate().await;
-         self.latest_connections().shutdown().await;
+-        self.latest_connections().shutdown().await;
++        let _publication = self.admission_publication.lock().await;
++        let current = self.current.load_full();
++        current.admission_generation.invalidate().await;
++        current.connections.shutdown().await;
      }
  }
-@@ -957,6 +968,7 @@
+ 
+@@ -957,6 +969,7 @@
              ready_selected_capability_roots: Vec::new(),
              selected_environments: HashMap::new(),
              cached_binding: Mutex::new(None),
-+                admission_generation: Arc::new(crate::approved_call::AdmissionGeneration::new()),
++            admission_generation: Arc::new(crate::approved_call::AdmissionGeneration::new()),
          });
          let before = McpRuntime::binding_from_published_runtime(
              Arc::clone(&published),
-@@ -1029,6 +1041,7 @@
+@@ -1029,6 +1042,7 @@
              ready_selected_capability_roots: Vec::new(),
              selected_environments: HashMap::new(),
              cached_binding: Mutex::new(None),
-+                admission_generation: Arc::new(crate::approved_call::AdmissionGeneration::new()),
++            admission_generation: Arc::new(crate::approved_call::AdmissionGeneration::new()),
          });
          let first = McpRuntime::binding_from_published_runtime(
              Arc::clone(&published),
-@@ -1049,6 +1062,7 @@
+@@ -1049,6 +1063,7 @@
          let previous = Arc::into_inner(published).expect("published runtime has no other owners");
          let republished = Arc::new(PublishedMcpRuntime {
              cached_binding: Mutex::new(None),
-+                admission_generation: Arc::new(crate::approved_call::AdmissionGeneration::new()),
++            admission_generation: Arc::new(crate::approved_call::AdmissionGeneration::new()),
              ..previous
          });
          let refreshed = McpRuntime::binding_from_published_runtime(
---- a/codex-rs/core/src/session/handlers.rs
-+++ b/codex-rs/core/src/session/handlers.rs
-@@ -232,7 +232,7 @@
- }
- 
- pub fn refresh_mcp_servers(sess: &Session) {
--    sess.services.mcp_runtime.reconnect_on_next_refresh();
-+    sess.services.mcp_runtime.reconnect_on_next_refresh().await;
-     sess.request_mcp_runtime_refresh();
- }
- 
 --- a/codex-rs/core/src/tools/handlers/mcp.rs
 +++ b/codex-rs/core/src/tools/handlers/mcp.rs
 @@ -49,12 +49,18 @@
@@ -298,38 +311,40 @@
              tool_info,
              spec,
              code_mode_tool_definitions: OnceLock::new(),
-@@ -173,17 +180,20 @@
- }
- 
- impl McpHandler {
-+
-     async fn handle_call(
+@@ -177,13 +184,17 @@
          &self,
          invocation: ToolInvocation,
      ) -> Result<Box<dyn crate::tools::context::ToolOutput>, FunctionCallError> {
 -        let prepared_mcp_call = invocation
+-            .session
+-            .prepare_mcp_call(
+-                &self.tool_info.server_name,
+-                self.tool_info.tool.name.as_ref(),
+-            )
+-            .await;
 +        let prepared_mcp_call = if let Some(approved) = &self.approved_call {
 +            Some(approved.prepared_call())
-+        } else { invocation
-             .session
-             .prepare_mcp_call(
-                 &self.tool_info.server_name,
-                 self.tool_info.tool.name.as_ref(),
-             )
--            .await;
-+            .await };
++        } else {
++            invocation
++                .session
++                .prepare_mcp_call(
++                    &self.tool_info.server_name,
++                    self.tool_info.tool.name.as_ref(),
++                )
++                .await
++        };
          // Use the executed call's binding; a later catalog refresh must not change eligibility.
          // Only the new metadata is internal; tool execution and call accounting are not.
          let result_metadata_capture_allowed = false;
 --- /dev/null
 +++ b/codex-rs/core/src/approved_delegate.rs
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,95 @@
 +//! Opt-in host startup policy. Not CLI TOML, MCP input, or model-controlled state.
-+use std::sync::{Arc, Mutex};
++use crate::tools::handlers::McpHandler;
++use crate::tools::registry::{ToolExposure, ToolRegistry};
 +use codex_config::McpServerConfig;
 +use codex_mcp::McpBinding;
-+use crate::tools::handlers::McpHandler;
-+use crate::tools::registry::{ToolRegistry, ToolExposure};
++use std::sync::{Arc, Mutex};
 +
 +pub struct ApprovedDelegatePolicy {
 +    server: Option<McpServerConfig>,
@@ -339,44 +354,83 @@
 +
 +impl ApprovedDelegatePolicy {
 +    pub fn no_tools() -> Self {
-+        Self { server: None, schema: serde_json::Value::Null, admitted: Mutex::new(None) }
++        Self {
++            server: None,
++            schema: serde_json::Value::Null,
++            admitted: Mutex::new(None),
++        }
 +    }
 +
 +    /// The host must supply the reviewed launch configuration and real schema.
 +    /// This does not read these values from MCP metadata or user/model arguments.
 +    pub fn delegate(server: McpServerConfig, schema: serde_json::Value) -> Self {
-+        Self { server: Some(server), schema, admitted: Mutex::new(None) }
++        Self {
++            server: Some(server),
++            schema,
++            admitted: Mutex::new(None),
++        }
 +    }
 +
 +    pub(crate) fn register(
-+        &self, binding: &Arc<McpBinding>, registry: &mut ToolRegistry,
++        &self,
++        binding: &Arc<McpBinding>,
++        registry: &mut ToolRegistry,
 +    ) -> anyhow::Result<()> {
 +        let expected = if self.server.is_some() {
-+            vec![codex_tools::ToolName::namespaced("mcp__devhub_delegate", "devhub_delegate")]
-+        } else { vec![] };
-+        anyhow::ensure!(registry.allowed_tools.as_ref().is_some_and(|x| x.0 == expected),
-+            "approved delegate requires exact host startup AllowedTools");
++            vec![codex_tools::ToolName::namespaced(
++                "mcp__devhub_delegate",
++                "devhub_delegate",
++            )]
++        } else {
++            vec![]
++        };
++        anyhow::ensure!(
++            registry
++                .allowed_tools
++                .as_ref()
++                .is_some_and(|x| x.0 == expected),
++            "approved delegate requires exact host startup AllowedTools"
++        );
 +        let Some(server) = &self.server else {
-+            anyhow::ensure!(!binding.has_servers() && binding.tools().is_empty(),
-+                "Arm A must not configure MCP");
++            anyhow::ensure!(
++                !binding.has_servers() && binding.tools().is_empty(),
++                "Arm A must not configure MCP"
++            );
 +            return Ok(());
 +        };
 +        // Repeat metadata verification even when a cached handler exists. Duplicate
 +        // entries and schema drift never get hidden by canonical-name caching.
-+        let call = binding.approve_call("devhub_delegate", "devhub_delegate",
-+            "mcp__devhub_delegate", "devhub_delegate", server, &self.schema)?;
-+        let mut admitted = self.admitted.lock().map_err(|_| anyhow::anyhow!("admission poisoned"))?;
++        let call = binding.approve_call(
++            "devhub_delegate",
++            "devhub_delegate",
++            "mcp__devhub_delegate",
++            "devhub_delegate",
++            server,
++            &self.schema,
++        )?;
++        let mut admitted = self
++            .admitted
++            .lock()
++            .map_err(|_| anyhow::anyhow!("admission poisoned"))?;
 +        let handler = if let Some((prior, handler)) = admitted.as_ref() {
-+            anyhow::ensure!(Arc::ptr_eq(prior, binding), "new binding requires new host admission");
++            anyhow::ensure!(
++                Arc::ptr_eq(prior, binding),
++                "new binding requires new host admission"
++            );
 +            Arc::clone(handler)
 +        } else {
 +            let handler = Arc::new(McpHandler::new_approved(call)?);
 +            *admitted = Some((Arc::clone(binding), Arc::clone(&handler)));
 +            handler
 +        };
-+        anyhow::ensure!(registry.entries().next().is_none(), "unexpected runtime before admission");
-+        anyhow::ensure!(registry.register_external_with_exposure(handler, ToolExposure::Direct),
-+            "approved delegate collision");
++        anyhow::ensure!(
++            registry.entries().next().is_none(),
++            "unexpected runtime before admission"
++        );
++        anyhow::ensure!(
++            registry.register_external_with_exposure(handler, ToolExposure::Direct),
++            "approved delegate collision"
++        );
 +        Ok(())
 +    }
 +}
@@ -393,20 +447,34 @@
  pub use codex_thread::GuardianAuthorizationVersion;
 --- a/codex-rs/core/src/tools/spec_plan.rs
 +++ b/codex-rs/core/src/tools/spec_plan.rs
-@@ -151,6 +151,17 @@
+@@ -151,6 +151,31 @@
          wait_agent_timeouts: wait_agent_timeout_options(turn_context),
      };
      let mut registry = ToolRegistry::with_allowed_tools(session.allowed_tools.clone());
-+    if let Some(policy) = session.services.thread_extension_data.get::<crate::ApprovedDelegatePolicy>() {
++    if let Some(policy) = session
++        .services
++        .thread_extension_data
++        .get::<crate::ApprovedDelegatePolicy>()
++    {
 +        if model_info.tool_mode != Some(ToolMode::CodeModeOnly)
 +            || !turn_context.config.tool_registry.error_on_tool_collisions
-+            || turn_context.config.code_mode.direct_only_tool_namespaces != ["mcp__devhub_delegate"] {
-+            return Err(CodexErrorDetails::InvalidRequest("approved delegate config mismatch".into()).into());
++            || turn_context.config.code_mode.direct_only_tool_namespaces != ["mcp__devhub_delegate"]
++        {
++            return Err(CodexErrorDetails::InvalidRequest(
++                "approved delegate config mismatch".into(),
++            )
++            .into());
 +        }
-+        policy.register(mcp, &mut registry).map_err(|e|
-+            CodexErrorDetails::InvalidRequest(e.to_string()))?;
-+        return finalize_tool_router(turn_context, model_info, registry, vec![],
-+            &session.services.tool_search_handler_cache);
++        policy
++            .register(mcp, &mut registry)
++            .map_err(|e| CodexErrorDetails::InvalidRequest(e.to_string()))?;
++        return finalize_tool_router(
++            turn_context,
++            model_info,
++            registry,
++            vec![],
++            &session.services.tool_search_handler_cache,
++        );
 +    }
      add_core_tool_sources(&context, &mut registry);
  
