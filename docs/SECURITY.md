@@ -1,7 +1,7 @@
 # Security
 
 ## Trust model
-Codex Dev Hub can touch source code, external providers, credentials and executable environments. Default to least privilege.
+DevFabric can touch source code, external providers, credentials and executable environments. Default to least privilege.
 
 ## Rules
 - Never place secrets in Project Brain or prompts when avoidable.

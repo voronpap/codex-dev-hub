@@ -4,7 +4,7 @@
 Share durable project understanding between Codex and workers without copying whole chat histories.
 
 ## Levels
-- **Global:** reusable development conventions and Dev Hub usage.
+- **Global:** reusable development conventions and DevFabric usage.
 - **Project:** architecture, ADRs, domain concepts, constraints and retrieval indexes.
 - **Task/session:** goals, branch/worktree, acceptance criteria and temporary artifacts.
 
