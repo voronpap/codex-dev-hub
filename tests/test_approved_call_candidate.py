@@ -98,7 +98,6 @@ def test_permission_materialization_precedes_runtime_publication() -> None:
     assert '"DEVHUB_PERMISSION_DIAGNOSTIC={}"' in harness
 
 
-
 def test_build008_diagnostic_contract_is_single_build_and_reusable() -> None:
     runner = (REPO / "scripts/build_production_router_proof.py").read_text(encoding="utf-8")
     assert '"build_id": "build-008"' in runner
@@ -114,7 +113,9 @@ def test_build008_diagnostic_contract_is_single_build_and_reusable() -> None:
 
 
 def test_build008_inner_checkpoint_plan_is_implemented() -> None:
-    instrumentation = (REPO / "scripts/instrument_approval_proof.py").read_text(encoding="utf-8")
+    instrumentation = (REPO / "scripts/instrument_approval_proof.py").read_text(
+        encoding="utf-8"
+    )
     for marker in [
         "preparation_closure_entered",
         "approval_application_enter",
