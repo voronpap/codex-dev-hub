@@ -33,3 +33,9 @@ manual-only. No build-009 is authorized.
 
 Stage 3G-C and Stage 3G remain OPEN; execution_ready=false; process_proof=null.
 Real Codex executions=0; provider sends=0. No v3, rehearsal, benchmark or role runtime.
+
+Remote preparation through 84b64c4 was reconciled without rewriting its history.
+The unified runner retains exact filters and fsynced receipts. Transport markers
+are unconditional only inside the disposable tree: codex-mcp is a dependency
+of the core test binary and its cfg(test) markers would otherwise be absent.
+No production patch or historical evidence changed during reconciliation.
