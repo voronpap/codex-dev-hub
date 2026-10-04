@@ -140,8 +140,8 @@
   "payload_contract_validation": "PASS via model_validate_json (wire contract)",
   "payload_sent": false,
   "patch_changed": false,
-  "rust_build_count": 1,
-  "rust_build_seconds": 642.1814258400001,
+  "rust_build_count": 2,
+  "rust_build_seconds": 1155.42083276,
   "execution_ready": false,
   "real_codex_executions": 0,
   "provider_sends": 0,
@@ -149,5 +149,17 @@
   "quality_benchmark": null,
   "delegation_value": null,
   "savings": null,
-  "codex_internal_retries": null
+  "codex_internal_retries": null,
+  "redundant_build": {
+    "run_id": 37192943484,
+    "artifact_id": 11299917011,
+    "duration_seconds": 513.23940692,
+    "classification": "compile_failure",
+    "reason": "same E0728; README-only change matched broad push path",
+    "patch_and_test_unchanged": true,
+    "build_002_corrected_candidate": false,
+    "historical_receipt_sha256": "adf80fc203218000715227c1979c60536ec55942cd0b1ea915da9aee7f975efe",
+    "observed_after_initial_audit_commit": "e7a8001",
+    "corrective_action": "workflow_dispatch only; no automatic third build"
+  }
 }

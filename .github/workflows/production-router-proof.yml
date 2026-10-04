@@ -1,14 +1,7 @@
 name: Pinned production admission candidate (no model)
 on:
-  push:
-    branches-ignore: [main]
-    paths:
-      - 'patches/stage3g-approved-call/**'
-      - 'scripts/assemble_approved_call_patch.py'
-      - 'scripts/build_production_router_proof.py'
-      - 'scripts/production_router_test.rs'
-      - 'scripts/synthetic_approved_mcp.py'
-      - '.github/workflows/production-router-proof.yml'
+  # Explicit dispatch only after reviewed offline audit. The previous patches/**
+  # filter accidentally rebuilt unchanged Rust for a README-only change.
   workflow_dispatch:
 concurrency:
   group: production-admission-${{ github.ref }}

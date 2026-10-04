@@ -85,8 +85,16 @@ fixed; replacing it belongs to the resumed implementation.
 No build-002, cargo check, rustfmt or patch reassembly was run: no source patch
 changed, and the audit requires review first. Required actual race, A/B, origin,
 collision, schema-drift, handler dispatch and process tests remain unproven/null.
-One Rust build has occurred in this PR: build-001, 642.1814258400001 seconds,
-compile failure before test execution. The one authorized next build is unused.
+The initial audit counted only build-001 (642.1814258400001 seconds). A subsequent
+Actions inventory found an unintended second compilation on documentation-only
+commit d83472b: run 37192943484, 513.23940692 seconds, the same patch/test hashes
+and E0728. The old broad patches/** push filter included README.md. Its raw receipt
+and diagnostics are preserved as redundant-build-001, not corrected build-002.
+**Actual compilation count is two**, total 1155.42083276 seconds. Neither test
+binary ran. Corrected candidate build-002 remains NOT_RUN. No third compilation
+is launched automatically. The expensive workflow is now workflow_dispatch only,
+retaining concurrency cancellation; this enforces the pre-build review boundary
+and prevents documentation from spending another build.
 
 Default MCP behavior and Candidate B security requirements are unchanged by this
 documentation-only audit. Default-path regression remains required before any
