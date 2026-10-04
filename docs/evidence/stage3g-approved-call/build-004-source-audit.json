@@ -1,0 +1,22 @@
+{
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "source_hashes": {
+    "codex-rs/codex-mcp/src/runtime.rs": "c6adafbf150388215efa3822745b3d2adfb534d3ebaa766f64266acd7e04db19",
+    "codex-rs/codex-mcp/src/binding.rs": "9fd5f9e5d3021f7d1bd77fc1ecbd7737d1a3fb0044fe9b43cfa1cda3d5966169",
+    "codex-rs/codex-mcp/src/connection_manager/tool_catalog.rs": "a7fc2ca068411156d0e79c0550d879031b9c5682e81bb0c707a508a5b0897ecc",
+    "codex-rs/codex-mcp/src/mcp/mod.rs": "5785fcfc629e05755ccb9bfb687deb112c3047aa64b20c4b927aa000c2a457be",
+    "codex-rs/codex-mcp/src/server.rs": "39a07961b91c86a949f1615196795f077fefa46237cbd2c84e3bcc009e2e21c8",
+    "codex-rs/codex-mcp/src/tools.rs": "28d44b33ae3189a08521b0b9a4208f36952a844698db16dee69070df39719f38",
+    "codex-rs/core/src/session/tests.rs": "49b93b63511bd67c281cc891d74bc839664311ab44277909a934caea8c3e5701",
+    "codex-rs/core/src/tools/spec_plan_tests.rs": "b856b5343784b4db9acbb44416fb24ee3eb9703cd0064c6df2af2a768eb700e3"
+  },
+  "synthetic_server_sha256": "8e0ee12e1a46618e3ab042a03d0af3984861de79289effec6681ddd1355ca169",
+  "synthetic_tools_list_count_offline": 1,
+  "synthetic_tool_name": "devhub_delegate",
+  "proof_config_intent": [
+    "devhub_delegate"
+  ],
+  "runtime_cardinality": null,
+  "production_patch_unchanged": true,
+  "production_classification": "UNKNOWN"
+}

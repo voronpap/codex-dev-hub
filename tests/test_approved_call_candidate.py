@@ -58,6 +58,8 @@ def test_synthetic_process_reports_its_own_dispatch_receipt(tmp_path: Path) -> N
     assert not run.stderr
     responses = [json.loads(line) for line in run.stdout.splitlines()]
     assert [r["id"] for r in responses] == [1, 2, 3]
+    assert len(responses[1]["result"]["tools"]) == 1
+    assert responses[1]["result"]["tools"][0]["name"] == "devhub_delegate"
     assert responses[1]["result"]["tools"][0]["inputSchema"] == json.loads(SCHEMA.read_bytes())
     observed = json.loads(receipt.read_bytes())
     assert observed == {
@@ -73,3 +75,14 @@ def test_proof_harness_uses_pinned_extension_constructor() -> None:
     harness = (REPO / "scripts/production_router_test.rs").read_text(encoding="utf-8")
     assert "ExtensionData::default()" not in harness
     assert harness.count('ExtensionData::new("devhub-proof")') == 5
+
+
+def test_diagnostic_precedes_initial_router_admission() -> None:
+    harness = (REPO / "scripts/production_router_test.rs").read_text(encoding="utf-8")
+    assert harness.index('stage("initial_binding_before_first_approve")') < harness.index(
+        'stage("initial_router_admission")'
+    )
+    assert '"DEVHUB_BINDING_DIAGNOSTIC={}"' in harness
+    assert '"DEVHUB_SERVER_DIAGNOSTIC={}"' in harness
+    assert harness.count("c.mcp_servers =") == 1
+    assert '"devhub_delegate".to_string(),\n                server.clone(),' in harness

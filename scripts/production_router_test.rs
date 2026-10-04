@@ -6,6 +6,37 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
     use codex_protocol::mcp::ClientMcpExtensions;
     use std::collections::HashMap;
     use tokio_util::sync::CancellationToken;
+    fn stage(name: &str) {
+        println!("DEVHUB_STAGE={name}");
+        std::io::Write::flush(&mut std::io::stdout()).expect("flush diagnostic stage");
+    }
+    fn diagnostic(binding: &codex_mcp::McpBinding) {
+        let mut tools = binding
+            .tools()
+            .iter()
+            .map(|tool| {
+                json!({
+                    "server_name":tool.server_name,"raw_tool":tool.tool.name,
+                    "callable_namespace":tool.callable_namespace,"callable_name":tool.callable_name,
+                    "server_origin":tool.server_origin,
+                    "model_visible":codex_mcp::tool_is_model_visible(tool),
+                    "ui_visibility":tool.tool.meta.as_deref().and_then(|meta| meta.get("ui"))
+                        .and_then(|ui| ui.get("visibility"))
+                })
+            })
+            .collect::<Vec<_>>();
+        tools.sort_by_key(|tool| tool.to_string());
+        println!(
+            "DEVHUB_BINDING_DIAGNOSTIC={}",
+            json!({
+                "tools_len":binding.tools().len(),"tools":tools,
+                "has_servers":binding.has_servers(),
+                "target_tool_info_present":binding.tool_info("devhub_delegate","devhub_delegate").is_some(),
+                "target_prepare_call_present":binding.prepare_call("devhub_delegate","devhub_delegate").is_some()
+            })
+        );
+        std::io::Write::flush(&mut std::io::stdout()).expect("flush binding diagnostic");
+    }
 
     let schema: serde_json::Value = serde_json::from_str(include_str!("devhub_real_schema.json"))?;
     let payload: serde_json::Value =
@@ -76,6 +107,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
             assert!(probe.registered_names.is_empty());
             assert!(probe.code_mode_tool_names.is_empty());
             arms.push(json!({"arm":"A","visible":probe.visible_specs,"registered":probe.registered_names,"nested":probe.code_mode_tool_names,"mode":probe.tool_mode}));
+            stage("A_assertions_completed");
             continue;
         }
         let script = std::env::var("DEVHUB_SYNTHETIC_MCP")?;
@@ -113,11 +145,46 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
             elicitation_reviewer: None,
             elicitation_lifecycle: None,
         };
+        let mut configured_keys = turn
+            .config
+            .mcp_servers
+            .get()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        configured_keys.sort();
+        let mut catalog_keys = codex_mcp::configured_mcp_servers(&config)
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        catalog_keys.sort();
+        let effective = codex_mcp::effective_mcp_servers(&config, None);
+        let mut effective_keys = effective.keys().cloned().collect::<Vec<_>>();
+        effective_keys.sort();
+        let mut plugin_keys = effective
+            .iter()
+            .filter(|(_, server)| server.is_agent_plugin())
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        plugin_keys.sort();
+        println!(
+            "DEVHUB_SERVER_DIAGNOSTIC={}",
+            json!({
+                "configured_keys":configured_keys,"materialized_catalog_keys":catalog_keys,"effective_keys":effective_keys,
+                "apps_present":effective.contains_key("codex_apps"),"plugin_keys":plugin_keys,
+                "other_keys":effective_keys.iter().filter(|name| name.as_str() != "devhub_delegate").collect::<Vec<_>>(),
+                "expected_keys":["devhub_delegate"]
+            })
+        );
+        stage("B_runtime_replace");
         runtime.replace(input()).await;
         let binding = runtime
             .current_binding_for_call("devhub_delegate")
             .await
             .expect("synthetic startup");
+        stage("initial_binding_before_first_approve");
+        diagnostic(&binding);
+        stage("initial_router_admission");
         session
             .services
             .thread_extension_data
@@ -141,6 +208,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
         assert!(probe.code_mode_tool_names.is_empty());
         assert_eq!(probe.visible_specs.len(), 1);
         assert_eq!(probe.registered_names.len(), 1);
+        stage("B_visibility_completed");
         let approve = |b: &Arc<codex_mcp::McpBinding>| {
             b.approve_call(
                 "devhub_delegate",
@@ -151,6 +219,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 &schema,
             )
         };
+        stage("initial_approve");
         let call = approve(&binding)?.prepared_call();
         assert_eq!(call.server_name(), "devhub_delegate");
         assert_eq!(call.tool_info().tool.name.as_ref(), "devhub_delegate");
@@ -158,6 +227,8 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
             serde_json::to_value(&call.tool_info().tool.input_schema)?,
             schema
         );
+        stage("initial_approve_completed");
+        stage("schema_mismatch_probe");
         assert!(
             binding
                 .approve_call(
@@ -170,6 +241,8 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 )
                 .is_err()
         );
+        stage("schema_mismatch_completed");
+        stage("apps_rejection_probe");
         // Exact server key remains authority: canonical strings do not admit Apps.
         assert!(
             binding
@@ -183,11 +256,15 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 )
                 .is_err()
         );
+        stage("initial_synthetic_call");
         call.call(Some(payload.clone()), None, None).await?;
         runtime.reconnect_on_next_refresh();
+        stage("sync_marker_call");
         // The sync request marker does not replace an executable binding.
         call.call(Some(payload.clone()), None, None).await?;
 
+        stage("sync_marker_completed");
+        stage("publication_race");
         // Hold the actual generation+catalog leases during preparation. Poll the
         // real publisher once: it must be pending at invalidation, not a sleep.
         let (release, ready) = tokio::sync::oneshot::channel::<()>();
@@ -216,11 +293,13 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 .contains("approved MCP generation invalidated")
         );
         assert_eq!(std::fs::read(&receipt)?, frozen);
+        stage("publication_completed_old_call_denied");
         let next = runtime
             .current_binding_for_call("devhub_delegate")
             .await
             .unwrap();
         assert!(!Arc::ptr_eq(&binding, &next));
+        stage("old_host_admission_rejection");
         // Existing host admission cannot follow a fresh binding by name.
         assert!(
             crate::tools::spec_plan::build_tool_router(
@@ -236,6 +315,9 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
             )
             .is_err()
         );
+        stage("old_host_admission_rejected");
+        stage("fresh_router_admission");
+        diagnostic(&next);
         session
             .services
             .thread_extension_data
@@ -254,6 +336,8 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
             &ExtensionData::new("devhub-proof"),
             None,
         )?;
+        stage("fresh_binding_approve");
+        diagnostic(&next);
         let fresh_call = approve(&next)?.prepared_call();
 
         let (release, ready) = tokio::sync::oneshot::channel::<()>();
@@ -266,6 +350,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
         tokio::pin!(active);
         assert!(futures::poll!(active.as_mut()).is_pending());
         assert!(entered.load(std::sync::atomic::Ordering::SeqCst));
+        stage("shutdown_race");
         let shutdown = runtime.shutdown();
         tokio::pin!(shutdown);
         assert!(futures::poll!(shutdown.as_mut()).is_pending());
@@ -282,6 +367,8 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 .contains("approved MCP generation invalidated")
         );
         assert_eq!(std::fs::read(&receipt)?, frozen);
+        stage("shutdown_completed_old_call_denied");
+        stage("republish");
         // No permanent closed state. Republish can create fresh authority only.
         runtime.reconnect_on_next_refresh();
         runtime.replace(input()).await;
@@ -298,6 +385,8 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 .is_err()
         );
         assert_eq!(std::fs::read(&receipt)?, frozen);
+        stage("newest_binding_approve");
+        diagnostic(&newest);
         approve(&newest)?
             .prepared_call()
             .call(Some(payload.clone()), None, None)
@@ -317,6 +406,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
         runtime.shutdown().await;
         arms.push(json!({"arm":"B","visible":probe.visible_specs,"registered":probe.registered_names,"nested":probe.code_mode_tool_names,"mode":probe.tool_mode}));
     }
+    stage("all_subset_assertions_completed");
     println!(
         "DEVHUB_ROUTER_PROOF={}",
         json!({
