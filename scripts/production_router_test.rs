@@ -122,7 +122,61 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 server.clone(),
             )]))
         });
-        let config = mcp_config_for_test(&turn.config);
+        let mut config = (*mcp_config_for_test(&turn.config)).clone();
+        let effective_servers = codex_mcp::effective_mcp_servers(&config, None);
+        let environment_profiles = turn
+            .environments
+            .turn_environments()
+            .map(|environment| {
+                (
+                    environment.selection.environment_id.clone(),
+                    environment.permission_profile_with_workspace_roots(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let explicit_environment = environment_profiles
+            .iter()
+            .any(|(id, _)| id == &server.environment_id);
+        let registration = config
+            .mcp_server_catalog
+            .server("devhub_delegate")
+            .expect("configured server");
+        let configured_origin = matches!(registration.source(), codex_mcp::McpServerSource::Config);
+        let enabled = effective_servers
+            .get("devhub_delegate")
+            .expect("effective server")
+            .enabled();
+        let authority_source = if explicit_environment {
+            "turn_environment_profile"
+        } else if server.is_local_environment() {
+            "runtime_permission_profile_local_branch"
+        } else {
+            "unresolved"
+        };
+        let before = config
+            .permission_profile_for_server("devhub_delegate")
+            .is_some();
+        config.set_server_permission_profiles(&effective_servers, environment_profiles);
+        let present = config
+            .permission_profile_for_server("devhub_delegate")
+            .is_some();
+        println!(
+            "DEVHUB_PERMISSION_DIAGNOSTIC={}",
+            json!({
+                "present_before_materialization":before,"present_before_replace":present,
+                "enabled":enabled,"server_source":if configured_origin { "Config" } else { "unexpected" },
+                "environment_id":server.environment_id,"is_local_environment":server.is_local_environment(),
+                "authority_source":authority_source,"explicit_environment_match":explicit_environment
+            })
+        );
+        stage("permission_materialized");
+        assert!(enabled && configured_origin && server.is_local_environment());
+        assert_eq!(
+            server.environment_id,
+            codex_config::DEFAULT_MCP_SERVER_ENVIRONMENT_ID
+        );
+        assert!(present);
+        let config = Arc::new(config);
         let input = || McpRuntimeInput {
             startup_policy: McpStartupPolicy::Eager,
             config: Arc::clone(&config),
@@ -284,6 +338,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
         active.await?;
         publishing.await;
         let frozen = std::fs::read(&receipt)?;
+        stage("stale_call_after_publish");
         let err = call
             .call(Some(payload.clone()), None, None)
             .await
@@ -358,6 +413,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
         active.await?;
         shutdown.await;
         let frozen = std::fs::read(&receipt)?;
+        stage("stale_call_after_shutdown");
         let err = fresh_call
             .call(Some(payload.clone()), None, None)
             .await

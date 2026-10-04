@@ -86,3 +86,13 @@ def test_diagnostic_precedes_initial_router_admission() -> None:
     assert '"DEVHUB_SERVER_DIAGNOSTIC={}"' in harness
     assert harness.count("c.mcp_servers =") == 1
     assert '"devhub_delegate".to_string(),\n                server.clone(),' in harness
+
+
+def test_permission_materialization_precedes_runtime_publication() -> None:
+    harness = (REPO / "scripts/production_router_test.rs").read_text(encoding="utf-8")
+    assert harness.index("config.set_server_permission_profiles(") < harness.index(
+        "runtime.replace(input()).await"
+    )
+    assert "environment.permission_profile_with_workspace_roots()" in harness
+    assert "assert!(present)" in harness
+    assert '"DEVHUB_PERMISSION_DIAGNOSTIC={}"' in harness

@@ -101,7 +101,7 @@ def main():
                 timed_out = True
     receipt = {
         "source_commit": COMMIT,
-        "build_id": "build-004",
+        "build_id": "build-005",
         "payload_sha256": hashlib.sha256(payload).hexdigest(),
         "archive_sha256": ARCHIVE,
         "test_sha256": hashlib.sha256(test).hexdigest(),
