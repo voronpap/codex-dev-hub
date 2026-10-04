@@ -1,0 +1,289 @@
+{
+  "build_id": "build-007",
+  "implementation_commit": "ad10c8377efc84605abf37bb554584974574fc7a",
+  "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37225858504",
+  "production_classification": "UNKNOWN",
+  "failure_classification": "HANDLER_EXECUTION_STACK_OVERFLOW",
+  "root_cause": null,
+  "failure_boundary": "after prepared_execution_entered; before handler return or synthetic receipt observation; exact recursive/frame cause unproven",
+  "compile_pass": true,
+  "build_duration_seconds": 382.178388101,
+  "test_runs": [
+    {
+      "crate": "codex_core",
+      "exit_code": -6,
+      "timed_out": false,
+      "duration_seconds": 0.4780924249999998,
+      "binary_sha256": "ca1f21c1568fd08e204224be6eb4d828343d1bdb024212f32d11ebaf79cef8e0"
+    }
+  ],
+  "test_result": {
+    "completed_passed": 1,
+    "aborted_test": "devhub_production_admission_path_adversarial",
+    "process_exit_code": -6,
+    "signal": "SIGABRT",
+    "diagnostic": "stack overflow; no final test summary"
+  },
+  "approval_baseline_actual": {
+    "annotations": null,
+    "executed": false,
+    "mode": "Auto",
+    "required_by_mode": true
+  },
+  "approval_config_actual": {
+    "destructive_hint": null,
+    "global_approval_policy": "OnRequest",
+    "mode": "Approve",
+    "open_world_hint": null,
+    "permission_profile_present": true,
+    "read_only_hint": null,
+    "required_by_mode": false,
+    "strict_auto_review": false
+  },
+  "approval_path_actual": {
+    "mode": "Approve",
+    "strict_auto_review": false,
+    "required_by_mode": false
+  },
+  "synthetic_host_config_correction": {
+    "enabled_tools": [
+      "devhub_delegate"
+    ],
+    "tools": {
+      "devhub_delegate": {
+        "approval_mode": "approve"
+      }
+    }
+  },
+  "handler_checkpoints": [
+    "handler_entry",
+    "prepared_approved_call_selected",
+    "notify_tool_start_completed",
+    "originating_call_completed",
+    "approval_decision_path",
+    "handle_approved_mcp_tool_call_entered",
+    "prepared_execution_entered"
+  ],
+  "adversarial_checkpoints": [
+    "wrong_origin_only",
+    "wrong_origin_only_passed",
+    "wrong_first",
+    "wrong_first_passed",
+    "approved_first",
+    "approved_first_passed",
+    "forged_runtime",
+    "forged_runtime_passed",
+    "extra_mcp",
+    "extra_mcp_passed",
+    "dynamic_hosted",
+    "dynamic_hosted_passed",
+    "handler_dispatch"
+  ],
+  "actual_scenarios": {
+    "absent_apps_server_rejected": true,
+    "approved_first": true,
+    "catalog_refresh_after_preparation": null,
+    "dynamic_hosted_adversarial": true,
+    "expected_schema_mismatch": true,
+    "extra_mcp": true,
+    "forged_runtime": true,
+    "fresh_binding_requires_fresh_host_admission": true,
+    "handler_dispatch": false,
+    "ordinary_no_policy_empty_ceiling": true,
+    "publication_waits_for_call": true,
+    "publication_wins_old_call_denied": true,
+    "republish_does_not_revive_old_call": true,
+    "shutdown_waits_for_call": true,
+    "shutdown_wins_old_call_denied": true,
+    "sync_marker_preserves_call": true,
+    "wrong_first": true,
+    "wrong_origin_only": true,
+    "process_proof": null
+  },
+  "arms": [
+    {
+      "arm": "A",
+      "mode": "code_mode_only",
+      "nested": {},
+      "registered": [],
+      "visible": []
+    },
+    {
+      "arm": "B",
+      "mode": "code_mode_only",
+      "nested": {},
+      "registered": [
+        "mcp__devhub_delegatedevhub_delegate"
+      ],
+      "visible": [
+        {
+          "description": "Tools in the mcp__devhub_delegate namespace.",
+          "name": "mcp__devhub_delegate",
+          "tools": [
+            {
+              "description": "",
+              "name": "devhub_delegate",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "acceptance_criteria": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "allow_cloud": {
+                    "type": "boolean"
+                  },
+                  "instructions": {
+                    "type": "string"
+                  },
+                  "privacy": {
+                    "enum": [
+                      "local_only",
+                      "project_private",
+                      "public",
+                      "redacted"
+                    ],
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "request_key": {
+                    "type": "string"
+                  },
+                  "require_citations": {
+                    "type": "boolean"
+                  },
+                  "schema_version": {
+                    "enum": [
+                      1
+                    ],
+                    "type": "integer"
+                  },
+                  "task_class": {
+                    "enum": [
+                      "summarize",
+                      "explain",
+                      "extract"
+                    ],
+                    "type": "string"
+                  },
+                  "task_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "task_id",
+                  "request_key",
+                  "instructions",
+                  "acceptance_criteria",
+                  "query",
+                  "project"
+                ],
+                "type": "object"
+              },
+              "strict": false,
+              "type": "function"
+            }
+          ],
+          "type": "namespace"
+        }
+      ]
+    }
+  ],
+  "handler_receipt": null,
+  "handler_endpoint_receipt_count": null,
+  "catalog_test": "compiled; not executed after core abort",
+  "process_proof": null,
+  "forged_runtime_scope": "public empty binding and metadata-only McpHandler substitution denied",
+  "synthetic_baseline_receipt_count": 5,
+  "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "production_patch_hash_before": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "production_patch_hash_after": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "diagnostic_source_hashes": {
+    "core/src/tools/handlers/mcp.rs": "f9cb44c7dc2e4a1c6a18f00dc363f74d27ac2e47672582ba90af088ec0bb1075",
+    "core/src/mcp_tool_call.rs": "ef27d7ed2ba43deebcb33a88745053cdfbf48bb2b60af5c22797768487da5f5a"
+  },
+  "artifact_files_sha256": {
+    "build.jsonl": "b2b14169af1abecf2295c987debbe1f06e094b56d1d9fb6c4969f920b4d1181c",
+    "build.stderr": "5e6ca85496b325e76cd434ea7d75ace0a93d8bd3e5abc44a609d0a2b9eea502b",
+    "Cargo.lock.original": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+    "codex_core.stderr": "cd1c8e06ec11175458e1a251131c67c0e14f5c46ba05ef79c1c70a7094b0d528",
+    "codex_core.stdout": "5e486e552e0dd85d6c7c1a69acd83ec98c28627b005bcbec1fd2381558bee1c1",
+    "derived-lock-manifest-bindings.json": "c3a46561a4fea37ee56874a51f8d06b9bd84b5b2583560ccc22200b0eb4288c7",
+    "result.json": "d1ddd85b1ea6ac27fcb64eb1fffef1748cf7bc07d915a8250138e50d04eb344b"
+  },
+  "cheap_validation": {
+    "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37225739529",
+    "linux_passed": 377,
+    "linux_skipped": 1,
+    "windows_smoke_passed": 14,
+    "ruff": true,
+    "format": true,
+    "strict_mypy": true,
+    "secret_history_evidence": true,
+    "pinned_rustfmt_1_95": true,
+    "anchor_patch_apply": true,
+    "schema_payload": true,
+    "source_approval_config": true
+  },
+  "previous_build_costs": [
+    {
+      "build_id": "build-001",
+      "seconds": 642.1814258400001,
+      "compile_exit_code": 101
+    },
+    {
+      "build_id": "redundant-build-001",
+      "seconds": 513.23940692,
+      "compile_exit_code": 101
+    },
+    {
+      "build_id": "build-002",
+      "seconds": 727.519144516,
+      "compile_exit_code": 101
+    },
+    {
+      "build_id": "build-003",
+      "seconds": 574.4356849850001,
+      "compile_exit_code": 0
+    },
+    {
+      "build_id": "build-004",
+      "seconds": 664.589927447,
+      "compile_exit_code": 0
+    },
+    {
+      "build_id": "build-005",
+      "seconds": 817.697410516,
+      "compile_exit_code": 0
+    },
+    {
+      "build_id": "build-006",
+      "seconds": 807.2919878069999,
+      "compile_exit_code": 0
+    }
+  ],
+  "rust_build_count_this_revision": 1,
+  "build_008_run": false,
+  "build_006_unchanged": true,
+  "build_006_root_cause_runtime_proven": false,
+  "shipping_runtime_modified": false,
+  "stage_3g_c": "OPEN",
+  "stage_3g": "OPEN",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "total_recorded_compile_seconds_including_007": 5129.133376132
+}

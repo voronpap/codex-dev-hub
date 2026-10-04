@@ -44,3 +44,34 @@ for this tool only. This is a future protocol/config review requirement, not v3.
 One manual build-007 is permitted after cheap gates. No automatic build-008.
 Production classification remains UNKNOWN until actual evidence supports the matrix.
 Stage 3G-C/3G OPEN, execution_ready=false; no Codex/provider/model requests.
+
+## Actual build-007 result: STOP for review
+
+[Manual run](https://github.com/voronpap/codex-dev-hub/actions/runs/37225858504)
+compiled both crates successfully in 382.178388101 seconds. The baseline test
+completed successfully. The adversarial test process aborted with stack overflow
+(SIGABRT, exit -6), not a timeout; there is no final test-suite summary.
+
+Actual pinned runtime observations confirm legacy Auto + absent annotations +
+required=true. Corrected config reports Approve, all three hints null,
+global policy OnRequest, permission profile present, strict_auto_review=false,
+required_by_mode=false. The handler passed retained-call selection, tool-start
+notification, originating-call and approval-decision checkpoints and entered
+approved-call handling and prepared execution. No handler-return or receipt
+observation marker followed. The exact stack-overflow cause remains unknown.
+This does not retroactively prove build-006's timeout root cause.
+
+A/B visibility, lifecycle/schema/Apps subset and adversarial origin/collision/
+forgery/extra-MCP/dynamic-hosted checkpoints passed. Handler dispatch did not
+complete; its receipt count remains unknown. Catalog refresh was compiled but
+not executed after the abort. Process proof remains null. Production classification
+is UNKNOWN. No production patch fix or build-008 was attempted.
+
+Raw receipt and byte-preserved test outputs accompany the
+[assessment](evidence/stage3g-approved-call/build-007-assessment.json), including
+artifact hashes and cumulative compilation costs. Build-006 and earlier evidence
+remain unchanged. Linux full (377 passed, 1 skipped), Windows smoke (14 passed),
+Ruff, formatting, strict mypy and evidence/secret scans passed before this run.
+
+Stage 3G-C and Stage 3G remain OPEN; execution_ready=false. Real Codex executions
+and provider sends remain zero. No protocol revision, rehearsal or benchmark.
