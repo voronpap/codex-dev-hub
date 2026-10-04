@@ -41,7 +41,8 @@ fixture execution. This tests isolation infrastructure, not benchmark quality.
 ## README maintenance
 
 Update the public README when a major stage closes, user-visible architecture or
-provider support materially changes, benchmark results become available, setup/
+provider support materially changes, a coding-agent integration becomes real,
+benchmark results become available, setup/
 start commands change, or the current milestone changes. Verify claims against
 accepted code, stage records and evidence; distinguish implementation from runtime
 qualification and benchmark findings. Keep PR/build/debug history in docs/evidence
