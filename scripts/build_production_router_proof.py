@@ -232,9 +232,18 @@ def main():
             return matches[0]
 
         exact = {
-            "baseline": ("codex_core", exact_name("codex_core", "devhub_production_admission_path")),
-            "handler": ("codex_core", exact_name("codex_core", "devhub_production_admission_path_adversarial")),
-            "catalog": ("codex_mcp", exact_name("codex_mcp", "devhub_production_admission_path_catalog")),
+            "baseline": (
+                "codex_core",
+                exact_name("codex_core", "devhub_production_admission_path"),
+            ),
+            "handler": (
+                "codex_core",
+                exact_name("codex_core", "devhub_production_admission_path_adversarial"),
+            ),
+            "catalog": (
+                "codex_mcp",
+                exact_name("codex_mcp", "devhub_production_admission_path_catalog"),
+            ),
         }
         receipt["exact_test_names"] = {key: value[1] for key, value in exact.items()}
         receipt["test_runs"] = []
