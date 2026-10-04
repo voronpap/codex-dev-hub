@@ -1,5 +1,7 @@
 """Disposable test-only observations; never edit the shipping Candidate B patch."""
 
+# ruff: noqa: E501
+
 import hashlib
 from pathlib import Path
 
