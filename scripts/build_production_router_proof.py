@@ -51,7 +51,11 @@ def main():
     test_name = "production_router_test.rs"
     test_filter = "devhub_production_admission_path"
     test = (repo / "scripts" / test_name).read_bytes()
-    target.write_bytes(original + b"\n" + test)
+    adversarial = (repo / "scripts/production_router_adversarial_test.rs").read_bytes()
+    catalog_test = (repo / "scripts/production_catalog_test.rs").read_bytes()
+    target.write_bytes(original + b"\n" + test + b"\n" + adversarial)
+    catalog_target = root / "codex-mcp/src/binding.rs"
+    catalog_target.write_bytes(catalog_target.read_bytes() + b"\n" + catalog_test)
     metadata = (repo / "docs/evidence/stage3g-full-router/metadata.json").read_bytes()
     target.with_name("devhub_metadata.json").write_bytes(metadata)
     schema = (
@@ -60,6 +64,8 @@ def main():
     target.with_name("devhub_real_schema.json").write_bytes(schema)
     payload = (repo / "patches/stage3g-approved-call/synthetic-payload.json").read_bytes()
     target.with_name("devhub_synthetic_payload.json").write_bytes(payload)
+    catalog_target.with_name("devhub_real_schema.json").write_bytes(schema)
+    catalog_target.with_name("devhub_synthetic_payload.json").write_bytes(payload)
     environment = dict(
         os.environ,
         DEVHUB_SYNTHETIC_MCP=str(repo / "scripts/synthetic_approved_mcp.py"),
@@ -76,6 +82,8 @@ def main():
         "--locked",
         "-p",
         "codex-core",
+        "-p",
+        "codex-mcp",
         "--lib",
         test_filter,
         "--no-run",
@@ -101,7 +109,9 @@ def main():
                 timed_out = True
     receipt = {
         "source_commit": COMMIT,
-        "build_id": "build-005",
+        "build_id": "build-006",
+        "adversarial_sha256": hashlib.sha256(adversarial).hexdigest(),
+        "catalog_test_sha256": hashlib.sha256(catalog_test).hexdigest(),
         "payload_sha256": hashlib.sha256(payload).hexdigest(),
         "archive_sha256": ARCHIVE,
         "test_sha256": hashlib.sha256(test).hexdigest(),
@@ -137,19 +147,19 @@ def main():
             json.loads(line)
             for line in (args.output.parent / "build.jsonl").read_bytes().splitlines()
         ]
-        binaries = [
-            e["executable"]
+        binaries = {
+            e["target"]["name"]: e["executable"]
             for e in events
             if e.get("reason") == "compiler-artifact"
             and e.get("executable")
-            and e.get("target", {}).get("name") == "codex_core"
-        ]
-        assert len(binaries) == 1
-        receipt["test_binary_sha256"] = hashlib.sha256(Path(binaries[0]).read_bytes()).hexdigest()
-        # Root is used only to create an isolated network namespace, then drop to runner UID.
-        test_started = time.monotonic()
-        run = subprocess.run(
-            [
+            and e.get("target", {}).get("name") in {"codex_core", "codex_mcp"}
+        }
+        assert set(binaries) == {"codex_core", "codex_mcp"}
+        receipt["test_runs"] = []
+        for crate in ["codex_core", "codex_mcp"]:
+            binary = binaries[crate]
+            test_started = time.monotonic()
+            command = [
                 "sudo",
                 "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA",
                 "unshare",
@@ -159,23 +169,51 @@ def main():
                 f"--reuid={os.getuid()}",
                 f"--regid={os.getgid()}",
                 "--init-groups",
-                binaries[0],
+                binary,
                 test_filter,
                 "--nocapture",
-            ],
-            cwd=root,
-            env=environment,
-            capture_output=True,
-            timeout=120,
+                "--test-threads=1",
+            ]
+            try:
+                run = subprocess.run(
+                    command,
+                    cwd=root,
+                    env=environment,
+                    capture_output=True,
+                    timeout=120,
+                    check=False,
+                )
+                stdout, stderr, exit_code = run.stdout, run.stderr, run.returncode
+                test_timeout = False
+            except subprocess.TimeoutExpired as error:
+                stdout, stderr, exit_code = error.stdout or b"", error.stderr or b"", None
+                test_timeout = True
+            (args.output.parent / f"{crate}.stdout").write_bytes(stdout)
+            (args.output.parent / f"{crate}.stderr").write_bytes(stderr)
+            receipt["test_runs"].append(
+                {
+                    "crate": crate,
+                    "exit_code": exit_code,
+                    "timed_out": test_timeout,
+                    "duration_seconds": time.monotonic() - test_started,
+                    "binary_sha256": hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+                }
+            )
+            for line in stdout.decode(errors="replace").splitlines():
+                for prefix, key in [
+                    ("DEVHUB_ROUTER_PROOF=", "proof"),
+                    ("DEVHUB_ADVERSARIAL_PROOF=", "adversarial_proof"),
+                    ("DEVHUB_CATALOG_PROOF=", "catalog_proof"),
+                ]:
+                    if line.startswith(prefix):
+                        receipt[key] = json.loads(line.split("=", 1)[1])
+            if exit_code != 0:
+                break  # Preserve failure; no remaining test run or retry.
+        receipt["actual_pinned_router_code"] = (
+            len(receipt["test_runs"]) == 2
+            and all(run["exit_code"] == 0 for run in receipt["test_runs"])
+            and all(key in receipt for key in ["proof", "adversarial_proof", "catalog_proof"])
         )
-        (args.output.parent / "test.stdout").write_bytes(run.stdout)
-        (args.output.parent / "test.stderr").write_bytes(run.stderr)
-        receipt["test_exit_code"] = run.returncode
-        receipt["test_duration_seconds"] = time.monotonic() - test_started
-        for line in run.stdout.decode().splitlines():
-            if line.startswith("DEVHUB_ROUTER_PROOF="):
-                receipt["proof"] = json.loads(line.split("=", 1)[1])
-        receipt["actual_pinned_router_code"] = run.returncode == 0 and "proof" in receipt
     with args.output.open("x", encoding="utf-8") as stream:
         json.dump(receipt, stream, indent=2)
         stream.write("\n")
