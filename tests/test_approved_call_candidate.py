@@ -96,3 +96,57 @@ def test_permission_materialization_precedes_runtime_publication() -> None:
     assert "environment.permission_profile_with_workspace_roots()" in harness
     assert "assert!(present)" in harness
     assert '"DEVHUB_PERMISSION_DIAGNOSTIC={}"' in harness
+
+
+
+def test_build008_diagnostic_contract_is_single_build_and_reusable() -> None:
+    runner = (REPO / "scripts/build_production_router_proof.py").read_text(encoding="utf-8")
+    assert '"build_id": "build-008"' in runner
+    assert runner.count('"cargo",\n        "test"') == 1
+    assert "--no-run" in runner
+    assert "runtime-artifacts" in runner
+    assert "binary-manifest.json" in runner
+    assert "--exact" in runner
+    assert "RUST_BACKTRACE" in runner
+    assert "RUST_MIN_STACK" in runner
+    assert "handler-large-stack" in runner
+    assert "devhub_production_admission_path_catalog" in runner
+
+
+def test_build008_inner_checkpoint_plan_is_implemented() -> None:
+    instrumentation = (REPO / "scripts/instrument_approval_proof.py").read_text(encoding="utf-8")
+    for marker in [
+        "preparation_closure_entered",
+        "approval_application_enter",
+        "approval_application_exit",
+        "memory_pollution_enter",
+        "memory_pollution_exit",
+        "rewrite_args_enter",
+        "rewrite_args_exit",
+        "request_meta_build_enter",
+        "request_meta_build_exit",
+        "request_ids_enter",
+        "request_ids_exit",
+        "sandbox_meta_enter",
+        "sandbox_meta_exit",
+        "trace_enter",
+        "trace_exit",
+        "add_request_meta_enter",
+        "add_request_meta_exit",
+        "trusted_access_context_enter",
+        "trusted_access_context_exit",
+        "transport_call_enter",
+        "transport_call_return",
+    ]:
+        assert marker in instrumentation
+
+
+def test_build008_receipts_are_persistent_and_fsynced() -> None:
+    adversarial = (REPO / "scripts/production_router_adversarial_test.rs").read_text(
+        encoding="utf-8"
+    )
+    catalog = (REPO / "scripts/production_catalog_test.rs").read_text(encoding="utf-8")
+    synthetic = (REPO / "scripts/synthetic_approved_mcp.py").read_text(encoding="utf-8")
+    assert 'std::env::var("DEVHUB_PROOF_RECEIPT")' in adversarial
+    assert 'std::env::var("DEVHUB_PROOF_RECEIPT")' in catalog
+    assert "os.fsync(stream.fileno())" in synthetic
