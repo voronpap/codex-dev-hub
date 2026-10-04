@@ -36,7 +36,8 @@ def create_delegation_server(runtime: DelegationRuntime) -> MCPServer:
         ctx: ServerRequestContext[Any, Any], call_next: CallNext
     ) -> HandlerResult:
         result = await boundary(ctx, call_next)
-        mode = runtime.config.telemetry_footer
+        config = getattr(runtime, "config", None)
+        mode = config.telemetry_footer if isinstance(config, DelegationConfig) else "off"
         if (
             mode == "off"
             or ctx.method != "tools/call"
