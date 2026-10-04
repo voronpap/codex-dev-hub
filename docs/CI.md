@@ -37,3 +37,13 @@ for release tags, not arbitrary repository tags. Manual full runs remain availab
 Stage 3G-B adds a Linux-only synthetic OCI boundary probe after pytest. It uses a
 locally built FROM-scratch static program, no image pull, Codex, provider, or benchmark
 fixture execution. This tests isolation infrastructure, not benchmark quality.
+
+## README maintenance
+
+Update the public README when a major stage closes, user-visible architecture or
+provider support materially changes, benchmark results become available, setup/
+start commands change, or the current milestone changes. Verify claims against
+accepted code, stage records and evidence; distinguish implementation from runtime
+qualification and benchmark findings. Keep PR/build/debug history in docs/evidence
+and stage runbooks rather than the project front page. Documentation changes do
+not authorize a live probe, benchmark or expensive Rust proof run.
