@@ -1,6 +1,6 @@
 # Role-aware orchestration: minimal extension proposal
 
-Status: PROPOSED — review before implementation. No production change, new framework,
+Status: ACCEPTED DESIGN ONLY — role runtime deferred until after current Stage 3G. No production change, new framework,
 provider call, protocol revision, benchmark execution or Stage 3G closure.
 
 ## 1. Decision and evidence basis
@@ -353,9 +353,10 @@ work before activating a changed orchestration strategy in measured runs.
 
 1. **Now: design only.** Approve vocabulary, invariants, role permission/context tables
    and default-main behavior. No new runtime components.
-2. **After review: small offline slice.** Static RoleProfile table, TaskRouteDecision
-   DTO and deterministic policy tests. Main plus read-only explorer/optional advisor/
-   reviewer templates using current summary/citation output. No model role-classifier,
+2. **Only after current Stage 3G completes and separate implementation approval:**
+   static RoleProfile table, TaskRouteDecision DTO and deterministic policy tests.
+   First executable slice: main + explorer only. Advisor/reviewer are later optional
+   slices, not part of the initial activation. No model role-classifier,
    new worker process, recursive calls or public MCP schema widening by default.
 3. **Observability slice.** Parent correlation + bounded manifest/tree projection,
    outbox-compatible lifecycle records; preserve current task usage semantics.
@@ -420,3 +421,53 @@ Final recommendation: preserve direct Codex execution as the default. Introduce 
 as small, optional context/permission contracts; select providers independently and
 reuse the current safety/accounting path. Demonstrate value before making any role
 part of the normal workflow. No implementation is authorized by this document.
+
+## 14. Accepted sequencing and clarification (PR #40 review)
+
+Role architecture design is ACCEPTED. Role runtime implementation is DEFERRED UNTIL
+AFTER CURRENT STAGE 3G. No runtime slice, including an offline task router, is being
+implemented now. Current production admission/dispatch qualification comes first,
+then the current frozen A/B evidence. Roles cannot enter that measured workflow.
+
+RoleProfile = bounded task contract + allowed context + allowed effects + capability
+requirements + output contract + budgets. It does not inherently create a process,
+model, provider, memory store or agent loop. Explorer can use existing one-shot
+execution. Do not introduce process-per-role infrastructure.
+
+The future pure route_task(input) returns main/delegate/clarify/denied. It performs
+no inference, network/provider probe, reservation or ledger mutation. Where needed,
+consume only a trusted abstract capability/resource availability snapshot:
+validated task → hard policy/privacy → role eligibility → available capability
+classes → main or bounded role → existing provider admission. A stale snapshot
+cannot authorize quota; ResourceController still performs actual atomic admission.
+
+First eventual role: explorer with bounded query, allowed project/source classes,
+context budget; ranked paths/symbols, evidence IDs, missing evidence and limitations.
+No commands, web, writes, child delegation or new worker process. Advisor critiques
+plans; reviewer checks produced results. Neither is a mandatory sequential step.
+Reviewer independence records factual same_context/fresh_context/different_provider/
+different_model observations, not a claim of statistical independence.
+
+Researcher remains gated on Stage 4: domain allowlist, SSRF/redirect controls,
+download/content limits, injection treatment, provenance/observation dates and
+privacy/export review. Model memory is not external research. Writable worker stays
+behind Stage 5 workspace authority (project/base/worktree/path/command/network/time/
+resource limits), with no Docker socket, arbitrary host shell, secrets, main/state/
+ledger/sibling writes, automatic merge or push.
+
+ExecutionNode remains future derived orchestration metadata, reusing task/request/
+reservation/event/package IDs and authoritative usage. No second accounting store.
+Dedupe attempts; separate Codex/delegated/cached counters; preserve unknown children;
+parallel duration is not summed wall time. Whole-response savings requires a
+whole-response baseline. Current UsageSummaryV1 remains delegation_task with
+route_complete=false; tree coverage requires a separately reviewed extension.
+
+Decision Fork does not inherently create an agent/call/node. Unknown benefit selects
+main unless explicitly running a reviewed experiment. Keep quality, latency, cost
+and lower-bound benefit separate with thresholds frozen before evaluation. Strategy
+Registry, recursive loops and generic frameworks remain future-only.
+
+Executable delegation and frozen fixtures/oracles/protocol remain unchanged. PR #34
+remains UNKNOWN / Stage 3G-C OPEN / execution_ready=false. Build-007 compile/baseline
+PASS, adversarial stack overflow after prepared_execution_entered, root cause UNKNOWN.
+Candidate B patch remains frozen; build-008 NOT RUN. No v3, rehearsal or benchmark.

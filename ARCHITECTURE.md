@@ -61,4 +61,5 @@ For delegated operations record route reason, provider/tool/agent, latency, quot
 
 The [role-aware orchestration proposal](docs/ROLE_ORCHESTRATION_PROPOSAL.md)
 separates task/role selection from provider routing while reusing the existing core.
-It is a design for review, not implemented behavior or a Stage 3G scope change.
+It is accepted design only. Role runtime is deferred until after current Stage 3G
+completion and separate implementation approval; current executable behavior is unchanged.
