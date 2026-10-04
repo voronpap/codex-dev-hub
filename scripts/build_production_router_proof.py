@@ -222,11 +222,14 @@ def main():
             )
             (artifact_dir / f"{crate}-tests.txt").write_text(listed.stdout, encoding="utf-8")
             return [
-                line[:-6] for line in listed.stdout.splitlines() if line.endswith(": test")
+                line[:-6]
+                for line in listed.stdout.splitlines()
+                if line.endswith(": test")
             ]
 
         test_names = {
-            crate: list_tests(crate, binary) for crate, binary in preserved.items()
+            crate: list_tests(crate, binary)
+            for crate, binary in preserved.items()
         }
 
         def exact_name(crate, short):
@@ -288,7 +291,12 @@ def main():
         )
 
         def run_exact(
-            label, crate, full_name, *, backtrace=False, min_stack=None
+            label,
+            crate,
+            full_name,
+            *,
+            backtrace=False,
+            min_stack=None,
         ):
             binary = preserved[crate]
             run_env = dict(environment)
@@ -331,7 +339,11 @@ def main():
                 stdout, stderr, exit_code = result.stdout, result.stderr, result.returncode
                 did_timeout = False
             except subprocess.TimeoutExpired as error:
-                stdout, stderr, exit_code = error.stdout or b"", error.stderr or b"", None
+                stdout, stderr, exit_code = (
+                    error.stdout or b"",
+                    error.stderr or b"",
+                    None,
+                )
                 did_timeout = True
             duration = time.monotonic() - started
             (artifact_dir / f"{label}.stdout").write_bytes(stdout)
@@ -363,7 +375,9 @@ def main():
 
         baseline_crate, baseline_name = exact["baseline"]
         baseline = run_exact("baseline", baseline_crate, baseline_name)
-        receipt["baseline_passed"] = baseline["exit_code"] == 0 and not baseline["timed_out"]
+        receipt["baseline_passed"] = (
+            baseline["exit_code"] == 0 and not baseline["timed_out"]
+        )
 
         if receipt["baseline_passed"]:
             handler_crate, handler_name = exact["handler"]
@@ -396,7 +410,9 @@ def main():
             and "adversarial_proof" in receipt
         )
         receipt["catalog_refresh_after_preparation"] = bool(
-            catalog and catalog["exit_code"] == 0 and "catalog_proof" in receipt
+            catalog
+            and catalog["exit_code"] == 0
+            and "catalog_proof" in receipt
         )
         receipt["process_proof"] = None
         receipt["actual_pinned_router_code"] = bool(
