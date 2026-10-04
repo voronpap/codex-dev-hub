@@ -112,3 +112,32 @@ E0728, 513.23940692 seconds. Both preserved, total failed compilation time
 next authorized meaningful build, manually dispatched only after all cheap gates
 and normal Linux/Windows-smoke CI pass. No automatic build-003. Record actual
 result and STOP for review even if this subset passes.
+
+## Actual corrected build-002 outcome — STOP for review
+
+Manual run [37204375041](https://github.com/voronpap/codex-dev-hub/actions/runs/37204375041)
+at implementation `8e5b159b1c4fdc3b824b57c02a9d76fa955ac641` failed compilation
+(exit 101, no timeout) after 727.519144516 seconds. Five E0599 errors in the
+proof harness call `ExtensionData::default()`, absent from this pinned API.
+Diagnostics identify `ExtensionData::new` and `new_with_init` as constructors.
+This is an IMPLEMENTATION_ERROR (pinned API mismatch), not an architecture
+blocker. E0728 is absent from this run, but that does not establish a passing
+production build or runtime proof. No test binary executed.
+
+Raw receipt is `build-002.json`; all five compiler diagnostics are preserved in
+`build-002-errors.json`; assessment and artifact hashes are in
+`build-002-assessment.json`. Historical build-001, redundant-build-001 and the
+original result snapshot are unchanged. Three compilation attempts total
+1882.939977276 seconds, including the historical redundant run.
+
+Cheap validation before dispatch passed: pinned patch/anchor/hash checks,
+rustfmt, source lifecycle and lock-order audit, real schema and synthetic wire
+payload, Ruff/format/strict mypy and evidence scans. Normal CI 37204281003 passed
+374 Linux tests (one skipped) and 14 Windows smoke tests. These checks do not
+substitute for the failed Rust proof. All compiled production matrix results
+and process proof remain null.
+
+Production classification remains UNKNOWN; Stage 3G-C and Stage 3G OPEN;
+execution_ready=false; real_codex_executions=0; provider_sends=0. No correction
+to the newly discovered test API mismatch and no build-003 were attempted.
+Further implementation requires review. No protocol v3, rehearsal or benchmark.
