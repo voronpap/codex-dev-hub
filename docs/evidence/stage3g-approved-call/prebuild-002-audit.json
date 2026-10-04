@@ -1,0 +1,153 @@
+{
+  "classification": "SOURCE_AUDIT_REVIEW_REQUIRED",
+  "production_classification": "UNKNOWN",
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "audited_implementation_commit": "d83472b",
+  "build_001": {
+    "classification": "compile_failure",
+    "reason": "async API mismatch",
+    "cause": "IMPLEMENTATION_ERROR",
+    "preserved": true
+  },
+  "build_002": {
+    "status": "NOT_RUN",
+    "reason": "additional client publication path and shutdown/publication synchronization require review before build"
+  },
+  "source_records": [
+    {
+      "path": "codex-rs/codex-mcp/src/runtime.rs",
+      "sha256": "c6adafbf150388215efa3822745b3d2adfb534d3ebaa766f64266acd7e04db19",
+      "excerpts": [
+        {
+          "start": 276,
+          "end": 359,
+          "text": "    pub async fn new(input: McpRuntimeInput) -> Self {\n        let runtime = Self::empty(input.config.prefix_mcp_tool_names);\n        runtime.replace(input).await;\n        runtime\n    }\n\n    /// Reconciles configured servers and publishes their immutable runtime snapshot.\n    pub async fn replace(&self, input: McpRuntimeInput) {\n        let current = self.current.load_full();\n        let mut reconnect = McpReconnectGuard {\n            pending: &self.reconnect_pending,\n            claimed: self.reconnect_pending.swap(false, Ordering::AcqRel),\n        };\n        self.publish(\n            input,\n            (!reconnect.claimed).then_some(current.connections.as_ref()),\n        )\n        .await;\n        reconnect.claimed = false;\n    }\n\n    /// Starts fresh connections and returns their complete, refreshed Apps catalog.\n    pub async fn replace_fresh(&self, input: McpRuntimeInput) -> anyhow::Result<Vec<ToolInfo>> {\n        self.publish(input, /*previous*/ None).await;\n        self.latest_hard_refresh_codex_apps_tools_cache().await\n    }\n\n    async fn publish(&self, input: McpRuntimeInput, previous: Option<&McpConnectionSet>) {\n        let (publish, publication_gate) = McpPublicationGate::pending();\n        let config = Arc::clone(&input.config);\n        let auth = input.auth.clone();\n        let auth_token = auth.as_ref().and_then(|auth| auth.get_token().ok());\n        let plugins_available = input.plugins_available;\n        let ready_selected_capability_roots = input.ready_selected_capability_roots.clone();\n        let selected_environments = input.runtime_context.selected_environments.clone();\n        let connections = Arc::new(\n            McpConnectionSet::new(\n                previous,\n                publication_gate,\n                input,\n                self.elicitation_router.clone(),\n            )\n            .await,\n        );\n        let hosted_event_server_retained = connections.contains_server(CODEX_APPS_MCP_SERVER_NAME)\n            && config\n                .mcp_server_catalog\n                .server(CODEX_APPS_MCP_SERVER_NAME)\n                .is_some_and(|registration| {\n                    registration\n                        .source()\n                        .is_host_owned_apps(CODEX_APPS_MCP_SERVER_NAME, registration.config())\n                });\n        let mut cancellation = self\n            .event_stream_cancellation\n            .lock()\n            .unwrap_or_else(std::sync::PoisonError::into_inner);\n        self.current.store(Arc::new(PublishedMcpRuntime {\n            connections,\n            config: Some(config),\n            auth,\n            auth_token,\n            plugins_available,\n            ready_selected_capability_roots,\n            selected_environments,\n            cached_binding: Mutex::new(None),\n        }));\n        let _ = publish.send(true);\n        cancellation.event_server_available = hosted_event_server_retained;\n        if !hosted_event_server_retained {\n            cancellation\n                .cancel_event_streams_on_server_removal\n                .send_replace(());\n            if let Some(retained) = &cancellation.retained_subscription_cancellation {\n                retained.send_replace(());\n            }\n        }\n    }\n\n    /// Ensures the next refresh creates fresh connections for every configured server.\n    pub fn reconnect_on_next_refresh(&self) {\n        self.reconnect_pending.store(true, Ordering::Release);\n    }\n"
+        },
+        {
+          "start": 381,
+          "end": 435,
+          "text": "    async fn binding_from_published_runtime(\n        current: Arc<PublishedMcpRuntime>,\n        required_servers: &[String],\n        required_plugins: &HashSet<String>,\n    ) -> Option<Arc<McpBinding>> {\n        let config = Arc::clone(current.config.as_ref()?);\n        let stable_catalog_revisions = current\n            .connections\n            .stable_catalog_revisions(required_servers, required_plugins)\n            .await;\n        if let Some(catalog_revisions) = &stable_catalog_revisions {\n            let cached = current\n                .cached_binding\n                .lock()\n                .unwrap_or_else(std::sync::PoisonError::into_inner);\n            if let Some(cached) = cached.as_ref()\n                && &cached.catalog_revisions == catalog_revisions\n                && let Some(binding) = cached.binding.upgrade()\n            {\n                return Some(binding);\n            }\n        }\n\n        let binding = Arc::new(\n            current\n                .connections\n                .capture_binding_with_metadata(\n                    config,\n                    current.plugins_available,\n                    required_servers,\n                    required_plugins,\n                )\n                .await,\n        );\n        if let Some(catalog_revisions) = stable_catalog_revisions\n            && current\n                .connections\n                .stable_catalog_revisions(required_servers, required_plugins)\n                .await\n                .as_ref()\n                == Some(&catalog_revisions)\n        {\n            let mut cached = current\n                .cached_binding\n                .lock()\n                .unwrap_or_else(std::sync::PoisonError::into_inner);\n            if let Some(cached) = cached.as_ref()\n                && cached.catalog_revisions == catalog_revisions\n                && let Some(binding) = cached.binding.upgrade()\n            {\n                return Some(binding);\n            }\n            *cached = Some(CachedMcpBinding {\n                catalog_revisions,\n                binding: Arc::downgrade(&binding),"
+        },
+        {
+          "start": 552,
+          "end": 574,
+          "text": "    pub async fn latest_hard_refresh_codex_apps_tools_cache(\n        &self,\n    ) -> anyhow::Result<Vec<ToolInfo>> {\n        self.latest_connections()\n            .refresh_codex_apps_tools_for_discovery()\n            .await\n    }\n\n    /// Refreshes the published Apps client and returns its exact inventory and MCP eligibility.\n    pub async fn refresh_codex_apps_tools(&self) -> anyhow::Result<CodexAppsToolSnapshot> {\n        let current = self.current.load_full();\n        let config = current\n            .config\n            .as_deref()\n            .ok_or_else(|| anyhow::anyhow!(\"MCP runtime is not configured\"))?;\n        current\n            .connections\n            .refresh_codex_apps_client_catalog(config)\n            .await\n    }\n\n    /// Lists the latest known tools for non-model discovery surfaces.\n    ///"
+        },
+        {
+          "start": 716,
+          "end": 718,
+          "text": "    pub async fn shutdown(&self) {\n        self.latest_connections().shutdown().await;\n    }"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/codex-mcp/src/rmcp_client.rs",
+      "sha256": "77826ddf666bc43f4bcc0a730cac8c175e187215643b6eced1dcfe6d2c059744",
+      "excerpts": [
+        {
+          "start": 207,
+          "end": 263,
+          "text": "            .current_client\n            .clone()\n    }\n\n    fn reconnect_in_background(self: &Arc<Self>) {\n        {\n            let mut state = self\n                .state\n                .lock()\n                .unwrap_or_else(std::sync::PoisonError::into_inner);\n            if state.current_client.is_some() || state.reconnect_in_flight {\n                return;\n            }\n            if state\n                .retry_not_before\n                .is_some_and(|retry_not_before| TokioInstant::now() < retry_not_before)\n            {\n                return;\n            }\n            state.reconnect_in_flight = true;\n        }\n\n        let reconnect = Arc::clone(self);\n        tokio::spawn(async move {\n            let result = (reconnect.factory)().await;\n            let startup_status_context = reconnect.startup_status_context.clone();\n            let recovered = {\n                let mut state = reconnect\n                    .state\n                    .lock()\n                    .unwrap_or_else(std::sync::PoisonError::into_inner);\n                state.reconnect_in_flight = false;\n                match result {\n                    Ok(client) => {\n                        state.current_client = Some(client);\n                        state.last_error = None;\n                        state.consecutive_failures = 0;\n                        state.retry_not_before = None;\n                        true\n                    }\n                    Err(error) => {\n                        state.last_error = Some(error.clone());\n                        state.consecutive_failures = state.consecutive_failures.saturating_add(1);\n                        let retry_after = codex_apps_reconnect_backoff(state.consecutive_failures);\n                        state.retry_not_before = Some(TokioInstant::now() + retry_after);\n                        warn!(\n                            error = %error,\n                            retry_after_ms = retry_after.as_millis(),\n                            \"Apps MCP startup reconnect failed; continuing with cached tools\"\n                        );\n                        false\n                    }\n                }\n            };\n\n            if recovered && let Some(context) = startup_status_context {\n                let _ = context"
+        },
+        {
+          "start": 508,
+          "end": 522,
+          "text": "                        reconnect_tx_event,\n                    ),\n            )\n        });\n        Self {\n            client,\n            is_codex_apps_mcp_server,\n            cached_server_info,\n            server_capabilities,\n            codex_apps_tools_cache_context,\n            tool_catalog_cache_context,\n            startup_complete,\n            startup_reconnect,\n            cancel_token,\n        }"
+        },
+        {
+          "start": 539,
+          "end": 578,
+          "text": "        self.startup_reconnect\n            .as_ref()\n            .and_then(|reconnect| reconnect.current_client())\n            .or_else(|| {\n                self.client\n                    .peek()\n                    .and_then(|result| result.as_ref().ok())\n                    .cloned()\n            })\n    }\n\n    pub(crate) fn ready_transport(&self) -> Option<Arc<RmcpClient>> {\n        self.ready_client().map(|client| client.client)\n    }\n\n    pub(crate) async fn reconnect_failed_startup(&self) {\n        let Some(startup_reconnect) = self.startup_reconnect.as_ref() else {\n            return;\n        };\n        if !self.startup_complete.load(Ordering::Acquire) {\n            return;\n        }\n        if matches!(self.client().await, Err(StartupOutcomeError::Failed { .. })) {\n            startup_reconnect.reconnect_in_background();\n        }\n    }\n\n    pub(crate) async fn shutdown(&self) {\n        self.cancel_token.cancel();\n        match self.client().await {\n            Ok(client) => client.client.shutdown().await,\n            Err(StartupOutcomeError::Cancelled) => {}\n            Err(error) => {\n                warn!(\"failed to initialize MCP client during shutdown: {error:#}\");\n            }\n        }\n    }\n\n    pub(crate) fn has_cached_tools(&self) -> bool {\n        self.codex_apps_tools_cache_context"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/codex-mcp/src/client_tool_catalog.rs",
+      "sha256": "c2872ff795348220e40911f4ba91cff95fa3ebc07c7051d7e62a423a333d1a93",
+      "excerpts": [
+        {
+          "start": 148,
+          "end": 200,
+          "text": "    pub(crate) async fn refresh<C, R, F, Fut, P>(&self, fetch: F, publish: P) -> Result<R>\n    where\n        F: FnOnce() -> Fut,\n        Fut: Future<Output = Result<(Vec<ToolInfo>, C)>>,\n        P: FnOnce(&[ToolInfo], C) -> R,\n    {\n        let _refresh = self.refresh_lock.lock().await;\n        let (tools, context) = fetch().await?;\n        let mut current = self.current.write().await;\n        let result = publish(&tools, context);\n        match &mut current.source {\n            CatalogSource::Local(current_tools) => *current_tools = tools.into(),\n            CatalogSource::Live {\n                updates,\n                tools_version,\n            } => {\n                *tools_version = updates\n                    .borrow_and_update()\n                    .as_ref()\n                    .map_or(0, |snapshot| snapshot.tools_version());\n            }\n        }\n        current.revision += 1;\n        current.last_refresh_revision = current.revision;\n        Ok(result)\n    }\n\n    /// Reject stale calls before preparation and hold catalog authority until execution finishes.\n    #[expect(\n        clippy::await_holding_invalid_type,\n        reason = \"catalog publication must wait for call preparation and execution\"\n    )]\n    pub(crate) async fn run_with_snapshot<R, F, Fut>(\n        &self,\n        expected: &ToolCatalogSnapshot,\n        run: F,\n    ) -> Option<R>\n    where\n        F: FnOnce() -> Fut,\n        Fut: Future<Output = R>,\n    {\n        let (current, snapshot) = self.read_current().await;\n        if current.last_refresh_revision > expected.revision\n            || (snapshot.revision != expected.revision\n                && !catalogs_match(&snapshot.tools, &expected.tools))\n        {\n            return None;\n        }\n        let result = run().await;\n        drop(current);\n        Some(result)\n    }\n}"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/codex-mcp/src/connection_manager/tool_catalog.rs",
+      "sha256": "a7fc2ca068411156d0e79c0550d879031b9c5682e81bb0c707a508a5b0897ecc",
+      "excerpts": [
+        {
+          "start": 289,
+          "end": 330,
+          "text": "                .startup_complete\n                .load(Ordering::Acquire)\n            {\n                (None, view.connection.client.cached_tools_or(cached_tools)?)\n            } else {\n                view.connection.client.reconnect_failed_startup().await;\n                let Ok(mut client) = view.connection.client().await else {\n                    trace!(server_name = %server_name, \"omitting MCP server without an exact ready client\");\n                    return None;\n                };\n                client.tool_timeout = view.tool_timeout;\n                let snapshot = client.tool_catalog.read(Arc::new).await;\n                let server_tools = snapshot.tools.to_vec();\n                (Some((Arc::new(client), snapshot)), server_tools)\n            };\n            let server_tools = filter_tools(server_tools, &view.tool_filter);\n            let server_tools = if server_name == CODEX_APPS_MCP_SERVER_NAME {\n                prepare_codex_apps_tools_for_model(server_tools, &self.tool_plugin_context)\n            } else {\n                crate::rmcp_client::prepare_regular_mcp_tools_for_model(\n                    server_tools,\n                    &self.tool_plugin_context,\n                )\n            };\n            let server_tools = server_tools\n                .into_iter()\n                .map(|mut tool| {\n                    if client.is_none()\n                        && let Some(annotations) = tool.tool.annotations.as_mut()\n                    {\n                        annotations.read_only_hint = None;\n                    }\n                    Self::with_server_metadata(tool, &view.metadata)\n                })\n                .collect::<Vec<_>>();\n            Some((server_name.clone(), client, server_tools))\n        }))\n        .await;\n        for (server_name, client, server_tools) in server_results.into_iter().flatten() {\n            if let Some((client, snapshot)) = client {\n                clients.insert(server_name, (client, snapshot));\n            }"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/core/src/session/mcp.rs",
+      "sha256": "36e29e5c0dbba40fe50eb0f0ebf6c1437976e79ad532661b24dbef7aa59eabb6",
+      "excerpts": [
+        {
+          "start": 658,
+          "end": 726,
+          "text": "    pub(crate) async fn refresh_mcp_servers_now(\n        &self,\n        turn_context: &TurnContext,\n        refresh_config: &Config,\n        elicitation_reviewer: Option<ElicitationReviewerHandle>,\n    ) {\n        let Ok(_refresh) = self.mcp_refresh.acquire().await else {\n            error!(\"MCP runtime refresh semaphore closed\");\n            return;\n        };\n        let auth = self.services.auth_manager.auth().await;\n        let disabled_plugin_ids = {\n            let mut state = self.state.lock().await;\n            let mut config = (*state.session_configuration.original_config_do_not_use).clone();\n            config.mcp_servers = refresh_config.mcp_servers.clone();\n            state.session_configuration.original_config_do_not_use = Arc::new(config);\n            state.active_disabled_plugin_ids.clone()\n        };\n        let ready_selected_capability_roots = self\n            .services\n            .mcp_runtime\n            .current_ready_selected_capability_roots();\n        let environments = self.services.turn_environments.snapshot().await;\n        let executor_capability_discovery = self\n            .executor_capability_discovery_for_step(\n                refresh_config,\n                &ready_selected_capability_roots,\n                &environments,\n            )\n            .await;\n        let mcp_projection = self\n            .services\n            .mcp_manager\n            .runtime_config_for_step(\n                refresh_config,\n                &self.services.mcp_thread_init,\n                &self.services.thread_extension_data,\n                McpThreadIdentity {\n                    session_source: &turn_context.session_source,\n                    originator: &turn_context.originator,\n                    disabled_plugin_ids: &disabled_plugin_ids,\n                    environments: McpEnvironmentScope::Live(&self.services.turn_environments),\n                },\n                &ready_selected_capability_roots,\n                executor_capability_discovery.as_deref(),\n            )\n            .await;\n        let mut desired = self.latest_mcp_desired_state(auth).await;\n        desired.config = Arc::new(refresh_config.clone());\n        self.publish_mcp_runtime(\n            &desired,\n            mcp_projection,\n            &ready_selected_capability_roots,\n            elicitation_reviewer,\n        )\n        .await;\n    }\n\n    pub(crate) fn ready_selected_capability_roots(\n        selected_capability_roots: &[ResolvedSelectedCapabilityRoot],\n    ) -> Vec<SelectedCapabilityRoot> {\n        selected_capability_roots\n            .iter()\n            .map(|root| root.selected_root().clone())\n            .collect()\n    }\n\n    pub(crate) fn cancel_mcp_startup(&self) {\n        self.services.mcp_runtime.cancel_startup();"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/core/src/session/session.rs",
+      "sha256": "62665a8f6023d126001cd0e27a33354766b604358513198459dc1ce171dd1820",
+      "excerpts": [
+        {
+          "start": 1523,
+          "end": 1530,
+          "text": "            let mcp_runtime = Arc::new(McpRuntime::empty(\n                mcp_projection.config.prefix_mcp_tool_names,\n            ));\n            let hooks_config = build_hooks_config(\n                &config,\n                plugins_manager.as_ref(),\n                resolved_environments.single_local_environment(),\n                &session_configuration.disabled_plugin_ids,"
+        },
+        {
+          "start": 1806,
+          "end": 1816,
+          "text": "            sess.install_initial_mcp_runtime(\n                &session_configuration,\n                latest_auth,\n                mcp_projection,\n                &resolved_environments,\n                mcp_runtime_cwd,\n            )\n            .await?;\n            sess.start_mcp_prewarm_worker(mcp_prewarm_rx, mcp_auth_changes);\n            sess.schedule_startup_prewarm(sess.get_prompt_base_instructions().await.text)\n                .await;"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "apps_startup_reconnect",
+      "observation": "CodexAppsStartupReconnect publishes current_client outside McpRuntime.publish",
+      "delegate_reachability": "excluded by is_codex_apps_mcp_server / exact devhub_delegate server key",
+      "confirmed_exploit": false
+    },
+    {
+      "id": "shutdown_publication_serialization",
+      "observation": "candidate shutdown invalidates current generation and later loads latest connections without sharing admission_publication mutex; intervening publish can install a different generation",
+      "scope": "source-level runtime interleaving; host-level reachability and actual compiled behavior not proven",
+      "confirmed_exploit": false
+    }
+  ],
+  "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+  "synthetic_payload": {
+    "schema_version": 1,
+    "project": "stage3g-proof",
+    "task_id": "synthetic-proof",
+    "request_key": "synthetic-proof-1",
+    "instructions": "Synthetic production binding proof.",
+    "acceptance_criteria": [
+      "Synthetic proof only."
+    ],
+    "query": "synthetic"
+  },
+  "payload_contract_validation": "PASS via model_validate_json (wire contract)",
+  "payload_sent": false,
+  "patch_changed": false,
+  "rust_build_count": 1,
+  "rust_build_seconds": 642.1814258400001,
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "codex_internal_retries": null
+}
