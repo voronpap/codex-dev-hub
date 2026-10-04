@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "review_kind": "production_host_admission_design",
+  "design_only": true,
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "candidate_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "candidate_patch_modified": false,
+  "approved_schema_sha256": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+  "blocker": "PRODUCTION_HOST_ADMISSION_INTEGRATION_MISSING",
+  "blocker_is_exploit": false,
+  "candidate_b_failed": false,
+  "current_host_path": [
+    "codex exec",
+    "codex_exec::run_main",
+    "InProcessClientStartArgs",
+    "InProcessClientStartArgs::into_runtime_start_args",
+    "InProcessStartArgs",
+    "MessageProcessorArgs",
+    "MessageProcessor::new",
+    "ThreadRequestProcessor::new",
+    "thread/start",
+    "ThreadRequestProcessor::thread_start_task",
+    "ExtensionDataInit::new with selected_capability_roots only",
+    "StartThreadOptions.thread_extension_init",
+    "Session::new",
+    "build_tool_router"
+  ],
+  "missing_boundary": {
+    "entry": "Trusted codex exec startup state",
+    "target": "ThreadRequestProcessor host-owned ExtensionDataInit template",
+    "current_in_process_input_support": false,
+    "current_thread_start_client_input_support": false,
+    "client_rpc_must_not_gain_authority": true
+  },
+  "existing_trusted_types": {
+    "carrier": "codex_extension_api::ExtensionDataInit",
+    "ceiling": "codex_extension_api::AllowedTools",
+    "session_input": "StartThreadOptions.thread_extension_init",
+    "absence_preserves_default_behavior": true
+  },
+  "recommended_integration": {
+    "startup_input": "Dedicated reviewed read-only host admission manifest passed by codex exec option",
+    "carrier_path": [
+      "InProcessClientStartArgs.thread_extension_init",
+      "InProcessStartArgs.thread_extension_init",
+      "MessageProcessorArgs.thread_extension_init",
+      "ThreadRequestProcessor.host_thread_extension_init",
+      "StartThreadOptions.thread_extension_init"
+    ],
+    "allowed_tools": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ],
+    "direct_only_namespaces": [
+      "mcp__devhub_delegate"
+    ],
+    "global_tool_mode": "CodeModeOnly",
+    "error_on_tool_collisions": true,
+    "initial_lifecycle_scope": "fresh ephemeral codex exec only",
+    "resume_fork_policy": "fail_closed_pending_separate_review",
+    "server_config_reused": true,
+    "parallel_mcp_config_model_created": false
+  },
+  "authority_ownership": {
+    "owner": "reviewed Stage 3G launcher and codex exec host startup",
+    "manifest_location": "read-only host mount outside executor task packet",
+    "manifest_and_argv_hash_bound": true,
+    "not_authoritative": [
+      "task JSON",
+      "model output",
+      "MCP server response",
+      "provider",
+      "arbitrary repository file",
+      "observed MCP catalog"
+    ],
+    "allowed_tools_derived_from_catalog": false,
+    "schema_nominated_by_server": false
+  },
+  "approved_identity": {
+    "server_key": "devhub_delegate",
+    "raw_tool_name": "devhub_delegate",
+    "canonical_namespace": "mcp__devhub_delegate",
+    "canonical_name": "devhub_delegate",
+    "schema_sha256": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+  },
+  "protocol_impact": {
+    "task_protocol_v3_inherently_required": false,
+    "reason": "Protocol v2 already declares Arm A without Dev Hub and Arm B with only local devhub_delegate; host admission realizes that frozen semantic contract",
+    "current_launcher_can_supply_input": false,
+    "launcher_runtime_revision_required": true,
+    "implementation_config_plan_qualification_rebinding_required": true,
+    "v3_required_if_task_visible_semantics_change": true
+  },
+  "proof_observer": {
+    "production_authority": false,
+    "may_create_policy": false,
+    "may_set_allowed_tools": false,
+    "may_mutate_registry": false,
+    "observation_point": "After actual build_tool_router finalization and before model sampling",
+    "observes": [
+      "effective tool mode",
+      "model-visible specifications",
+      "nested code-mode map",
+      "hosted and dynamic surfaces",
+      "approved server/raw/canonical identity",
+      "schema hash",
+      "opaque generation identity"
+    ],
+    "existing_pre_sampling_inspection_and_stop_api": false,
+    "separate_review_required": true
+  },
+  "host_originated_dispatch": {
+    "existing_production_api_without_model": false,
+    "normal_entry": "Model output parsed by handle_output_item_done then ToolRuntime::handle_tool_call",
+    "internal_router_dispatch_exists": true,
+    "internal_dispatch_requires_private_session_and_step_context": true,
+    "privileged_proof_dispatch_added": false,
+    "separate_review_required": true
+  },
+  "candidate_patch_impact": {
+    "current_candidate_patch_can_remain_frozen_for_design": true,
+    "shipping_production_source_set_must_change": true,
+    "combined_production_patch_identity_must_change": true,
+    "router_or_handler_redesign_required": false
+  },
+  "proposed_production_files": [
+    "codex-rs/exec/src/cli.rs",
+    "codex-rs/exec/src/lib.rs",
+    "codex-rs/exec/src/approved_delegate_host.rs",
+    "codex-rs/app-server-client/src/lib.rs",
+    "codex-rs/app-server/src/in_process.rs",
+    "codex-rs/app-server/src/message_processor.rs",
+    "codex-rs/app-server/src/request_processors/thread_processor.rs",
+    "relevant Cargo manifests and focused tests"
+  ],
+  "source_evidence": {
+    "app_server_client": {
+      "path": "codex-rs/app-server-client/src/lib.rs",
+      "sha256": "35fb4e00e83477bb6d9c31ac8dc3a76215cc78c9a9acbd4af07d2a74f69bbfc9",
+      "start_args_lines": [172, 211],
+      "conversion_lines": [238, 257]
+    },
+    "in_process": {
+      "path": "codex-rs/app-server/src/in_process.rs",
+      "sha256": "965b9f184d1674fbdf7d690226b437ee73faa6f4b702a31032ab0e1a3a2ff700",
+      "start_args_lines": [129, 167],
+      "message_processor_lines": [478, 499]
+    },
+    "message_processor": {
+      "path": "codex-rs/app-server/src/message_processor.rs",
+      "sha256": "21881fb6c619bba80b9f48b5ae6c829c675e760d4f2374841b856d1e279dd0b8",
+      "args_lines": [247, 267],
+      "thread_processor_construction_lines": [499, 517]
+    },
+    "thread_processor": {
+      "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
+      "sha256": "d4be28526badd6068db21c37312be718e51cd42e0a67ffb29665f526f56fd3f1",
+      "extension_init_lines": [1459, 1499]
+    },
+    "thread_manager": {
+      "path": "codex-rs/core/src/thread_manager.rs",
+      "sha256": "5e65c4c8cb290400e32e1dd434332cb8c4addebf87079a031c21ce241deee798",
+      "start_options_lines": [247, 305]
+    },
+    "extension_init": {
+      "path": "codex-rs/ext/extension-api/src/state.rs",
+      "sha256": "b7b6064ab9df274fcb52e5457c5e05b2b9cad92f188714939864164f022b49a1",
+      "lines": [10, 45]
+    },
+    "allowed_tools": {
+      "path": "codex-rs/ext/extension-api/src/allowed_tools.rs",
+      "sha256": "4b58b7fda8f0dd5acbc13f5a8e3402610b9367fa4c2bdf1018c2c4603a5b4fc9",
+      "lines": [1, 23]
+    },
+    "session_capture": {
+      "path": "codex-rs/core/src/session/session.rs",
+      "sha256": "62665a8f6023d126001cd0e27a33354766b604358513198459dc1ce171dd1820",
+      "lines": [942, 963]
+    },
+    "router_construction": {
+      "path": "codex-rs/core/src/session/turn.rs",
+      "sha256": "418e67897f7885eeb57fd33ebda84aefa35152e6b8784fc325c4a014fa588b0e",
+      "lines": [1713, 1793]
+    },
+    "router_dispatch": {
+      "path": "codex-rs/core/src/tools/router.rs",
+      "sha256": "a3287f98195ebb1347e3b2ab47c470ccbe8d931b4fcbe23c80fc652855925248",
+      "lines": [300, 379]
+    },
+    "normal_model_tool_entry": {
+      "path": "codex-rs/core/src/stream_events_utils.rs",
+      "sha256": "10c955dd6103faddf4c14e00e5e19e848bf24a765a4c18fa32dce580f7050fce",
+      "lines": [300, 344]
+    },
+    "exec_cli": {
+      "path": "codex-rs/exec/src/cli.rs",
+      "sha256": "6abb86feb8fac2a192b34a617634527d0747b6d7fa09ee4827c0dc95abbe2f75",
+      "cli_lines": [10, 64]
+    },
+    "exec_host": {
+      "path": "codex-rs/exec/src/lib.rs",
+      "sha256": "68011a6b31e31c758a3b7a353ecf01a22937e3031152b392e350ebd551c16840",
+      "start_args_lines": [700, 720]
+    }
+  },
+  "devfabric_bindings": {
+    "launcher_path": "src/devhub/experiment_launch.py",
+    "launcher_sha256": "f144141074c9048d5b353854920cde5f8981c363607ebe7a484b119b01f72286",
+    "runtime_contract_path": "src/devhub/experiment.py",
+    "runtime_contract_sha256": "2c5f4276a83f092e938e95023fceb225b08858ec83555bbe0602feeb5206355c",
+    "protocol_path": "benchmarks/real-protocol-v2.json",
+    "protocol_sha256": "54642dab923b8fd20212decec501fddefef07f11015dde17c8073a3f49d42456"
+  },
+  "required_regressions": [
+    "host admission absent preserves ordinary behavior",
+    "Arm A exposes no tools",
+    "Arm B exposes exactly approved delegate under CodeModeOnly",
+    "task/client/catalog cannot create or widen admission",
+    "exact AllowedTools, server config, schema and direct-only namespace required",
+    "extra MCP, dynamic and hosted tools cannot widen ceiling",
+    "wrong origin and both collision orders remain fail closed",
+    "initial resume and fork fail closed",
+    "observer absent is inert",
+    "observer present is read only"
+  ],
+  "build_009": {
+    "authorized": false,
+    "run": false,
+    "one_compile_sufficient_for_host_activation_and_visibility_if_reviewed_delta_is_complete": true,
+    "host_originated_dispatch_requires_separate_review": true
+  },
+  "matrix": {
+    "router_security_internal": "PASS",
+    "handler_at_pinned_production_equivalent_stack": "PASS",
+    "catalog_refresh_after_preparation": true,
+    "intended_cli_stack_qualification": "PASS",
+    "production_host_activation_path": "MISSING",
+    "exact_process_proof": null
+  },
+  "production_classification": "UNKNOWN",
+  "stage_3g_c": "OPEN",
+  "stage_3g": "OPEN",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "protocol_v3_created": false,
+  "rehearsal_run": false,
+  "benchmark_run": false,
+  "role_runtime_changed": false
+}
