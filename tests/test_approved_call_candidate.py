@@ -148,8 +148,12 @@ def test_build008_receipts_are_persistent_and_fsynced() -> None:
     adversarial = (REPO / "scripts/production_router_adversarial_test.rs").read_text(
         encoding="utf-8"
     )
-    catalog = (REPO / "scripts/production_catalog_test.rs").read_text(encoding="utf-8")
-    synthetic = (REPO / "scripts/synthetic_approved_mcp.py").read_text(encoding="utf-8")
+    catalog = (REPO / "scripts/production_catalog_test.rs").read_text(
+        encoding="utf-8"
+    )
+    synthetic = (REPO / "scripts/synthetic_approved_mcp.py").read_text(
+        encoding="utf-8"
+    )
     assert 'std::env::var("DEVHUB_PROOF_RECEIPT")' in adversarial
     assert 'std::env::var("DEVHUB_PROOF_RECEIPT")' in catalog
     assert "os.fsync(stream.fileno())" in synthetic
