@@ -6,7 +6,7 @@ async fn devhub_production_admission_path_catalog() -> anyhow::Result<()> {
     use crate::{McpRuntime, McpRuntimeContext, McpRuntimeInput, McpStartupPolicy};
     use tokio_util::sync::CancellationToken;
     let temp = tempfile::tempdir()?;
-    let receipt = temp.path().join("catalog-receipt.jsonl");
+    let receipt = std::path::PathBuf::from(std::env::var("DEVHUB_RECEIPT_PATH")?);
     let schema: serde_json::Value = serde_json::from_str(include_str!("devhub_real_schema.json"))?;
     let payload: serde_json::Value =
         serde_json::from_str(include_str!("devhub_synthetic_payload.json"))?;

@@ -1,0 +1,104 @@
+{
+  "scope": "source-level only; no compiled result",
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "constructor_source_hash": "b7b6064ab9df274fcb52e5457c5e05b2b9cad92f188714939864164f022b49a1",
+  "constructor_regression_check": true,
+  "test_hash": "30a0aa76778a656132a44c9f27fca1a46993e9b64ab05e973cb196d90ea15895",
+  "patch_hash": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "source_and_patched_hashes": {
+    "codex-rs/codex-mcp/src/approved_call.rs": {
+      "upstream_sha256": null,
+      "patched_sha256": "a2511f6bc25a7fdcd7cf25ca9eefdb63aa1891c378687a864364cb7ec01346ae"
+    },
+    "codex-rs/codex-mcp/src/lib.rs": {
+      "upstream_sha256": "2b7170139e66417546ad146e50c2824ea2dafc1c101d209d297ad570f5bc99e0",
+      "patched_sha256": "666d933e3f03dd98195972a2d2d61e10568ecf1e2074323f31949a35961f1b6e"
+    },
+    "codex-rs/codex-mcp/src/binding.rs": {
+      "upstream_sha256": "9fd5f9e5d3021f7d1bd77fc1ecbd7737d1a3fb0044fe9b43cfa1cda3d5966169",
+      "patched_sha256": "73fc7773a31a1a9676eea13a38a0e120ad0b45a5e7ca25a2e042c149b54f4bb0"
+    },
+    "codex-rs/codex-mcp/src/runtime.rs": {
+      "upstream_sha256": "c6adafbf150388215efa3822745b3d2adfb534d3ebaa766f64266acd7e04db19",
+      "patched_sha256": "9ed3c601cee9db02959e138e83c2c7d086e2183474f25a88b51ac025000bc9a3"
+    },
+    "codex-rs/core/src/tools/handlers/mcp.rs": {
+      "upstream_sha256": "7b98f1964b4e2c9031f2fd839760b1bcd8e016f2e26d9cea281597b59000eb79",
+      "patched_sha256": "c486815082a39a86c79ac31b58002b86764ebc0a76c7b1b1b4edaf47601cba1d"
+    },
+    "codex-rs/core/src/approved_delegate.rs": {
+      "upstream_sha256": null,
+      "patched_sha256": "af4b6fb4ec30514163c5ee8ebce8e332936b1f429d903a3a7e7fc02c7839cbde"
+    },
+    "codex-rs/core/src/lib.rs": {
+      "upstream_sha256": "6c10e55d3023910bb55728d0d4d697f8e95722076a31f8cc9a11cfe6e4ee9edd",
+      "patched_sha256": "bfbf8607c0fbf9b7ce288f3c135a36ed04756abef9f03ebe5fde0671b4129711"
+    },
+    "codex-rs/core/src/tools/spec_plan.rs": {
+      "upstream_sha256": "40f98e42507bf2b0e4251a6cdb9d96bda68c863db2953eb2bc09d99a9bfe1d8d",
+      "patched_sha256": "197bd678b024c96d772e37b1b28a61c092cba0476f9bc744099b34384f8483a7"
+    }
+  },
+  "anchor_and_apply_checks": true,
+  "sync_marker_unchanged": true,
+  "shutdown_single_snapshot": true,
+  "apps_reconnect_path_observed": true,
+  "apps_reconnect_relevant_to_devhub_delegate": false,
+  "reason": "exact reserved Apps server path cannot satisfy approved delegate server binding",
+  "apps_lifecycle_modified": false,
+  "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+  "synthetic_payload_valid": true,
+  "payload_sha256": "3ba09cd77fd8a980010e152a1a5c32ae1451ba527f9e07746a5134ecd66f062f",
+  "production_classification": "UNKNOWN",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "approval_audit": {
+    "scope": "source-derived only; compiled observations pending",
+    "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+    "source_hashes": {
+      "codex-rs/config/src/mcp_types.rs": "1bca40f107d1b36b2c6d2bf8b5316b29f3226c8d2f15d00bef0f56f744c5f290",
+      "codex-rs/codex-mcp/src/server.rs": "39a07961b91c86a949f1615196795f077fefa46237cbd2c84e3bcc009e2e21c8",
+      "codex-rs/codex-mcp/src/binding.rs": "9fd5f9e5d3021f7d1bd77fc1ecbd7737d1a3fb0044fe9b43cfa1cda3d5966169",
+      "codex-rs/core/src/mcp_tool_call.rs": "d9d842f8891bea7a452927c25cbee12634df9d29ec78437ae72073d8794ba788",
+      "codex-rs/core/config.schema.json": "56f3e1cfd9678c2e64319a2424a8522488becb5a1ddbaf6e910e6d2ee9ef4d83"
+    },
+    "original_mode": "Auto",
+    "original_annotations": null,
+    "original_required_by_mode": true,
+    "corrected_mode": "Approve",
+    "corrected_required_by_mode": false,
+    "corrected_policy": {
+      "enabled_tools": [
+        "devhub_delegate"
+      ],
+      "tools": {
+        "devhub_delegate": {
+          "approval_mode": "approve"
+        }
+      }
+    },
+    "pinned_config_schema_validation": true,
+    "patch_hash": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+    "build006_root_cause_runtime_proven": false,
+    "execution_ready": false,
+    "real_codex_executions": 0,
+    "provider_sends": 0
+  },
+  "stack_setting_source": {
+    "library/test/src/lib.rs": {
+      "url": "https://raw.githubusercontent.com/rust-lang/rust/1.95.0/library/test/src/lib.rs",
+      "sha256": "d003faa45bfaa811a7b727d0027680c9f8a23209b73eb7e65671133b7c913133"
+    },
+    "library/std/src/thread/mod.rs": {
+      "url": "https://raw.githubusercontent.com/rust-lang/rust/1.95.0/library/std/src/thread/mod.rs",
+      "sha256": "c331b4fd522f0086c33aa2ca4679fe2265ea2eec0d4ba4064fa34cf7a4cd8a9b"
+    }
+  },
+  "stack_setting_contract": "Rust 1.95.0 libtest uses thread::Builder::new().name(...).spawn(...), no stack_size override; std thread uses RUST_MIN_STACK bytes. Conditional 16777216, diagnostic only.",
+  "build_status": "NOT_RUN; wait for Linux full and Windows smoke CI before one manual compilation",
+  "instrumentation_changes_stack_layout": true,
+  "build_007_root_cause": "UNKNOWN",
+  "process_proof": null,
+  "pinned_rustfmt": "1.9.0-stable (59807616e1 2026-04-14), Rust 1.95.0 distribution; 12 disposable/proof Rust files parsed/formatted and checked"
+}

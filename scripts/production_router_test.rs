@@ -63,7 +63,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
             vec![]
         })));
         let temp = tempfile::tempdir()?;
-        let receipt = temp.path().join("receipt.jsonl");
+        let receipt = std::path::PathBuf::from(std::env::var("DEVHUB_RECEIPT_PATH")?);
         let runtime = McpRuntime::empty(true);
         let empty = Arc::new(codex_mcp::McpBinding::empty(mcp_config_for_test(
             &turn.config,

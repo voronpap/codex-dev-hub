@@ -35,6 +35,8 @@ for line in sys.stdin.buffer:
         # Every attempted synthetic send leaves a line, including unexpected repeats.
         with receipt.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(record) + "\n")
+            stream.flush()
+        print("DEVHUB_HANDLER_STAGE=synthetic_receipt_seen", file=sys.stderr, flush=True)
         result = {"content": [{"type": "text", "text": json.dumps(record)}]}
     elif method == "ping":
         result = {}

@@ -5,6 +5,8 @@ import hashlib
 import io
 import json
 import os
+import platform
+import shutil
 import subprocess
 import tarfile
 import time
@@ -13,6 +15,7 @@ from pathlib import Path
 
 from derive_router_build_lock import DERIVED, ORIGINAL, derive
 from instrument_approval_proof import instrument
+from run_production_diagnostics import run_suite
 
 COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 ARCHIVE = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
@@ -45,6 +48,10 @@ def main():
         # Disposable proof tree only; original bytes retained separately, production unchanged.
         (root / "Cargo.lock").write_bytes(derived)
     patch = (repo / "patches/stage3g-approved-call/candidate.patch").read_bytes()
+    assert (
+        hashlib.sha256(patch).hexdigest()
+        == "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
+    )
     subprocess.run(["git", "apply", "--check", "-"], cwd=root.parent, input=patch, check=True)
     subprocess.run(["git", "apply", "-"], cwd=root.parent, input=patch, check=True)
     diagnostic_hashes = instrument(root)
@@ -111,7 +118,7 @@ def main():
                 timed_out = True
     receipt = {
         "source_commit": COMMIT,
-        "build_id": "build-007",
+        "build_id": "build-008",
         "diagnostic_source_hashes": diagnostic_hashes,
         "adversarial_sha256": hashlib.sha256(adversarial).hexdigest(),
         "catalog_test_sha256": hashlib.sha256(catalog_test).hexdigest(),
@@ -158,64 +165,91 @@ def main():
             and e.get("target", {}).get("name") in {"codex_core", "codex_mcp"}
         }
         assert set(binaries) == {"codex_core", "codex_mcp"}
-        receipt["test_runs"] = []
-        for crate in ["codex_core", "codex_mcp"]:
-            binary = binaries[crate]
-            test_started = time.monotonic()
-            command = [
-                "sudo",
-                "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA",
-                "unshare",
-                "--net",
-                "--",
-                "setpriv",
-                f"--reuid={os.getuid()}",
-                f"--regid={os.getgid()}",
-                "--init-groups",
-                binary,
-                test_filter,
-                "--nocapture",
-                "--test-threads=1",
-            ]
-            try:
-                run = subprocess.run(
-                    command,
-                    cwd=root,
-                    env=environment,
-                    capture_output=True,
-                    timeout=120,
-                    check=False,
-                )
-                stdout, stderr, exit_code = run.stdout, run.stderr, run.returncode
-                test_timeout = False
-            except subprocess.TimeoutExpired as error:
-                stdout, stderr, exit_code = error.stdout or b"", error.stderr or b"", None
-                test_timeout = True
-            (args.output.parent / f"{crate}.stdout").write_bytes(stdout)
-            (args.output.parent / f"{crate}.stderr").write_bytes(stderr)
-            receipt["test_runs"].append(
-                {
-                    "crate": crate,
-                    "exit_code": exit_code,
-                    "timed_out": test_timeout,
-                    "duration_seconds": time.monotonic() - test_started,
-                    "binary_sha256": hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+        assets = args.output.parent / "assets"
+        assets.mkdir(exist_ok=False)
+        for filename in [
+            "synthetic_approved_mcp.py",
+            "run_production_diagnostics.py",
+            "build_production_router_proof.py",
+            "instrument_approval_proof.py",
+            "production_router_test.rs",
+            "production_router_adversarial_test.rs",
+            "production_catalog_test.rs",
+        ]:
+            shutil.copy2(repo / "scripts" / filename, assets / filename)
+        for filename, content in [
+            ("devhub_real_schema.json", schema),
+            ("devhub_synthetic_payload.json", payload),
+            ("devhub_metadata.json", metadata),
+        ]:
+            (assets / filename).write_bytes(content)
+        asset_hashes = {
+            p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in assets.iterdir()
+        }
+        receipt["diagnostic_harness_sha256"] = hashlib.sha256(
+            json.dumps(asset_hashes, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        receipt["asset_hashes"] = asset_hashes
+        receipt["toolchain"] = {
+            "rustc": subprocess.check_output(["rustc", "-vV"], cwd=root).decode(),
+            "cargo": subprocess.check_output(["cargo", "--version"], cwd=root).decode(),
+            "platform": platform.platform(),
+            "target": "default rustc host target (no --target override)",
+            "build_environment": {
+                k: environment[k]
+                for k in environment
+                if k.startswith("CARGO_")
+                and k
+                in {
+                    "CARGO_BUILD_JOBS",
+                    "CARGO_INCREMENTAL",
+                    "CARGO_PROFILE_DEV_DEBUG",
+                    "CARGO_PROFILE_TEST_DEBUG",
                 }
-            )
-            for line in stdout.decode(errors="replace").splitlines():
-                for prefix, key in [
-                    ("DEVHUB_ROUTER_PROOF=", "proof"),
-                    ("DEVHUB_ADVERSARIAL_PROOF=", "adversarial_proof"),
-                    ("DEVHUB_CATALOG_PROOF=", "catalog_proof"),
-                ]:
-                    if line.startswith(prefix):
-                        receipt[key] = json.loads(line.split("=", 1)[1])
-            if exit_code != 0:
-                break  # Preserve failure; no remaining test run or retry.
+            },
+        }
+        preserved = {}
+        binary_dir = args.output.parent / "binaries"
+        binary_dir.mkdir(exist_ok=False)
+        # Retain BOTH executables and their provenance before enumeration/tests.
+        for crate, executable in binaries.items():
+            original_binary = Path(executable)
+            saved = binary_dir / original_binary.name
+            shutil.copy2(original_binary, saved)
+            digest = hashlib.sha256(saved.read_bytes()).hexdigest()
+            assert digest == hashlib.sha256(original_binary.read_bytes()).hexdigest()
+            libraries = subprocess.run(["ldd", str(saved)], capture_output=True, check=False)
+            preserved[crate] = {
+                "crate": crate,
+                "path": str(saved),
+                "original_path": executable,
+                "sha256": digest,
+                "source_commit": COMMIT,
+                "patch_sha256": receipt["patch_sha256"],
+                "diagnostic_harness_sha256": receipt["diagnostic_harness_sha256"],
+                "proof_lock_sha256": receipt["proof_build_lock_sha256"],
+                "ldd": libraries.stdout.decode(errors="replace"),
+                "ldd_stderr": libraries.stderr.decode(errors="replace"),
+                "ldd_exit": libraries.returncode,
+                "runtime_assumptions": (
+                    "Linux runner ABI; python3; sudo/unshare/setpriv; "
+                    "restore executable bit after download; "
+                    "paths in manifest require rebinding after relocation"
+                ),
+            }
+        receipt["compiled_binaries"] = preserved
+        receipt["instrumentation_changes_stack_layout"] = True
+        receipt["build_007_root_cause"] = "UNKNOWN"
+        receipt["process_proof"] = None
+        receipt["execution_ready"] = False
+        # A pre-test manifest survives abort/timeout and includes all immutable assets.
+        (args.output.parent / "runner-manifest.json").write_text(
+            json.dumps(receipt, indent=2) + "\n"
+        )
+        receipt["test_runs"] = run_suite(preserved, args.output.parent / "runs", assets)
         receipt["actual_pinned_router_code"] = (
-            len(receipt["test_runs"]) == 2
-            and all(run["exit_code"] == 0 for run in receipt["test_runs"])
-            and all(key in receipt for key in ["proof", "adversarial_proof", "catalog_proof"])
+            all(run["exit_code"] == 0 for run in receipt["test_runs"])
+            and len(receipt["test_runs"]) >= 3
         )
     with args.output.open("x", encoding="utf-8") as stream:
         json.dump(receipt, stream, indent=2)
