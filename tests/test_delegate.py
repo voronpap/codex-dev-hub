@@ -434,3 +434,58 @@ def isolated_local(tmp_path_factory, monkeypatch):
     from test_ollama import local
 
     return local.__wrapped__(tmp_path_factory.mktemp("second-provider"), monkeypatch)
+
+
+@pytest.mark.parametrize("mode", ["off", "compact", "verbose"])
+def test_usage_footer_preserves_execution_and_structured_handoff(local, monkeypatch, mode):
+    from devhub import delegate_server
+
+    runtime, task, calls, _ = local
+    configure_local(monkeypatch, runtime)
+    hub = service(runtime, telemetry_footer=mode)
+    req = request(runtime, task)
+    original_run = hub.run
+    handoffs = []
+
+    def capture(request):
+        result = original_run(request)
+        handoffs.append(result)
+        return result
+
+    monkeypatch.setattr(hub, "run", capture)
+    if mode == "off":
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("off must not derive observability")
+
+        monkeypatch.setattr(delegate_server, "derive_usage", forbidden)
+
+    async def run():
+        async with Client(create_delegation_server(hub)) as client:
+            result = await client.call_tool("devhub_delegate", req.model_dump(mode="json"))
+            assert result.structured_content == handoffs[0].model_dump(mode="json")
+            if mode == "off":
+                assert not result.meta or "devfabric_usage" not in result.meta
+                assert len(result.content) == 1
+            else:
+                summary = result.meta["devfabric_usage"]
+                assert summary["savings"] is summary["codex_usage"] is None
+                assert summary["delegated_total"] == (
+                    handoffs[0].actual_input_tokens + handoffs[0].actual_output_tokens
+                )
+                assert "unknown" in result.content[-1].text
+            with pytest.raises(MCPError):
+                await client.call_tool(
+                    "devhub_delegate", req.model_dump(mode="json") | {"telemetry_footer": "verbose"}
+                )
+
+    asyncio.run(run())
+    result = handoffs[0]
+    assert result.provider == "ollama" and result.accounting == "settled"
+    assert result.output_validation == result.citations_validation == "passed"
+    assert calls.count("/api/generate") == 1
+    assert [e.transition for e in EventOutbox(runtime.core.ledger).pending(project="p")] == [
+        "reserved",
+        "dispatched",
+        "settled",
+    ]

@@ -42,23 +42,35 @@ def create_delegation_server(runtime: DelegationRuntime) -> MCPServer:
             or ctx.method != "tools/call"
             or not ctx.params
             or ctx.params.get("name") != "devhub_delegate"
-            or not isinstance(result, CallToolResult)
-            or result.is_error
-            or result.structured_content is None
         ):
             return result
-        # Post-execution presentation only; keep the structured handoff/schema intact.
-        handoff = DelegationResult.model_validate_json(json.dumps(result.structured_content))
-        summary = derive_usage(handoff)
-        return result.model_copy(
-            update={
-                "content": [
-                    *result.content,
-                    TextContent(type="text", text=render_footer(summary, mode)),
-                ],
-                "meta": {**(result.meta or {}), "devfabric_usage": summary.model_dump(mode="json")},
-            }
+        # SDK middleware may receive an already serialized wire dictionary.
+        wire = (
+            result
+            if isinstance(result, dict)
+            else (
+                result.model_dump(mode="json", by_alias=True)
+                if isinstance(result, CallToolResult)
+                else None
+            )
         )
+        if wire is None or wire.get("isError") or wire.get("structuredContent") is None:
+            return result
+        handoff = DelegationResult.model_validate_json(json.dumps(wire["structuredContent"]))
+        summary = derive_usage(handoff)
+        return {
+            **wire,
+            "content": [
+                *wire.get("content", []),
+                TextContent(type="text", text=render_footer(summary, mode)).model_dump(
+                    mode="json", by_alias=True
+                ),
+            ],
+            "_meta": {
+                **(wire.get("_meta") or {}),
+                "devfabric_usage": summary.model_dump(mode="json"),
+            },
+        }
 
     server = MCPServer(
         "codex-dev-hub",
