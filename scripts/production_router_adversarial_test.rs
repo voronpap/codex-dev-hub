@@ -80,7 +80,8 @@ async fn devhub_production_admission_path_adversarial() -> anyhow::Result<()> {
     let script = std::env::var("DEVHUB_SYNTHETIC_MCP")?;
     let schema_path = std::env::var("DEVHUB_REAL_SCHEMA")?;
     let server: codex_config::McpServerConfig = serde_json::from_value(json!({
-        "command":"python3","args":[script,schema_path,receipt.to_str().unwrap(),"approved-adversarial-endpoint"],"required":true
+        "command":"python3","args":[script,schema_path,receipt.to_str().unwrap(),"approved-adversarial-endpoint"],"required":true,
+        "enabled_tools":["devhub_delegate"],"tools":{"devhub_delegate":{"approval_mode":"approve"}}
     }))?;
     update_config(&mut turn, |c| {
         c.mcp_servers = codex_config::Constrained::allow_any(HashMap::from([(
@@ -105,6 +106,42 @@ async fn devhub_production_admission_path_adversarial() -> anyhow::Result<()> {
             &schema,
         )
     };
+
+    // Reconstruct build-006 host policy, observe actual mode/helper without calling.
+    let mut legacy_json = serde_json::to_value(&server)?;
+    legacy_json.as_object_mut().unwrap().remove("tools");
+    legacy_json.as_object_mut().unwrap().remove("enabled_tools");
+    let legacy: codex_config::McpServerConfig = serde_json::from_value(legacy_json)?;
+    let (legacy_runtime, legacy_binding) = capture(
+        &turn,
+        HashMap::from([("devhub_delegate".into(), legacy.clone())]),
+        temp.path(),
+    )
+    .await?;
+    let legacy_call = legacy_binding
+        .approve_call(
+            "devhub_delegate",
+            "devhub_delegate",
+            "mcp__devhub_delegate",
+            "devhub_delegate",
+            &legacy,
+            &schema,
+        )?
+        .prepared_call();
+    assert_eq!(
+        legacy_call.tool_approval_mode(),
+        codex_config::AppToolApproval::Auto
+    );
+    assert!(legacy_call.tool_info().tool.annotations.is_none());
+    assert!(crate::mcp_tool_call::devhub_proof_requires_approval(
+        None,
+        legacy_call.tool_approval_mode()
+    ));
+    println!(
+        "DEVHUB_APPROVAL_BASELINE={}",
+        json!({"mode":"Auto","annotations":null,"required_by_mode":true,"executed":false})
+    );
+    legacy_runtime.shutdown().await;
 
     checkpoint("wrong_origin_only");
     let wrong: codex_config::McpServerConfig = serde_json::from_value(json!({
@@ -268,6 +305,33 @@ async fn devhub_production_admission_path_adversarial() -> anyhow::Result<()> {
             .await
             .is_none()
     );
+    let observed = approve(&binding)?.prepared_call();
+    let annotations = observed.tool_info().tool.annotations.as_ref();
+    assert_eq!(
+        observed.tool_approval_mode(),
+        codex_config::AppToolApproval::Approve
+    );
+    assert!(!crate::mcp_tool_call::devhub_proof_requires_approval(
+        annotations,
+        observed.tool_approval_mode()
+    ));
+    assert!(
+        session.active_turn.lock().await.is_none(),
+        "fixture has no active strict review turn"
+    );
+    println!(
+        "DEVHUB_APPROVAL_CONFIG={}",
+        json!({
+            "mode":format!("{:?}",observed.tool_approval_mode()),
+            "read_only_hint":annotations.and_then(|a|a.read_only_hint),
+            "destructive_hint":annotations.and_then(|a|a.destructive_hint),
+            "open_world_hint":annotations.and_then(|a|a.open_world_hint),
+            "global_approval_policy":format!("{:?}",observed.config().approval_policy.value()),
+            "permission_profile_present":observed.config().permission_profile_for_server("devhub_delegate").is_some(),
+            "strict_auto_review":false,
+            "required_by_mode":crate::mcp_tool_call::devhub_proof_requires_approval(annotations, observed.tool_approval_mode())
+        })
+    );
     let turn = Arc::new(turn);
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(20),
@@ -288,6 +352,7 @@ async fn devhub_production_admission_path_adversarial() -> anyhow::Result<()> {
         }),
     )
     .await??;
+    checkpoint("handler_returned");
     assert!(result.success_for_logging());
     let records = std::fs::read_to_string(&receipt)?
         .lines()
@@ -300,6 +365,11 @@ async fn devhub_production_admission_path_adversarial() -> anyhow::Result<()> {
         "approved-adversarial-endpoint"
     );
     assert_eq!(records[0]["raw_tool"], "devhub_delegate");
+    assert_eq!(
+        records[0]["schema_hash"],
+        "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+    );
+    checkpoint("synthetic_receipt_observed");
     checkpoint("handler_dispatch_passed");
     runtime.shutdown().await;
     println!(

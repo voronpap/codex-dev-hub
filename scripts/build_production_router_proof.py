@@ -12,6 +12,7 @@ import urllib.request
 from pathlib import Path
 
 from derive_router_build_lock import DERIVED, ORIGINAL, derive
+from instrument_approval_proof import instrument
 
 COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 ARCHIVE = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
@@ -46,6 +47,7 @@ def main():
     patch = (repo / "patches/stage3g-approved-call/candidate.patch").read_bytes()
     subprocess.run(["git", "apply", "--check", "-"], cwd=root.parent, input=patch, check=True)
     subprocess.run(["git", "apply", "-"], cwd=root.parent, input=patch, check=True)
+    diagnostic_hashes = instrument(root)
     target = root / "core/src/tools/spec_plan_tests.rs"
     original = target.read_bytes()
     test_name = "production_router_test.rs"
@@ -109,7 +111,8 @@ def main():
                 timed_out = True
     receipt = {
         "source_commit": COMMIT,
-        "build_id": "build-006",
+        "build_id": "build-007",
+        "diagnostic_source_hashes": diagnostic_hashes,
         "adversarial_sha256": hashlib.sha256(adversarial).hexdigest(),
         "catalog_test_sha256": hashlib.sha256(catalog_test).hexdigest(),
         "payload_sha256": hashlib.sha256(payload).hexdigest(),
