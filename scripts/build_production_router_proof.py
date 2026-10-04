@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import tarfile
 import time
@@ -68,10 +69,13 @@ def main():
     target.with_name("devhub_synthetic_payload.json").write_bytes(payload)
     catalog_target.with_name("devhub_real_schema.json").write_bytes(schema)
     catalog_target.with_name("devhub_synthetic_payload.json").write_bytes(payload)
+    artifact_dir = args.output.parent / "runtime-artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
     environment = dict(
         os.environ,
         DEVHUB_SYNTHETIC_MCP=str(repo / "scripts/synthetic_approved_mcp.py"),
         DEVHUB_REAL_SCHEMA=str(target.with_name("devhub_real_schema.json")),
+        DEVHUB_PROOF_ARTIFACT_DIR=str(artifact_dir),
         CARGO_BUILD_JOBS="2",
         CARGO_INCREMENTAL="0",
         CARGO_PROFILE_DEV_DEBUG="0",
@@ -111,7 +115,7 @@ def main():
                 timed_out = True
     receipt = {
         "source_commit": COMMIT,
-        "build_id": "build-007",
+        "build_id": "build-008",
         "diagnostic_source_hashes": diagnostic_hashes,
         "adversarial_sha256": hashlib.sha256(adversarial).hexdigest(),
         "catalog_test_sha256": hashlib.sha256(catalog_test).hexdigest(),
@@ -151,20 +155,131 @@ def main():
             for line in (args.output.parent / "build.jsonl").read_bytes().splitlines()
         ]
         binaries = {
-            e["target"]["name"]: e["executable"]
+            e["target"]["name"]: Path(e["executable"])
             for e in events
             if e.get("reason") == "compiler-artifact"
             and e.get("executable")
             and e.get("target", {}).get("name") in {"codex_core", "codex_mcp"}
         }
         assert set(binaries) == {"codex_core", "codex_mcp"}
+
+        preserved = {}
+        binary_dir = artifact_dir / "binaries"
+        binary_dir.mkdir(parents=True, exist_ok=True)
+        for crate, source_binary in binaries.items():
+            destination = binary_dir / source_binary.name
+            shutil.copy2(source_binary, destination)
+            destination.chmod(destination.stat().st_mode | 0o100)
+            preserved[crate] = destination
+
+        rustc = subprocess.run(
+            ["rustc", "--version", "--verbose"],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        manifest = {
+            "source_commit": COMMIT,
+            "production_patch_sha256": hashlib.sha256(patch).hexdigest(),
+            "diagnostic_source_hashes": diagnostic_hashes,
+            "proof_build_lock_sha256": receipt["proof_build_lock_sha256"],
+            "toolchain": rustc,
+            "platform": os.uname().sysname + " " + os.uname().machine,
+            "binaries": {},
+        }
+        for crate, binary in preserved.items():
+            ldd = subprocess.run(
+                ["ldd", str(binary)],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            manifest["binaries"][crate] = {
+                "artifact_path": str(binary.relative_to(args.output.parent)),
+                "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+                "runtime_requirements": ldd.stdout if ldd.returncode == 0 else ldd.stderr,
+            }
+        (artifact_dir / "binary-manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        )
+        receipt["binary_manifest"] = manifest
+
+        def list_tests(crate, binary):
+            listed = subprocess.run(
+                [str(binary), "--list", "--format=terse"],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=True,
+            )
+            (artifact_dir / f"{crate}-tests.txt").write_text(listed.stdout, encoding="utf-8")
+            return [line[:-6] for line in listed.stdout.splitlines() if line.endswith(": test")]
+
+        test_names = {crate: list_tests(crate, binary) for crate, binary in preserved.items()}
+
+        def exact_name(crate, short):
+            matches = [
+                name for name in test_names[crate]
+                if name == short or name.endswith("::" + short)
+            ]
+            assert len(matches) == 1, (crate, short, matches)
+            return matches[0]
+
+        exact = {
+            "baseline": ("codex_core", exact_name("codex_core", "devhub_production_admission_path")),
+            "handler": ("codex_core", exact_name("codex_core", "devhub_production_admission_path_adversarial")),
+            "catalog": ("codex_mcp", exact_name("codex_mcp", "devhub_production_admission_path_catalog")),
+        }
+        receipt["exact_test_names"] = {key: value[1] for key, value in exact.items()}
         receipt["test_runs"] = []
-        for crate in ["codex_core", "codex_mcp"]:
-            binary = binaries[crate]
-            test_started = time.monotonic()
+
+        def receipt_state(path):
+            if not path.exists():
+                return {"present": False, "byte_length": None, "sha256": None, "record_count": None}
+            raw = path.read_bytes()
+            count = 0
+            parseable = True
+            for line in raw.splitlines():
+                try:
+                    json.loads(line)
+                    count += 1
+                except json.JSONDecodeError:
+                    parseable = False
+                    break
+            return {
+                "present": True,
+                "byte_length": len(raw),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "record_count": count if parseable else None,
+            }
+
+        preserve = (
+            "DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA,DEVHUB_PROOF_ARTIFACT_DIR,"
+            "DEVHUB_PROOF_RECEIPT,RUST_BACKTRACE,RUST_MIN_STACK"
+        )
+
+        def run_exact(label, crate, full_name, *, backtrace=False, min_stack=None):
+            binary = preserved[crate]
+            run_env = dict(environment)
+            receipt_path = artifact_dir / f"{label}-receipt.jsonl"
+            run_env["DEVHUB_PROOF_RECEIPT"] = str(receipt_path)
+            if backtrace:
+                run_env["RUST_BACKTRACE"] = "full"
+            else:
+                run_env.pop("RUST_BACKTRACE", None)
+            if min_stack is None:
+                run_env.pop("RUST_MIN_STACK", None)
+            else:
+                run_env["RUST_MIN_STACK"] = str(min_stack)
             command = [
                 "sudo",
-                "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA",
+                f"--preserve-env={preserve}",
                 "unshare",
                 "--net",
                 "--",
@@ -172,37 +287,46 @@ def main():
                 f"--reuid={os.getuid()}",
                 f"--regid={os.getgid()}",
                 "--init-groups",
-                binary,
-                test_filter,
+                str(binary),
+                full_name,
+                "--exact",
                 "--nocapture",
                 "--test-threads=1",
             ]
+            started = time.monotonic()
             try:
-                run = subprocess.run(
+                result = subprocess.run(
                     command,
                     cwd=root,
-                    env=environment,
+                    env=run_env,
                     capture_output=True,
                     timeout=120,
                     check=False,
                 )
-                stdout, stderr, exit_code = run.stdout, run.stderr, run.returncode
-                test_timeout = False
+                stdout, stderr, exit_code = result.stdout, result.stderr, result.returncode
+                did_timeout = False
             except subprocess.TimeoutExpired as error:
                 stdout, stderr, exit_code = error.stdout or b"", error.stderr or b"", None
-                test_timeout = True
-            (args.output.parent / f"{crate}.stdout").write_bytes(stdout)
-            (args.output.parent / f"{crate}.stderr").write_bytes(stderr)
-            receipt["test_runs"].append(
-                {
-                    "crate": crate,
-                    "exit_code": exit_code,
-                    "timed_out": test_timeout,
-                    "duration_seconds": time.monotonic() - test_started,
-                    "binary_sha256": hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
-                }
-            )
-            for line in stdout.decode(errors="replace").splitlines():
+                did_timeout = True
+            duration = time.monotonic() - started
+            (artifact_dir / f"{label}.stdout").write_bytes(stdout)
+            (artifact_dir / f"{label}.stderr").write_bytes(stderr)
+            record = {
+                "label": label,
+                "crate": crate,
+                "test": full_name,
+                "exit_code": exit_code,
+                "timed_out": did_timeout,
+                "duration_seconds": duration,
+                "binary_sha256": manifest["binaries"][crate]["sha256"],
+                "rust_backtrace": "full" if backtrace else None,
+                "rust_min_stack": min_stack,
+                "stack_overflow_observed": b"stack overflow" in stderr.lower(),
+                "receipt": receipt_state(receipt_path),
+            }
+            receipt["test_runs"].append(record)
+            decoded = stdout.decode(errors="replace")
+            for line in decoded.splitlines():
                 for prefix, key in [
                     ("DEVHUB_ROUTER_PROOF=", "proof"),
                     ("DEVHUB_ADVERSARIAL_PROOF=", "adversarial_proof"),
@@ -210,18 +334,52 @@ def main():
                 ]:
                     if line.startswith(prefix):
                         receipt[key] = json.loads(line.split("=", 1)[1])
-            if exit_code != 0:
-                break  # Preserve failure; no remaining test run or retry.
-        receipt["actual_pinned_router_code"] = (
-            len(receipt["test_runs"]) == 2
-            and all(run["exit_code"] == 0 for run in receipt["test_runs"])
-            and all(key in receipt for key in ["proof", "adversarial_proof", "catalog_proof"])
+            return record
+
+        baseline_crate, baseline_name = exact["baseline"]
+        baseline = run_exact("baseline", baseline_crate, baseline_name)
+        receipt["baseline_passed"] = baseline["exit_code"] == 0 and not baseline["timed_out"]
+
+        if receipt["baseline_passed"]:
+            handler_crate, handler_name = exact["handler"]
+            handler = run_exact("handler-normal", handler_crate, handler_name, backtrace=True)
+            receipt["handler_normal"] = handler
+            if handler["stack_overflow_observed"]:
+                receipt["handler_large_stack"] = run_exact(
+                    "handler-large-stack",
+                    handler_crate,
+                    handler_name,
+                    backtrace=True,
+                    min_stack=33554432,
+                )
+            else:
+                receipt["handler_large_stack"] = None
+            catalog_crate, catalog_name = exact["catalog"]
+            receipt["catalog"] = run_exact("catalog", catalog_crate, catalog_name)
+        else:
+            receipt["handler_normal"] = None
+            receipt["handler_large_stack"] = None
+            receipt["catalog"] = None
+
+        handler_normal = receipt.get("handler_normal")
+        catalog = receipt.get("catalog")
+        receipt["handler_dispatch"] = bool(
+            handler_normal and handler_normal["exit_code"] == 0 and "adversarial_proof" in receipt
+        )
+        receipt["catalog_refresh_after_preparation"] = bool(
+            catalog and catalog["exit_code"] == 0 and "catalog_proof" in receipt
+        )
+        receipt["process_proof"] = None
+        receipt["actual_pinned_router_code"] = bool(
+            receipt["baseline_passed"]
+            and receipt["handler_dispatch"]
+            and receipt["catalog_refresh_after_preparation"]
         )
     with args.output.open("x", encoding="utf-8") as stream:
         json.dump(receipt, stream, indent=2)
         stream.write("\n")
     if receipt["actual_pinned_router_code"] is not True:
-        raise SystemExit("Full pinned proof incomplete; classification UNKNOWN")
+        raise SystemExit("Build-008 diagnostic incomplete; classification UNKNOWN")
 
 
 if __name__ == "__main__":
