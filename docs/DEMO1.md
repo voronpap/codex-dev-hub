@@ -1,4 +1,4 @@
-# Local demo: Codex → DevFabric → Ollama
+# Local demo: Codex в†’ DevFabric в†’ Ollama
 
 This is a product demo, not a Stage 3G rehearsal or benchmark. Current transport
 is Python MCP stdio. There is no DevFabric HTTP daemon, localhost:4000 service,
@@ -124,7 +124,7 @@ SELECT payload FROM events WHERE reservation = '<accounting_reference>' ORDER BY
 ```
 
 Never modify or acknowledge these rows just to inspect them. A successful flow has
-`reserved → dispatched → settled`. Schema/citation failure can still be settled;
+`reserved в†’ dispatched в†’ settled`. Schema/citation failure can still be settled;
 `unknown_usage` must remain unresolved liability, not be relabeled success or zero.
 The package maps `s1` etc. to source provenance. Citation validation checks identity,
 not whether a claim is actually correct.
@@ -137,7 +137,7 @@ Codex: delegates one bounded explanation
 DevFabric: provider=ollama model=qwen2.5:14b-instruct privacy=local_only
            delegate_calls=1 retries=0 fallback=false
 Result: completed/validated; output_validation=passed; citations_validation=passed
-Accounting: reserved → dispatched → settled
+Accounting: reserved в†’ dispatched в†’ settled
 Tokens/latency: actual values in the handoff (vary by run)
 Semantic quality: not automatically established
 ```
@@ -145,3 +145,15 @@ Semantic quality: not automatically established
 Failures are evidence too: preserve the returned status. Do not retry, reset state,
 weaken version/digest checks, pull a model or fall back to cloud automatically.
 Demo evidence is separate from the frozen benchmark and makes no savings/value claim.
+
+## Recorded local smoke
+
+On 2026-10-04, Codex CLI `0.158.0-alpha.2.1` used the normal stdio server with
+Ollama `0.35.0` and the pinned model digest. [Demo evidence](evidence/devfabric-demo1.json)
+records one call: 647 input / 77 output tokens, 16,264 ms provider latency,
+validated output/citation `s1`, and reserved → dispatched → settled.
+These are one-run observations, not guarantees. The returned explanation omitted
+the requested caller fix plan; semantic quality remains null. No rerun/tuning,
+cloud generation or model pull was performed. The existing local ledger was reused.
+The smoke supplied explicit approval for this single reviewed tool; ordinary
+interactive users can approve it in the Codex UI. No global approval bypass.
