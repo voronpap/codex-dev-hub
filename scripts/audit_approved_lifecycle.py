@@ -13,6 +13,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def audit(source: Path, disposable: Path, output: Path) -> None:
+    constructor_path = "codex-rs/ext/extension-api/src/state.rs"
+    constructor_raw = (source / constructor_path).read_bytes()
+    constructor_hash = hashlib.sha256(constructor_raw).hexdigest()
+    assert constructor_hash == "b7b6064ab9df274fcb52e5457c5e05b2b9cad92f188714939864164f022b49a1"
+    constructor = constructor_raw.decode("utf-8")
+    assert "pub fn new(level_id: impl Into<String>) -> Self" in constructor
+    assert "Self::new_with_init(level_id, ExtensionDataInit::default())" in constructor
+    harness = (ROOT / "scripts/production_router_test.rs").read_bytes()
+    assert b"ExtensionData::default()" not in harness
+    assert harness.count(b'ExtensionData::new("devhub-proof")') == 5
     manifest = json.loads(
         (ROOT / "patches/stage3g-approved-call/candidate.sources.json").read_bytes()
     )
@@ -89,6 +99,9 @@ def audit(source: Path, disposable: Path, output: Path) -> None:
     receipt = {
         "scope": "source-level only; no compiled result",
         "pinned_source": manifest["pinned_source"],
+        "constructor_source_hash": constructor_hash,
+        "constructor_regression_check": True,
+        "test_hash": hashlib.sha256(harness).hexdigest(),
         "patch_hash": hashlib.sha256(patch).hexdigest(),
         "source_and_patched_hashes": manifest["files"],
         "anchor_and_apply_checks": True,

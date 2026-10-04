@@ -47,7 +47,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 &turn.environments,
                 &empty,
                 false,
-                &ExtensionData::default(),
+                &ExtensionData::new("devhub-proof"),
                 None,
             )?;
             assert!(
@@ -67,7 +67,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 &turn.environments,
                 &empty,
                 false,
-                &ExtensionData::default(),
+                &ExtensionData::new("devhub-proof"),
                 None,
             )?;
             let probe = ToolPlanProbe::from_router(router);
@@ -133,7 +133,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
             &turn.environments,
             &binding,
             false,
-            &ExtensionData::default(),
+            &ExtensionData::new("devhub-proof"),
             None,
         )?;
         let probe = ToolPlanProbe::from_router(router);
@@ -231,7 +231,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
                 &turn.environments,
                 &next,
                 false,
-                &ExtensionData::default(),
+                &ExtensionData::new("devhub-proof"),
                 None
             )
             .is_err()
@@ -251,7 +251,7 @@ async fn devhub_production_admission_path() -> anyhow::Result<()> {
             &turn.environments,
             &next,
             false,
-            &ExtensionData::default(),
+            &ExtensionData::new("devhub-proof"),
             None,
         )?;
         let fresh_call = approve(&next)?.prepared_call();

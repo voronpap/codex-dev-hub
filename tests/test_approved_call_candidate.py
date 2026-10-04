@@ -67,3 +67,9 @@ def test_synthetic_process_reports_its_own_dispatch_receipt(tmp_path: Path) -> N
         "arguments": json.loads(PAYLOAD.read_bytes()),
     }
     assert json.loads(responses[2]["result"]["content"][0]["text"]) == observed
+
+
+def test_proof_harness_uses_pinned_extension_constructor() -> None:
+    harness = (REPO / "scripts/production_router_test.rs").read_text(encoding="utf-8")
+    assert "ExtensionData::default()" not in harness
+    assert harness.count('ExtensionData::new("devhub-proof")') == 5
