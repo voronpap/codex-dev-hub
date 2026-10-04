@@ -143,4 +143,29 @@ pub(crate) fn devhub_proof_requires_approval(
 }
 """,
     )
+    edit(
+        "codex-mcp/src/binding.rs",
+        [
+            (
+                "                let add_trusted_access_context = self.connections.add_trusted_access_context(",
+                "                "
+                + marker("trusted_access_context_enter")
+                + "                let add_trusted_access_context = self.connections.add_trusted_access_context(",
+            ),
+            (
+                "                let remaining_timeout = match effective_timeout.zip(timeout_deadline) {",
+                "                "
+                + marker("trusted_access_context_exit")
+                + "                let remaining_timeout = match effective_timeout.zip(timeout_deadline) {",
+            ),
+            (
+                '                self.client\n                    .client\n                    .call_tool(tool_name.clone(), arguments, meta, remaining_timeout)\n                    .await\n                    .with_context(|| format!("tool call failed for `{}/{tool_name}`", self.server_name))',
+                "                "
+                + marker("transport_call_enter")
+                + '                let result = self.client\n                    .client\n                    .call_tool(tool_name.clone(), arguments, meta, remaining_timeout)\n                    .await\n                    .with_context(|| format!("tool call failed for `{}/{tool_name}`", self.server_name));\n                '
+                + marker("transport_call_return")
+                + "                result",
+            ),
+        ],
+    )
     return hashes
