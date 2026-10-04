@@ -219,13 +219,18 @@ def main():
                 check=True,
             )
             (artifact_dir / f"{crate}-tests.txt").write_text(listed.stdout, encoding="utf-8")
-            return [line[:-6] for line in listed.stdout.splitlines() if line.endswith(": test")]
+            return [
+                line[:-6] for line in listed.stdout.splitlines() if line.endswith(": test")
+            ]
 
-        test_names = {crate: list_tests(crate, binary) for crate, binary in preserved.items()}
+        test_names = {
+            crate: list_tests(crate, binary) for crate, binary in preserved.items()
+        }
 
         def exact_name(crate, short):
             matches = [
-                name for name in test_names[crate]
+                name
+                for name in test_names[crate]
                 if name == short or name.endswith("::" + short)
             ]
             assert len(matches) == 1, (crate, short, matches)
@@ -250,7 +255,12 @@ def main():
 
         def receipt_state(path):
             if not path.exists():
-                return {"present": False, "byte_length": None, "sha256": None, "record_count": None}
+                return {
+                    "present": False,
+                    "byte_length": None,
+                    "sha256": None,
+                    "record_count": None,
+                }
             raw = path.read_bytes()
             count = 0
             parseable = True
@@ -373,7 +383,9 @@ def main():
         handler_normal = receipt.get("handler_normal")
         catalog = receipt.get("catalog")
         receipt["handler_dispatch"] = bool(
-            handler_normal and handler_normal["exit_code"] == 0 and "adversarial_proof" in receipt
+            handler_normal
+            and handler_normal["exit_code"] == 0
+            and "adversarial_proof" in receipt
         )
         receipt["catalog_refresh_after_preparation"] = bool(
             catalog and catalog["exit_code"] == 0 and "catalog_proof" in receipt
