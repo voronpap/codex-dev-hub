@@ -1,0 +1,20 @@
+{
+  "global_mode": "CodeModeOnly",
+  "code_mode": {
+    "direct_only_tool_namespaces": [
+      "mcp__devhub_delegate"
+    ]
+  },
+  "tool_registry": {
+    "error_on_tool_collisions": true
+  },
+  "allowed_tools": {
+    "A": [],
+    "B": [
+      {
+        "namespace": "mcp__devhub_delegate",
+        "name": "devhub_delegate"
+      }
+    ]
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "files": [
+    {
+      "path": "codex-rs/core/src/session/mcp_runtime.rs",
+      "sha256": "15e50aee8d9ea0611dbcddcd8fa01620cdbf5470e0b600644285aad5ebe60759",
+      "excerpts": [
+        {
+          "start": 52,
+          "end": 74,
+          "text": "    /// Waits on this session's refreshed server before tool execution is admitted.\n    pub(crate) async fn wait_for_mcp_server(self: &Arc<Self>, server: &str) {\n        self.refresh_mcp_if_dirty().await;\n        self.services\n            .mcp_runtime\n            .wait_for_server_startup(server)\n            .await;\n    }\n\n    /// Captures this session's current MCP client and catalog for one tool call.\n    pub(crate) async fn prepare_mcp_call(\n        self: &Arc<Self>,\n        server: &str,\n        tool: &str,\n    ) -> Option<PreparedMcpCall> {\n        self.refresh_mcp_if_dirty().await;\n        self.services\n            .mcp_runtime\n            .current_binding_for_call(server)\n            .await?\n            .prepare_call(server, tool)\n    }\n"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/core/src/tools/handlers/mcp.rs",
+      "sha256": "7b98f1964b4e2c9031f2fd839760b1bcd8e016f2e26d9cea281597b59000eb79",
+      "excerpts": [
+        {
+          "start": 174,
+          "end": 200,
+          "text": "\nimpl McpHandler {\n    async fn handle_call(\n        &self,\n        invocation: ToolInvocation,\n    ) -> Result<Box<dyn crate::tools::context::ToolOutput>, FunctionCallError> {\n        let prepared_mcp_call = invocation\n            .session\n            .prepare_mcp_call(\n                &self.tool_info.server_name,\n                self.tool_info.tool.name.as_ref(),\n            )\n            .await;\n        // Use the executed call's binding; a later catalog refresh must not change eligibility.\n        // Only the new metadata is internal; tool execution and call accounting are not.\n        let result_metadata_capture_allowed = false;\n        let mcp_tool = prepared_mcp_call.as_ref().map(|call| {\n            McpToolContext::from_prepared_call(\n                call,\n                invocation\n                    .turn\n                    .config\n                    .mcp_servers\n                    .get()\n                    .get(call.server_name()),\n            )\n        });"
+        },
+        {
+          "start": 236,
+          "end": 253,
+          "text": "            &self.tool_info,\n            prepared_mcp_call,\n            self.hook_tool_name(),\n            tool_name,\n            payload,\n        )\n        .await;\n\n        Ok(boxed_tool_output(McpToolOutput {\n            result: result.result,\n            tool_input: result.tool_input,\n            result_metadata_capture_allowed,\n            wall_time: started.elapsed(),\n            original_image_detail_supported: can_request_original_image_detail(\n                &step_context.settings.model_info,\n            ),\n            truncation_policy,\n        }))"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/codex-mcp/src/binding.rs",
+      "sha256": "9fd5f9e5d3021f7d1bd77fc1ecbd7737d1a3fb0044fe9b43cfa1cda3d5966169",
+      "excerpts": [
+        {
+          "start": 92,
+          "end": 99,
+          "text": "    /// Binds a model-visible call to the exact client and metadata in this binding.\n    pub fn prepare_call(&self, server: &str, tool: &str) -> Option<PreparedMcpCall> {\n        self.calls\n            .get(&(server.to_string(), tool.to_string()))\n            .filter(|call| crate::tool_is_model_visible(call.tool_info()))\n            .cloned()\n    }\n"
+        },
+        {
+          "start": 170,
+          "end": 213,
+          "text": "/// one [`McpBinding`].\n#[derive(Clone)]\npub struct PreparedMcpCall {\n    connections: Arc<McpConnectionSet>,\n    client: Arc<ManagedClient>,\n    config: Arc<McpConfig>,\n    catalog_snapshot: Arc<ToolCatalogSnapshot>,\n    tool_info: ToolInfo,\n    server_name: String,\n    server_metadata: McpServerMetadata,\n    plugin_id: Option<String>,\n    selected_plugin_server: bool,\n}\n\nimpl PreparedMcpCall {\n    #[expect(\n        clippy::too_many_arguments,\n        reason = \"the exact call authority stays together\"\n    )]\n    pub(crate) fn new(\n        connections: Arc<McpConnectionSet>,\n        client: Arc<ManagedClient>,\n        config: Arc<McpConfig>,\n        catalog_snapshot: Arc<ToolCatalogSnapshot>,\n        tool_info: ToolInfo,\n        server_metadata: McpServerMetadata,\n        plugin_id: Option<String>,\n        selected_plugin_server: bool,\n    ) -> Option<Self> {\n        let server_name = tool_info.server_name.clone();\n        config.permission_profile_for_server(&server_name)?;\n        Some(Self {\n            connections,\n            client,\n            config,\n            catalog_snapshot,\n            tool_info,\n            server_name,\n            server_metadata,\n            plugin_id,\n            selected_plugin_server,\n        })\n    }\n"
+        },
+        {
+          "start": 313,
+          "end": 389,
+          "text": "    {\n        let effective_timeout = match (self.client.tool_timeout, requested_timeout) {\n            (Some(server_timeout), Some(requested_timeout)) => {\n                Some(server_timeout.min(requested_timeout))\n            }\n            (server_timeout, requested_timeout) => server_timeout.or(requested_timeout),\n        };\n        let tool_name = self.tool_info.tool.name.to_string();\n        self.client\n            .tool_catalog\n            .run_with_snapshot(&self.catalog_snapshot, || async {\n                let (arguments, meta) = prepare().await?;\n                let timeout_deadline =\n                    effective_timeout.map(|timeout| tokio::time::Instant::now() + timeout);\n                let add_trusted_access_context = self.connections.add_trusted_access_context(\n                    &self.tool_info,\n                    &self.server_metadata,\n                    arguments.as_ref(),\n                    meta,\n                );\n                let meta = match effective_timeout.zip(timeout_deadline) {\n                    Some((timeout, deadline)) => {\n                        tokio::time::timeout_at(deadline, add_trusted_access_context)\n                            .await\n                            .map_err(|_| {\n                                anyhow::anyhow!(\"timed out awaiting tools/call after {timeout:.0?}\")\n                            })?\n                    }\n                    None => add_trusted_access_context.await,\n                };\n                let remaining_timeout = match effective_timeout.zip(timeout_deadline) {\n                    Some((timeout, deadline)) => {\n                        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());\n                        if remaining.is_zero() {\n                            return Err(anyhow::anyhow!(\n                                \"timed out awaiting tools/call after {timeout:.0?}\"\n                            ));\n                        }\n                        Some(remaining)\n                    }\n                    None => None,\n                };\n                self.client\n                    .client\n                    .call_tool(tool_name.clone(), arguments, meta, remaining_timeout)\n                    .await\n                    .with_context(|| format!(\"tool call failed for `{}/{tool_name}`\", self.server_name))\n            })\n            .await\n            .ok_or_else(|| anyhow::anyhow!(\n                \"tool call rejected because the catalog changed after `{}/{tool_name}` was prepared\",\n                self.server_name\n            ))?\n            .map(call_tool_result_from_rmcp)\n    }\n}\n\npub(crate) fn call_tool_result_from_rmcp(result: rmcp::model::CallToolResult) -> CallToolResult {\n    let content = result\n        .content\n        .into_iter()\n        .map(|content| {\n            serde_json::to_value(content)\n                .unwrap_or_else(|_| JsonValue::String(\"<content>\".to_string()))\n        })\n        .collect();\n    CallToolResult {\n        content,\n        structured_content: result.structured_content,\n        is_error: result.is_error,\n        meta: result.meta.and_then(|meta| serde_json::to_value(meta).ok()),\n    }\n}\n\n#[cfg(test)]\n#[path = \"binding_tests.rs\"]\nmod tests;"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/codex-mcp/src/client_tool_catalog.rs",
+      "sha256": "c2872ff795348220e40911f4ba91cff95fa3ebc07c7051d7e62a423a333d1a93",
+      "excerpts": [
+        {
+          "start": 174,
+          "end": 225,
+          "text": "\n    /// Reject stale calls before preparation and hold catalog authority until execution finishes.\n    #[expect(\n        clippy::await_holding_invalid_type,\n        reason = \"catalog publication must wait for call preparation and execution\"\n    )]\n    pub(crate) async fn run_with_snapshot<R, F, Fut>(\n        &self,\n        expected: &ToolCatalogSnapshot,\n        run: F,\n    ) -> Option<R>\n    where\n        F: FnOnce() -> Fut,\n        Fut: Future<Output = R>,\n    {\n        let (current, snapshot) = self.read_current().await;\n        if current.last_refresh_revision > expected.revision\n            || (snapshot.revision != expected.revision\n                && !catalogs_match(&snapshot.tools, &expected.tools))\n        {\n            return None;\n        }\n        let result = run().await;\n        drop(current);\n        Some(result)\n    }\n}\n\n/// Compares complete definitions independently of tool-list order. Stable sorting keeps\n/// conflicting duplicate identities in their original order, since deduplication can pick the\n/// first definition. This slow path runs only after the client's revision has changed.\nfn catalogs_match(left: &[ToolInfo], right: &[ToolInfo]) -> bool {\n    if left == right {\n        return true;\n    }\n    if left.len() != right.len() {\n        return false;\n    }\n    let mut left = left.iter().collect::<Vec<_>>();\n    let mut right = right.iter().collect::<Vec<_>>();\n    for tools in [&mut left, &mut right] {\n        tools.sort_by_key(|tool| {\n            (\n                tool.server_name.as_str(),\n                tool.tool.name.as_ref(),\n                tool.connector_id.as_deref(),\n                tool.callable_namespace.as_str(),\n                tool.callable_name.as_str(),\n            )\n        });\n    }\n    left == right"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/ext/extension-api/src/allowed_tools.rs",
+      "sha256": "4b58b7fda8f0dd5acbc13f5a8e3402610b9367fa4c2bdf1018c2c4603a5b4fc9",
+      "excerpts": [
+        {
+          "start": 1,
+          "end": 24,
+          "text": "//! A startup ceiling on the tools a thread may advertise or execute.\n\nuse crate::ToolName;\n\n/// Supply through `ExtensionDataInit` before starting a thread. The host captures\n/// this value once; changing extension state later cannot widen the tool set.\n/// Callers must supply it again when resuming a thread.\n///\n/// An absent value keeps ordinary tool setup. An empty list permits no tools.\n/// Names include their namespace; a plain name uses the default namespace.\n/// This only removes tools: configuration and permission checks still apply.\n/// Generated tools such as Code Mode's `exec` and `wait` must also be listed.\n#[derive(Clone, Debug, Default)]\npub struct AllowedTools(pub Vec<ToolName>);\n\nimpl AllowedTools {\n    pub fn contains(&self, tool: &ToolName) -> bool {\n        self.0.iter().any(|allowed| {\n            allowed.name == tool.name\n                && (allowed.namespace == tool.namespace\n                    || (allowed.is_default_namespace() && tool.is_default_namespace()))\n        })\n    }\n}"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/ext/extension-api/src/contributors/tool_lifecycle.rs",
+      "sha256": "6c23a0fe4343ae9debd26a47d65d059baa22def4d38d856570f0747413a8d0cd",
+      "excerpts": [
+        {
+          "start": 58,
+          "end": 116,
+          "text": "    /// A compatibility or extension registration without user-owned provenance.\n    Other,\n}\n\n/// Read-only metadata and provenance captured from the MCP call that will execute.\n#[derive(Clone, Debug)]\npub struct McpToolContext {\n    tool: crate::McpToolInfo,\n    source: McpToolSource,\n}\n\nimpl McpToolContext {\n    /// Snapshots a prepared call without exposing its executable client to extensions.\n    ///\n    /// Configured servers retain their provenance only when their captured connection\n    /// still matches the host configuration for the current tool invocation.\n    pub fn from_prepared_call(\n        call: &PreparedMcpCall,\n        configured_server: Option<&McpServerConfig>,\n    ) -> Self {\n        let tool = call.tool_info().clone();\n        let registration = call.config().mcp_server_catalog.server(call.server_name());\n        let source = if tool.connector_id.is_some() && call.is_host_owned_apps() {\n            McpToolSource::Connector\n        } else if call.is_selected_plugin_server() {\n            McpToolSource::SelectedPlugin\n        } else if let Some(McpServerSource::Plugin(plugin)) =\n            registration.map(ResolvedMcpServer::source)\n            && Some(plugin.plugin_id()) == call.plugin_id()\n            && let Some(root) = plugin.host_root()\n        {\n            McpToolSource::Plugin {\n                id: plugin.plugin_id().to_owned(),\n                root: root.clone(),\n            }\n        } else if registration.is_some_and(|server| {\n            matches!(server.source(), McpServerSource::Config)\n                && configured_server.is_some_and(|configured| server.config() == configured)\n        }) {\n            McpToolSource::Config\n        } else {\n            McpToolSource::Other\n        };\n\n        Self { tool, source }\n    }\n\n    /// Returns frozen metadata for the exact model-visible MCP tool being executed.\n    pub fn tool_info(&self) -> &crate::McpToolInfo {\n        &self.tool\n    }\n\n    /// Returns the registration source captured with the executable call.\n    pub fn source(&self) -> &McpToolSource {\n        &self.source\n    }\n}\n\n/// Input supplied when the host starts executing one tool call."
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/ext/extension-api/src/contributors.rs",
+      "sha256": "72c8f3c5777574f91ce6e2834c24f4e092f684c3c2ea1aa51c1149060fb65537",
+      "excerpts": [
+        {
+          "start": 330,
+          "end": 365,
+          "text": "\n/// Contributor for host-owned tool lifecycle gates.\n///\n/// Implementations can observe tool execution and process MCP responses without\n/// rewriting the invocation. Use `ToolContributor` for owning a tool implementation\n/// and hooks for policy that changes tool payloads.\npub trait ToolLifecycleContributor: Send + Sync {\n    /// Called after pre-tool hooks finalize an invocation and before execution.\n    ///\n    /// Calls blocked by hooks, or whose hook-provided input cannot be applied,\n    /// do not reach this callback.\n    fn on_tool_start<'a>(&'a self, _input: ToolStartInput<'a>) -> ToolLifecycleFuture<'a> {\n        Box::pin(std::future::ready(()))\n    }\n\n    /// Runs before the MCP result is sent to the client and model.\n    fn on_mcp_tool_result<'a>(&'a self, _input: McpToolResultInput<'a>) -> ToolLifecycleFuture<'a> {\n        Box::pin(std::future::ready(()))\n    }\n\n    /// Called after the tool call returns, is blocked, fails, or is cancelled.\n    ///\n    /// A matching start callback does not exist when execution is blocked,\n    /// hook-provided input cannot be applied, or cancellation wins first.\n    fn on_tool_finish<'a>(&'a self, _input: ToolFinishInput<'a>) -> ToolLifecycleFuture<'a> {\n        Box::pin(std::future::ready(()))\n    }\n}\n\n/// Owns the complete approval decision, including whether to consult a reviewer.\n/// Returning `None` leaves the request to the next contributor.\npub trait ApprovalReviewContributor: Send + Sync {\n    /// Claims one request, including a handoff to the user.\n    fn decide<'a>(\n        &'a self,\n        _input: &'a ApprovalDecisionInput<'_>,"
+        }
+      ]
+    },
+    {
+      "path": "codex-rs/core/src/tools/registry.rs",
+      "sha256": "52d6ec5de7282fd42bd9810edbe19d0c75ee9445254e33e2a1a39e0ba7dac7b5",
+      "excerpts": [
+        {
+          "start": 370,
+          "end": 417,
+          "text": "        let exposure = runtime.exposure();\n        self.tools\n            .shift_insert(0, tool_name, RegisteredTool { runtime, exposure });\n    }\n\n    pub(crate) fn register_external(&mut self, runtime: Arc<dyn CoreToolRuntime>) -> bool {\n        let exposure = runtime.exposure();\n        self.register_external_with_exposure(runtime, exposure)\n    }\n\n    pub(crate) fn register_external_with_exposure(\n        &mut self,\n        runtime: Arc<dyn CoreToolRuntime>,\n        exposure: ToolExposure,\n    ) -> bool {\n        let tool_name = runtime.tool_name().with_default_namespace();\n        if self\n            .allowed_tools\n            .as_ref()\n            .is_some_and(|allowed| !allowed.contains(&tool_name))\n        {\n            return false;\n        }\n        if tool_name.is_default_namespace()\n            && matches!(tool_name.name.as_str(), \"exec_command\" | \"shell_command\")\n        {\n            tracing::warn!(tool_name = %tool_name, \"skipping external tool with reserved name\");\n            if self.tools.contains_key(&tool_name) {\n                self.record_collision(tool_name);\n            }\n            return false;\n        }\n\n        match self.tools.entry(tool_name) {\n            Entry::Vacant(entry) => {\n                entry.insert(RegisteredTool { runtime, exposure });\n                true\n            }\n            Entry::Occupied(entry) => {\n                tracing::warn!(\n                    tool_name = %entry.key(),\n                    \"skipping duplicate external tool that is already registered\"\n                );\n                self.first_collision\n                    .get_or_insert_with(|| entry.key().clone());\n                false\n            }\n        }"
+        }
+      ]
+    }
+  ]
+}
