@@ -59,3 +59,39 @@ one manual build-004. No full Windows, build-005, v3, rehearsal or benchmark.
 Production classification UNKNOWN; Stage 3G-C/3G OPEN; execution_ready=false;
 real_codex_executions=0; provider_sends=0. Any failed scenario is preserved without
 fix-forward. Missing matrix observations remain null.
+
+## Actual result: BINDING_ZERO — STOP for review
+
+[Run 37214846071](https://github.com/voronpap/codex-dev-hub/actions/runs/37214846071)
+at f9f030ebc8f112e20634ded56edd172e36baf5e7: compile exit 0 in
+664.589927447 s; single test exit 101 in 0.2628123979999373 s.
+Last marker: initial_router_admission. Cardinality guard rejected the initial
+binding before any synthetic call. Raw stdout/stderr and receipt retained.
+
+Configured, materialized catalog and effective keys each equal [devhub_delegate].
+Apps false; plugin keys and other keys empty. Binding has_servers=true,
+tools_len=0, tools=[], target_tool_info_present=false,
+target_prepare_call_present=false. Classification BINDING_ZERO.
+
+Source diagnosis (not an additional executed probe): mcp_config_for_test calls
+Config::to_mcp_config_with_loaded_plugins. core/src/config/mod.rs initializes
+server_permission_profiles to an empty map. This harness never populates it.
+PreparedMcpCall::new in binding.rs requires config.permission_profile_for_server,
+which is a map lookup and returns None here. capture_binding_with_metadata skips
+a listed ready tool when prepare_call returns None, before inserting either the
+call or model-visible tool. This missing harness authority is a sufficient
+source-derived barrier and consistent with the observed empty binding. Raw client
+catalog contents were not separately logged; do not claim every earlier discovery
+stage was observed. No evidence connects the PATH-alias warning to this failure.
+Exact source hashes are recorded in the assessment.
+
+Do not repair by weakening cardinality, bypassing permission admission, filtering
+or changing config in this pass. No fix-forward/build-005. A future review must
+define the correct trusted permission materialization for the synthetic host.
+
+Completed markers prove Arm A assertions; production candidate and real schema
+compile, and the test binary executes. B visibility/lifecycle, origin/collisions,
+handler dispatch, process proof and all later adversarial fields remain null.
+Historical build-003 assessment remains unchanged. Production classification
+UNKNOWN; Stage 3G-C/3G OPEN; execution_ready=false; real_codex_executions=0;
+provider_sends=0. No protocol v3, rehearsal or benchmark.
