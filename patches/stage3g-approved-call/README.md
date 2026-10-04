@@ -1,0 +1,37 @@
+# Candidate B implementation worktree
+
+This patch is applied only to a disposable copy of pinned source
+`4607249e430dac1c961df4dc615beae88e33cec8` for compilation. It does not replace the
+shipping Codex binary or benchmark runtime. LOCK_B remains proof-only. No v3.
+
+The initial implementation adds an opaque retained approved call, a per-runtime
+generation lease, invalidation on publication/reconnect/shutdown, and an opt-in
+host startup policy consumed by the actual `build_tool_router` path. Ordinary
+MCP handlers still use the original lookup path. Approved handlers do not.
+An in-flight leased call finishes before publication invalidates its generation;
+after invalidation returns, old approvals cannot start preparation. The lease
+covers existing `PreparedMcpCall` execution, not a second execution engine.
+
+`ApprovedDelegatePolicy` is Rust host startup data. It is NOT a CLI-loadable TOML
+option. DirectModelOnly namespaces remain the existing internal config field.
+The policy demands exact AllowedTools and CodeModeOnly, and constructs only the
+approved handler. Canonical-name cache lookup is not used for admission.
+
+This is **incomplete, unvalidated implementation**, not a production gate pass.
+The first compiled probe exercises A/B through production router construction,
+real-schema comparison, synthetic stdio dispatch and reconnect invalidation.
+It intentionally reports UNKNOWN even if this subset succeeds. It does not yet
+establish the entire required adversarial matrix or an exact CLI/host metadata
+process proof. The synthetic process is not Dev Hub or an inference provider.
+
+Outstanding gates include complete trusted launch/config-file/project/state-root
+attestation and explicit path normalization, both collision orders, forged runtime,
+refresh after preparation using the existing catalog guard, process observation
+through a reviewed host entry point, and default-path regression validation.
+Do not activate this patch while those gates are unproven. No caller-supplied
+identity strings alone may satisfy the missing host attestation.
+
+The admitted schema must remain the real reviewed schema whose canonical JSON
+SHA-256 is `0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be`.
+Source assembly is explicit and refuses unmatched anchors. No generated Cargo.lock
+is committed. Historical #31/#32/#33 evidence remains unchanged.
