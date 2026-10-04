@@ -1,0 +1,56 @@
+
+running 1 test
+test tools::spec_plan::tests::devhub_production_admission_path_adversarial ... DEVHUB_APPROVAL_BASELINE={"annotations":null,"executed":false,"mode":"Auto","required_by_mode":true}
+DEVHUB_ADVERSARIAL_STAGE=wrong_origin_only
+DEVHUB_ADVERSARIAL_STAGE=wrong_origin_only_passed
+DEVHUB_ADVERSARIAL_STAGE=wrong_first
+DEVHUB_ADVERSARIAL_STAGE=wrong_first_passed
+DEVHUB_ADVERSARIAL_STAGE=approved_first
+DEVHUB_ADVERSARIAL_STAGE=approved_first_passed
+DEVHUB_ADVERSARIAL_STAGE=forged_runtime
+DEVHUB_ADVERSARIAL_STAGE=forged_runtime_passed
+DEVHUB_ADVERSARIAL_STAGE=extra_mcp
+DEVHUB_EXTRA_IDENTITIES=[{"name":"devhub_delegate","namespace":"mcp__devhub_delegate","raw":"devhub_delegate","server":"devhub_delegate"},{"name":"devhub_delegate","namespace":"mcp__extra_server","raw":"devhub_delegate","server":"extra_server"}]
+DEVHUB_ADVERSARIAL_STAGE=extra_mcp_passed
+DEVHUB_ADVERSARIAL_STAGE=dynamic_hosted
+DEVHUB_ADVERSARIAL_STAGE=dynamic_hosted_passed
+DEVHUB_ADVERSARIAL_STAGE=handler_dispatch
+DEVHUB_APPROVAL_CONFIG={"destructive_hint":null,"global_approval_policy":"OnRequest","mode":"Approve","open_world_hint":null,"permission_profile_present":true,"read_only_hint":null,"required_by_mode":false,"strict_auto_review":false}
+DEVHUB_HANDLER_STAGE=handler_entry
+DEVHUB_HANDLER_STAGE=prepared_approved_call_selected
+DEVHUB_HANDLER_STAGE=notify_tool_start_completed
+DEVHUB_HANDLER_STAGE=originating_call_completed
+DEVHUB_APPROVAL_PATH={"mode":"Approve","strict_auto_review":false,"required_by_mode":false}
+DEVHUB_HANDLER_STAGE=approval_decision_path
+DEVHUB_HANDLER_STAGE=handle_approved_mcp_tool_call_entered
+DEVHUB_HANDLER_STAGE=prepared_execution_entered
+DEVHUB_HANDLER_STAGE=preparation_closure_entered
+DEVHUB_HANDLER_STAGE=approval_application_enter
+DEVHUB_HANDLER_STAGE=approval_application_exit
+DEVHUB_HANDLER_STAGE=memory_pollution_enter
+DEVHUB_HANDLER_STAGE=memory_pollution_exit
+DEVHUB_HANDLER_STAGE=rewrite_args_enter
+DEVHUB_HANDLER_STAGE=rewrite_args_exit
+DEVHUB_HANDLER_STAGE=request_meta_build_enter
+DEVHUB_HANDLER_STAGE=request_meta_build_exit
+DEVHUB_HANDLER_STAGE=request_ids_enter
+DEVHUB_HANDLER_STAGE=request_ids_exit
+DEVHUB_HANDLER_STAGE=sandbox_meta_enter
+DEVHUB_HANDLER_STAGE=sandbox_meta_exit
+DEVHUB_HANDLER_STAGE=trace_enter
+DEVHUB_HANDLER_STAGE=trace_exit
+DEVHUB_HANDLER_STAGE=add_request_meta_enter
+DEVHUB_HANDLER_STAGE=add_request_meta_exit
+DEVHUB_HANDLER_STAGE=trusted_access_context_enter
+DEVHUB_HANDLER_STAGE=trusted_access_context_exit
+DEVHUB_HANDLER_STAGE=transport_call_enter
+DEVHUB_HANDLER_STAGE=transport_call_return
+DEVHUB_HANDLER_STAGE=prepared_execution_returned
+DEVHUB_ADVERSARIAL_STAGE=handler_return
+DEVHUB_ADVERSARIAL_STAGE=synthetic_receipt_seen
+DEVHUB_ADVERSARIAL_STAGE=handler_dispatch_passed
+DEVHUB_ADVERSARIAL_PROOF={"approved_first":true,"catalog_refresh_after_preparation":null,"collision_behavior":"wrong-first admission rejected; approved-first duplicate rejected and router finalization fatal","dynamic_hosted_adversarial":true,"extra_mcp":true,"forged_runtime":true,"forged_runtime_scope":"public empty binding and metadata-only McpHandler substitution denied","handler_dispatch":true,"process_proof":null,"provider_sends":0,"real_codex_executions":0,"receipts":[{"arguments":{"acceptance_criteria":["Synthetic proof only."],"allow_cloud":false,"instructions":"Synthetic production binding proof.","privacy":"local_only","project":"stage3g-proof","query":"synthetic","request_key":"synthetic-proof-1","require_citations":true,"schema_version":1,"task_class":"summarize","task_id":"synthetic-proof"},"endpoint_identity":"approved-adversarial-endpoint","raw_tool":"devhub_delegate","schema_hash":"0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"}],"synthetic_process_dispatch":true,"wrong_first":true,"wrong_origin_only":true}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2529 filtered out; finished in 0.21s
+

@@ -1,0 +1,11 @@
+
+running 1 test
+test binding::devhub_production_admission_path_catalog ... DEVHUB_HANDLER_STAGE=trusted_access_context_enter
+DEVHUB_HANDLER_STAGE=trusted_access_context_exit
+DEVHUB_HANDLER_STAGE=transport_call_enter
+DEVHUB_HANDLER_STAGE=transport_call_return
+DEVHUB_CATALOG_PROOF={"catalog_refresh_after_preparation":true,"provider_sends":0,"real_codex_executions":0,"receipt_count":1,"stale_error":"tool call rejected because the catalog changed after `devhub_delegate/devhub_delegate` was prepared"}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 238 filtered out; finished in 0.03s
+

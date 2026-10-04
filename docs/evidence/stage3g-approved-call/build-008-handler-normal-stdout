@@ -1,0 +1,26 @@
+
+running 1 test
+test tools::spec_plan::tests::devhub_production_admission_path_adversarial ... DEVHUB_APPROVAL_BASELINE={"annotations":null,"executed":false,"mode":"Auto","required_by_mode":true}
+DEVHUB_ADVERSARIAL_STAGE=wrong_origin_only
+DEVHUB_ADVERSARIAL_STAGE=wrong_origin_only_passed
+DEVHUB_ADVERSARIAL_STAGE=wrong_first
+DEVHUB_ADVERSARIAL_STAGE=wrong_first_passed
+DEVHUB_ADVERSARIAL_STAGE=approved_first
+DEVHUB_ADVERSARIAL_STAGE=approved_first_passed
+DEVHUB_ADVERSARIAL_STAGE=forged_runtime
+DEVHUB_ADVERSARIAL_STAGE=forged_runtime_passed
+DEVHUB_ADVERSARIAL_STAGE=extra_mcp
+DEVHUB_EXTRA_IDENTITIES=[{"name":"devhub_delegate","namespace":"mcp__devhub_delegate","raw":"devhub_delegate","server":"devhub_delegate"},{"name":"devhub_delegate","namespace":"mcp__extra_server","raw":"devhub_delegate","server":"extra_server"}]
+DEVHUB_ADVERSARIAL_STAGE=extra_mcp_passed
+DEVHUB_ADVERSARIAL_STAGE=dynamic_hosted
+DEVHUB_ADVERSARIAL_STAGE=dynamic_hosted_passed
+DEVHUB_ADVERSARIAL_STAGE=handler_dispatch
+DEVHUB_APPROVAL_CONFIG={"destructive_hint":null,"global_approval_policy":"OnRequest","mode":"Approve","open_world_hint":null,"permission_profile_present":true,"read_only_hint":null,"required_by_mode":false,"strict_auto_review":false}
+DEVHUB_HANDLER_STAGE=handler_entry
+DEVHUB_HANDLER_STAGE=prepared_approved_call_selected
+DEVHUB_HANDLER_STAGE=notify_tool_start_completed
+DEVHUB_HANDLER_STAGE=originating_call_completed
+DEVHUB_APPROVAL_PATH={"mode":"Approve","strict_auto_review":false,"required_by_mode":false}
+DEVHUB_HANDLER_STAGE=approval_decision_path
+DEVHUB_HANDLER_STAGE=handle_approved_mcp_tool_call_entered
+DEVHUB_HANDLER_STAGE=prepared_execution_entered
