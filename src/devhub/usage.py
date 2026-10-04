@@ -74,9 +74,15 @@ class Savings(Contract):
 
 
 class ApiCost(Contract):
-    kind: Literal["measured", "estimated"]
+    kind: Literal["measured", "known_zero", "estimated"]
     microusd: Count
     evidence_ref: Ref
+
+    @model_validator(mode="after")
+    def zero_charge(self) -> "ApiCost":
+        if self.kind == "known_zero" and self.microusd != 0:
+            raise ValueError("known-zero API charge must be zero")
+        return self
 
 
 class RouteStep(Contract):
@@ -137,7 +143,8 @@ def derive_usage(
         if observed_send and result.provider is not None
         else ()
     )
-    # Local API charge only, after actual complete accounted usage. Never total cost.
+    # Accounting proves execution, not billing. The local adapter has no external
+    # provider API charge; hardware/energy remain unmeasured.
     if (
         provider_api_cost is None
         and result.provider == "ollama"
@@ -148,7 +155,10 @@ def derive_usage(
         and result.actual_output_tokens is not None
     ):
         provider_api_cost = ApiCost(
-            kind="measured", microusd=0, evidence_ref="accounting:" + result.accounting_reference
+            kind="known_zero",
+            microusd=0,
+            evidence_ref="local-ollama:no-external-api-charge:accounting:"
+            + result.accounting_reference,
         )
     total = None
     if result.actual_input_tokens is not None and result.actual_output_tokens is not None:

@@ -33,8 +33,8 @@ not observed, so route_complete=false. Latency copies DelegationResult latency:
 it is provider latency when available, otherwise the runtime's measured attempt
 interval. It is not full Codex response wall time. Unknown usage is never replaced
 by the context byte proxy or preflight estimate. No-send attempts have no inferred
-local API charge. A settled local invocation with complete usage has $0 provider
-API charge; hardware and electricity are unmeasured. Cloud cost stays unknown
+local API charge. A settled local invocation with complete usage has a known-zero local provider
+API charge, not a measured billing observation; hardware and electricity are unmeasured. Cloud cost stays unknown
 unless a trusted producer supplies explicit measured/estimated cost provenance.
 
 ## Savings contract
@@ -73,7 +73,7 @@ Delegated tokens: 724 measured
 Baseline: unknown
 Premium token saving: unknown
 Delegation result latency: 16.3 s measured
-Provider/API cost: $0.00 measured (API only; hardware/energy unmeasured)
+Provider/API cost: $0.00 known-zero local API charge (API only; hardware/energy unmeasured)
 Semantic quality: unknown
 Output validation: PASS
 Citation validation: PASS
@@ -81,3 +81,11 @@ Citation validation: PASS
 
 Syntax/citation checks are not semantic acceptance. Stage 3G remains OPEN and
 execution_ready=false. No benchmark or provider call is required for this feature.
+
+Cost kinds distinguish `measured` provider/billing observations, `known_zero`
+local API charge, and `estimated` reviewed estimates. Missing cost is null.
+The Ollama derivation binds `local-ollama:no-external-api-charge` plus the
+accounting reference: the latter establishes actual settled execution, not a
+monetary measurement. Known-zero requires microusd=0. Explicit measured/estimated
+cost supplied by a trusted producer remains unchanged. No hardware, energy or
+total economic cost is inferred from the ledger.

@@ -50,13 +50,14 @@ def render_verbose(summary: UsageSummaryV1) -> str:
         else "Premium token saving"
     )
     cost = summary.provider_api_cost
-    cost_text = (
-        "unknown"
-        if cost is None
-        else (
-            f"${cost.microusd / 1_000_000:.2f} {cost.kind} (API only; hardware/energy unmeasured)"
+    cost_text = "unknown"
+    if cost is not None:
+        label = "known-zero local API charge" if cost.kind == "known_zero" else cost.kind
+        prefix = "~" if cost.kind == "estimated" else ""
+        cost_text = (
+            f"{prefix}${cost.microusd / 1_000_000:.2f} {label}"
+            " (API only; hardware/energy unmeasured)"
         )
-    )
     quality = {None: "unknown", True: "PASS", False: "FAIL"}[summary.semantic_acceptance]
 
     def validation(value: str) -> str:

@@ -137,3 +137,35 @@ def test_selection_is_not_execution_route_and_cost_labels():
     assert [s.provider for s in summary.route] == ["ollama"]
     assert "API ~$0.12" in render_compact(summary)
     assert "$0.12 estimated" in render_verbose(summary)
+
+
+def test_local_charge_is_known_zero_not_billing_measurement():
+    summary = derive_usage(demo())
+    assert summary.provider_api_cost.kind == "known_zero"
+    assert summary.provider_api_cost.microusd == 0
+    assert summary.provider_api_cost.evidence_ref == (
+        "local-ollama:no-external-api-charge:accounting:demo-reservation"
+    )
+    line = next(x for x in render_verbose(summary).splitlines() if x.startswith("Provider/API"))
+    assert "known-zero local API charge" in line
+    assert "hardware/energy unmeasured" in line
+    assert "$0.00 measured" not in line
+    assert "API $0.00" in render_compact(summary)
+    with pytest.raises(ValidationError):
+        ApiCost(kind="known_zero", microusd=1, evidence_ref="invalid")
+
+
+def test_accounting_does_not_establish_cloud_billing():
+    summary = derive_usage(demo(provider="groq"))
+    assert summary.accounting == "settled" and summary.evidence_refs
+    assert summary.provider_api_cost is None
+    assert "Provider/API cost: unknown" in render_verbose(summary)
+
+
+@pytest.mark.parametrize("kind,prefix", [("measured", ""), ("estimated", "~")])
+def test_explicit_cost_evidence_is_preserved(kind, prefix):
+    cost = ApiCost(kind=kind, microusd=123000, evidence_ref="billing-or-estimator:reviewed")
+    summary = derive_usage(demo(), provider_api_cost=cost)
+    assert summary.provider_api_cost == cost
+    assert f"Provider/API cost: {prefix}$0.12 {kind}" in render_verbose(summary)
+    assert f"API {prefix}$0.12" in render_compact(summary)
