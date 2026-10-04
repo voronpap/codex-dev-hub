@@ -99,9 +99,7 @@ def test_permission_materialization_precedes_runtime_publication() -> None:
 
 
 def test_build008_diagnostic_contract_is_single_build_and_reusable() -> None:
-    runner = (REPO / "scripts/build_production_router_proof.py").read_text(
-        encoding="utf-8"
-    )
+    runner = (REPO / "scripts/build_production_router_proof.py").read_text(encoding="utf-8")
     assert '"build_id": "build-008"' in runner
     assert runner.count('"cargo",\n        "test"') == 1
     assert "--no-run" in runner
@@ -115,9 +113,7 @@ def test_build008_diagnostic_contract_is_single_build_and_reusable() -> None:
 
 
 def test_build008_inner_checkpoint_plan_is_implemented() -> None:
-    instrumentation = (REPO / "scripts/instrument_approval_proof.py").read_text(
-        encoding="utf-8"
-    )
+    instrumentation = (REPO / "scripts/instrument_approval_proof.py").read_text(encoding="utf-8")
     for marker in [
         "preparation_closure_entered",
         "approval_application_enter",
@@ -148,12 +144,8 @@ def test_build008_receipts_are_persistent_and_fsynced() -> None:
     adversarial = (REPO / "scripts/production_router_adversarial_test.rs").read_text(
         encoding="utf-8"
     )
-    catalog = (REPO / "scripts/production_catalog_test.rs").read_text(
-        encoding="utf-8"
-    )
-    synthetic = (REPO / "scripts/synthetic_approved_mcp.py").read_text(
-        encoding="utf-8"
-    )
+    catalog = (REPO / "scripts/production_catalog_test.rs").read_text(encoding="utf-8")
+    synthetic = (REPO / "scripts/synthetic_approved_mcp.py").read_text(encoding="utf-8")
     assert 'std::env::var("DEVHUB_PROOF_RECEIPT")' in adversarial
     assert 'std::env::var("DEVHUB_PROOF_RECEIPT")' in catalog
     assert "os.fsync(stream.fileno())" in synthetic
