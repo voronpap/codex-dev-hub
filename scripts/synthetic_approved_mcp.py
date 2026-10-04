@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,6 +36,8 @@ for line in sys.stdin.buffer:
         # Every attempted synthetic send leaves a line, including unexpected repeats.
         with receipt.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(record) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         result = {"content": [{"type": "text", "text": json.dumps(record)}]}
     elif method == "ping":
         result = {}
