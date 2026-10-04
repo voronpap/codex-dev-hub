@@ -99,7 +99,9 @@ def test_permission_materialization_precedes_runtime_publication() -> None:
 
 
 def test_build008_diagnostic_contract_is_single_build_and_reusable() -> None:
-    runner = (REPO / "scripts/build_production_router_proof.py").read_text(encoding="utf-8")
+    runner = (REPO / "scripts/build_production_router_proof.py").read_text(
+        encoding="utf-8"
+    )
     assert '"build_id": "build-008"' in runner
     assert runner.count('"cargo",\n        "test"') == 1
     assert "--no-run" in runner
