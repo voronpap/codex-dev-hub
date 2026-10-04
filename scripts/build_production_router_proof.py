@@ -201,7 +201,9 @@ def main():
             manifest["binaries"][crate] = {
                 "artifact_path": str(binary.relative_to(args.output.parent)),
                 "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
-                "runtime_requirements": ldd.stdout if ldd.returncode == 0 else ldd.stderr,
+                "runtime_requirements": (
+                    ldd.stdout if ldd.returncode == 0 else ldd.stderr
+                ),
             }
         (artifact_dir / "binary-manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
@@ -250,7 +252,9 @@ def main():
                 exact_name("codex_mcp", "devhub_production_admission_path_catalog"),
             ),
         }
-        receipt["exact_test_names"] = {key: value[1] for key, value in exact.items()}
+        receipt["exact_test_names"] = {
+            key: value[1] for key, value in exact.items()
+        }
         receipt["test_runs"] = []
 
         def receipt_state(path):
@@ -283,7 +287,9 @@ def main():
             "DEVHUB_PROOF_RECEIPT,RUST_BACKTRACE,RUST_MIN_STACK"
         )
 
-        def run_exact(label, crate, full_name, *, backtrace=False, min_stack=None):
+        def run_exact(
+            label, crate, full_name, *, backtrace=False, min_stack=None
+        ):
             binary = preserved[crate]
             run_env = dict(environment)
             receipt_path = artifact_dir / f"{label}-receipt.jsonl"
@@ -361,7 +367,9 @@ def main():
 
         if receipt["baseline_passed"]:
             handler_crate, handler_name = exact["handler"]
-            handler = run_exact("handler-normal", handler_crate, handler_name, backtrace=True)
+            handler = run_exact(
+                "handler-normal", handler_crate, handler_name, backtrace=True
+            )
             receipt["handler_normal"] = handler
             if handler["stack_overflow_observed"]:
                 receipt["handler_large_stack"] = run_exact(
