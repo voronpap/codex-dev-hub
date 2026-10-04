@@ -76,7 +76,11 @@ async fn devhub_production_admission_path_adversarial() -> anyhow::Result<()> {
     let allowed = Arc::new(AllowedTools(vec![name.clone()]));
     session.allowed_tools = Some(Arc::clone(&allowed));
     let temp = tempfile::tempdir()?;
-    let receipt = temp.path().join("adversarial-receipt.jsonl");
+    let receipt = std::path::PathBuf::from(std::env::var("DEVHUB_PROOF_RECEIPT")?);
+    if let Some(parent) = receipt.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&receipt, b"")?;
     let script = std::env::var("DEVHUB_SYNTHETIC_MCP")?;
     let schema_path = std::env::var("DEVHUB_REAL_SCHEMA")?;
     let server: codex_config::McpServerConfig = serde_json::from_value(json!({
@@ -369,7 +373,7 @@ async fn devhub_production_admission_path_adversarial() -> anyhow::Result<()> {
         records[0]["schema_hash"],
         "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
     );
-    checkpoint("synthetic_receipt_observed");
+    checkpoint("synthetic_receipt_seen");
     checkpoint("handler_dispatch_passed");
     runtime.shutdown().await;
     println!(
