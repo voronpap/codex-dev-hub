@@ -44,3 +44,22 @@ Result fields stay unknown until compiled execution produces evidence.
 
 Stage 3G-C and Stage 3G remain OPEN; execution_ready=false. Real Codex executions
 and provider sends remain zero. No quality, savings or Delegation Value claim.
+
+## Actual build-006 outcome — stop for review
+
+Run 37222526797 compiled both crates successfully in 807.291987807 seconds.
+Core tests: one passed, one failed; test invocation took 20.542964699 seconds.
+The unchanged A/B/lifecycle proof passed again. Adversarial checkpoints prove
+wrong-origin-only, wrong-first, approved-first, metadata/empty-binding forgery,
+extra MCP and dynamic/hosted ceiling checks passed.
+
+The actual router-selected handler invocation hit its 20-second timeout:
+`Error: deadline has elapsed`. Completion/endpoint receipt assertions were not
+reached. This is HANDLER_DISPATCH_TIMEOUT with root cause unknown, not evidence
+of origin bypass or confirmed exploit. Catalog test compiled but was not run
+because the runner stops after failure. Process proof remains null.
+
+Machine-readable assessment and raw receipt/stdout/stderr are in
+[build-006-assessment.json](evidence/stage3g-approved-call/build-006-assessment.json).
+Production classification UNKNOWN; no build-007. Stage and execution readiness
+remain unchanged. No runtime fix was applied after this result.

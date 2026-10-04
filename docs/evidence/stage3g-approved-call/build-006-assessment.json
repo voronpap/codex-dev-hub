@@ -1,0 +1,219 @@
+{
+  "build_id": "build-006",
+  "implementation_commit": "a4aea3e1377b2089faa10ab74de60a54bf23c0bc",
+  "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37222526797",
+  "production_classification": "UNKNOWN",
+  "failure_classification": "HANDLER_DISPATCH_TIMEOUT",
+  "root_cause": null,
+  "scope": "partial actual compiled adversarial proof; handler completion and catalog/process gates unproven",
+  "compile_pass": true,
+  "build_duration_seconds": 807.2919878069999,
+  "test_runs": [
+    {
+      "crate": "codex_core",
+      "exit_code": 101,
+      "timed_out": false,
+      "duration_seconds": 20.54296469899998,
+      "binary_sha256": "4a873e7af33a4be492fa5e13558e3e2d817fcc99f1c2145303ad79c8277a266a"
+    }
+  ],
+  "test_result": {
+    "passed": 1,
+    "failed": 1,
+    "failed_scenario": "handler_dispatch",
+    "deadline_seconds": 20,
+    "diagnostic": "WARNING: proceeding, even though we could not create PATH aliases: Permission denied (os error 13)\nError: deadline has elapsed\n"
+  },
+  "actual_scenarios": {
+    "absent_apps_server_rejected": true,
+    "approved_first": true,
+    "catalog_refresh_after_preparation": null,
+    "dynamic_hosted_adversarial": true,
+    "expected_schema_mismatch": true,
+    "extra_mcp": true,
+    "forged_runtime": true,
+    "fresh_binding_requires_fresh_host_admission": true,
+    "handler_dispatch": false,
+    "ordinary_no_policy_empty_ceiling": true,
+    "publication_waits_for_call": true,
+    "publication_wins_old_call_denied": true,
+    "republish_does_not_revive_old_call": true,
+    "shutdown_waits_for_call": true,
+    "shutdown_wins_old_call_denied": true,
+    "sync_marker_preserves_call": true,
+    "wrong_first": true,
+    "wrong_origin_only": true,
+    "process_proof": null
+  },
+  "adversarial_checkpoints": [
+    "wrong_origin_only",
+    "wrong_origin_only_passed",
+    "wrong_first",
+    "wrong_first_passed",
+    "approved_first",
+    "approved_first_passed",
+    "forged_runtime",
+    "forged_runtime_passed",
+    "extra_mcp",
+    "extra_mcp_passed",
+    "dynamic_hosted",
+    "dynamic_hosted_passed",
+    "handler_dispatch"
+  ],
+  "extra_mcp_identities": [
+    {
+      "name": "devhub_delegate",
+      "namespace": "mcp__devhub_delegate",
+      "raw": "devhub_delegate",
+      "server": "devhub_delegate"
+    },
+    {
+      "name": "devhub_delegate",
+      "namespace": "mcp__extra_server",
+      "raw": "devhub_delegate",
+      "server": "extra_server"
+    }
+  ],
+  "collision_behavior": "wrong-first policy admission rejected nonempty registry; approved-first duplicate rejected and router finalization fatal",
+  "forged_runtime_scope": "public empty McpBinding and metadata-only McpHandler replacement denied",
+  "catalog_test": "compiled but not executed: runner stopped after core test failure",
+  "handler_endpoint_receipt_count": null,
+  "handler_path": "actual build_tool_router -> selected McpHandler -> ToolInvocation attempted; timeout before completion/receipt assertion",
+  "arms": [
+    {
+      "arm": "A",
+      "mode": "code_mode_only",
+      "nested": {},
+      "registered": [],
+      "visible": []
+    },
+    {
+      "arm": "B",
+      "mode": "code_mode_only",
+      "nested": {},
+      "registered": [
+        "mcp__devhub_delegatedevhub_delegate"
+      ],
+      "visible": [
+        {
+          "description": "Tools in the mcp__devhub_delegate namespace.",
+          "name": "mcp__devhub_delegate",
+          "tools": [
+            {
+              "description": "",
+              "name": "devhub_delegate",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "acceptance_criteria": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "allow_cloud": {
+                    "type": "boolean"
+                  },
+                  "instructions": {
+                    "type": "string"
+                  },
+                  "privacy": {
+                    "enum": [
+                      "local_only",
+                      "project_private",
+                      "public",
+                      "redacted"
+                    ],
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "request_key": {
+                    "type": "string"
+                  },
+                  "require_citations": {
+                    "type": "boolean"
+                  },
+                  "schema_version": {
+                    "enum": [
+                      1
+                    ],
+                    "type": "integer"
+                  },
+                  "task_class": {
+                    "enum": [
+                      "summarize",
+                      "explain",
+                      "extract"
+                    ],
+                    "type": "string"
+                  },
+                  "task_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "task_id",
+                  "request_key",
+                  "instructions",
+                  "acceptance_criteria",
+                  "query",
+                  "project"
+                ],
+                "type": "object"
+              },
+              "strict": false,
+              "type": "function"
+            }
+          ],
+          "type": "namespace"
+        }
+      ]
+    }
+  ],
+  "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+  "synthetic_baseline_receipt_count": 5,
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "patch_hash": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "artifact_files_sha256": {
+    "build.jsonl": "9446698bdfac3f89b4ac0aff36bd5966e7e841a2403992a144e592ad03bfebdb",
+    "build.stderr": "6e8b3039c72940a1184ff905acf22d192d35022938b1e1a7a0964fbbe88ac389",
+    "Cargo.lock.original": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+    "codex_core.stderr": "e55bcf7a0a3220cc0614acd4ed41b5402952db439dc58504c91bc2b834520cb8",
+    "codex_core.stdout": "8dbdefd76f08d41bffc4ebada74ec18d7b81a3bf8ca50ac766411cdc6adce342",
+    "derived-lock-manifest-bindings.json": "c3a46561a4fea37ee56874a51f8d06b9bd84b5b2583560ccc22200b0eb4288c7",
+    "result.json": "9bf734d9d10fb01d148e8de0c2038e6801e69842ac89049101707b1651bba323"
+  },
+  "cheap_validation": {
+    "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37222395800",
+    "linux_passed": 377,
+    "linux_skipped": 1,
+    "windows_smoke_passed": 14,
+    "ruff": true,
+    "format": true,
+    "strict_mypy": true,
+    "secret_history_evidence": true,
+    "pinned_rustfmt_1_95": true,
+    "anchor_patch_apply": true,
+    "schema_payload": true
+  },
+  "historical_evidence_unchanged": true,
+  "production_patch_unchanged": true,
+  "shipping_runtime_modified": false,
+  "rust_build_count_this_revision": 1,
+  "build_007_run": false,
+  "stage_3g_c": "OPEN",
+  "stage_3g": "OPEN",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null
+}
