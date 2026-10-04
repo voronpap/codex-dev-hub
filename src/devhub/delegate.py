@@ -11,6 +11,7 @@ from devhub.ledger import Ledger
 from devhub.local import LocalConfig, LocalHandoff, LocalRuntime, LocalTask, now_ms
 from devhub.models import Contract, Identifier
 from devhub.output import OutputPolicy
+from devhub.usage import FooterMode
 
 TaskClass = Literal["summarize", "explain", "extract"]
 Privacy = Literal["local_only", "project_private", "public", "redacted"]
@@ -64,6 +65,7 @@ class ProviderProfile(Contract):
 
 
 class DelegationConfig(Contract):
+    telemetry_footer: FooterMode = "off"
     profiles: Annotated[tuple[ProviderProfile, ...], Field(min_length=1, max_length=3)]
     # Tuple order is trusted policy, never a claim of comparative provider quality.
     cloud_enabled: bool = False

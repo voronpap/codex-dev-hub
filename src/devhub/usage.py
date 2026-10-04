@@ -132,7 +132,11 @@ def derive_usage(
             actual_ref=codex_usage.evidence_ref,
         )
     observed_send = result.execution != "not_sent" and result.provider is not None
-    route = (RouteStep(provider=result.provider, model=result.model),) if observed_send else ()
+    route = (
+        (RouteStep(provider=result.provider, model=result.model),)
+        if observed_send and result.provider is not None
+        else ()
+    )
     # Local API charge only, after actual complete accounted usage. Never total cost.
     if (
         provider_api_cost is None
