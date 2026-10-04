@@ -1,10 +1,13 @@
 """Derived observability only; no ledger, provider, policy or benchmark writes."""
 
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field, model_validator
 
 from devhub.models import Contract
+
+if TYPE_CHECKING:
+    from devhub.delegate import DelegationResult
 
 Count = Annotated[int, Field(ge=0)]
 Ref = Annotated[str, Field(min_length=1, max_length=512)]
@@ -99,3 +102,67 @@ class UsageSummaryV1(Contract):
     citations_validation: Literal["passed", "failed", "not_checked"] = "not_checked"
     accounting: str
     evidence_refs: tuple[str, ...] = ()
+
+
+def derive_usage(
+    result: "DelegationResult",
+    *,
+    codex_usage: TokenUsage | None = None,
+    baseline: Baseline | None = None,
+    provider_api_cost: ApiCost | None = None,
+) -> UsageSummaryV1:
+    """Trusted producers supply reviewed evidence; MCP callers cannot supply it.
+
+    comparison_key binds task/protocol/token convention, not just task class.
+    This adapter does not authenticate arbitrary external evidence references.
+    """
+    savings = None
+    if (
+        codex_usage is not None
+        and baseline is not None
+        and codex_usage.total is not None
+        and baseline.tokens > 0
+        and baseline.metric == codex_usage.metric
+        and baseline.comparison_key == codex_usage.comparison_key
+    ):
+        savings = Savings(
+            kind=baseline.kind,
+            percent=100.0 * (1 - codex_usage.total / baseline.tokens),
+            baseline_ref=baseline.evidence_ref,
+            actual_ref=codex_usage.evidence_ref,
+        )
+    observed_send = result.execution != "not_sent" and result.provider is not None
+    route = (RouteStep(provider=result.provider, model=result.model),) if observed_send else ()
+    # Local API charge only, after actual complete accounted usage. Never total cost.
+    if (
+        provider_api_cost is None
+        and result.provider == "ollama"
+        and observed_send
+        and result.accounting == "settled"
+        and result.accounting_reference is not None
+        and result.actual_input_tokens is not None
+        and result.actual_output_tokens is not None
+    ):
+        provider_api_cost = ApiCost(
+            kind="measured", microusd=0, evidence_ref="accounting:" + result.accounting_reference
+        )
+    total = None
+    if result.actual_input_tokens is not None and result.actual_output_tokens is not None:
+        total = result.actual_input_tokens + result.actual_output_tokens
+    return UsageSummaryV1(
+        route=route,
+        route_complete=False,
+        codex_usage=codex_usage,
+        delegated_input=result.actual_input_tokens,
+        delegated_output=result.actual_output_tokens,
+        delegated_total=total,
+        baseline=baseline,
+        savings=savings,
+        latency_ms=result.latency_ms,
+        provider_api_cost=provider_api_cost,
+        semantic_acceptance=result.semantic_acceptance,
+        output_validation=result.output_validation,
+        citations_validation=result.citations_validation,
+        accounting=result.accounting,
+        evidence_refs=tuple(x for x in (result.accounting_reference, result.package_hash) if x),
+    )
