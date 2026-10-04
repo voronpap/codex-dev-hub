@@ -1,0 +1,36 @@
+{
+  "classification": "UNKNOWN",
+  "root_cause": null,
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "source_sha256": {
+    "core/src/mcp_tool_call.rs": "d9d842f8891bea7a452927c25cbee12634df9d29ec78437ae72073d8794ba788",
+    "core/src/mcp_openai_file.rs": "bae861ea9a5a00e9d9372362ca34fbd55a10a8f7a034d7844113ee7245f40633",
+    "rollout-trace/src/mcp.rs": "262e622cced94bc729c127cf440c44a00f2202fafa79ed66ae60a17b9aa75beb",
+    "rollout-trace/src/thread.rs": "29e6afa233da57139af71698692a2cee67ce109dccf1347ee3a426a39b1d0c45",
+    "codex-mcp/src/binding.rs": "9fd5f9e5d3021f7d1bd77fc1ecbd7737d1a3fb0044fe9b43cfa1cda3d5966169",
+    "codex-mcp/src/rmcp_client.rs": "77826ddf666bc43f4bcc0a730cac8c175e187215643b6eced1dcfe6d2c059744",
+    "rmcp-client/src/rmcp_client.rs": "3691064efb920eb41df540a56547bb9ad75453f819ab93071e6b2da09e3e8a4e",
+    "rmcp-client/src/tool_input.rs": "a140e1c94972f9b763a31c8b031f9fe7f333383f56f440fb7f23b2deaf89d8d4"
+  },
+  "existing_artifact_files": [
+    "Cargo.lock.original",
+    "build.jsonl",
+    "build.stderr",
+    "codex_core.stderr",
+    "codex_core.stdout",
+    "derived-lock-manifest-bindings.json",
+    "result.json"
+  ],
+  "binary_available": false,
+  "binary_rerun": false,
+  "backtrace_result": null,
+  "stack_size_comparison": null,
+  "handler_receipt_count": null,
+  "catalog_refresh_after_preparation": null,
+  "process_proof": null,
+  "production_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "rust_builds": 0,
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0
+}
