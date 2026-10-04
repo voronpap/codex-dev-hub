@@ -150,3 +150,31 @@ def test_build008_receipts_are_persistent_and_fsynced() -> None:
     assert 'std::env::var("DEVHUB_RECEIPT_PATH")' in adversarial
     assert 'std::env::var("DEVHUB_RECEIPT_PATH")' in catalog
     assert "os.fsync(stream.fileno())" in synthetic
+
+
+def test_build009_stops_before_compile_on_arm_a_authority_gap() -> None:
+    evidence = json.loads(
+        (REPO / "docs/evidence/stage3g-approved-call/build-009-preflight.json").read_bytes()
+    )
+    base = (REPO / "patches/stage3g-approved-call/candidate.patch").read_bytes()
+    host = (REPO / "patches/stage3g-approved-call/host-integration.patch").read_bytes()
+    manifest = (REPO / "benchmarks/approved-delegate-host-manifest-v1.json").read_bytes()
+    manifest_schema = (
+        REPO / "benchmarks/approved-delegate-host-manifest-v1.schema.json"
+    ).read_bytes()
+    assert evidence["result"] == "BLOCKED_BEFORE_RUST_COMPILATION"
+    assert evidence["classification"] == "PRODUCTION_HOST_ARM_A_CEILING_MISSING"
+    assert evidence["candidate_b_base_patch_sha256"] == hashlib.sha256(base).hexdigest()
+    assert evidence["host_integration_patch_sha256"] == hashlib.sha256(host).hexdigest()
+    assert (
+        evidence["combined_production_patchset_sha256"] == hashlib.sha256(base + host).hexdigest()
+    )
+    assert evidence["manifest"]["sha256"] == hashlib.sha256(manifest).hexdigest()
+    assert evidence["manifest"]["schema_sha256"] == hashlib.sha256(manifest_schema).hexdigest()
+    assert evidence["cheap_gate"]["compile_permitted"] is False
+    assert evidence["rust_compile_started"] is False
+    assert evidence["process_proof"] is None
+    assert evidence["model_requests"] == evidence["provider_sends"] == 0
+    assert evidence["real_codex_executions"] == 0
+    assert evidence["execution_ready"] is False
+    assert evidence["build_010_run"] is False

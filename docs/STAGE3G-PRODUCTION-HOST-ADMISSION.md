@@ -277,3 +277,34 @@ build_009_run                                false
 
 No v3, rehearsal, benchmark, role runtime, provider request or Rust compilation
 was performed for this design.
+
+## Build-009 cheap-gate result
+
+Build-009 was authorized after this design review, but Rust compilation did not
+start. The source-level preflight found an unresolved Arm A authority gap. The
+required Arm A process proof combines all of these conditions:
+
+- no admission manifest;
+- no `ApprovedDelegatePolicy`;
+- a read-only observer;
+- empty visible and nested tool surfaces.
+
+In the pinned runtime, absence of `AllowedTools` preserves ordinary Codex tool
+setup. The frozen Stage 3G overrides disable shell, unified exec, web, apps and
+related features, but they do not install `AllowedTools([])` and cannot remove
+every core tool. The accepted earlier zero-surface proof explicitly used both
+`AllowedTools([])` and `ApprovedDelegatePolicy::no_tools()`. The observer cannot
+close this gap because it is forbidden from changing authority or routing.
+
+The pre-build classification is therefore:
+
+```text
+PRODUCTION_HOST_ARM_A_CEILING_MISSING
+```
+
+The proposed Arm B host integration remains uncompiled and is preserved as a
+separately hashed patch for review. No Rust build, process proof, model request,
+provider request, rehearsal or benchmark was run. Review must choose an explicit
+trusted Arm A no-tools ceiling or revise the expected Arm A surface before a
+Rust build is safe. Machine-readable evidence is in
+`docs/evidence/stage3g-approved-call/build-009-preflight.json`.
