@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, model_validator
 
 from devhub import gemini
 from devhub.brain import ProjectBrain
@@ -19,7 +19,7 @@ from devhub.gemini import GeminiAdapter, GeminiConfig, GeminiError
 from devhub.gemini_gate import claim_count, finish_count
 from devhub.gemini_permit import claim_permit, finish_permit
 from devhub.groq import GroqAdapter, GroqConfig, GroqError, complete_usage, error_category
-from devhub.ledger import Ledger
+from devhub.ledger import Ledger, LedgerIdentityCoreV1
 from devhub.local import LocalHandoff, LocalTask, Summary, now_ms
 from devhub.models import Contract, Identifier
 from devhub.output import OutputPolicy, validate_output
@@ -33,18 +33,40 @@ class CloudConfig(Contract):
     project: Identifier
     root: str
     state_root: str
+    ledger_identity: LedgerIdentityCoreV1
     approved_paths: Annotated[tuple[RelativePath, ...], Field(min_length=1, max_length=128)]
     groq: GroqConfig
     export: ExportPolicy
+
+    @model_validator(mode="after")
+    def trusted_ledger_scope(self) -> "CloudConfig":
+        identity = self.ledger_identity
+        if (
+            identity.authority_scope_kind == "project"
+            and identity.authority_scope_id != self.project
+        ):
+            raise ValueError("project ledger identity must match configured project")
+        return self
 
 
 class GeminiCloudConfig(Contract):
     project: Identifier
     root: str
     state_root: str
+    ledger_identity: LedgerIdentityCoreV1
     approved_paths: Annotated[tuple[RelativePath, ...], Field(min_length=1, max_length=128)]
     gemini: GeminiConfig
     export: ExportPolicy
+
+    @model_validator(mode="after")
+    def trusted_ledger_scope(self) -> "GeminiCloudConfig":
+        identity = self.ledger_identity
+        if (
+            identity.authority_scope_kind == "project"
+            and identity.authority_scope_id != self.project
+        ):
+            raise ValueError("project ledger identity must match configured project")
+        return self
 
 
 class CloudHandoff(LocalHandoff):
@@ -67,20 +89,27 @@ class CloudHandoff(LocalHandoff):
 
 
 class CloudRuntime:
+    @staticmethod
+    def initialize_ledger(config: CloudConfig | GeminiCloudConfig) -> str:
+        ledger = Ledger.initialize_state_root(Path(config.state_root), config.ledger_identity)
+        return ledger.identity_sha256
+
     def __init__(
         self, config: CloudConfig | GeminiCloudConfig, *, output_policy: OutputPolicy | None = None
     ) -> None:
         self.output_policy = output_policy
         self.config = config
-        root, state = Path(config.root).resolve(strict=True), Path(config.state_root).resolve()
+        root = Path(config.root).resolve(strict=True)
+        # Preserve the lexical root so Ledger can reject symlink/reparse traversal.
+        state = Path(config.state_root).absolute()
         if state == root or state.is_relative_to(root):
             raise ValueError("state must be outside project")
-        state.mkdir(parents=True, exist_ok=True)
         self.state = state
+        ledger = Ledger(state / "ledger.db", config.ledger_identity, state_root=state)
         self.brain = ProjectBrain(state / "brain", {config.project: root})
         self.scope = self.brain.scope(config.project)
         self.builder = ContextBuilder(self.brain)
-        self.core = ResourceController(Ledger(state / "ledger.db"), allow_free_probe=True)
+        self.core = ResourceController(ledger, allow_free_probe=True)
         self.provider = "groq" if isinstance(config, CloudConfig) else "gemini"
         self.provider_config = config.groq if isinstance(config, CloudConfig) else config.gemini
         self.adapter = (

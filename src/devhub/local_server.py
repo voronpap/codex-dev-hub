@@ -71,8 +71,12 @@ def create_local_server(runtime: LocalRuntime) -> MCPServer:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--initialize-ledger", action="store_true")
     args = parser.parse_args()
     config = LocalConfig.model_validate_json(args.config.read_text(encoding="utf-8-sig"))
+    if args.initialize_ledger:
+        print(json.dumps({"ledger_identity_sha256": LocalRuntime.initialize_ledger(config)}))
+        return
     create_local_server(LocalRuntime(config)).run()
 
 

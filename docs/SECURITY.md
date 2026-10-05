@@ -15,6 +15,9 @@ DevFabric can touch source code, external providers, credentials and executable 
 - Production access is disabled by default.
 - Destructive Git/GitHub actions require explicit policy.
 - Paid escalation obeys budget/approval policy.
+- A state path does not establish ledger authority. Open resource ledgers only after
+  exact immutable identity validation; missing, foreign, legacy-unclaimed and
+  mismatched databases fail closed before domain migration.
 
 ## Logging
 Telemetry must redact credentials and sensitive payloads. Store enough metadata for audit without turning logs into a copy of private project content.

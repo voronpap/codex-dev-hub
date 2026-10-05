@@ -130,8 +130,17 @@ def create_delegation_server(runtime: DelegationRuntime) -> MCPServer:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument(
+        "--initialize-ledger",
+        action="store_true",
+        help="Initialize the configured ledger identity and exit; never starts MCP",
+    )
     args = parser.parse_args()
     config = DelegationConfig.model_validate_json(args.config.read_text(encoding="utf-8-sig"))
+    if args.initialize_ledger:
+        identity_hash = DelegationRuntime.initialize_ledger(config)
+        print(json.dumps({"ledger_identity_sha256": identity_hash}, sort_keys=True))
+        return
     create_delegation_server(DelegationRuntime(config)).run()
 
 

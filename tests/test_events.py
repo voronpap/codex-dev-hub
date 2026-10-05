@@ -1,6 +1,7 @@
 import sqlite3
 
 import pytest
+from ledger_support import identity
 from test_controller import admission, counters, setup_core
 
 from devhub.events import EventOutbox
@@ -14,7 +15,7 @@ def test_durable_ordered_redelivery_deduplication_and_null_usage(tmp_path):
     core.dispatch(ticket.id, admission(), now_ms=2)
     core.unknown(ticket.id, project="p")
     core.unknown(ticket.id, project="p")
-    outbox = EventOutbox(Ledger(core.ledger.path))
+    outbox = EventOutbox(Ledger(core.ledger.path, identity()))
     events = outbox.pending(project="p")
     assert [event.transition for event in events] == ["reserved", "dispatched", "unknown_usage"]
     assert all(event.allocations[0].actual is None for event in events)

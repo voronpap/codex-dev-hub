@@ -4,6 +4,7 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
+from ledger_support import identity, initialized_ledger
 from test_gemini import qualification
 from test_groq import CANARY, cloud  # noqa: F401
 
@@ -39,7 +40,7 @@ def permit(qual, **changes):
 
 
 def test_issue_requires_same_ledger_failed_history_and_never_reissues(tmp_path):
-    ledger = Ledger(tmp_path / "ledger.db")
+    ledger = initialized_ledger(tmp_path / "ledger.db")
     qual = qualification()
     grant = permit(qual)
     with pytest.raises(Denied, match="legacy_count_required"):
@@ -56,7 +57,7 @@ def test_issue_requires_same_ledger_failed_history_and_never_reissues(tmp_path):
 
 def test_followup_count_concurrency_restart_and_exact_binding(tmp_path):
     path = tmp_path / "ledger.db"
-    ledger = Ledger(path)
+    ledger = initialized_ledger(path)
     qual = qualification()
     grant = permit(qual)
     claim_count(ledger, qual, "c" * 64, now_ms())
@@ -71,7 +72,7 @@ def test_followup_count_concurrency_restart_and_exact_binding(tmp_path):
     barrier = Barrier(4)
 
     def contender(_):
-        own = Ledger(path)
+        own = Ledger(path, identity())
         barrier.wait()
         try:
             claim_permit(own, grant.id, qual, "a" * 64, "p", "probe", "one", now_ms())
@@ -82,7 +83,16 @@ def test_followup_count_concurrency_restart_and_exact_binding(tmp_path):
     with ThreadPoolExecutor(max_workers=4) as pool:
         assert sum(pool.map(contender, range(4))) == 1
     with pytest.raises(Denied, match="consumed"):
-        claim_permit(Ledger(path), grant.id, qual, "a" * 64, "p", "probe", "one", now_ms())
+        claim_permit(
+            Ledger(path, identity()),
+            grant.id,
+            qual,
+            "a" * 64,
+            "p",
+            "probe",
+            "one",
+            now_ms(),
+        )
     with pytest.raises(Denied, match="binding_invalid"):
         finish_permit(ledger, grant.id, "d" * 64, 100)
 
@@ -93,11 +103,11 @@ def test_migration_preserves_failed_claim_and_does_not_issue_grant(tmp_path, mon
     path = tmp_path / "upgrade.db"
     with monkeypatch.context() as context:
         context.setattr(module, "MIGRATIONS", module.MIGRATIONS[:5])
-        old = Ledger(path)
+        old = Ledger.initialize(path, identity())
         claim_count(old, qualification(), "c" * 64, now_ms())
         with old.transaction() as connection:
             before = tuple(connection.execute("SELECT * FROM gemini_preflights").fetchone())
-    upgraded = Ledger(path)
+    upgraded = Ledger(path, identity())
     with upgraded.transaction() as connection:
         assert tuple(connection.execute("SELECT * FROM gemini_preflights").fetchone()) == before
         assert connection.execute("SELECT COUNT(*) FROM gemini_followup_permits").fetchone()[0] == 0
@@ -112,7 +122,7 @@ def test_expired_or_unapproved_permit_cannot_authorize(tmp_path):
     with pytest.raises(ValidationError):
         permit(qual, expires_ms=now_ms() + 900001)
     grant = permit(qual)
-    ledger = Ledger(tmp_path / "ledger.db")
+    ledger = initialized_ledger(tmp_path / "ledger.db")
     claim_count(ledger, qual, "c" * 64, now_ms())
     issue_permit(ledger, grant, now_ms())
     with pytest.raises(Denied, match="expired"):
@@ -165,6 +175,7 @@ def test_followup_shared_pipeline_and_failures(cloud, monkeypatch, outcome):  # 
         project=old.config.project,
         root=old.config.root,
         state_root=str(old.state.parent / "followup-state"),
+        ledger_identity=identity(instance_id="2123456789abcdef0123456789abcdef"),
         approved_paths=old.config.approved_paths,
         export=old.config.export,
         gemini=GeminiConfig(
@@ -176,6 +187,7 @@ def test_followup_shared_pipeline_and_failures(cloud, monkeypatch, outcome):  # 
             probe_expires_ms=grant.expires_ms,
         ),
     )
+    initialized_ledger(Path(config.state_root) / "ledger.db", config.ledger_identity)
     runtime = CloudRuntime(config)
     claim_count(runtime.core.ledger, qual, "c" * 64, now_ms())
     original_body = runtime.adapter.request_body

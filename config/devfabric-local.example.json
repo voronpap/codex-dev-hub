@@ -16,6 +16,14 @@
         "project": "devfabric-demo",
         "root": ".",
         "state_root": "../devfabric-state",
+        "ledger_identity": {
+          "family": "devfabric_resource_ledger",
+          "format_version": 1,
+          "instance_id": "6d77c92fc1474e40938c3e0d9a5ca720",
+          "authority_scope_kind": "project",
+          "authority_scope_id": "devfabric-demo",
+          "account_binding_hash": null
+        },
         "approved_paths": [
           "src/devhub/output.py"
         ],

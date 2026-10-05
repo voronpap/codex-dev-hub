@@ -33,6 +33,13 @@ copy the [local config](config/devfabric-local.example.json), connect Codex,
 and ask why the output validator rejects fabricated citations. The guide includes
 an exact MCP config, task and route/accounting fields to inspect.
 
+Initialize the reviewed ledger identity once before starting the server:
+
+```sh
+uv run --locked python -m devhub.delegate_server \
+  --config .devhub/local.json --initialize-ledger
+```
+
 Canonical stdio server command, from the repository root:
 
 ```sh
@@ -206,6 +213,8 @@ These are differences in scope, not claims about every gateway implementation.
 - Paid execution is disabled by default; this path has no automatic paid fallback.
 - Ambiguous execution retains `unknown_usage`; no automatic cross-provider retry
   follows dispatch. Request replay protection uses durable state.
+- A SQLite path is a storage location, not accounting authority. Normal startup
+  requires the exact immutable [ledger identity](docs/LEDGER_IDENTITY.md).
 - Source provenance is preserved and revalidated. Secrets stay outside request
   DTOs, repository config and evidence.
 - Tool exposure is minimized. Exact tool origin, schema and retained runtime

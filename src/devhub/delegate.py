@@ -82,6 +82,8 @@ class DelegationConfig(Contract):
             cfg = profile.config
             if (cfg.project, Path(cfg.root).resolve(), Path(cfg.state_root).resolve()) != scope:
                 raise ValueError("profiles must share project, worktree and accounting ledger")
+            if cfg.ledger_identity != first.ledger_identity:
+                raise ValueError("profiles must share exact ledger authority identity")
         return self
 
 
@@ -126,8 +128,17 @@ class DelegationRuntime:
         self.config = config
         self.project = config.profiles[0].config.project
         state = Path(config.profiles[0].config.state_root)
-        state.mkdir(parents=True, exist_ok=True)
-        self.ledger = Ledger(state / "ledger.db")
+        self.ledger = Ledger(
+            state / "ledger.db", config.profiles[0].config.ledger_identity, state_root=state
+        )
+
+    @staticmethod
+    def initialize_ledger(config: DelegationConfig) -> str:
+        """Explicit one-time bootstrap; normal server startup never creates authority."""
+
+        state = Path(config.profiles[0].config.state_root)
+        identity = config.profiles[0].config.ledger_identity
+        return Ledger.initialize_state_root(state, identity).identity_sha256
 
     def reservation(self, key: str) -> tuple[str, str, str] | None:
         with self.ledger.transaction() as connection:

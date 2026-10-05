@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
+from ledger_support import identity, initialized_ledger
 from mcp import Client
 from mcp.shared.exceptions import MCPError
 from pydantic import ValidationError
@@ -55,6 +56,7 @@ def gemini_cloud(cloud, monkeypatch):  # noqa: F811
         project=groq.config.project,
         root=groq.config.root,
         state_root=str(groq.state.parent / "gemini-state"),
+        ledger_identity=identity(instance_id="1123456789abcdef0123456789abcdef"),
         approved_paths=groq.config.approved_paths,
         export=groq.config.export,
         gemini=GeminiConfig(
@@ -65,6 +67,7 @@ def gemini_cloud(cloud, monkeypatch):  # noqa: F811
             probe_expires_ms=now_ms() + 300000,
         ),
     )
+    initialized_ledger(Path(config.state_root) / "ledger.db", config.ledger_identity)
     runtime = CloudRuntime(config)
     calls, mode = [], {"value": "valid"}
 

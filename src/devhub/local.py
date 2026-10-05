@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, model_validator
 
 from devhub.brain import ProjectBrain
 from devhub.brain_models import RelativePath, SearchQuery, sha256
@@ -15,7 +15,7 @@ from devhub.context import ContextBuilder, canonical
 from devhub.context_models import ContextLimits, ContextPolicy, ContextTask
 from devhub.controller import Denied, ResourceController
 from devhub.execution import dispatch_execution, reserve_execution, settle_execution
-from devhub.ledger import Ledger
+from devhub.ledger import Ledger, LedgerIdentityCoreV1
 from devhub.models import Contract, Identifier
 from devhub.ollama import OllamaAdapter, OllamaConfig, OllamaError
 from devhub.output import OutputPolicy, validate_output
@@ -32,9 +32,20 @@ class LocalConfig(Contract):
     project: Identifier
     root: str
     state_root: str
+    ledger_identity: LedgerIdentityCoreV1
     approved_paths: Annotated[tuple[RelativePath, ...], Field(min_length=1, max_length=128)]
     authoritative_paths: tuple[RelativePath, ...] = ()
     ollama: OllamaConfig
+
+    @model_validator(mode="after")
+    def trusted_ledger_scope(self) -> "LocalConfig":
+        identity = self.ledger_identity
+        if (
+            identity.authority_scope_kind == "project"
+            and identity.authority_scope_id != self.project
+        ):
+            raise ValueError("project ledger identity must match configured project")
+        return self
 
 
 class LocalTask(Contract):
@@ -66,19 +77,25 @@ class LocalHandoff(Contract):
 
 
 class LocalRuntime:
+    @staticmethod
+    def initialize_ledger(config: LocalConfig) -> str:
+        ledger = Ledger.initialize_state_root(Path(config.state_root), config.ledger_identity)
+        return ledger.identity_sha256
+
     def __init__(self, config: LocalConfig, *, output_policy: OutputPolicy | None = None) -> None:
         self.output_policy = output_policy
         self.config = config
         root = Path(config.root).resolve(strict=True)
-        state = Path(config.state_root).resolve()
+        # Preserve the lexical root so Ledger can reject symlink/reparse traversal.
+        state = Path(config.state_root).absolute()
         if state == root or state.is_relative_to(root):
             raise ValueError("state must be outside project")
-        state.mkdir(parents=True, exist_ok=True)
         self.state = state
+        ledger = Ledger(state / "ledger.db", config.ledger_identity, state_root=state)
         self.brain = ProjectBrain(state / "brain", {config.project: root})
         self.scope = self.brain.scope(config.project)
         self.builder = ContextBuilder(self.brain)
-        self.core = ResourceController(Ledger(state / "ledger.db"), allow_local_execution=True)
+        self.core = ResourceController(ledger, allow_local_execution=True)
         self.adapter = OllamaAdapter(config.ollama, output_policy=output_policy)
         self.resource = "ollama-" + sha256(canonical(config.ollama.model_dump()).encode())[:32]
         self.buckets = {}

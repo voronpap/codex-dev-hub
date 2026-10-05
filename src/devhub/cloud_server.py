@@ -72,10 +72,14 @@ def create_cloud_server(runtime: CloudRuntime) -> MCPServer:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--initialize-ledger", action="store_true")
     args = parser.parse_args()
     config: CloudConfig | GeminiCloudConfig = TypeAdapter(
         CloudConfig | GeminiCloudConfig
     ).validate_json(args.config.read_text(encoding="utf-8-sig"))
+    if args.initialize_ledger:
+        print(json.dumps({"ledger_identity_sha256": CloudRuntime.initialize_ledger(config)}))
+        return
     create_cloud_server(CloudRuntime(config)).run()
 
 
