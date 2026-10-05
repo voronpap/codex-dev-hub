@@ -124,6 +124,13 @@ Stage 3G-C remains OPEN until all gates pass together on the intended Linux exec
 host. Stop for review before any rehearsal, even after readiness. All quality,
 semantic acceptance, Delegation Value and savings claims remain null.
 
+The B-arm completion gate is specified in
+[B_ARM_DELEGATION_OBSERVATION.md](B_ARM_DELEGATION_OBSERVATION.md). A tool call count
+alone is not success: the runner must join the strict handoff to the exact reservation,
+full authoritative accounting chain, complete usage, and qualification-bound local
+provider identity. This gate does not change the frozen task protocol or close this
+stage.
+
 ## Frozen configuration blocker: review required
 
 Metadata-only qualification found that the exact CLI rejects the frozen

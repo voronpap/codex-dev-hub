@@ -28,6 +28,12 @@ def now_ms() -> int:
     return time.time_ns() // 1_000_000
 
 
+def local_resource_id(config: OllamaConfig) -> str:
+    """Return the single authoritative local resource identity derivation."""
+
+    return "ollama-" + sha256(canonical(config.model_dump()).encode())[:32]
+
+
 class LocalConfig(Contract):
     project: Identifier
     root: str
@@ -97,7 +103,7 @@ class LocalRuntime:
         self.builder = ContextBuilder(self.brain)
         self.core = ResourceController(ledger, allow_local_execution=True)
         self.adapter = OllamaAdapter(config.ollama, output_policy=output_policy)
-        self.resource = "ollama-" + sha256(canonical(config.ollama.model_dump()).encode())[:32]
+        self.resource = local_resource_id(config.ollama)
         self.buckets = {}
         for unit in ("requests", "input_tokens", "output_tokens", "total_tokens"):
             name = self.resource + "-" + unit
