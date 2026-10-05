@@ -9,8 +9,9 @@ import tempfile
 from pathlib import Path
 
 from devhub.benchmark import digest
-from devhub.experiment import PlannedSession, RuntimeBindings
-from devhub.experiment_launch import DOCKER, container_command
+from devhub.experiment import PlannedSession
+from devhub.experiment_launch import DOCKER, ContainerRuntimeSpec, container_command
+from devhub.qualification import load_context, receipt_header
 
 
 def validate(report):
@@ -35,7 +36,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-id", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--context", required=True, type=Path)
     opts = parser.parse_args()
+    context = load_context(opts.context)
     if not re.fullmatch(r"sha256:[a-f0-9]{64}", opts.image_id):
         parser.error("Immutable image ID required")
     guest = Path(__file__).with_name("effects_guest.py").resolve()
@@ -53,28 +56,12 @@ def main():
             for name in ("proxy.sock", "mcp.sock") if arm == "B" else ("proxy.sock",):
                 (root / "bridge" / name).touch()
             (root / "auth.json").write_text("{}")
-            bindings = RuntimeBindings.model_validate(
-                {
-                    "image_id": opts.image_id,
-                    "bootstrap_sha256": digest(bootstrap.read_bytes()),
-                    "environment": {
-                        "os": "synthetic Linux",
-                        "python": "image Python",
-                        "codex_cli_version": "not invoked",
-                        "devhub_commit": "0" * 40,
-                        "ollama_version": "not invoked",
-                        "ollama_model": "not invoked",
-                        "ollama_digest": "0" * 64,
-                        "cpu": "synthetic",
-                        "gpu": None,
-                        "ram_bytes": None,
-                        "captured_at": "not a benchmark",
-                    },
-                    "isolation_probe_sha256": "0" * 64,
-                    "protocol_sha256": "0" * 64,
-                    "reviewed_plan_sha256": "0" * 64,
-                    "boundary_reviewed": True,
-                }
+            runtime = ContainerRuntimeSpec(
+                image_id=opts.image_id,
+                bootstrap_sha256=digest(bootstrap.read_bytes()),
+                protocol_sha256="0" * 64,
+                reviewed_plan_sha256="0" * 64,
+                codex_cli_version="not invoked",
             )
             session = PlannedSession(
                 order=1,
@@ -88,7 +75,7 @@ def main():
             )
             argv = container_command(
                 session,
-                bindings,
+                runtime,
                 root / "packet",
                 root / "bridge",
                 root / "capture",
@@ -143,6 +130,7 @@ def main():
             finally:
                 subprocess.run([*DOCKER, "rm", "-f", cid], check=True, capture_output=True)
     evidence = {
+        **receipt_header(context, "effects_boundary"),
         "kind": "synthetic_filesystem_equivalent_effects",
         "image_id": opts.image_id,
         "guest_sha256": digest(guest.read_bytes()),
@@ -152,6 +140,7 @@ def main():
         "real_codex_executions": 0,
         "provider_sends": 0,
         "execution_ready": False,
+        "qualification_passed": all(report["passed"] for report in reports.values()),
         "limitations": "CI image only; inert sockets; no remote-effect or intended-host proof",
     }
     with opts.output.open("x", encoding="utf-8") as stream:

@@ -20,10 +20,20 @@ from pydantic import Field, JsonValue, model_validator
 from devhub.benchmark import Digest, canonical, digest, write_new, write_sealed
 from devhub.delegate import DelegationResult
 from devhub.events import AccountingEvent
-from devhub.experiment import ExperimentProtocol, PlannedSession, RuntimeBindings
+from devhub.experiment import ExperimentProtocol, PlannedSession
 from devhub.models import Contract
 
 DOCKER = ("docker", "--host=unix:///var/run/docker.sock")
+
+
+class ContainerRuntimeSpec(Contract):
+    """Derived launch mechanics; never an independent execution authority."""
+
+    image_id: Annotated[str, Field(pattern=r"^sha256:[a-f0-9]{64}$")]
+    bootstrap_sha256: Digest
+    protocol_sha256: Digest
+    reviewed_plan_sha256: Digest
+    codex_cli_version: str = Field(min_length=1)
 
 
 class ExecutorProvenance(Contract):
@@ -205,7 +215,7 @@ def mount(path: Path, target: str, readonly: bool = True) -> list[str]:
 
 def container_command(
     session: PlannedSession,
-    bindings: RuntimeBindings,
+    runtime: ContainerRuntimeSpec,
     packet: Path,
     bridge: Path,
     capture: Path,
@@ -224,7 +234,7 @@ def container_command(
         raise ValueError("Packet contains unexpected data")
     if any(p.is_symlink() for p in packet.iterdir()) or any(capture.iterdir()):
         raise ValueError("Packet links or reused output directory")
-    if digest(bootstrap.read_bytes()) != bindings.bootstrap_sha256:
+    if digest(bootstrap.read_bytes()) != runtime.bootstrap_sha256:
         raise ValueError("Bootstrap changed")
     return [
         *DOCKER,
@@ -265,7 +275,7 @@ def container_command(
         *mount(auth, "/auth.json"),
         "--entrypoint",
         "python3",
-        bindings.image_id,
+        runtime.image_id,
         "/bootstrap.py",
         "run",
     ]
@@ -361,7 +371,7 @@ def completed_turn(raw: bytes) -> bool:
 def launch_container(
     session: PlannedSession,
     protocol: ExperimentProtocol,
-    bindings: RuntimeBindings,
+    runtime: ContainerRuntimeSpec,
     packet: Path,
     bridge: Path,
     capture: Path,
@@ -382,13 +392,12 @@ def launch_container(
     if platform.system() != "Linux":
         raise ValueError("Linux OCI boundary required; no native host fallback")
     if (
-        bindings.protocol_sha256 != protocol.hashes()["protocol"]
-        or reviewed_plan_sha256 != bindings.reviewed_plan_sha256
-        or bindings.environment.codex_cli_version != protocol.codex_cli_version
-        or bindings.environment.ollama_digest != protocol.ollama.model_digest
+        runtime.protocol_sha256 != protocol.hashes()["protocol"]
+        or reviewed_plan_sha256 != runtime.reviewed_plan_sha256
+        or runtime.codex_cli_version != protocol.codex_cli_version
     ):
         raise ValueError("Reviewed environment/protocol binding changed")
-    command = container_command(session, bindings, packet, bridge, capture, bootstrap, auth)
+    command = container_command(session, runtime, packet, bridge, capture, bootstrap, auth)
     destination.mkdir(parents=True, exist_ok=False)
     # Durable attempt claim before exposing the packet. Never resume/reuse this directory.
     durable_claim(
@@ -472,7 +481,7 @@ def launch_container(
         # Killing the CLI alone does not kill the container. Stop the complete process tree.
         subprocess.run([*DOCKER, "kill", cid], capture_output=True, timeout=15, check=False)
     safe_artifacts((out, err, raw or b""), secret_values)
-    usage = codex_usage(out, bindings.environment.codex_cli_version, protocol.codex_cli_version)
+    usage = codex_usage(out, runtime.codex_cli_version, protocol.codex_cli_version)
     complete = (
         code == 0
         and container_code == 0
@@ -484,8 +493,8 @@ def launch_container(
         kind="linux_oci_process",
         session_id=session.session_id,
         plan_sha256=reviewed_plan_sha256,
-        protocol_sha256=bindings.protocol_sha256,
-        image_id=bindings.image_id,
+        protocol_sha256=runtime.protocol_sha256,
+        image_id=runtime.image_id,
         command_sha256=digest(canonical(cast(JsonValue, {"argv": command}))),
         container_id=cid,
         started_at=start,

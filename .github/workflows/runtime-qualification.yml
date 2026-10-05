@@ -19,8 +19,11 @@ on:
       - 'benchmarks/real-protocol-v2.json'
       - 'scripts/*benchmark*'
       - 'scripts/*qualify*'
+      - 'scripts/*qualification*'
       - 'scripts/probe_oci_boundary.py'
       - 'src/devhub/experiment*.py'
+      - 'src/devhub/qualification.py'
+      - 'src/devhub/runtime_artifact.py'
       - '.github/workflows/runtime-qualification.yml'
   workflow_dispatch:
 permissions:
@@ -47,25 +50,52 @@ jobs:
           mkdir -p "$RUNNER_TEMP/qualification"
           uv run --locked python scripts/build_benchmark_runtime.py --output "$RUNNER_TEMP/qualification/build.json"
           uv run --locked python scripts/build_benchmark_evaluator.py --output "$RUNNER_TEMP/qualification/evaluator-build.json"
+      - name: Build immutable DevFabric Python artifact and CI-only context
+        run: |
+          uv run --locked python scripts/generate_environment_instance_id.py --output "$RUNNER_TEMP/qualification/environment.json"
+          uv run --locked python scripts/build_devhub_runtime_artifact.py --output "$RUNNER_TEMP/qualification/python-artifact" --runtime-root "$RUNNER_TEMP/devhub-runtime"
+          uv run --locked python scripts/build_synthetic_ci_qualification_context.py \
+            --environment "$RUNNER_TEMP/qualification/environment.json" \
+            --runtime-artifact "$RUNNER_TEMP/qualification/python-artifact/runtime-artifact.json" \
+            --runtime-build "$RUNNER_TEMP/qualification/build.json" \
+            --evaluator-build "$RUNNER_TEMP/qualification/evaluator-build.json" \
+            --protocol benchmarks/real-protocol-v2.json \
+            --output "$RUNNER_TEMP/qualification/context.json"
+          wheel=$(find "$RUNNER_TEMP/qualification/python-artifact" -maxdepth 1 -name '*.whl' -print -quit)
+          uv run --locked python scripts/qualify_devhub_runtime.py \
+            --context "$RUNNER_TEMP/qualification/context.json" \
+            --interpreter "$RUNNER_TEMP/devhub-runtime/bin/python" \
+            --wheel "$wheel" \
+            --lock "$RUNNER_TEMP/qualification/python-artifact/uv.lock" \
+            --output "$RUNNER_TEMP/qualification/python-runtime.json"
       - name: Pinned AllowedTools method-slice proof (no host or model)
         run: uv run --locked python scripts/check_allowed_tools.py --verify-upstream --compile-proof --output "$RUNNER_TEMP/qualification/allowed-tools.json"
       - name: Exact-image isolation
         run: |
           image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/build.json"))["image_id"])')
-          uv run --locked python scripts/probe_oci_boundary.py --image-id "$image" --output "$RUNNER_TEMP/qualification/isolation.json"
+          uv run --locked python scripts/probe_oci_boundary.py --context "$RUNNER_TEMP/qualification/context.json" --image-id "$image" --output "$RUNNER_TEMP/qualification/isolation.json"
       - name: Synthetic A/B filesystem effects (no model)
         run: |
           image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/build.json"))["image_id"])')
-          uv run --locked python scripts/probe_effects_boundary.py --image-id "$image" --output "$RUNNER_TEMP/qualification/effects.json"
+          uv run --locked python scripts/probe_effects_boundary.py --context "$RUNNER_TEMP/qualification/context.json" --image-id "$image" --output "$RUNNER_TEMP/qualification/effects.json"
       - name: Require exact-image v2 config qualification
         run: |
           image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/build.json"))["image_id"])')
-          uv run --locked python scripts/qualify_runtime_config.py --protocol benchmarks/real-protocol-v2.json --image-id "$image" --output "$RUNNER_TEMP/qualification/runtime-checks.json"
+          uv run --locked python scripts/qualify_runtime_config.py --context "$RUNNER_TEMP/qualification/context.json" --protocol benchmarks/real-protocol-v2.json --image-id "$image" --output "$RUNNER_TEMP/qualification/runtime-checks.json"
       - name: Synthetic evaluator (no frozen fixtures)
         if: success() || failure()
         run: |
           image=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/qualification/evaluator-build.json"))["image_id"])')
-          uv run --locked python scripts/qualify_evaluator.py --image-id "$image" --output "$RUNNER_TEMP/qualification/evaluator-proof"
+          uv run --locked python scripts/qualify_evaluator.py --context "$RUNNER_TEMP/qualification/context.json" --image-id "$image" --output "$RUNNER_TEMP/qualification/evaluator-proof"
+      - name: Assemble non-ready CI mechanics manifest
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/qualification/context.json"; then
+            uv run --locked python scripts/assemble_incomplete_ci_manifest.py \
+              --root "$RUNNER_TEMP/qualification" \
+              --context "$RUNNER_TEMP/qualification/context.json" \
+              --output "$RUNNER_TEMP/qualification/manifest.json"
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
