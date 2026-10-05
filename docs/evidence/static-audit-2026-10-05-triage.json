@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "kind": "static_repository_audit_triage",
+  "audit_commit": "b61af47ecf339474808116f8ece7b593245c3ffa",
+  "integrated_main": "da935f6cf9612b5ce8eea3b0ad6bc5694b51f96f",
+  "merge_commit": "3a02b3c6446ad734a43bf7505d16e75f122ef5c4",
+  "findings": [
+    {
+      "id": "AUD-004",
+      "classification": "POST_STAGE3G_ALLOWED",
+      "secondary": "NEEDS_RUNTIME_EVIDENCE",
+      "depends_on": [],
+      "reason": "Does not block synthetic frozen fixtures, but must be resolved before private production workloads."
+    },
+    {
+      "id": "AUD-005",
+      "classification": "BLOCKS_BENCHMARK",
+      "secondary": null,
+      "depends_on": [
+        "AUD-001"
+      ],
+      "reason": "Recovery must precede replay before the accepted shared ledger is used by real sessions."
+    },
+    {
+      "id": "AUD-006",
+      "classification": "POST_STAGE3G_ALLOWED",
+      "secondary": null,
+      "depends_on": [],
+      "reason": "The current frozen benchmark is sequential; this must be fixed before concurrent production routing."
+    },
+    {
+      "id": "AUD-007",
+      "classification": "POST_STAGE3G_ALLOWED",
+      "secondary": "NEEDS_RUNTIME_EVIDENCE",
+      "depends_on": [],
+      "reason": "Structured failure handling remains hardening work; exact Ollama metadata and API identity remain mandatory qualification checks."
+    },
+    {
+      "id": "AUD-008",
+      "classification": "BLOCKS_BENCHMARK",
+      "secondary": null,
+      "depends_on": [],
+      "reason": "Output capture must be bounded and verified containers must be removed before frozen execution."
+    },
+    {
+      "id": "AUD-009",
+      "classification": "BLOCKS_STAGE3G_C",
+      "secondary": null,
+      "depends_on": [
+        "AUD-002"
+      ],
+      "reason": "The actual B-arm Python runtime artifact must be immutable and bound before host qualification."
+    },
+    {
+      "id": "AUD-010",
+      "classification": "RESOLVED_FOR_STAGE3G_BY_PIN",
+      "secondary": null,
+      "depends_on": [],
+      "reason": "Global 0.35.0 support may remain, while Stage 3G binds exact Ollama 0.34.2, qwen2.5:14b-instruct, and the reviewed digest."
+    },
+    {
+      "id": "AUD-011",
+      "classification": "BLOCKS_BENCHMARK",
+      "secondary": null,
+      "depends_on": [],
+      "reason": "The irreversible guest task-exposure boundary must be defined before a frozen attempt is consumed."
+    }
+  ],
+  "stage3g_ollama": {
+    "global_0_35_support": "ALLOWED",
+    "version": "0.34.2",
+    "model": "qwen2.5:14b-instruct",
+    "digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6"
+  },
+  "dependency_edges": [
+    [
+      "main_integration",
+      "AUD-001"
+    ],
+    [
+      "AUD-001",
+      "AUD-005"
+    ],
+    [
+      "main_integration",
+      "AUD-009"
+    ],
+    [
+      "AUD-009",
+      "AUD-002"
+    ],
+    [
+      "AUD-001",
+      "AUD-002"
+    ],
+    [
+      "AUD-002",
+      "build-009"
+    ],
+    [
+      "AUD-003",
+      "benchmark_readiness"
+    ],
+    [
+      "AUD-008",
+      "benchmark_readiness"
+    ],
+    [
+      "AUD-011",
+      "benchmark_readiness"
+    ],
+    [
+      "arm_a_ceiling_correction",
+      "build-009"
+    ],
+    [
+      "build-009",
+      "stage3g_c_final_review"
+    ]
+  ],
+  "build_009": {
+    "preflight_attempt_1": "BLOCKED_PREBUILD",
+    "classification": "PRODUCTION_HOST_ARM_A_CEILING_MISSING",
+    "rust_compilation_started": false,
+    "future_build_number": "build-009",
+    "build_010_run": false
+  },
+  "stage": {
+    "production_classification": "UNKNOWN",
+    "production_host_activation": "BLOCKED_PREBUILD",
+    "process_proof": null,
+    "stage_3g_c": "OPEN",
+    "stage_3g": "OPEN",
+    "execution_ready": false,
+    "model_requests": 0,
+    "provider_sends": 0,
+    "real_codex_executions": 0,
+    "benchmark_run": false,
+    "rehearsal_run": false,
+    "protocol_v3_created": false,
+    "role_runtime_changed": false
+  }
+}
