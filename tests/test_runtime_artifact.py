@@ -87,10 +87,35 @@ def test_isolated_noneditable_runtime_has_stable_identity(tmp_path, monkeypatch)
     first = inspect_runtime_environment(interpreter, wheel, lock, "a" * 40)
     second = inspect_runtime_environment(interpreter, wheel, lock, "a" * 40)
     assert first == second
+    assert first.payload.python_platform_tag == "win-amd64"
+    assert first.payload.python_soabi == "cp312-win_amd64"
+    assert first.payload.platform_machine == "AMD64"
     assert first.payload.devhub_module_origin == "Lib/site-packages/devhub/__init__.py"
     assert first.payload.python_executable_sha256 == file_sha256(interpreter)
     assert len(seen) == 2
     assert root.is_dir()
+
+
+def test_nullable_platform_observations_keep_required_stable_tag(tmp_path, monkeypatch):
+    _, interpreter, module, wheel, lock = runtime_files(tmp_path)
+    install_inspection(
+        monkeypatch,
+        observed(module, interpreter, soabi=None, machine="", platform_tag="win-amd64"),
+    )
+
+    environment = inspect_runtime_environment(interpreter, wheel, lock, "a" * 40)
+
+    assert environment.payload.python_platform_tag == "win-amd64"
+    assert environment.payload.python_soabi is None
+    assert environment.payload.platform_machine is None
+
+
+def test_empty_stable_platform_tag_is_rejected(tmp_path, monkeypatch):
+    _, interpreter, module, wheel, lock = runtime_files(tmp_path)
+    install_inspection(monkeypatch, observed(module, interpreter, platform_tag=""))
+
+    with pytest.raises(ValidationError, match="python_platform_tag"):
+        inspect_runtime_environment(interpreter, wheel, lock, "a" * 40)
 
 
 @pytest.mark.parametrize(
