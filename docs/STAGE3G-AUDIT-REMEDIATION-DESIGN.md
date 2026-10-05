@@ -1,12 +1,22 @@
 # Stage 3G audit remediation design
 
-Status: **DESIGN ONLY — no P1 production implementation and no Rust build authorized**
+Status: **TRACKING — AUD-001 merged; AUD-002/AUD-009 remain design only; no Rust build authorized**
 
 This document refines AUD-001, AUD-002, AUD-003, and AUD-009 after integrating main.
-It does not modify the frozen protocol, Candidate B, provider behavior, accounting,
-or benchmark execution.
+PR #41 merged AUD-001 into main as merge commit
+`2a9428d2689fd05b8edef901b1caf48c3f985292`. This tracking update does not modify the
+frozen protocol, Candidate B, provider behavior, accounting, or benchmark execution.
 
-## 1. Ledger identity — AUD-001
+## 1. Ledger identity — AUD-001 (IMPLEMENTED / MERGED)
+
+The accepted implementation is `LedgerIdentityCoreV1` in `src/devhub/ledger.py`, with
+its operational contract in `docs/LEDGER_IDENTITY.md`. The implementation commit is
+`f0030cb8b1809b361de9d6d82be731fa5bd444f4` and the main merge commit is
+`2a9428d2689fd05b8edef901b1caf48c3f985292`.
+
+Legacy adoption remains **NOT IMPLEMENTED**. AUD-001 does not close AUD-005 recovery
+ordering, AUD-002 qualification authority, AUD-009 immutable Python runtime, or AUD-003
+B-arm observation.
 
 Separate reopen equality from creation audit metadata.
 
@@ -67,6 +77,8 @@ Changing `state_root` is not adoption or reset. Reset is another explicit operat
 must never run implicitly.
 
 ## 2. Two-level qualification identity — AUD-002
+
+Status: **OPEN — planned for a separate focused PR together with AUD-009**.
 
 The qualification identity uses two acyclic levels.
 
@@ -173,7 +185,94 @@ config, or plan. A difference in any one bound component is a pre-execution fail
 `environment_instance_id` is an opaque host-owned qualification identity. It must not be
 derived from user/model/project content or expose sensitive machine/account identifiers.
 
+### Planned typed contracts
+
+Add a small `src/devhub/qualification.py` module. It will reuse `Contract`, `Digest`,
+`canonical`, `digest`, and the merged `LedgerIdentityCoreV1`; it must not define another
+ledger-identity model. The module will own strict, versioned contracts for:
+
+```text
+QualificationContextPayloadV1
+  schema_version = 1
+  environment_instance_id
+  implementation
+  codex
+  benchmark
+  runtime_expected
+  ledger_expected
+  evaluator_expected
+  ollama_expected
+  arms_expected
+
+QualificationContextV1
+  qualification_context_id
+  payload
+
+QualificationReceiptHeaderV1
+  receipt_kind
+  qualification_context_id
+  environment_instance_id
+
+QualificationManifestPayloadV2
+  schema_version = 2
+  qualification_context_id
+  environment_instance_id
+  receipts             # fixed typed set, not an open bag
+  observed_artifacts
+  gates
+  execution_ready      # derived from verified gates
+
+QualificationManifestV2
+  qualification_manifest_id
+  payload
+```
+
+Both envelopes recompute their IDs during validation. Unknown fields, missing required
+receipt kinds, duplicate receipt kinds, a receipt from another context/environment, and
+an envelope ID mismatch fail closed. `execution_ready` is derived only after all required
+typed receipts and artifact hashes validate; callers cannot set it independently.
+
+`ledger_expected` embeds the exact merged `LedgerIdentityCoreV1`, its canonical identity
+SHA-256, and the expected domain schema version. The implementation must compare all
+three against the opened authoritative ledger before replay, recovery, or attempt
+creation.
+
+The final receipt set is fixed to the reviewed Stage 3G needs: isolation, effects
+boundary, auth/egress, actual Ollama metadata, ledger reopen/identity, actual Codex
+executable, production host-process visibility, evaluator qualification, immutable
+Python runtime verification, and runtime/config probes. Paths are locators only. Every
+referenced file is re-read and checked against its manifest hash.
+
+### Planned integration points
+
+- `src/devhub/experiment.py`: replace independently composable qualification fields in
+  `RuntimeBindings` with the reviewed `qualification_manifest_id`. A manifest path may be
+  passed separately as a locator, but it is not authority.
+- `src/devhub/experiment_preflight.py`: build and validate the final manifest; replace
+  `require_ready(raw, expected)` with full context, receipt, artifact, environment, and
+  ledger-chain verification.
+- `src/devhub/experiment_run.py`: load the manifest by locator, verify its exact ID, derive
+  runtime values only from it, and refuse independently supplied image/isolation/evaluator/
+  Python identities.
+- `scripts/probe_oci_boundary.py`, `scripts/probe_effects_boundary.py`,
+  `scripts/qualify_runtime_config.py`, and `scripts/qualify_evaluator.py`: accept the
+  reviewed context and emit the common receipt header.
+- `scripts/build_qualification_context.py`: create the ID-free canonical context payload
+  after all expected immutable inputs, including the actual Codex executable SHA, are
+  known.
+- `scripts/build_qualification_manifest.py`: verify the complete same-context receipt set
+  and create the ID-free final payload and envelope.
+- `.github/workflows/runtime-qualification.yml`: pass one context through qualification
+  jobs and retain the complete manifest inputs as review artifacts. A CI host cannot be
+  mixed with receipts from the intended execution host.
+
+No frozen task, fixture, oracle, ordering, timeout, provider policy, or arm instruction
+changes are part of this PR. Implementation-dependent plan/session/runtime bindings will
+be regenerated and reviewed without creating protocol v3.
+
 ## 3. Immutable Python runtime — AUD-009
+
+Status: **OPEN — part of the same focused PR as AUD-002**.
 
 Build one wheel or equivalent immutable Python artifact from the reviewed integrated
 commit. Bind all of the following into `QualificationContextV1`:
@@ -187,6 +286,42 @@ commit. Bind all of the following into `QualificationContextV1`:
 The B arm must execute that artifact from the bound environment. It cannot use an
 arbitrary editable checkout, ambient `sys.path`, or unrelated installed `devhub` through
 an unqualified `sys.executable -m devhub.delegate_server` resolution.
+
+### Planned artifact and launch flow
+
+1. `scripts/build_devhub_runtime_artifact.py` requires a clean reviewed source commit and
+   builds one non-editable wheel using the locked build environment.
+2. The builder records the wheel SHA-256, source commit, package metadata, `uv.lock`
+   SHA-256, exact Python implementation/version/executable SHA-256, ABI/platform identity,
+   and `devhub.delegate_server:main` entrypoint.
+3. A dedicated runtime environment is populated only from the DevFabric wheel and a
+   lock-derived, hash-verified runtime wheelhouse. Editable installation, ambient
+   `PYTHONPATH`, user site packages, and unrelated installed `devhub` are rejected.
+4. An ID-free runtime-environment payload binds the interpreter plus every installed
+   distribution/version and installed-file/`RECORD` digest. Its canonical SHA-256 is the
+   installation environment identity included in `QualificationContextPayloadV1`.
+5. After the qualification context exists, a host-sensitive Python-runtime verification
+   receipt rechecks the interpreter, lock, wheel, module origin, installed records, and
+   entrypoint and binds both `qualification_context_id` and `environment_instance_id`.
+6. `experiment_run.py` obtains the server command from the verified manifest and launches
+   the exact absolute interpreter with isolated Python semantics and
+   `-m devhub.delegate_server`. It no longer uses ambient `sys.executable` for Arm B.
+
+Artifact construction precedes the qualification context because the wheel/environment
+hashes are context inputs. Runtime verification follows context creation so its receipt
+can bind the context without a hash cycle.
+
+### Planned tests and documentation
+
+Add `tests/test_qualification.py` and `tests/test_runtime_artifact.py`, and update the
+existing experiment/preflight tests. Required negative cases include context/manifest ID
+tampering, unknown fields, one-component drift, receipt substitution across hosts,
+ledger-identity drift, wheel/lock/interpreter drift, module-origin replacement, editable
+or ambient import resolution, incomplete receipt sets, and independently supplied runtime
+paths. All failures occur before attempt creation or model/provider activity.
+
+Add `docs/QUALIFICATION_MANIFEST.md` and narrowly update `docs/STAGE3G-C.md`. Historical
+evidence files remain immutable.
 
 ## 4. B-arm success observation — AUD-003
 
@@ -256,7 +391,7 @@ or repository content.
 
 ```text
 main integration
-  → AUD-001 ledger identity
+  → AUD-001 ledger identity [MERGED]
       → AUD-005 recovery ordering
       → AUD-002 qualification context/manifest
 
@@ -283,8 +418,10 @@ build-009
 ## 7. Proposed PR decomposition
 
 1. PR #34 stays the Candidate B and historical qualification umbrella.
-2. Focused PR: AUD-001 ledger identity and explicit legacy-adoption design boundary.
-3. Focused PR: AUD-002 qualification context/manifest plus AUD-009 immutable Python artifact.
+2. PR #41: AUD-001 ledger identity and explicit legacy-adoption design boundary [MERGED].
+3. Next focused PR from current main: AUD-002 qualification context/manifest plus AUD-009
+   immutable Python artifact. Proposed branch: `feat/stage3g-qualification-manifest`.
+   Proposed title: `feat: bind Stage 3G qualification to immutable runtime artifacts`.
 4. Focused PR: AUD-003 fail-closed B-arm observation.
 5. Focused PR or tightly bounded series: AUD-005 recovery ordering and AUD-008/AUD-011
    benchmark executor hardening.
@@ -295,6 +432,17 @@ Do not combine all findings into one Candidate B patch or start build-009 before
 Stage 3G-C prerequisites are reviewed and integrated.
 
 ## 8. Current gate state
+
+Remediation status:
+
+```text
+AUD-001 immutable ledger identity = IMPLEMENTED / MERGED
+legacy ledger adoption = NOT IMPLEMENTED
+AUD-002 qualification context/manifest = OPEN
+AUD-003 B-arm successful-handoff/accounting observation = OPEN
+AUD-005 startup recovery ordering = OPEN
+AUD-009 immutable Python runtime artifact = OPEN
+```
 
 ```text
 build_009_preflight_attempt_1 =
