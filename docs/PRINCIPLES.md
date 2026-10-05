@@ -1,6 +1,6 @@
 # Principles
 
-1. **Codex is the main orchestrator.** Dev Hub extends it; do not rebuild Codex externally without a concrete need.
+1. **The coding agent remains the orchestrator.** DevFabric supplies shared context, policy and execution services. Codex is the current primary integration; Cursor/Claude adapters are planned.
 2. **Efficiency beats maximum delegation.** Short tightly coupled tasks often belong in Codex.
 3. **Free-first after delegation.** Default: `FREE CLOUD -> LOCAL -> PAID`, with privacy/capability/quality exceptions.
 4. **Shared knowledge is not shared prompt history.** Use Project Brain + Context Builder.

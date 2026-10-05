@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "kind": "demo_smoke",
+  "benchmark": false,
+  "stage3g": false,
+  "date": "2026-10-04",
+  "implementation_commit": "2fba3c9df9c31ab5f2e4fe5a3b6f688504d24648",
+  "transport": "mcp_stdio",
+  "client": "real Codex CLI",
+  "codex_version": "codex-cli 0.158.0-alpha.2.1",
+  "codex_exit": 0,
+  "provider": "ollama",
+  "model": "qwen2.5:14b-instruct",
+  "ollama_version": "0.35.0",
+  "ollama_version_verified": true,
+  "model_digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+  "model_digest_verified": true,
+  "identity_verification": "adapter inspect before preparation and digest revalidation before dispatch; exact version allowlist",
+  "task": {
+    "schema_version": 1,
+    "project": "devfabric-demo",
+    "task_id": "demo-output-validation",
+    "request_key": "demo-output-validation-1",
+    "instructions": "Explain why valid JSON with a fabricated citation is rejected by validate_output. Identify the relevant function and give a concise caller fix plan. Do not edit files.",
+    "acceptance_criteria": [
+      "Distinguish output schema validation from citation validation and cite the supplied implementation."
+    ],
+    "query": "src/devhub/output.py",
+    "task_class": "explain",
+    "privacy": "local_only",
+    "allow_cloud": false,
+    "require_citations": true
+  },
+  "delegation_status": "completed",
+  "validation_status": "passed",
+  "citations_validation": "passed",
+  "accounting_status": "settled",
+  "input_tokens": 647,
+  "output_tokens": 77,
+  "latency_ms": 16264,
+  "codex_wall_seconds": 41.81991124153137,
+  "delegate_calls": 1,
+  "retries": 0,
+  "fallback": false,
+  "handoff": {
+    "schema_version": 1,
+    "status": "completed",
+    "reason": "validated",
+    "provider": "ollama",
+    "model": "qwen2.5:14b-instruct",
+    "summary": "Valid JSON with a fabricated citation is rejected by validate_output because it fails the citation validation check. The function checks for unique citations and ensures they are in the list of supplied sources. If the policy requires citations and none are provided, the output is also rejected.",
+    "citations": [
+      "s1"
+    ],
+    "package_hash": "87e96e81dacf0e77b933f01e3ac03f1e32168823a059b0de86114ee70ba57260",
+    "export_hash": null,
+    "context_estimate": 1928,
+    "input_preflight": 647,
+    "actual_input_tokens": 647,
+    "actual_output_tokens": 77,
+    "latency_ms": 16264,
+    "accounting_reference": "c599737a336a4ba3b66ecc8682ffad6a",
+    "execution": "completed",
+    "accounting": "settled",
+    "output_validation": "passed",
+    "citations_validation": "passed",
+    "selection": [
+      {
+        "schema_version": 1,
+        "profile": "local-demo",
+        "provider": "ollama",
+        "reason": "candidate"
+      }
+    ],
+    "retries": 0,
+    "fallback": false,
+    "semantic_acceptance": null,
+    "quality_benchmark": null,
+    "delegation_value": null,
+    "savings": null
+  },
+  "accounting_events": [
+    {
+      "schema_version": 1,
+      "id": "c664589191d24d43a126eee647332abf",
+      "project": "devfabric-demo",
+      "task": "demo-output-validation",
+      "reservation": "c599737a336a4ba3b66ecc8682ffad6a",
+      "resource": "ollama-4d4c82be7a10b290d31e872948845fdf",
+      "transition": "reserved",
+      "recorded_ms": 1791138259443,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-input_tokens",
+          "reserved": 647,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-output_tokens",
+          "reserved": 256,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-requests",
+          "reserved": 1,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-total_tokens",
+          "reserved": 903,
+          "actual": null
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "id": "3c1f14501d5a4baf899f55167a68bc29",
+      "project": "devfabric-demo",
+      "task": "demo-output-validation",
+      "reservation": "c599737a336a4ba3b66ecc8682ffad6a",
+      "resource": "ollama-4d4c82be7a10b290d31e872948845fdf",
+      "transition": "dispatched",
+      "recorded_ms": 1791138260036,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-input_tokens",
+          "reserved": 647,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-output_tokens",
+          "reserved": 256,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-requests",
+          "reserved": 1,
+          "actual": null
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-total_tokens",
+          "reserved": 903,
+          "actual": null
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "id": "49074ec2d27b426bae50db350e8e2a96",
+      "project": "devfabric-demo",
+      "task": "demo-output-validation",
+      "reservation": "c599737a336a4ba3b66ecc8682ffad6a",
+      "resource": "ollama-4d4c82be7a10b290d31e872948845fdf",
+      "transition": "settled",
+      "recorded_ms": 1791138276309,
+      "synthetic": false,
+      "allocations": [
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-input_tokens",
+          "reserved": 647,
+          "actual": 647
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-output_tokens",
+          "reserved": 256,
+          "actual": 77
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-requests",
+          "reserved": 1,
+          "actual": 1
+        },
+        {
+          "schema_version": 1,
+          "bucket": "ollama-4d4c82be7a10b290d31e872948845fdf-total_tokens",
+          "reserved": 903,
+          "actual": 724
+        }
+      ]
+    }
+  ],
+  "existing_ledger_reused": true,
+  "ledger_reset": false,
+  "source_sha256": "83dc86c66f82e648d51c98c644bbdbbddf62d050f0edc4b140d8cd3246fb6816",
+  "codex_transcript_sha256": "7eea2dae0e9c0b0c5a6891a471a5c3844170d88d682ece140e856e4e7ee67dd1",
+  "semantic_quality": null,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "semantic_limitation": "Returned summary explains citation rejection but omits the requested concise caller fix plan. No rerun or prompt tuning.",
+  "cloud_generation_calls": 0,
+  "model_pulls": 0,
+  "stage3g_state_changed": false
+}

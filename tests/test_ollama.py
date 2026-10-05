@@ -113,6 +113,29 @@ def test_local_accounting_and_no_replay(local):
     assert calls.count("/api/generate") == 1
 
 
+@pytest.mark.parametrize("server_version", ["0.35.0", "0.34.2"])
+def test_explicit_035_version_pin(local, monkeypatch, server_version):
+    runtime, task, calls, _ = local
+    original = runtime.adapter.http.request
+    runtime.adapter.config = OllamaConfig.model_validate(
+        {**runtime.adapter.config.model_dump(), "version": "0.35.0"}
+    )
+
+    def http(path, body=None):
+        if path == "/api/version":
+            return {"version": server_version}
+        return original(path, body)
+
+    monkeypatch.setattr(runtime.adapter.http, "request", http)
+    result = runtime.run(task)
+    if server_version == "0.35.0":
+        assert result.status == "completed"
+        assert calls.count("/api/generate") == 1
+    else:
+        assert result.reason == "unverified_ollama_version"
+        assert "/api/generate" not in calls
+
+
 @pytest.mark.parametrize(
     "mode,status",
     [

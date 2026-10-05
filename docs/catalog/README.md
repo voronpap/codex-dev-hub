@@ -12,4 +12,7 @@ This directory preserves **all researched ideas and candidates**. It is an inven
 
 Labels for later triage: `V1`, `NEXT`, `OPTIONAL`, `ALTERNATIVE`, `RESEARCH`, `REJECTED`.
 
-Core invariant: Codex is the main orchestrator. Dev Hub is its toolbox. Default delegated-resource preference is `FREE CLOUD -> LOCAL -> PAID`, but delegation itself must be worthwhile.
+Core direction: DevFabric provides shared context, policy and execution services.
+Codex is the current primary orchestration client; other client adapters are planned.
+Research entries retain historical terminology and do not authorize dependencies,
+provider activation or a fixed cloud/local/paid fallback order.

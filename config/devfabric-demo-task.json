@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "project": "devfabric-demo",
+  "task_id": "demo-output-validation",
+  "request_key": "demo-output-validation-1",
+  "instructions": "Explain why valid JSON with a fabricated citation is rejected by validate_output. Identify the relevant function and give a concise caller fix plan. Do not edit files.",
+  "acceptance_criteria": [
+    "Distinguish output schema validation from citation validation and cite the supplied implementation."
+  ],
+  "query": "src/devhub/output.py",
+  "task_class": "explain",
+  "privacy": "local_only",
+  "allow_cloud": false,
+  "require_citations": true
+}

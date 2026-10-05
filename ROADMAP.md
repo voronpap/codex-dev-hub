@@ -1,6 +1,6 @@
 # Roadmap
 
-Build the smallest system that proves Dev Hub improves real Codex development.
+Build the smallest system that proves DevFabric improves real Codex development.
 Codex remains orchestrator; free-first applies only after choosing to delegate.
 
 ## Phase 0 вЂ” Technical design
@@ -39,3 +39,17 @@ only when measured needs justify them. All ideas remain in [catalog](docs/catalo
 
 `ai-platform` remains a separate application-runtime project. No V1 dependency
 or shared deployment is planned. PLAIK/DealHunter changes are outside this stage.
+
+## Planned shared client layer
+
+```text
+Agent Adapter / Client Adapter
+  -> DevFabric shared services
+  -> Brain / Context / Policy / Routing / Provider Adapters
+```
+
+Codex is the existing primary integration. Future adapter work includes evolving
+that integration and adding Cursor, Claude and other coding-agent/IDE clients.
+No Cursor/Claude adapter or shared multi-client execution is implemented by this
+branding change. These integrations must reuse the same privacy/accounting core.
+Technical identifiers remain governed by [naming policy](docs/NAMING.md).

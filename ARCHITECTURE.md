@@ -1,19 +1,25 @@
-# Architecture
+# DevFabric architecture
 
 Concrete V1 design: [technical proposal](docs/V1_TECHNICAL_PROPOSAL.md) and
-[contracts](docs/V1_CONTRACTS.md). These are proposed refinements, not implemented behavior.
+[contracts](docs/V1_CONTRACTS.md). Consult the [README status](README.md#project-status) for implemented scope;
+older proposals also contain future capabilities.
 
 ## Position
-Codex is the control plane for development reasoning. Dev Hub is a capability plane exposed primarily through MCP.
+
+DevFabric is the shared orchestration/control/context layer between coding agents
+and AI resources. Codex is the current primary integration and remains its workflow
+orchestrator. Cursor, Claude and other clients are planned, not implemented.
 
 ```text
-Developer -> Codex -> MCP/API -> CODEX DEV HUB
-                               |-- Core
-                               |-- Providers
-                               |-- Tools
-                               |-- Agents
-                               '-- Project Brain
+Coding agent -> Agent / Client Adapter -> DevFabric shared services
+                                         |-- Project Brain / Context Builder
+                                         |-- ResourceController / Router
+                                         |-- Privacy / Accounting
+                                         `-- Provider Adapters -> AI resources
 ```
+
+The current Codex-facing boundary remains MCP `devhub_delegate`. Public branding
+does not change this identity or the contracts bound to it. See [naming](docs/NAMING.md).
 
 ## Core
 Keep it small: capability registry, routing policy, provider health/quota state, project isolation, context building, handoffs, telemetry and policy checks.
@@ -34,13 +40,10 @@ Shared storage, not shared prompt state. Layers: global conventions, project arc
 Assemble the minimum useful task package from the request, relevant repo sources, decisions, conventions and related prior work. More context is not automatically better.
 
 ## Routing
-After Codex decides to delegate:
-
-```text
-FREE CLOUD -> LOCAL -> PAID
-```
-
-Routing can consider capability, privacy, complexity, context size, quota, measured quality, latency and cost.
+Current delegation filters configured profiles deterministically by task/privacy
+and resource eligibility. No universal provider ordering or quality ranking is
+claimed. Private context stays local; cloud needs explicit approved export.
+Benchmark-driven policy changes require later review.
 
 ## Codex-facing interface
 Primary: MCP. Proposed V1 tools: `devhub_status`, `devhub_delegate`,
@@ -52,4 +55,11 @@ Codex interoperability in Stage 1; document/browser/external-worker adapters can
 V1 favors simple local/self-hosted deployment, likely Docker Compose plus a small MCP service. Optional capabilities are enabled independently.
 
 ## Observability
-For delegated operations record route reason, provider/tool/agent, latency, quota/cost, success/failure and whether Codex had to redo the work. These measurements decide whether Dev Hub is actually useful.
+For delegated operations record route reason, provider/tool/agent, latency, quota/cost, success/failure and whether Codex had to redo the work. These measurements decide whether DevFabric is actually useful.
+
+## Proposed role-aware extension
+
+The [role-aware orchestration proposal](docs/ROLE_ORCHESTRATION_PROPOSAL.md)
+separates task/role selection from provider routing while reusing the existing core.
+It is accepted design only. Role runtime is deferred until after current Stage 3G
+completion and separate implementation approval; current executable behavior is unchanged.

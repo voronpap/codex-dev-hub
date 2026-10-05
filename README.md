@@ -1,221 +1,308 @@
-# Codex Dev Hub
+# DevFabric
 
-> A Codex-first development toolbox that extends Codex with free-first cloud models, local models, shared project context, research tools, and optional worker agents.
+A developer-first AI orchestration fabric for coding agents, local models,
+cloud providers, shared project context, deterministic routing, and auditable execution.
 
-## Status
+- Shared project context, designed for reuse across coding-agent integrations.
+- Controlled delegation to local and cloud models.
+- Deterministic privacy and resource policy.
+- Durable accounting and provenance.
+- Evidence-driven execution and benchmarking.
 
-**Stage 2 CLOSED.** Stages 1 and 2 are accepted, merged and verified. MCP exposes status,
-strict configuration and synthetic test resources. Internal offline resource APIs
-add SQLite accounting, reservations, capabilities, deterministic routing and recovery.
-The default server has no inference or paid execution. See the
-[Stage 1 runbook](docs/STAGE1.md) and [Stage 2 scope and evidence](docs/STAGE2.md).
+DevFabric is the public project name. Some internal identifiers retain the
+historical `devhub` naming for compatibility and evidence stability.
+The repository remains `codex-dev-hub`; see the [naming policy](docs/NAMING.md).
 
-[Stage 3A Project Brain + FTS5](docs/STAGE3A.md) is **CLOSED**, accepted and merged as an
-internal, project-scoped retrieval API. [Stage 3B Context Builder](docs/STAGE3B.md)
-is **CLOSED**, accepted and merged with immutable, budgeted and revalidated packages;
-its private packages require explicit export approval before any cloud use.
+**Active development. Execution-boundary qualification is in progress.**
+The paired benchmark has not run; semantic quality, savings and Delegation Value
+are not yet established. This is not a production-ready release.
 
-[Stage 3C Ollama](docs/STAGE3C.md) is **CLOSED + Local E2E Gate PASSED** through an
-explicit local-only MCP entry point, with model-specific token admission and real
-Codex smoke evidence. Execution/accounting gate passed; semantic quality not yet
-established. The default status server remains offline. [Stage 3D Groq](docs/STAGE3D.md)
-adds an opt-in, one-shot Free probe through the same accounting boundary and explicit
-public/redacted export. **Stage 3D CLOSED** after owner acceptance of PR #17 and
-UTF-8 documentation cleanup. [Stage 3E Gemini gates](docs/STAGE3E.md) preserve the
-same boundary and require separate data-use, quota and token-accounting verification;
-the opt-in Gemini partial implementation was accepted and merged in PR #18.
-**PR #19: Gemini execution/accounting gate PASSED; Stage 3E CLOSED.** Its approved one-shot follow-up settled 81 input + 11 output tokens
-before returning `invalid_output`; semantic acceptance remains null. See the
-[follow-up evidence](docs/STAGE3E_FOLLOWUP.md). At the PR #18 merge, Stage 3E was
-OPEN and the live gate NOT_PASSED. The first count
-returned HTTP 404 and blocked inference. Merge accepts the implementation and
-fail-closed evidence; it does not verify Gemini execution.
+## Try DevFabric
 
-## Core idea
+Run one bounded repository explanation through **Codex → MCP → Ollama**.
+Requires Python 3.12, uv, Codex and an already installed reviewed Ollama model.
 
-Codex remains the **main development orchestrator** and the primary place where the developer works. Codex Dev Hub does not try to replace Codex or build another coding-agent UI.
-
-Instead, Dev Hub gives Codex a reusable toolbox:
-
-- free cloud LLM/VLM capacity;
-- local models when useful;
-- paid providers only as a controlled fallback;
-- web search, crawling, scraping and browser tools;
-- project memory and retrieval;
-- document and vision capabilities;
-- sandboxed execution;
-- optional worker agents such as Cursor or OpenHands;
-- quota, cost and capability awareness.
-
-The intended flow is:
-
-```text
-Developer
-    |
-    v
-  Codex                 <- main orchestrator
-    |
-    v
-Codex Dev Hub
-    |
-    +-- Free cloud providers
-    +-- Local models
-    +-- Paid fallback
-    +-- Search / Web / Browser
-    +-- Project Brain
-    +-- Documents / Vision
-    +-- Sandbox
-    +-- Worker agents
+```sh
+git clone https://github.com/voronpap/codex-dev-hub.git
+cd codex-dev-hub
+uv sync --locked
 ```
 
-## Primary rule
+Follow the [local demo guide](docs/DEMO1.md): verify Ollama/model identity,
+copy the [local config](config/devfabric-local.example.json), connect Codex,
+and ask why the output validator rejects fabricated citations. The guide includes
+an exact MCP config, task and route/accounting fields to inspect.
 
-```text
-Use Codex directly when that is the most efficient path.
+Canonical stdio server command, from the repository root:
 
-For delegated work:
-FREE CLOUD -> LOCAL -> PAID
+```sh
+uv run --locked python -m devhub.delegate_server --config .devhub/local.json
 ```
 
-Free-first is a routing preference, not a reason to create unnecessary delegation. A trivial task should not travel through several models just to avoid a few Codex tokens.
+Codex normally starts this child process itself; it is not an HTTP service.
+The demo uses local Ollama only. No cloud generation, paid execution or automatic
+model pull is enabled. Docker/OCI is used for benchmark/isolation work, **not**
+one-command DevFabric deployment. Docker Compose startup remains future work.
 
-## What Dev Hub is
+## Why this exists
 
-Dev Hub is a **module/tool layer for Codex**. Its responsibilities are to:
+As coding workflows add model clients and tools, context can be duplicated,
+local/cloud choices can become implicit, and retries can obscure what actually ran.
+A successful model call also says little about whether delegation helped the developer.
 
-1. expose useful capabilities to Codex through stable interfaces, primarily MCP;
-2. pool and route free cloud resources;
-3. expose local inference without coupling projects to Ollama or another runtime;
-4. maintain reusable project context;
-5. provide compact handoffs between Codex and worker agents;
-6. measure whether delegation actually saves time, tokens, and money;
-7. make capabilities replaceable without changing every project.
+DevFabric keeps the coding agent as the orchestrator (currently Codex), with delegation
+behind explicit context,
+privacy, capability and resource rules. It combines Project Brain, Context Builder,
+Capability Registry, deterministic Router, ResourceController and provider adapters.
+A frozen paired benchmark is the next step toward measuring usefulness.
 
-## What Dev Hub is not
+DevFabric is not a replacement for Codex, Cursor or Claude, just a model proxy,
+just an Ollama frontend, an MCP collection, or a generic autonomous multi-agent
+framework. It is the shared orchestration, control and context layer around those
+tools, rather than a separate coding agent.
 
-V1 is **not**:
+## Agent integrations
 
-- a replacement for Codex;
-- another full coding-agent UI;
-- a mandatory runtime dependency for applications developed with it;
-- a reason to rewrite existing projects;
-- a monolithic bundle where every discovered AI project runs all the time;
-- an autonomous system allowed to modify production without explicit policy.
+| Agent / client | Status |
+| --- | --- |
+| Codex | Current primary integration вЂ” first and deepest integration |
+| Cursor | Planned; not implemented |
+| Claude | Planned; not implemented |
+| Other coding agents / IDE assistants | Future candidates |
 
-## Context model
+Each client should connect through an Agent Adapter / Client Adapter boundary.
+The shared Brain, Context Builder, routing, privacy, accounting and provider
+infrastructure are designed to be reused rather than reimplemented per agent.
+Cross-client operation is a design direction, not an already validated capability.
 
-Agents do not share one enormous prompt. They share a **Project Brain**.
+## Project status
 
-```text
-                    PROJECT BRAIN
-                         |
-          +--------------+--------------+
-          |              |              |
-     Architecture     Decisions      Knowledge/RAG
-          |              |              |
-          +--------------+--------------+
-                         |
-                   Context Builder
-                         |
-          +--------------+--------------+
-          v              v              v
-        Codex          Cursor       Free/Local model
-```
+вЂњCompleteвЂќ below means the accepted implementation and its scoped gate are complete;
+it does not establish general task quality or full production qualification.
 
-Each consumer receives only the context relevant to its task.
+| Area | Status |
+| --- | --- |
+| Core architecture and offline runtime | Complete |
+| Project Brain and Context Builder | Complete |
+| ResourceController and durable accounting | Complete |
+| Ollama local execution/delegation | Complete |
+| Groq and Gemini adapters | Complete вЂ” scoped execution/accounting gates |
+| Unified `devhub_delegate` | Complete вЂ” local unified delegation gate passed |
+| Frozen benchmark harness | Complete вЂ” offline harness accepted |
+| Execution boundary and isolated runtime qualification | In progress |
+| Real paired delegation benchmark | Not run |
 
-Git remains the source of truth for code. Project Brain stores architecture, decisions, conventions, task history, useful summaries and retrieval indexes—not stale copies of the whole repository.
+See [accepted milestones](docs/STAGES.md), [unified delegation](docs/STAGE3F.md)
+and the [offline benchmark harness](docs/STAGE3G-A.md) for scope and evidence.
 
-## Planned capability groups
-
-### Model resources
-
-- Google Gemini free tier
-- Groq
-- NVIDIA NIM
-- OpenRouter free models
-- Cloudflare Workers AI
-- Mistral / Hugging Face / other eligible free tiers
-- Ollama / llama.cpp / other local runtimes
-- paid OpenAI, Anthropic, DeepSeek and others as optional fallback
-
-Free-tier availability and limits change. Providers must therefore be adapters with quota/health tracking, not hard-coded assumptions.
-
-### Development tools
-
-- web search and research
-- web extraction/crawling
-- browser automation
-- RAG and project retrieval
-- document parsing
-- vision/OCR
-- sandboxed command execution
-- Git/GitHub integration
-- worker-agent delegation
-
-### Worker agents
-
-Codex may delegate independent subtasks to workers such as:
-
-- Cursor Agent
-- OpenHands
-- local coding agents
-- other compatible agents added later
-
-Workers are not peers competing to control the project. Codex remains the coordinating agent.
-
-## Repository direction
-
-The implementation is intended to remain a single monorepo:
+## Architecture
 
 ```text
-codex-dev-hub/
-├── core/          # routing, quotas, context, policies
-├── providers/     # cloud/local model adapters
-├── tools/         # search, web, RAG, browser, documents...
-├── agents/        # worker-agent adapters
-├── mcp/           # Codex-facing MCP interface
-├── memory/        # Project Brain
-├── config/
-├── tests/
-└── docs/
+DevFabric
+|-- Agent / Client adapters
+|   |-- Codex (current primary integration)
+|   |-- Cursor (planned)
+|   `-- Claude / other coding agents (planned)
+|-- Project Brain + Context Builder
+|-- ResourceController + Router / Policy
+|-- Privacy + durable accounting
+`-- Provider adapters
+    |-- Ollama
+    |-- Groq
+    `-- Gemini / future providers
 ```
 
-The exact implementation structure may change after V1 spikes. Architecture documents describe contracts and responsibilities rather than prematurely fixing a framework.
+Current Codex delegation path:
 
-## Documentation
+```text
+Codex вЂ” orchestrator
+  |
+  v
+MCP: devhub_delegate
+  |
+  +--> Project Brain --> Context Builder --> source revalidation
+  |
+  +--> privacy / explicit public-redacted export when cloud is eligible
+  |
+  +--> Capability Registry + deterministic Router + ResourceController
+  |       select provider --> reserve --> revalidate --> durable dispatch
+  v
+Provider adapter
+  +--> Ollama (local)
+  +--> Groq (approved Free configuration)
+  +--> Gemini (qualified Free configuration)
+  |
+  v
+usage settlement / unknown_usage + transactional outbox
+  |
+structured output + citation validation --> compact handoff --> Codex
+```
 
-- [V1 technical proposal](docs/V1_TECHNICAL_PROPOSAL.md) — proposed stack and architecture, design only.
-- [Repository audit and gaps](docs/V1_AUDIT.md)
-- [Current technology research](docs/V1_RESEARCH.md)
-- [V1 contracts and schemas](docs/V1_CONTRACTS.md)
-- [Baseline and Delegation Value](docs/V1_BENCHMARK.md)
-- [Staged implementation and Stage 1 gate](docs/V1_IMPLEMENTATION_PLAN.md)
-- [Mandatory V1 core](docs/V1_CORE.md)
-- [Vision](VISION.md)
-- [Architecture](ARCHITECTURE.md)
-- [Roadmap](ROADMAP.md)
-- [Principles](docs/PRINCIPLES.md)
-- [Codex integration](docs/CODEX_INTEGRATION.md)
-- [Project context](docs/PROJECT_CONTEXT.md)
-- [Free-first routing](docs/FREE_FIRST_ROUTING.md)
-- [Providers](docs/PROVIDERS.md)
-- [Tools](docs/TOOLS.md)
-- [Agents](docs/AGENTS.md)
-- [Security](docs/SECURITY.md)
-- [Architecture decisions](docs/adr/)
+- **Git:** source of truth; revision and content hashes bind retrieved evidence.
+- **SQLite / FTS5:** project retrieval, durable reservations, accounting and events.
+- **MCP:** the Codex-facing delegation contract.
+- **Linux Docker/OCI:** the chosen benchmark isolation boundary, still being qualified.
 
-## V1 success criterion
+Context is prepared before inference. Provider selection precedes reservation;
+a dispatch marker is durable before the provider send. Complete usage is settled
+even when output validation fails. See [architecture](ARCHITECTURE.md) and
+[contracts](docs/V1_CONTRACTS.md).
 
-V1 succeeds if Codex can use Dev Hub during real development work and we can demonstrate that selected delegated tasks:
+## What works today
 
-- consume fewer scarce/paid resources;
-- preserve or improve result quality;
-- do not add excessive latency or orchestration complexity;
-- share useful project context safely;
-- remain observable and reversible.
+**Project Brain** provides project-scoped FTS5 retrieval with provenance,
+Git revision/hash binding, snapshot invalidation and source revalidation.
+[Brain scope](docs/STAGE3A.md)
 
-The objective is not “delegate as much as possible.” The objective is **make Codex development more efficient**.
+**Context Builder** ranks and deduplicates selected evidence, applies a bounded
+budget, preserves provenance through permitted compaction, and creates immutable
+packages. Its deterministic byte proxy is distinct from actual model tokens.
+[Context scope](docs/STAGE3B.md)
 
-Normal delegation entry point: [Stage 3F contract and configuration](docs/STAGE3F.md),
-`python -m devhub.delegate_server --config <trusted-local-json>`.
+**ResourceController** supports durable reservation, dispatch and settlement,
+shared quota pools, budgets, eligibility, recovery and transactional events.
+Uncertain post-dispatch usage remains a liability; it is not recorded as zero.
+[Resource core](docs/STAGE2.md)
+
+**Provider adapters** implement accepted Ollama, Groq and Gemini execution paths.
+Cloud probes use explicit permits and public/redacted payloads. Accepted probe
+history is not reusable account authorization or unlimited available quota.
+[Ollama](docs/STAGE3C.md) В· [Groq](docs/STAGE3D.md) В· [Gemini](docs/STAGE3E_FOLLOWUP.md)
+
+**Unified delegation** exposes `devhub_delegate` for bounded summarize, explain
+and extract tasks, with trusted provider configuration, privacy checks, structured
+output, supplied-source citation checks and compact handoff. A real local
+Codex-to-Ollama unified execution/accounting proof has passed. Citation identity
+validation does not prove that a claim is semantically supported.
+[Delegation contract](docs/STAGE3F.md)
+
+**Benchmark infrastructure** preserves 12 frozen fixtures and reviewer oracles,
+independent A/B packets, artifact hashes, null unknown metrics and a blind review
+protocol. The launcher/evaluator isolation design uses separate Linux OCI guests;
+its final runtime qualification is unfinished. Real sessions and evaluation have
+not started. [Harness](docs/STAGE3G-A.md) В· [Protocol and launcher](docs/STAGE3G-B.md)
+
+## What makes it different
+
+These are differences in scope, not claims about every gateway implementation.
+
+| Typical AI gateway focus | DevFabric focus |
+| --- | --- |
+| Routes prompts to models | Agent в†’ context в†’ policy в†’ provider delegation |
+| Stateless request handling | Shared Project Brain |
+| Provider switching | Deterministic eligibility and resource control |
+| Retry/fallback handling | Explicit post-dispatch rules |
+| Provider-centric abstraction | Agent + context + policy + provider architecture |
+| Per-client context | Reusable project context |
+| Quality assumptions | Frozen benchmark and evidence approach |
+| One frontend | Designed for multiple coding-agent clients |
+
+## Security and accounting principles
+
+- `local_only` and `project_private` tasks cannot route to cloud. Cloud use needs
+  explicit eligibility and a separately approved public/redacted export.
+- Unknown capability or eligibility fails closed. Catalog evidence is not runtime
+  authorization or a measurement of remaining quota.
+- Paid execution is disabled by default; this path has no automatic paid fallback.
+- Ambiguous execution retains `unknown_usage`; no automatic cross-provider retry
+  follows dispatch. Request replay protection uses durable state.
+- Source provenance is preserved and revalidated. Secrets stay outside request
+  DTOs, repository config and evidence.
+- Tool exposure is minimized. Exact tool origin, schema and retained runtime
+  authority are currently being qualified for the benchmark executor.
+- The isolation design keeps accounting state, reviewer oracles and other arms'
+  outputs outside guest execution. Final intended-host qualification is pending.
+
+See [security design](docs/SECURITY.md) and [runtime qualification](docs/STAGE3G-C.md).
+
+## Current milestone
+
+Validate the real Codex в†” DevFabric execution boundary before the paired benchmark:
+
+- Arm A exposes no delegated tools.
+- Arm B exposes only the reviewed `devhub_delegate` capability.
+- Tool identity, origin and schema remain bound to the exact admitted runtime.
+- Benchmark execution is isolated in Linux/OCI with a qualified host and preflight.
+
+**`execution_ready = false`**. Stage 3G remains open. No real paired benchmark
+has run, and passing integration tests does not establish quality or savings.
+
+## Development quick start
+
+Requires **Python 3.12** and **uv**. From the repository root:
+
+```sh
+uv sync --locked
+uv run --locked devhub validate-config --config config/offline.toml
+uv run --locked pytest -q
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked mypy
+uv run --locked python scripts/check_evidence.py
+```
+
+The default MCP server is offline/status-only and performs no inference:
+
+```sh
+uv run --locked devhub serve --transport stdio --config config/offline.toml
+```
+
+A configured MCP client consumes its stdio protocol. This is not the delegation
+server. For the separate, opt-in `devhub_delegate` server and trusted project,
+state-root and provider configuration, follow the [delegation runbook](docs/STAGE3F.md).
+Do not reset existing accounting state or reuse consumed cloud permits.
+
+One-command production startup is not implemented. Model installation, live
+provider probes and benchmark execution are not part of this quick start.
+Normal CI runs Linux full plus Windows smoke; full Windows remains a stage-close
+and platform-change gate. See [CI policy](docs/CI.md).
+
+## Next steps
+
+1. Finish execution/admission proof.
+2. Qualify the intended Linux execution host.
+3. Complete an all-green, reviewed preflight.
+4. Run one separately approved paired rehearsal.
+5. Run the 24 frozen A/B sessions under the reviewed protocol.
+6. Review raw quality, latency, resource use and correction requirements.
+7. Publish Delegation Value conclusions only where the evidence supports them.
+
+Future research includes Agent Adapters for Cursor and Claude, additional providers,
+optional integration with the
+separate AI Platform project, improved retrieval, reversible context compression,
+and reviewed observer/strategy proposals. These are research directions, not
+installed components. See the [research catalog](docs/catalog/README.md).
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| `src/devhub/` | MCP contracts, context, resource core, adapters and benchmark tooling |
+| `benchmarks/` | Frozen fixtures, separate reviewer oracles and experiment configuration |
+| `config/`, `schemas/` | Offline configuration and exported contracts |
+| `docs/` | Architecture, stage runbooks, security and research decisions |
+| `docs/evidence/` | Machine-readable qualification receipts and historical evidence |
+| `scripts/` | Validation, synthetic probes and pinned-source proof tooling |
+| `tests/` | Offline and platform-specific regression tests |
+
+## Evidence and contributions
+
+This project separates **implementation**, **qualification evidence** and
+**benchmark claims**. Detailed engineering records belong in [docs](docs/) and
+[evidence](docs/evidence/); frozen inputs live in [benchmarks](benchmarks/).
+Unknown measurements remain null. A successful transport/accounting integration
+is not automatically a successful task or a quality benchmark.
+
+The project is under active development, currently focused on Stage 3G runtime
+qualification. Changes should preserve frozen fixture/oracle bytes, evidence
+history, privacy rules and accounting semantics. Discuss major architectural
+changes before implementation. Keep this overview current using the
+[README maintenance policy](docs/CI.md#readme-maintenance).
+
+### Optional task usage footer
+
+Trusted delegation config supports `telemetry_footer: off | compact | verbose`
+(default `off`). It reports observed task usage without changing routing or accounting:
+`DF task: Codex unknown | delegated 724 | saving unknown | 16.3s | API $0.00`.
+This illustrative demo rendering is not a savings or semantic-quality claim.
+See [usage scope, evidence and configuration](docs/USAGE_FOOTER.md).
