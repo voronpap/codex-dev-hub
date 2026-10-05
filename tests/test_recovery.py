@@ -2,6 +2,7 @@ import multiprocessing
 import os
 
 import pytest
+from ledger_support import identity
 from test_controller import admission, counters, paid_core, setup_core
 
 from devhub.controller import Denied, ResourceController
@@ -11,7 +12,7 @@ from devhub.resources import Bucket, ResourcePolicy, SpendApproval
 
 
 def compete(path, barrier, results, index):
-    core = ResourceController(Ledger(path))
+    core = ResourceController(Ledger(path, identity()))
     barrier.wait(timeout=20)
     try:
         ticket = core.reserve(
@@ -28,7 +29,7 @@ def compete(path, barrier, results, index):
 def crash(path, phase):
     import devhub.controller as module
 
-    core = ResourceController(Ledger(path))
+    core = ResourceController(Ledger(path, identity()))
     if phase == "before_commit":
         original = module.record_event
 
@@ -84,7 +85,7 @@ def test_hard_process_crash_and_restart(tmp_path, phase):
     child.start()
     join_children([child])
     assert child.exitcode == 17
-    restarted = ResourceController(Ledger(core.ledger.path))
+    restarted = ResourceController(Ledger(core.ledger.path, identity()))
     assert counters(restarted) == (0, 0 if phase == "before_commit" else 1)
     assert restarted.recover(now_ms=499) == {"released": 0, "unknown_usage": 0}
     recovery = restarted.recover(now_ms=500)
@@ -126,7 +127,7 @@ def test_fake_provider_timeout_after_send_keeps_usage_unknown(tmp_path):
             raise
     assert sent == ["sent"]
     assert counters(core) == (0, 1)
-    events = EventOutbox(Ledger(core.ledger.path)).pending(project="p")
+    events = EventOutbox(Ledger(core.ledger.path, identity())).pending(project="p")
     assert events[-1].transition == "unknown_usage"
     assert events[-1].allocations[0].actual is None
 
@@ -153,7 +154,7 @@ def test_restart_does_not_enable_paid_dispatch(tmp_path):
         project="p", task="t", resource="fake-a", max_microusd=2, expires_ms=500
     )
     ticket = core.reserve(admission(), now_ms=1, approval=approval)
-    restarted = ResourceController(Ledger(core.ledger.path))
+    restarted = ResourceController(Ledger(core.ledger.path, identity()))
     with pytest.raises(Denied, match="paid_disabled"):
         restarted.dispatch(ticket.id, admission(), now_ms=2)
     assert counters(restarted, "global") == (0, 2)
