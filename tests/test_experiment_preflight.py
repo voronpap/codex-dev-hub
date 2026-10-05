@@ -128,6 +128,7 @@ def test_generated_text_never_imported_on_host(tmp_path):
 @pytest.mark.parametrize("mode", ["normal", "overflow", "timeout"])
 def test_evaluator_bounded_capture_uses_only_synthetic_process(monkeypatch, mode):
     import devhub.experiment_evaluate as mod
+    import devhub.process_capture as capture_mod
 
     real_popen = subprocess.Popen
     source = {
@@ -139,16 +140,21 @@ def test_evaluator_bounded_capture_uses_only_synthetic_process(monkeypatch, mode
         mod.subprocess,
         "Popen",
         lambda *a, **kw: real_popen(
-            [sys.executable, "-c", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            [sys.executable, "-c", source],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         ),
     )
     monkeypatch.setattr(mod.subprocess, "run", lambda *a, **kw: None)
+    monkeypatch.setattr(capture_mod, "HARD_OBSERVED_BYTE_LIMIT_PER_STREAM", 2 * 1024 * 1024)
     if mode == "timeout":
         ticks = iter([0, 61])
-        monkeypatch.setattr(mod.time, "monotonic", lambda: next(ticks, 61))
-    out, err, timeout, overflow = mod.capture_evaluator("synthetic-not-a-container")
-    assert len(out) <= 1024 * 1024 and len(err) <= 1024 * 1024
-    assert timeout is (mode == "timeout")
-    assert overflow is (mode == "overflow")
+        monkeypatch.setattr(capture_mod.time, "monotonic", lambda: next(ticks, 61))
+    captured = mod.capture_evaluator("synthetic-not-a-container")
+    assert len(captured.stdout.data) <= 1024 * 1024
+    assert len(captured.stderr.data) <= 1024 * 1024
+    assert captured.timed_out is (mode == "timeout")
+    assert captured.output_limit_exceeded is (mode == "overflow")
     if mode == "normal":
-        assert out.strip() == b"synthetic"
+        assert captured.stdout.data.strip() == b"synthetic"

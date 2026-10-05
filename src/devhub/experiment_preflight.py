@@ -216,6 +216,12 @@ def preflight(
             and e["corrected_result"]["exit_status"] == 0
             and not e["buggy_result"]["timeout"]
             and not e["corrected_result"]["timeout"]
+            and not e["buggy_result"]["output_limit_exceeded"]
+            and not e["corrected_result"]["output_limit_exceeded"]
+            and not e["buggy_result"]["artifact_withheld"]
+            and not e["corrected_result"]["artifact_withheld"]
+            and e["buggy_result"]["input_error"] is None
+            and e["corrected_result"]["input_error"] is None
         )
         # Inspect existence by immutable ID, never pull an evaluator image here.
         subprocess.check_output([*DOCKER, "image", "inspect", e["image_id"]], timeout=20)

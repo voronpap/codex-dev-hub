@@ -17,10 +17,7 @@ def attempt(operation):
 def main():
     protected = {}
     for name in (
-        "/packet/input.txt",
-        "/packet/task.txt",
-        "/packet/instructions.txt",
-        "/packet/session.json",
+        "/control/session.json",
         "/bootstrap.py",
         "/auth.json",
     ):
@@ -51,6 +48,9 @@ def main():
         "/reviewer",
         "/evaluator",
         "/var/run/docker.sock",
+        "/packet/input.txt",
+        "/packet/task.txt",
+        "/packet/instructions.txt",
     ):
         path = Path(name)
         hidden[name] = {
@@ -58,7 +58,7 @@ def main():
             "create": attempt(lambda path=path: path.mkdir(parents=True)),
         }
     writable = {}
-    for name in ("/tmp", "/home/runner", "/capture", "/dev/shm"):
+    for name in ("/tmp", "/home/runner", "/capture", "/dev/shm", "/packet"):
         path = Path(name) / "synthetic-effect"
         result = attempt(lambda path=path: path.write_bytes(b"synthetic only"))
         writable[name] = not result["denied"]

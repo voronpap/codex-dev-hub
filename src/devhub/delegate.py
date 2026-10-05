@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from devhub.cloud import CloudConfig, CloudHandoff, CloudRuntime, GeminiCloudConfig
-from devhub.controller import Denied
+from devhub.controller import Denied, ResourceController
 from devhub.ledger import Ledger
 from devhub.local import LocalConfig, LocalHandoff, LocalRuntime, LocalTask, now_ms
 from devhub.models import Contract, Identifier
@@ -131,6 +131,11 @@ class DelegationRuntime:
         self.ledger = Ledger(
             state / "ledger.db", config.profiles[0].config.ledger_identity, state_root=state
         )
+        # The orchestration boundary owns startup reconciliation. Ledger construction
+        # validates immutable identity and migrates the domain schema before recovery;
+        # no replay lookup or MCP request service is reachable until this completes.
+        self.controller = ResourceController(self.ledger)
+        self.controller.recover(now_ms=now_ms())
 
     @staticmethod
     def initialize_ledger(config: DelegationConfig) -> str:
@@ -179,9 +184,13 @@ class DelegationRuntime:
             candidate_resource: str | None = None
             try:
                 runtime: LocalRuntime | CloudRuntime = (
-                    LocalRuntime(profile.config, output_policy=output_policy)
+                    LocalRuntime(
+                        profile.config, output_policy=output_policy, recover_on_startup=False
+                    )
                     if isinstance(profile.config, LocalConfig)
-                    else CloudRuntime(profile.config, output_policy=output_policy)
+                    else CloudRuntime(
+                        profile.config, output_policy=output_policy, recover_on_startup=False
+                    )
                 )
                 candidate_resource = runtime.resource
                 handoff = runtime.run(task)

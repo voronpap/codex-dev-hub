@@ -16,9 +16,9 @@ from devhub.qualification import load_context, receipt_header
 
 def validate(report):
     return (
-        len(report["protected"]) == 6
-        and len(report["hidden"]) == 12
-        and set(report["writable"]) == {"/tmp", "/home/runner", "/capture", "/dev/shm"}
+        len(report["protected"]) == 3
+        and len(report["hidden"]) == 15
+        and set(report["writable"]) == {"/tmp", "/home/runner", "/capture", "/dev/shm", "/packet"}
         and all(
             row["unchanged"] and all(op["denied"] for op in row["operations"].values())
             for row in report["protected"].values()
@@ -47,11 +47,10 @@ def main():
     for arm in ("A", "B"):
         with tempfile.TemporaryDirectory(prefix="synthetic-effects-") as directory:
             root = Path(directory)
-            for name in ("packet", "bridge", "capture"):
+            for name in ("control", "bridge", "capture"):
                 (root / name).mkdir()
             (root / "capture").chmod(0o777)
-            for name in ("input.txt", "task.txt", "instructions.txt", "session.json"):
-                (root / "packet" / name).write_text("synthetic only")
+            (root / "control" / "session.json").write_text("synthetic control only")
             # Inert markers, not live bridge endpoints. RPC/egress validated separately.
             for name in ("proxy.sock", "mcp.sock") if arm == "B" else ("proxy.sock",):
                 (root / "bridge" / name).touch()
@@ -76,7 +75,7 @@ def main():
             argv = container_command(
                 session,
                 runtime,
-                root / "packet",
+                root / "control",
                 root / "bridge",
                 root / "capture",
                 bootstrap,

@@ -95,7 +95,11 @@ class CloudRuntime:
         return ledger.identity_sha256
 
     def __init__(
-        self, config: CloudConfig | GeminiCloudConfig, *, output_policy: OutputPolicy | None = None
+        self,
+        config: CloudConfig | GeminiCloudConfig,
+        *,
+        output_policy: OutputPolicy | None = None,
+        recover_on_startup: bool = True,
     ) -> None:
         self.output_policy = output_policy
         self.config = config
@@ -148,7 +152,10 @@ class CloudRuntime:
                 buckets=tuple(self.buckets.values()),
             )
         )
-        self.core.recover(now_ms=now_ms())
+        # Direct CloudRuntime use remains supported. The unified delegation runtime
+        # disables this after completing the one authoritative startup recovery.
+        if recover_on_startup:
+            self.core.recover(now_ms=now_ms())
 
     def run(self, request: LocalTask) -> CloudHandoff:
         with self.core.ledger.transaction() as connection:
