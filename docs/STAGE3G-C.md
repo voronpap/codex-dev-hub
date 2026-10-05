@@ -79,7 +79,15 @@ reference preparation/format decision happens only after both future outputs fre
 
 ## Preflight and fail-closed launcher
 
-The metadata-only command is:
+The former single receipt plus caller-supplied expected subset is superseded for new
+execution by [the acyclic qualification context and final manifest](QUALIFICATION_MANIFEST.md).
+New `RuntimeBindings` carries only `qualification_manifest_id`; its path is a locator.
+The launcher re-reads the fixed receipt set and derives image, plan, ledger, Codex,
+Ollama, evaluator, and immutable Python runtime identities from that one authority.
+Historical receipts remain unchanged and inspectable but cannot pass the new gate.
+
+The following command documents the historical metadata collector. Its output alone
+is no longer sufficient for new execution authorization:
 
 ```sh
 python -m devhub.experiment_preflight preflight \
@@ -100,10 +108,8 @@ operator. No credentials, fingerprints, account identifiers, serials or hostname
 are written. Capture publication aborts/withholds on a secret match; bytes are not
 redacted to continue.
 
-The launcher requires this receipt by hash in RuntimeBindings, exact bindings and
-all gates true, in addition to existing explicit review. No execute command is added.
-Qualification is not permission to rehearse. Failure preserves historical evidence;
-no attempt/permit reset, rerun, resume or fork.
+Qualification remains separate from permission to rehearse. Failure preserves
+historical evidence; no attempt/permit reset, rerun, resume or fork.
 
 ## Current limits and CI
 

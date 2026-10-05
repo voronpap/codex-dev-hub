@@ -1,6 +1,5 @@
 """Synthetic qualification tests; no Codex task, frozen fixture execution or model call."""
 
-import json
 import socket
 import subprocess
 import sys
@@ -13,12 +12,12 @@ from devhub.experiment_evaluate import evaluate_bytes, evaluation_command, froze
 from devhub.experiment_launch import safe_artifacts
 from devhub.experiment_preflight import (
     ISOLATION_CHECKS,
-    REQUIRED_GATES,
     check_auth,
     egress_policy_checks,
     isolation_valid,
     require_ready,
 )
+from devhub.qualification import RuntimeBindings
 
 
 def test_exact_image_all_checks_required():
@@ -36,20 +35,18 @@ def test_exact_image_all_checks_required():
         assert not isolation_valid(broken, "image", "bootstrap")
 
 
-def test_missing_or_false_gate_never_ready():
-    receipt = {
-        "kind": "stage3g_runtime_qualification",
-        "execution_ready": True,
-        "gates": dict.fromkeys(REQUIRED_GATES, True),
-        "image_id": "exact",
-    }
-    require_ready(json.dumps(receipt).encode(), {"image_id": "exact"})
-    for key in REQUIRED_GATES:
-        changed = {**receipt, "gates": {**receipt["gates"], key: False}}
-        with pytest.raises(ValueError):
-            require_ready(json.dumps(changed).encode(), {"image_id": "exact"})
-    with pytest.raises(ValueError):
-        require_ready(json.dumps(receipt).encode(), {"image_id": "drift"})
+def test_require_ready_accepts_only_final_manifest_authority(tmp_path, monkeypatch):
+    bindings = RuntimeBindings(qualification_manifest_id="a" * 64)
+    seen = []
+
+    def verify(path, identifier):
+        seen.append((path, identifier))
+        return "verified"
+
+    monkeypatch.setattr("devhub.experiment_preflight.verify_manifest_tree", verify)
+    manifest = tmp_path / "manifest.json"
+    assert require_ready(manifest, bindings) == "verified"
+    assert seen == [(manifest, "a" * 64)]
 
 
 def test_egress_exact_policy():

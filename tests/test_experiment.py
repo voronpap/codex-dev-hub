@@ -15,6 +15,7 @@ from devhub.experiment import ExperimentProtocol, PlannedSession, RuntimeBinding
 from devhub.experiment_bridge import MCPGate, connect_target
 from devhub.experiment_launch import (
     AttemptResult,
+    ContainerRuntimeSpec,
     DelegationObservation,
     capture_process,
     codex_argv,
@@ -127,32 +128,14 @@ def boundary(tmp_path, protocol):
     bootstrap.write_bytes(b"# synthetic bootstrap")
     auth = tmp_path / "auth.json"
     auth.write_bytes(b"{}")
-    bindings = RuntimeBindings.model_validate_json(
-        json.dumps(
-            {
-                "image_id": "sha256:" + "d" * 64,
-                "bootstrap_sha256": digest(bootstrap.read_bytes()),
-                "environment": {
-                    "os": "synthetic Linux",
-                    "python": "3.12.10",
-                    "codex_cli_version": protocol.codex_cli_version,
-                    "devhub_commit": "e" * 40,
-                    "ollama_version": protocol.ollama.version,
-                    "ollama_model": protocol.ollama.model,
-                    "ollama_digest": protocol.ollama.model_digest,
-                    "cpu": "synthetic",
-                    "gpu": None,
-                    "ram_bytes": None,
-                    "captured_at": "2026-09-29T00:00:00Z",
-                },
-                "isolation_probe_sha256": "f" * 64,
-                "protocol_sha256": protocol.hashes()["protocol"],
-                "reviewed_plan_sha256": "c" * 64,
-                "boundary_reviewed": True,
-            }
-        )
+    runtime = ContainerRuntimeSpec(
+        image_id="sha256:" + "d" * 64,
+        bootstrap_sha256=digest(bootstrap.read_bytes()),
+        protocol_sha256=protocol.hashes()["protocol"],
+        reviewed_plan_sha256="c" * 64,
+        codex_cli_version=protocol.codex_cli_version,
     )
-    return bindings, packet, bridge, capture, bootstrap, auth
+    return runtime, packet, bridge, capture, bootstrap, auth
 
 
 def events(usage=True):
@@ -359,7 +342,8 @@ def test_secret_canary_never_enters_artifacts():
 
 
 def test_protocol_pins_and_no_execution_without_review(repo, protocol, boundary, tmp_path):
-    bindings, *_ = boundary
+    _, *_ = boundary
+    bindings = RuntimeBindings(qualification_manifest_id="f" * 64)
     manifest = plan(repo, protocol, "dry")
     with pytest.raises(ValueError, match="review"):
         execute_next(

@@ -18,6 +18,13 @@ DevFabric can touch source code, external providers, credentials and executable 
 - A state path does not establish ledger authority. Open resource ledgers only after
   exact immutable identity validation; missing, foreign, legacy-unclaimed and
   mismatched databases fail closed before domain migration.
+- A qualification evidence path does not establish execution authority. New Stage 3G
+  execution accepts one final `qualification_manifest_id`, re-hashes its fixed
+  context/receipt set, requires one context and environment identity throughout, and
+  derives runtime components from that verified authority.
+- The delegated Python runtime is a reviewed wheel in a dedicated non-editable
+  environment. Isolated invocation, interpreter/wheel/lock hashes, module origin and
+  installed RECORD inventory are verified before future task exposure.
 
 ## Logging
 Telemetry must redact credentials and sensitive payloads. Store enough metadata for audit without turning logs into a copy of private project content.

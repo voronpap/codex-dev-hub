@@ -7,10 +7,18 @@ import tempfile
 from pathlib import Path
 
 from devhub.benchmark import canonical, digest, write_new
-from devhub.experiment import ExperimentProtocol, PlannedSession, RuntimeBindings
+from devhub.experiment import ExperimentProtocol, PlannedSession
 from devhub.experiment_bridge import UnixBridge, proxy
-from devhub.experiment_launch import DOCKER, codex_argv, container_command, mount, safe_artifacts
+from devhub.experiment_launch import (
+    DOCKER,
+    ContainerRuntimeSpec,
+    codex_argv,
+    container_command,
+    mount,
+    safe_artifacts,
+)
 from devhub.experiment_tool_gate import POLICY_VERSION, policy_hash
+from devhub.qualification import load_context, receipt_header
 
 
 def main():
@@ -18,7 +26,9 @@ def main():
     parser.add_argument("--image-id", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--protocol", type=Path, required=True)
+    parser.add_argument("--context", type=Path, required=True)
     args = parser.parse_args()
+    context = load_context(args.context)
     repo = Path(__file__).resolve().parents[1]
     protocol = ExperimentProtocol.model_validate_json(args.protocol.read_bytes())
     bootstrap = repo / "scripts/benchmark_guest.py"
@@ -52,14 +62,16 @@ def main():
             (packet / "session.json").write_bytes(
                 canonical({"codex_argv": codex_argv(session, protocol), "arm": arm})
             )
-            bindings = RuntimeBindings.model_construct(
-                image_id=args.image_id, bootstrap_sha256=digest(bootstrap.read_bytes())
+            runtime = ContainerRuntimeSpec(
+                image_id=args.image_id,
+                bootstrap_sha256=digest(bootstrap.read_bytes()),
+                protocol_sha256=protocol.hashes()["protocol"],
+                reviewed_plan_sha256="0" * 64,
+                codex_cli_version=protocol.codex_cli_version,
             )
             server = UnixBridge(bridge / "proxy.sock", proxy)
             try:
-                argv = container_command(
-                    session, bindings, packet, bridge, capture, bootstrap, auth
-                )
+                argv = container_command(session, runtime, packet, bridge, capture, bootstrap, auth)
                 argv[len(DOCKER)] = "run"
                 argv.insert(len(DOCKER) + 1, "--rm")
                 pos = argv.index("--entrypoint")
@@ -76,6 +88,7 @@ def main():
             finally:
                 server.close()
         evidence = {
+            **receipt_header(context, "runtime_config_probe"),
             "kind": "runtime_config_probe",
             "image_id": args.image_id,
             "bootstrap_sha256": digest(bootstrap.read_bytes()),
@@ -92,6 +105,9 @@ def main():
             "auth_material": "synthetic only; real auth presence is a separate preflight gate",
             "real_codex_executions": 0,
             "provider_sends": 0,
+            "qualification_passed": all(
+                all(r[k] for r in results) for k in ("auth_tmpfs", "cli_config", "egress_runtime")
+            ),
         }
         write_new(args.output, canonical(evidence))
         print(json.dumps(evidence))

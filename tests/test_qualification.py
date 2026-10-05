@@ -1,0 +1,396 @@
+import json
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from devhub.benchmark import canonical, digest
+from devhub.ledger import LedgerIdentityCoreV1, ledger_identity_sha256
+from devhub.qualification import (
+    RECEIPT_KINDS,
+    ArmExpectedV1,
+    ArmsExpectedV1,
+    ArtifactReferenceV1,
+    BenchmarkExpectedV1,
+    CodexExpectedV1,
+    EvaluatorExpectedV1,
+    HistoricalRuntimeBindingsV1,
+    ImplementationExpectedV1,
+    LedgerExpectedV1,
+    ObservedArtifactHashesV2,
+    OllamaExpectedV1,
+    PythonRuntimeExpectedV1,
+    QualificationContextPayloadV1,
+    QualificationContextV1,
+    QualificationGatesV2,
+    QualificationManifestPayloadV2,
+    QualificationManifestV2,
+    QualificationReceiptSetV2,
+    ReceiptReferenceV1,
+    RuntimeBindings,
+    RuntimeExpectedV1,
+    canonical_context,
+    canonical_manifest,
+    verify_manifest_tree,
+)
+
+H = "a" * 64
+ENVIRONMENT = "b" * 32
+
+
+def context_payload() -> QualificationContextPayloadV1:
+    ledger = LedgerIdentityCoreV1(
+        instance_id="c" * 32,
+        authority_scope_kind="qualification",
+        authority_scope_id="stage3g-synthetic",
+    )
+    runtime = PythonRuntimeExpectedV1(
+        source_commit="d" * 40,
+        wheel_sha256="1" * 64,
+        dependency_lock_sha256="2" * 64,
+        python_version="3.12.11",
+        python_executable_sha256="3" * 64,
+        runtime_environment_id="4" * 64,
+        distribution_version="0.1.0",
+    )
+    return QualificationContextPayloadV1(
+        environment_instance_id=ENVIRONMENT,
+        implementation=ImplementationExpectedV1(devhub_commit="d" * 40, python_runtime=runtime),
+        codex=CodexExpectedV1(
+            source_commit="e" * 40,
+            source_archive_sha256="5" * 64,
+            executable_version="codex-cli synthetic",
+            executable_sha256="6" * 64,
+            candidate_b_base_patch_sha256="7" * 64,
+            host_integration_patch_sha256="8" * 64,
+            combined_patchset_sha256="9" * 64,
+        ),
+        benchmark=BenchmarkExpectedV1(
+            protocol_sha256="a" * 64,
+            config_sha256="b" * 64,
+            plan_sha256="c" * 64,
+            session_bindings_sha256="d" * 64,
+            fixture_oracle_manifest_sha256="e" * 64,
+        ),
+        runtime_expected=RuntimeExpectedV1(
+            image_id="sha256:" + "f" * 64,
+            image_metadata_sha256="0" * 64,
+            bootstrap_sha256="1" * 64,
+            approved_host_manifest_sha256="2" * 64,
+        ),
+        ledger_expected=LedgerExpectedV1(
+            identity=ledger,
+            identity_sha256=ledger_identity_sha256(ledger),
+            domain_schema_version=6,
+        ),
+        evaluator_expected=EvaluatorExpectedV1(
+            image_id="sha256:" + "3" * 64,
+            artifact_sha256="4" * 64,
+            runner_sha256="5" * 64,
+        ),
+        ollama_expected=OllamaExpectedV1(),
+        arms_expected=ArmsExpectedV1(
+            arm_a=ArmExpectedV1(arm="A", tool_ceiling=(), approved_delegate_policy_sha256=None),
+            arm_b=ArmExpectedV1(
+                arm="B",
+                tool_ceiling=("mcp__devhub_delegate.devhub_delegate",),
+                approved_delegate_policy_sha256="6" * 64,
+            ),
+        ),
+    )
+
+
+def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManifestV2, Path]:
+    context = QualificationContextV1.create(context_payload())
+    expected = context.payload
+    context_raw = canonical_context(context)
+    (root / "context.json").write_bytes(context_raw)
+    references = {}
+    for index, kind in enumerate(RECEIPT_KINDS):
+        observations = {
+            "isolation": {
+                "image_id": expected.runtime_expected.image_id,
+                "bootstrap_sha256": expected.runtime_expected.bootstrap_sha256,
+            },
+            "effects_boundary": {
+                "image_id": expected.runtime_expected.image_id,
+                "bootstrap_sha256": expected.runtime_expected.bootstrap_sha256,
+            },
+            "auth_egress": {},
+            "ollama_metadata": expected.ollama_expected.model_dump(
+                mode="json", exclude={"schema_version"}
+            ),
+            "ledger_identity": {
+                "ledger_identity_sha256": expected.ledger_expected.identity_sha256,
+                "domain_schema_version": expected.ledger_expected.domain_schema_version,
+            },
+            "codex_executable": {
+                "source_commit": expected.codex.source_commit,
+                "executable_sha256": expected.codex.executable_sha256,
+                "executable_version": expected.codex.executable_version,
+            },
+            "host_process_visibility": {
+                "approved_host_manifest_sha256": (
+                    expected.runtime_expected.approved_host_manifest_sha256
+                )
+            },
+            "evaluator": {
+                "artifact_sha256": expected.evaluator_expected.artifact_sha256,
+                "runner_sha256": expected.evaluator_expected.runner_sha256,
+            },
+            "python_runtime": {
+                "interpreter_sha256": (
+                    expected.implementation.python_runtime.python_executable_sha256
+                ),
+                "wheel_sha256": expected.implementation.python_runtime.wheel_sha256,
+                "dependency_lock_sha256": (
+                    expected.implementation.python_runtime.dependency_lock_sha256
+                ),
+                "runtime_environment_id": (
+                    expected.implementation.python_runtime.runtime_environment_id
+                ),
+            },
+            "runtime_config_probe": {
+                "image_id": expected.runtime_expected.image_id,
+                "protocol_sha256": expected.benchmark.protocol_sha256,
+            },
+        }
+        raw = canonical(
+            {
+                "schema_version": 1,
+                "receipt_kind": kind,
+                "qualification_context_id": context.qualification_context_id,
+                "environment_instance_id": ENVIRONMENT,
+                "qualification_passed": True,
+                "synthetic_observation": index,
+                **observations[kind],
+            }
+        )
+        name = f"{kind}.json"
+        (root / name).write_bytes(raw)
+        references[kind] = ReceiptReferenceV1(
+            receipt_kind=kind, relative_path=name, sha256=digest(raw)
+        )
+    receipts = QualificationReceiptSetV2.model_validate(references)
+    observed = ObservedArtifactHashesV2(
+        qualification_context_sha256=digest(context_raw),
+        devhub_wheel_sha256=expected.implementation.python_runtime.wheel_sha256,
+        dependency_lock_sha256=expected.implementation.python_runtime.dependency_lock_sha256,
+        python_executable_sha256=(expected.implementation.python_runtime.python_executable_sha256),
+        python_runtime_environment_id=(
+            expected.implementation.python_runtime.runtime_environment_id
+        ),
+        codex_executable_sha256=expected.codex.executable_sha256,
+        runtime_image_metadata_sha256=expected.runtime_expected.image_metadata_sha256,
+        evaluator_artifact_sha256=expected.evaluator_expected.artifact_sha256,
+        ledger_identity_sha256=expected.ledger_expected.identity_sha256,
+        ollama_model_digest=expected.ollama_expected.digest,
+    )
+    gates = QualificationGatesV2(
+        **{name: True for name in QualificationGatesV2.model_fields if name != "schema_version"}
+    )
+    payload = QualificationManifestPayloadV2.create(
+        qualification_context_id=context.qualification_context_id,
+        environment_instance_id=ENVIRONMENT,
+        context=ArtifactReferenceV1(relative_path="context.json", sha256=digest(context_raw)),
+        receipts=receipts,
+        observed_artifacts=observed,
+        gates=gates,
+    )
+    manifest = QualificationManifestV2.create(payload)
+    path = root / "manifest.json"
+    path.write_bytes(canonical_manifest(manifest))
+    return context, manifest, path
+
+
+def rewrite_manifest(path: Path, manifest: QualificationManifestV2, **changes: object) -> str:
+    raw = manifest.payload.model_dump(mode="json")
+    raw.update(
+        {
+            key: value.model_dump(mode="json") if hasattr(value, "model_dump") else value
+            for key, value in changes.items()
+        }
+    )
+    payload = QualificationManifestPayloadV2.model_validate(raw)
+    changed = QualificationManifestV2.create(payload)
+    path.write_bytes(canonical_manifest(changed))
+    return changed.qualification_manifest_id
+
+
+def test_context_and_manifest_ids_are_stable_golden(tmp_path):
+    first = QualificationContextV1.create(context_payload())
+    second = QualificationContextV1.create(context_payload())
+    assert first.qualification_context_id == second.qualification_context_id
+    _, manifest, _ = materialize(tmp_path)
+    assert QualificationManifestV2.create(manifest.payload).qualification_manifest_id == (
+        manifest.qualification_manifest_id
+    )
+    assert (
+        first.qualification_context_id
+        == "81dc09d6460651f9459114455447e6a8440dae0bb919c78594404641fce76c79"
+    )
+    assert manifest.qualification_manifest_id == (
+        "50225f1ae172105eecba97770ec4c5f9e3c30ec1465c8075726087f4ead50dca"
+    )
+
+
+def test_complete_same_host_manifest_is_the_only_runtime_authority(tmp_path):
+    context, manifest, path = materialize(tmp_path)
+    verified = verify_manifest_tree(path, manifest.qualification_manifest_id)
+    assert verified.context == context
+    assert set(verified.receipts) == set(RECEIPT_KINDS)
+    assert RuntimeBindings(qualification_manifest_id=manifest.qualification_manifest_id)
+
+
+@pytest.mark.parametrize("field", ["instance_id", "authority_scope_kind", "authority_scope_id"])
+def test_merged_ledger_identity_hash_rejects_drift(field):
+    payload = context_payload()
+    changed = payload.ledger_expected.identity.model_copy(
+        update={
+            field: {
+                "instance_id": "0" * 32,
+                "authority_scope_kind": "project",
+                "authority_scope_id": "other",
+            }[field]
+        }
+    )
+    with pytest.raises(ValidationError, match="Ledger identity hash mismatch"):
+        LedgerExpectedV1.model_validate(
+            payload.ledger_expected.model_dump(mode="json")
+            | {"identity": changed.model_dump(mode="json")}
+        )
+
+
+def test_context_and_manifest_reject_unknown_fields():
+    raw = context_payload().model_dump(mode="json") | {"extra": True}
+    with pytest.raises(ValidationError):
+        QualificationContextPayloadV1.model_validate(raw)
+    with pytest.raises(ValidationError):
+        QualificationManifestV2.model_validate(
+            {"schema_version": 2, "qualification_manifest_id": H, "payload": {}, "extra": True}
+        )
+
+
+def test_forged_envelope_ids_rejected(tmp_path):
+    context, manifest, _ = materialize(tmp_path)
+    with pytest.raises(ValidationError, match="context ID mismatch"):
+        QualificationContextV1(qualification_context_id="0" * 64, payload=context.payload)
+    with pytest.raises(ValidationError, match="manifest ID mismatch"):
+        QualificationManifestV2(qualification_manifest_id="0" * 64, payload=manifest.payload)
+
+
+def test_execution_ready_is_derived_and_cannot_be_forged(tmp_path):
+    _, manifest, _ = materialize(tmp_path)
+    missing = manifest.payload.receipts.model_copy(update={"host_process_visibility": None})
+    gates = manifest.payload.gates.model_copy(update={"host_process_visibility": False})
+    payload = QualificationManifestPayloadV2.create(
+        qualification_context_id=manifest.payload.qualification_context_id,
+        environment_instance_id=manifest.payload.environment_instance_id,
+        context=manifest.payload.context,
+        receipts=missing,
+        observed_artifacts=manifest.payload.observed_artifacts,
+        gates=gates,
+    )
+    assert payload.execution_ready is False
+    with pytest.raises(ValidationError, match="execution_ready"):
+        QualificationManifestPayloadV2.model_validate(
+            payload.model_dump(mode="json") | {"execution_ready": True}
+        )
+
+
+@pytest.mark.parametrize("kind", RECEIPT_KINDS)
+def test_every_missing_receipt_denies_execution(tmp_path, kind):
+    _, manifest, path = materialize(tmp_path)
+    receipts = manifest.payload.receipts.model_copy(update={kind: None})
+    gates = manifest.payload.gates.model_copy(update={kind: False})
+    identifier = rewrite_manifest(
+        path,
+        manifest,
+        receipts=receipts,
+        gates=gates,
+        execution_ready=False,
+    )
+    with pytest.raises(ValueError, match="execution_ready"):
+        verify_manifest_tree(path, identifier)
+
+
+@pytest.mark.parametrize("header", ["qualification_context_id", "environment_instance_id"])
+def test_mixed_context_or_host_receipt_rejected(tmp_path, header):
+    _, manifest, path = materialize(tmp_path)
+    reference = manifest.payload.receipts.isolation
+    assert reference is not None
+    receipt_path = tmp_path / reference.relative_path
+    receipt = json.loads(receipt_path.read_bytes())
+    receipt[header] = "0" * (64 if header == "qualification_context_id" else 32)
+    raw = canonical(receipt)
+    receipt_path.write_bytes(raw)
+    receipts = manifest.payload.receipts.model_copy(
+        update={"isolation": reference.model_copy(update={"sha256": digest(raw)})}
+    )
+    identifier = rewrite_manifest(path, manifest, receipts=receipts)
+    with pytest.raises(ValueError, match="another context/environment"):
+        verify_manifest_tree(path, identifier)
+
+
+def test_receipt_hash_and_kind_substitution_rejected(tmp_path):
+    _, manifest, path = materialize(tmp_path)
+    reference = manifest.payload.receipts.isolation
+    assert reference is not None
+    (tmp_path / reference.relative_path).write_bytes(b"changed")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        verify_manifest_tree(path, manifest.qualification_manifest_id)
+    with pytest.raises(ValidationError, match="Receipt kind mismatch"):
+        QualificationReceiptSetV2(
+            isolation=reference.model_copy(update={"receipt_kind": "evaluator"})
+        )
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        "devhub_wheel_sha256",
+        "dependency_lock_sha256",
+        "python_executable_sha256",
+        "python_runtime_environment_id",
+        "codex_executable_sha256",
+        "runtime_image_metadata_sha256",
+        "evaluator_artifact_sha256",
+        "ledger_identity_sha256",
+        "ollama_model_digest",
+    ],
+)
+def test_observed_artifact_substitution_rejected(tmp_path, artifact):
+    _, manifest, path = materialize(tmp_path)
+    original = getattr(manifest.payload.observed_artifacts, artifact)
+    changed = "f" * 64 if original != "f" * 64 else "0" * 64
+    observed = manifest.payload.observed_artifacts.model_copy(update={artifact: changed})
+    identifier = rewrite_manifest(path, manifest, observed_artifacts=observed)
+    with pytest.raises(ValueError, match="observed artifact"):
+        verify_manifest_tree(path, identifier)
+
+
+def test_stage3g_ollama_identity_is_exact():
+    for update in (
+        {"version": "0.35.0"},
+        {"model": "other"},
+        {"digest": "0" * 64},
+    ):
+        with pytest.raises(ValidationError):
+            OllamaExpectedV1.model_validate(OllamaExpectedV1().model_dump() | update)
+
+
+def test_legacy_runtime_bindings_are_read_only():
+    old = {
+        "schema_version": 1,
+        "image_id": "sha256:" + "0" * 64,
+        "bootstrap_sha256": H,
+        "environment": {},
+        "isolation_probe_sha256": H,
+        "protocol_sha256": H,
+        "reviewed_plan_sha256": H,
+        "boundary_reviewed": True,
+        "qualification_sha256": None,
+    }
+    assert HistoricalRuntimeBindingsV1.model_validate(old)
+    with pytest.raises(ValidationError):
+        RuntimeBindings.model_validate(old)

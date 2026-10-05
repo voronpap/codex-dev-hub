@@ -8,8 +8,9 @@ import tempfile
 from pathlib import Path
 
 from devhub.benchmark import digest
-from devhub.experiment import PlannedSession, RuntimeBindings
-from devhub.experiment_launch import DOCKER, container_command
+from devhub.experiment import PlannedSession
+from devhub.experiment_launch import DOCKER, ContainerRuntimeSpec, container_command
+from devhub.qualification import load_context, receipt_header
 
 C_SOURCE = r"""
 #include <stdio.h>
@@ -78,7 +79,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-id")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--context", type=Path, required=True)
     opts = parser.parse_args()
+    context = load_context(opts.context)
     if opts.image_id and not re.fullmatch(r"sha256:[a-f0-9]{64}", opts.image_id):
         parser.error("Only an immutable local image ID is allowed")
     with tempfile.TemporaryDirectory(prefix="devhub-isolation-") as temporary:
@@ -111,30 +114,12 @@ def main():
             path = root / name
             path.write_text("not visible")
             forbidden.append(str(path))
-        bindings = RuntimeBindings.model_validate_json(
-            json.dumps(
-                {
-                    "image_id": image,
-                    "bootstrap_sha256": digest(bootstrap.read_bytes()),
-                    "environment": {
-                        "os": "synthetic Linux",
-                        "python": "not used",
-                        "codex_cli_version": "not used",
-                        "devhub_commit": "0" * 40,
-                        "ollama_version": "not used",
-                        "ollama_model": "not used",
-                        "ollama_digest": "0" * 64,
-                        "cpu": "synthetic",
-                        "gpu": None,
-                        "ram_bytes": None,
-                        "captured_at": "not a benchmark",
-                    },
-                    "isolation_probe_sha256": "0" * 64,
-                    "protocol_sha256": "0" * 64,
-                    "reviewed_plan_sha256": "0" * 64,
-                    "boundary_reviewed": True,
-                }
-            )
+        runtime = ContainerRuntimeSpec(
+            image_id=image,
+            bootstrap_sha256=digest(bootstrap.read_bytes()),
+            protocol_sha256="0" * 64,
+            reviewed_plan_sha256="0" * 64,
+            codex_cli_version="not invoked",
         )
         session = PlannedSession(
             order=1,
@@ -146,7 +131,7 @@ def main():
             packet_path="synthetic",
             available_mcp_tools=(),
         )
-        args = container_command(session, bindings, packet, bridge, capture, bootstrap, auth)
+        args = container_command(session, runtime, packet, bridge, capture, bootstrap, auth)
         args[len(DOCKER)] = "run"
         args.insert(len(DOCKER) + 1, "--rm")
         pos = args.index("--entrypoint")
@@ -162,6 +147,7 @@ def main():
             checks = json.loads(raw)
             assert all(value is True for value in checks.values())
             evidence = {
+                **receipt_header(context, "isolation"),
                 "kind": "synthetic_oci_isolation_probe",
                 "image_id": image,
                 "bootstrap_sha256": digest(bootstrap.read_bytes()),
@@ -169,6 +155,7 @@ def main():
                 "codex_executions": 0,
                 "provider_sends": 0,
                 "runtime_image_qualification": bool(opts.image_id),
+                "qualification_passed": bool(opts.image_id),
                 "limitation": "Kernel boundary only; Codex preflight still required.",
             }
             if opts.output:
