@@ -49,9 +49,10 @@ class PythonRuntimeEnvironmentPayloadV1(Contract):
     python_version: Annotated[str, Field(pattern=r"^3\.12(?:\.[0-9]+)?$")]
     python_executable_sha256: Digest
     python_cache_tag: str = Field(min_length=1, max_length=64)
-    python_soabi: str = Field(min_length=1, max_length=128)
+    python_soabi: str | None
+    python_platform_tag: str = Field(min_length=1, max_length=128)
     platform_system: str = Field(min_length=1, max_length=64)
-    platform_machine: str = Field(min_length=1, max_length=64)
+    platform_machine: str | None
     devhub_source_commit: GitCommit
     devhub_wheel_sha256: Digest
     dependency_lock_sha256: Digest
@@ -202,8 +203,9 @@ print(json.dumps({
   'version':platform.python_version(),
   'cache_tag':sys.implementation.cache_tag,
   'soabi':sysconfig.get_config_var('SOABI'),
+  'platform_tag':sysconfig.get_platform(),
   'system':platform.system(),
-  'machine':platform.machine(),
+  'machine':platform.machine() or None,
   'executable':str(pathlib.Path(sys.executable).resolve()),
   'module_origin':str(origin),
   'isolated':sys.flags.isolated==1,
@@ -315,6 +317,7 @@ def inspect_runtime_environment(
         python_executable_sha256=invoked_sha,
         python_cache_tag=observed["cache_tag"],
         python_soabi=observed["soabi"],
+        python_platform_tag=observed["platform_tag"],
         platform_system=observed["system"],
         platform_machine=observed["machine"],
         devhub_source_commit=source_commit,

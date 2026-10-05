@@ -41,6 +41,7 @@ def observed(module: Path, interpreter: Path, **updates: object) -> dict[str, ob
         "version": "3.12.11",
         "cache_tag": "cpython-312",
         "soabi": "cp312-win_amd64",
+        "platform_tag": "win-amd64",
         "system": "Windows",
         "machine": "AMD64",
         "executable": str(interpreter),

@@ -72,7 +72,8 @@ HEAD, archives that commit, builds one wheel, and installs the wheel without edi
 mode into a dedicated environment. It records the reviewed wheel SHA-256 rather than
 claiming that future builds reproduce identical wheel bytes.
 
-The runtime identity binds CPython version/ABI/platform, invoked interpreter bytes,
+The runtime identity binds CPython version/platform tag (and observed nullable SOABI
+and machine detail), invoked interpreter bytes,
 wheel and `uv.lock` hashes, source commit, installed DevFabric version and module
 origin, normalized installed distributions, and their installed RECORD inventory.
 Verification uses isolated Python (`-I`), rejects ambient `PYTHONPATH`, user-site and
