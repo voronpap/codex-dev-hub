@@ -12,7 +12,6 @@ from pydantic import JsonValue
 from devhub.baseline import verified_cases
 from devhub.benchmark import canonical, digest, read_sealed, write_new
 from devhub.delegate import DelegationConfig, ProviderProfile
-from devhub.events import EventOutbox
 from devhub.experiment import (
     ARM_A,
     ARM_B,
@@ -31,8 +30,13 @@ from devhub.experiment_launch import (
     codex_argv,
     launch_container,
 )
+from devhub.experiment_observation import (
+    BArmDelegationObservationV2,
+    ProviderResourceModelIdentityV1,
+    observe_b_arm_delegation,
+)
 from devhub.ledger import Ledger
-from devhub.local import LocalConfig
+from devhub.local import LocalConfig, local_resource_id
 from devhub.ollama import OllamaAdapter
 from devhub.qualification import VerifiedQualificationV2, verify_manifest_tree
 from devhub.runtime_artifact import verified_delegate_command
@@ -215,6 +219,13 @@ def execute_next(
                 or prior.provenance.session_id != session.session_id
                 or prior.provenance.plan_sha256 != runtime.reviewed_plan_sha256
                 or prior.provenance.output_sha256 != digest((target / "output.bin").read_bytes())
+                or (
+                    session.arm == "B"
+                    and (
+                        not isinstance(prior.delegation, BArmDelegationObservationV2)
+                        or not prior.delegation.delegation_success
+                    )
+                )
             ):
                 raise ValueError("Failed/changed attempt cannot be repeated or skipped")
         elif selected is None:
@@ -309,25 +320,32 @@ def execute_next(
                 )
             )
 
-        def observed() -> DelegationObservation:
+        def observed() -> DelegationObservation | BArmDelegationObservationV2:
             if gateway.violation or any(b.failed for b in bridges):
                 raise ValueError("Isolation/network/MCP boundary violation")
-            handoff = gateway.handoff
-            events = (
-                EventOutbox(shared_ledger).pending(project=session.session_id)
-                if state.exists()
-                else ()
+            if session.arm == "A":
+                return DelegationObservation(delegate_called=False, count=0, provider_sends=0)
+            ollama_receipt = qualification.receipts["ollama_metadata"]
+            resource = local_resource_id(protocol.ollama)
+            expected_identity = ProviderResourceModelIdentityV1(
+                provider="ollama",
+                resource=resource,
+                model=expected.ollama_expected.model,
+                ollama_version=expected.ollama_expected.version,
+                model_digest=expected.ollama_expected.digest,
             )
-            transitions = tuple(e.transition for e in events)
-            settled = bool(handoff and handoff.accounting == "settled")
-            return DelegationObservation(
-                delegate_called=gateway.calls > 0,
-                count=gateway.calls,
-                handoff=handoff,
-                outbox_transitions=transitions,
-                accounting_events=events,
-                provider_sends=1 if settled else 0 if not gateway.calls else None,
-                provider_api_cost_microusd=0 if settled else None,
+            return observe_b_arm_delegation(
+                shared_ledger,
+                session_id=session.session_id,
+                call_count=gateway.calls,
+                request_identity=gateway.request_identity,
+                response_kind=gateway.response_kind,
+                handoff_schema_sha256=gateway.handoff_schema_sha256,
+                handoff=gateway.handoff,
+                expected_provider_resource_model=expected_identity,
+                observed_ollama_version=cast(str, ollama_receipt["version"]),
+                observed_model=cast(str, ollama_receipt["model"]),
+                observed_model_digest=cast(str, ollama_receipt["digest"]),
             )
 
         prompt = canonical(

@@ -260,6 +260,7 @@ def main() -> None:
     data = plan(Path(__file__).resolve().parents[2], protocol, args.run_id)
     if args.action == "schemas":
         from devhub.experiment_launch import AttemptResult, CodexUsage, DelegationObservation
+        from devhub.experiment_observation import BArmDelegationObservationV2
         from devhub.experiment_review import PairComparison
 
         data = {
@@ -269,6 +270,7 @@ def main() -> None:
             "attempt": AttemptResult.model_json_schema(),
             "codex_usage": CodexUsage.model_json_schema(),
             "delegation": DelegationObservation.model_json_schema(),
+            "b_arm_delegation": BArmDelegationObservationV2.model_json_schema(),
             "comparison": PairComparison.model_json_schema(),
         }
     with args.output.open("x", encoding="utf-8", newline="\n") as stream:

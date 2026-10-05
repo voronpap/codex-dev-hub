@@ -9,7 +9,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from devhub.delegate import DelegationRequest, DelegationResult
+from devhub.experiment_observation import (
+    DELEGATION_RESULT_SCHEMA_SHA256,
+    ResponseKind,
+    ValidatedRequestIdentityV2,
+)
 
 CODEX_HOSTS = frozenset({"chatgpt.com", "api.openai.com"})
 
@@ -72,6 +79,9 @@ class MCPGate:
         self.session_id = session_id
         self.calls = 0
         self.call_id: Any = None
+        self.request_identity: ValidatedRequestIdentityV2 | None = None
+        self.response_kind: ResponseKind = "none"
+        self.handoff_schema_sha256: str | None = None
         self.handoff: DelegationResult | None = None
         self.violation = False
 
@@ -104,21 +114,52 @@ class MCPGate:
                     raise ValueError("Session/local-only/output scope denied")
                 self.calls += 1
                 self.call_id = data["id"]
+                self.request_identity = ValidatedRequestIdentityV2(
+                    session_id=self.session_id,
+                    project=request.project,
+                    task_id=request.task_id,
+                    request_key=request.request_key,
+                )
         except (KeyError, TypeError, ValueError):
             self.violation = True
             raise ValueError("MCP boundary violation; abort run") from None
 
     def response(self, raw: bytes) -> None:
         data = json.loads(raw)
-        if self.calls and data.get("id") == self.call_id and "result" in data:
-            result = data["result"]
-            if "structuredContent" in result:
-                self.handoff = DelegationResult.model_validate_json(
-                    json.dumps(result["structuredContent"])
-                )
-                if self.handoff.provider not in {None, "ollama"}:
-                    self.violation = True
-                    raise ValueError("Unexpected cloud provider; abort")
+        if not self.calls or data.get("id") != self.call_id:
+            return
+        if self.response_kind != "none":
+            self.violation = True
+            raise ValueError("Multiple delegation responses; abort")
+        if "error" in data or "result" not in data:
+            self.response_kind = "mcp_error"
+            return
+        result = data["result"]
+        if not isinstance(result, dict):
+            self.response_kind = "mcp_error"
+            return
+        is_error = result.get("isError", False)
+        if type(is_error) is not bool:
+            self.response_kind = "malformed_structured_content"
+            return
+        if is_error:
+            self.response_kind = "mcp_error"
+            return
+        if "structuredContent" not in result:
+            self.response_kind = "missing_structured_content"
+            return
+        try:
+            self.handoff = DelegationResult.model_validate_json(
+                json.dumps(result["structuredContent"])
+            )
+        except (TypeError, ValueError, ValidationError):
+            self.response_kind = "malformed_structured_content"
+            return
+        self.response_kind = "structured_result"
+        self.handoff_schema_sha256 = DELEGATION_RESULT_SCHEMA_SHA256
+        if self.handoff.provider not in {None, "ollama"}:
+            self.violation = True
+            raise ValueError("Unexpected cloud provider; abort")
 
     def serve(self, connection: socket.socket, argv: list[str]) -> None:
         # This is the unchanged accepted server, in the trusted controller boundary.

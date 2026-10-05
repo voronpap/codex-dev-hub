@@ -21,6 +21,7 @@ from devhub.benchmark import Digest, canonical, digest, write_new, write_sealed
 from devhub.delegate import DelegationResult
 from devhub.events import AccountingEvent
 from devhub.experiment import ExperimentProtocol, PlannedSession
+from devhub.experiment_observation import BArmDelegationObservationV2
 from devhub.models import Contract
 
 DOCKER = ("docker", "--host=unix:///var/run/docker.sock")
@@ -148,7 +149,7 @@ class AttemptResult(Contract):
     status: Literal["completed", "failed", "not_run"]
     reason: str
     codex_usage: CodexUsage
-    delegation: DelegationObservation
+    delegation: DelegationObservation | BArmDelegationObservationV2
     executor_retries: Literal[0] = 0
     benchmark_reruns: Literal[0] = 0
     quality_benchmark: None = None
@@ -164,7 +165,24 @@ class AttemptResult(Contract):
             raise ValueError("No completed result without actual executor provenance")
         if self.status == "not_run" and p.task_exposed:
             raise ValueError("Post-exposure crash is an experiment attempt")
+        if (
+            self.status == "completed"
+            and isinstance(self.delegation, BArmDelegationObservationV2)
+            and not self.delegation.delegation_success
+        ):
+            raise ValueError("No completed B arm without authoritative delegation success")
         return self
+
+
+def delegation_complete_for_arm(
+    arm: Literal["A", "B"],
+    observation: DelegationObservation | BArmDelegationObservationV2,
+) -> bool:
+    """Arm B requires the strict authority-joined observation; Arm A has no delegation."""
+
+    return arm == "A" or (
+        isinstance(observation, BArmDelegationObservationV2) and observation.delegation_success
+    )
 
 
 def codex_argv(session: PlannedSession, protocol: ExperimentProtocol) -> list[str]:
@@ -382,7 +400,7 @@ def launch_container(
     *,
     reviewed_plan_sha256: str,
     secret_values: tuple[bytes, ...],
-    delegation: Callable[[], DelegationObservation],
+    delegation: Callable[[], DelegationObservation | BArmDelegationObservationV2],
 ) -> AttemptResult:
     """Low-level boundary; orchestration must preflight and hold bridges for its lifetime.
 
@@ -508,12 +526,24 @@ def launch_container(
         stderr_sha256=digest(err),
         output_sha256=digest(raw) if raw is not None else None,
     )
+    delegation_observation = delegation()
+    b_arm_delegation_complete = delegation_complete_for_arm(session.arm, delegation_observation)
+    if session.arm == "B" and not b_arm_delegation_complete:
+        complete = False
     result = AttemptResult(
         provenance=receipt,
         status="completed" if complete else "failed",
-        reason="output_captured" if complete else "timeout" if timeout else "executor_failed",
+        reason=(
+            "output_captured"
+            if complete
+            else "timeout"
+            if timeout
+            else "b_arm_delegation_incomplete"
+            if session.arm == "B" and not b_arm_delegation_complete
+            else "executor_failed"
+        ),
         codex_usage=usage,
-        delegation=delegation(),
+        delegation=delegation_observation,
     )
     if raw is not None:
         write_new(destination / "output.bin", raw)  # exact bytes; no normalization
