@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
+from ledger_support import identity, initialized_ledger
 from mcp import Client
 from mcp.shared.exceptions import MCPError
 from pydantic import ValidationError
@@ -48,6 +49,7 @@ def cloud(tmp_path, monkeypatch):
         project="p",
         root=str(root),
         state_root=str(tmp_path / "state"),
+        ledger_identity=identity(),
         approved_paths=("guide.md",),
         groq=GroqConfig(
             account="test-account",
@@ -74,6 +76,7 @@ def cloud(tmp_path, monkeypatch):
             ),
         ),
     )
+    initialized_ledger(Path(config.state_root) / "ledger.db", config.ledger_identity)
     runtime = CloudRuntime(config)
     calls, mode = [], {"value": "valid", "headers": {}}
 

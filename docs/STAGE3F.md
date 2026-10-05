@@ -15,6 +15,10 @@ operator policy, not an inferred quality ranking. Only installed/verified Ollama
 Groq Free and qualified Gemini Free config contracts can be configured; no catalogs
 are loaded and no paid adapter or fallback is enabled.
 
+The trusted config now includes one exact `ledger_identity` shared by all profiles.
+Provision it once with `--initialize-ledger`; ordinary server startup never creates
+missing accounting authority. See [Ledger identity](LEDGER_IDENTITY.md).
+
 `DelegationRequest` v1 reuses LocalTask and adds project, explicit task_class
 (`summarize`, `explain`, `extract`), privacy, allow_cloud and require_citations.
 Classification is explicit/deterministic, not an LLM guess. Cloud requires both

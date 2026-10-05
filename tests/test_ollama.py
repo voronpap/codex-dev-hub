@@ -2,9 +2,11 @@ import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Barrier, Thread
 
 import pytest
+from ledger_support import identity, initialized_ledger
 from mcp import Client
 from mcp.shared.exceptions import MCPError
 from pydantic import ValidationError
@@ -40,6 +42,7 @@ def local(tmp_path, monkeypatch):
         project="p",
         root=str(root),
         state_root=str(tmp_path / "state"),
+        ledger_identity=identity(),
         approved_paths=("guide.md",),
         ollama=OllamaConfig(
             endpoint="http://127.0.0.1:11434",
@@ -47,6 +50,7 @@ def local(tmp_path, monkeypatch):
             model_digest="a" * 64,
         ),
     )
+    initialized_ledger(Path(config.state_root) / "ledger.db", config.ledger_identity)
     runtime = LocalRuntime(config)
     tokenizer = QwenTokenizer(metadata())
     calls, mode = [], {"value": "valid"}

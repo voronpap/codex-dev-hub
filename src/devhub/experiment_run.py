@@ -31,7 +31,7 @@ from devhub.experiment_launch import (
     codex_argv,
     launch_container,
 )
-from devhub.ledger import Ledger
+from devhub.ledger import Ledger, LedgerIdentityCoreV1
 from devhub.local import LocalConfig
 from devhub.ollama import OllamaAdapter
 
@@ -132,6 +132,7 @@ def execute_next(
     isolation_probe: Path,
     accounting_root: Path,
     *,
+    ledger_identity: LedgerIdentityCoreV1 | None = None,
     operator_reviewed: bool = False,
     qualification: Path | None = None,
 ) -> AttemptResult:
@@ -142,6 +143,8 @@ def execute_next(
     """
     if not operator_reviewed:
         raise ValueError("Explicit protocol/environment review required")
+    if ledger_identity is None:
+        raise ValueError("Trusted ledger identity required")
     from devhub.experiment_preflight import isolation_valid, require_ready
 
     if qualification is None or bindings.qualification_sha256 is None:
@@ -234,9 +237,11 @@ def execute_next(
             raise ValueError("Only reviewed existing ChatGPT CLI authentication is allowed")
         secrets = secret_strings(auth_data)
         gateway = MCPGate(session.session_id)
-        state = accounting_root.resolve()  # reuse accepted ledger, never mounted
+        # Preserve the lexical root so Ledger can reject symlink/reparse traversal.
+        state = accounting_root.absolute()  # reuse accepted ledger, never mounted
         if not (state / "ledger.db").is_file() or state.is_relative_to(run_root.resolve()):
             raise ValueError("Existing accepted accounting state outside run required")
+        shared_ledger = Ledger(state / "ledger.db", ledger_identity, state_root=state)
         if session.arm == "B":
             # Trusted Git snapshot for Brain contains only the two equivalent task source files.
             brain_root = control / "brain-source"
@@ -270,6 +275,7 @@ def execute_next(
                             project=session.session_id,
                             root=str(brain_root),
                             state_root=str(state),
+                            ledger_identity=ledger_identity,
                             approved_paths=("input.txt", "task.txt"),
                             authoritative_paths=("input.txt", "task.txt"),
                             ollama=protocol.ollama,
@@ -299,7 +305,7 @@ def execute_next(
                 raise ValueError("Isolation/network/MCP boundary violation")
             handoff = gateway.handoff
             events = (
-                EventOutbox(Ledger(state / "ledger.db")).pending(project=session.session_id)
+                EventOutbox(shared_ledger).pending(project=session.session_id)
                 if state.exists()
                 else ()
             )

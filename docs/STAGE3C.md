@@ -23,6 +23,14 @@ Configuration is a strict `LocalConfig` JSON document:
   "project": "example",
   "root": "/absolute/project",
   "state_root": "/absolute/private/devhub-state",
+  "ledger_identity": {
+    "family": "devfabric_resource_ledger",
+    "format_version": 1,
+    "instance_id": "REPLACE_WITH_FRESH_32_LOWERCASE_HEX",
+    "authority_scope_kind": "project",
+    "authority_scope_id": "example",
+    "account_binding_hash": null
+  },
   "approved_paths": ["docs/design.md"],
   "authoritative_paths": ["docs/design.md"],
   "ollama": {
@@ -36,6 +44,12 @@ Configuration is a strict `LocalConfig` JSON document:
   }
 }
 ```
+
+The accepted Stage 3C result is historical. Current runtime startup additionally
+requires the reviewed immutable [ledger identity](LEDGER_IDENTITY.md). Explicitly
+initialize a new authority once with `local_server --initialize-ledger`; ordinary
+startup will not create it. Historical pre-identity databases require a separate
+future adoption operation and must not be deleted or silently replaced.
 
 The placeholder digest must be replaced explicitly. The implementation accepts
 numeric loopback HTTP addresses with explicit ports, no userinfo/path/query,

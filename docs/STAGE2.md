@@ -32,6 +32,11 @@ For rollback, stop all users, preserve the current database, and open the snapsh
 with the matching runtime. Never restore a snapshot over a live ledger. Backups
 are operator-controlled local files and must receive the same protection as the ledger.
 
+Current runtime opening additionally requires the immutable authority described in
+[Ledger identity](LEDGER_IDENTITY.md). Historical pre-identity schemas remain
+recognized but normal startup rejects them pending an explicit reviewed adoption;
+the historical Stage 2 implementation record itself is unchanged.
+
 ## 2B: reservations
 
 Trusted operator code registers immutable resource policies and fixed-window

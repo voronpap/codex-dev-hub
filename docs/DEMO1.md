@@ -34,6 +34,19 @@ uv run --locked python -c "from pathlib import Path; from devhub.delegate import
 uv run --locked python -c "from pathlib import Path; from devhub.delegate import DelegationConfig; from devhub.ollama import OllamaAdapter; c=DelegationConfig.model_validate_json(Path('.devhub/local.json').read_text()); e,_=OllamaAdapter(c.profiles[0].config.ollama).inspect(); print(e.model_dump_json(indent=2))"
 ```
 
+Review the copied `ledger_identity`. For a new durable authority, replace the demo
+`instance_id` with a freshly generated 32-character lowercase hexadecimal value,
+then initialize it exactly once:
+
+```sh
+uv run --locked python -c "import secrets; print(secrets.token_hex(16))"
+uv run --locked python -m devhub.delegate_server --config .devhub/local.json --initialize-ledger
+```
+
+Normal server startup will not create a replacement database when `state_root`
+changes. A pre-identity historical ledger is rejected pending a separately reviewed
+adoption operation; do not delete it or treat another path as a reset.
+
 The last command performs local metadata checks (`version`, `tags`, `show`),
 including exact digest/version and tokenizer checks; **no inference**. Copy refuses
 to overwrite existing config. There is no variable or tilde expansion in JSON.

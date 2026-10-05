@@ -1,12 +1,12 @@
 import pytest
+from ledger_support import initialized_ledger
 
 from devhub.controller import Denied, ResourceController
-from devhub.ledger import Ledger
 from devhub.resources import Admission, Bucket, Price, ResourcePolicy, SpendApproval
 
 
 def setup_core(tmp_path, capacity=1):
-    core = ResourceController(Ledger(tmp_path / "ledger.db"))
+    core = ResourceController(initialized_ledger(tmp_path / "ledger.db"))
     core.register_bucket(
         Bucket(
             id="shared",
@@ -105,7 +105,7 @@ def test_scopes_leases_release_and_no_partial_reservation(tmp_path):
 
 @pytest.mark.parametrize("capacity,end", [(None, 1000), (10, None), (10, 400)])
 def test_unknown_limits_and_reset_fail_closed(tmp_path, capacity, end):
-    core = ResourceController(Ledger(tmp_path / "ledger.db"))
+    core = ResourceController(initialized_ledger(tmp_path / "ledger.db"))
     core.register_bucket(
         Bucket(id="b", pool="p", unit="requests", starts_ms=0, ends_ms=end, capacity=capacity)
     )
@@ -115,7 +115,7 @@ def test_unknown_limits_and_reset_fail_closed(tmp_path, capacity, end):
 
 
 def paid_core(tmp_path, *, price=True):
-    core = ResourceController(Ledger(tmp_path / "paid.db"), allow_paid_simulation=True)
+    core = ResourceController(initialized_ledger(tmp_path / "paid.db"), allow_paid_simulation=True)
     for scope in ("global", "project", "task"):
         core.register_bucket(
             Bucket(
