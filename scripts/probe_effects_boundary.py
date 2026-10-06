@@ -13,21 +13,44 @@ from devhub.experiment import PlannedSession
 from devhub.experiment_launch import DOCKER, ContainerRuntimeSpec, container_command
 from devhub.qualification import load_context, receipt_header
 
+PROTECTED_PATHS = {"/control/session.json", "/bootstrap.py", "/auth.json"}
+HIDDEN_HOST_PATHS = {
+    "/host",
+    "/workspace",
+    "/repository",
+    "/root/.codex",
+    "/ledger",
+    "/oracle",
+    "/opposite-arm",
+    "/previous-session",
+    "/future-session",
+    "/reviewer",
+    "/evaluator",
+    "/var/run/docker.sock",
+}
+TASK_FILES = {"/packet/input.txt", "/packet/task.txt", "/packet/instructions.txt"}
+WRITABLE_TMPFS = {"/tmp", "/home/runner", "/capture", "/dev/shm", "/packet"}
+
 
 def validate(report):
     return (
-        len(report["protected"]) == 3
-        and len(report["hidden"]) == 15
-        and set(report["writable"]) == {"/tmp", "/home/runner", "/capture", "/dev/shm", "/packet"}
+        set(report["protected"]) == PROTECTED_PATHS
+        and set(report["hidden_host_paths"]) == HIDDEN_HOST_PATHS
+        and set(report["task_files_initially_absent"]) == TASK_FILES
+        and set(report["writable_tmpfs"]) == WRITABLE_TMPFS
         and all(
             row["unchanged"] and all(op["denied"] for op in row["operations"].values())
             for row in report["protected"].values()
         )
         and all(
             row["stat"]["denied"] and row["stat"]["errno"] in {2, 13} and row["create"]["denied"]
-            for row in report["hidden"].values()
+            for row in report["hidden_host_paths"].values()
         )
-        and all(report["writable"].values())
+        and all(
+            row["stat"]["denied"] and row["stat"]["errno"] == 2
+            for row in report["task_files_initially_absent"].values()
+        )
+        and all(report["writable_tmpfs"].values())
         and all(row["denied"] for row in report["system_files"].values())
     )
 
