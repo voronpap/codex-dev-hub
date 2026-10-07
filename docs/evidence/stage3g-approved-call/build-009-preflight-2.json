@@ -1,0 +1,89 @@
+{
+  "allowed_tools_source_evidence": {
+    "empty_ceiling_covers_registered_hosted_dynamic_and_code_mode_sources": true,
+    "path": "docs/evidence/stage3g-allowed-tools/source-bindings.json",
+    "sha256": "e61df7e3c62f93b7d190c227ea37453a412daafda85d041902df4aadb9a2a2a0"
+  },
+  "benchmark_run": false,
+  "build_009_run": false,
+  "build_010_run": false,
+  "build_id": "build-009",
+  "candidate_b_base_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "combined_production_patchset_sha256": "c7add12c5fe2dc72542dae5c183afda05616ec7184740655c9dae28fcd796ba8",
+  "delegation_request_schema_sha256": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+  "exact_image": {
+    "actual_process_visibility": null,
+    "current_unpatched_failures": [
+      "cli_config=false",
+      "apply_patch registration unresolved",
+      "write_file mapping unresolved"
+    ],
+    "current_unpatched_image_gate": "EXPECTED_UNRELATED_STAGE3G_GATE_FAILURE",
+    "host_ceiling_source_result": "PASS",
+    "why_ambiguity_is_removed": "AllowedTools is installed before router construction; empty Arm A rejects every registered/hosted/dynamic/code-mode source, and Arm B permits only the canonical delegate before Candidate B admission."
+  },
+  "execution_ready": false,
+  "host_integration_patch_sha256": "5ae02614f62db13101e74b1fb087e45466abbbd84dd8d8f45055d6e0960e6d2e",
+  "host_manifest": {
+    "path": "benchmarks/stage3g-host-manifest-v2.json",
+    "schema_path": "benchmarks/stage3g-host-manifest-v2.schema.json",
+    "schema_sha256": "ebe0b49e22f9054ef81dddba3d6ccf6696798d3b0794ae8cf46e4e6791dc7fbb",
+    "sha256": "5d65dcfa3cfa4c9d9a6ff10b5facae3078ec6e7f22e17503da7a41b10164f588"
+  },
+  "host_patch_applies_to_candidate_source": true,
+  "implementation_commit": "8d89d35bf9f20e2f5018f416a87b8c093394f2ef",
+  "model_requests": 0,
+  "phase": "cheap_prebuild_gate_attempt_2",
+  "process_proof": null,
+  "production_classification": "UNKNOWN",
+  "production_host_activation": "BLOCKED_PREBUILD",
+  "provider_sends": 0,
+  "qualification_integration": {
+    "host_manifest_exact_bytes_rehashed": true,
+    "isolated_delegate_argv": [
+      "-I",
+      "-m",
+      "devhub.delegate_server"
+    ],
+    "ledger_identity_core_reused": true,
+    "qualification_manifest_v2_is_runtime_authority": true
+  },
+  "real_codex_executions": 0,
+  "rehearsal_run": false,
+  "result": "BUILD_009_READY_FOR_AUTHORIZATION",
+  "rust_compilation_started": false,
+  "schema_version": 2,
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "stage_3g": "OPEN",
+  "stage_3g_c": "OPEN",
+  "tool_surfaces": {
+    "a_minus_b": [],
+    "arm_a": {
+      "allowed_tools": [],
+      "approved_delegate_policy": "absent",
+      "dynamic": [],
+      "hosted": [],
+      "nested": [],
+      "visible": []
+    },
+    "arm_b": {
+      "allowed_tools": [
+        "mcp__devhub_delegate.devhub_delegate"
+      ],
+      "approved_delegate_policy": "exact_reviewed_policy",
+      "dynamic": [],
+      "hosted": [],
+      "nested": [],
+      "visible": [
+        "mcp__devhub_delegate.devhub_delegate"
+      ]
+    },
+    "b_minus_a": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ],
+    "default": {
+      "allowed_tools": null,
+      "approved_delegate_policy": "absent"
+    }
+  }
+}
