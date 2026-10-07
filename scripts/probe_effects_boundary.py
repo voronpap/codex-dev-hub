@@ -9,24 +9,48 @@ import tempfile
 from pathlib import Path
 
 from devhub.benchmark import digest
-from devhub.experiment import PlannedSession, RuntimeBindings
-from devhub.experiment_launch import DOCKER, container_command
+from devhub.experiment import PlannedSession
+from devhub.experiment_launch import DOCKER, ContainerRuntimeSpec, container_command
+from devhub.qualification import load_context, receipt_header
+
+PROTECTED_PATHS = {"/control/session.json", "/bootstrap.py", "/auth.json"}
+HIDDEN_HOST_PATHS = {
+    "/host",
+    "/workspace",
+    "/repository",
+    "/root/.codex",
+    "/ledger",
+    "/oracle",
+    "/opposite-arm",
+    "/previous-session",
+    "/future-session",
+    "/reviewer",
+    "/evaluator",
+    "/var/run/docker.sock",
+}
+TASK_FILES = {"/packet/input.txt", "/packet/task.txt", "/packet/instructions.txt"}
+WRITABLE_TMPFS = {"/tmp", "/home/runner", "/capture", "/dev/shm", "/packet"}
 
 
 def validate(report):
     return (
-        len(report["protected"]) == 6
-        and len(report["hidden"]) == 12
-        and set(report["writable"]) == {"/tmp", "/home/runner", "/capture", "/dev/shm"}
+        set(report["protected"]) == PROTECTED_PATHS
+        and set(report["hidden_host_paths"]) == HIDDEN_HOST_PATHS
+        and set(report["task_files_initially_absent"]) == TASK_FILES
+        and set(report["writable_tmpfs"]) == WRITABLE_TMPFS
         and all(
             row["unchanged"] and all(op["denied"] for op in row["operations"].values())
             for row in report["protected"].values()
         )
         and all(
             row["stat"]["denied"] and row["stat"]["errno"] in {2, 13} and row["create"]["denied"]
-            for row in report["hidden"].values()
+            for row in report["hidden_host_paths"].values()
         )
-        and all(report["writable"].values())
+        and all(
+            row["stat"]["denied"] and row["stat"]["errno"] == 2
+            for row in report["task_files_initially_absent"].values()
+        )
+        and all(report["writable_tmpfs"].values())
         and all(row["denied"] for row in report["system_files"].values())
     )
 
@@ -35,7 +59,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-id", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--context", required=True, type=Path)
     opts = parser.parse_args()
+    context = load_context(opts.context)
     if not re.fullmatch(r"sha256:[a-f0-9]{64}", opts.image_id):
         parser.error("Immutable image ID required")
     guest = Path(__file__).with_name("effects_guest.py").resolve()
@@ -44,37 +70,20 @@ def main():
     for arm in ("A", "B"):
         with tempfile.TemporaryDirectory(prefix="synthetic-effects-") as directory:
             root = Path(directory)
-            for name in ("packet", "bridge", "capture"):
+            for name in ("control", "bridge", "capture"):
                 (root / name).mkdir()
             (root / "capture").chmod(0o777)
-            for name in ("input.txt", "task.txt", "instructions.txt", "session.json"):
-                (root / "packet" / name).write_text("synthetic only")
+            (root / "control" / "session.json").write_text("synthetic control only")
             # Inert markers, not live bridge endpoints. RPC/egress validated separately.
             for name in ("proxy.sock", "mcp.sock") if arm == "B" else ("proxy.sock",):
                 (root / "bridge" / name).touch()
             (root / "auth.json").write_text("{}")
-            bindings = RuntimeBindings.model_validate(
-                {
-                    "image_id": opts.image_id,
-                    "bootstrap_sha256": digest(bootstrap.read_bytes()),
-                    "environment": {
-                        "os": "synthetic Linux",
-                        "python": "image Python",
-                        "codex_cli_version": "not invoked",
-                        "devhub_commit": "0" * 40,
-                        "ollama_version": "not invoked",
-                        "ollama_model": "not invoked",
-                        "ollama_digest": "0" * 64,
-                        "cpu": "synthetic",
-                        "gpu": None,
-                        "ram_bytes": None,
-                        "captured_at": "not a benchmark",
-                    },
-                    "isolation_probe_sha256": "0" * 64,
-                    "protocol_sha256": "0" * 64,
-                    "reviewed_plan_sha256": "0" * 64,
-                    "boundary_reviewed": True,
-                }
+            runtime = ContainerRuntimeSpec(
+                image_id=opts.image_id,
+                bootstrap_sha256=digest(bootstrap.read_bytes()),
+                protocol_sha256="0" * 64,
+                reviewed_plan_sha256="0" * 64,
+                codex_cli_version="not invoked",
             )
             session = PlannedSession(
                 order=1,
@@ -88,8 +97,8 @@ def main():
             )
             argv = container_command(
                 session,
-                bindings,
-                root / "packet",
+                runtime,
+                root / "control",
                 root / "bridge",
                 root / "capture",
                 bootstrap,
@@ -143,6 +152,7 @@ def main():
             finally:
                 subprocess.run([*DOCKER, "rm", "-f", cid], check=True, capture_output=True)
     evidence = {
+        **receipt_header(context, "effects_boundary"),
         "kind": "synthetic_filesystem_equivalent_effects",
         "image_id": opts.image_id,
         "guest_sha256": digest(guest.read_bytes()),
@@ -152,6 +162,7 @@ def main():
         "real_codex_executions": 0,
         "provider_sends": 0,
         "execution_ready": False,
+        "qualification_passed": all(report["passed"] for report in reports.values()),
         "limitations": "CI image only; inert sockets; no remote-effect or intended-host proof",
     }
     with opts.output.open("x", encoding="utf-8") as stream:

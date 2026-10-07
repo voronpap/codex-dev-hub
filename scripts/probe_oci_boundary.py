@@ -8,8 +8,9 @@ import tempfile
 from pathlib import Path
 
 from devhub.benchmark import digest
-from devhub.experiment import PlannedSession, RuntimeBindings
-from devhub.experiment_launch import DOCKER, container_command
+from devhub.experiment import PlannedSession
+from devhub.experiment_launch import DOCKER, ContainerRuntimeSpec, container_command
+from devhub.qualification import load_context, receipt_header
 
 C_SOURCE = r"""
 #include <stdio.h>
@@ -45,8 +46,12 @@ int main(int argc, char **argv) {
   }
   closedir(d);
   int home = access("/home/runner/.codex", F_OK) != 0;
-  int packet = access("/packet/input.txt", R_OK) == 0;
-  int readonly = access("/packet/input.txt", W_OK) != 0;
+  int control = access("/control/session.json", R_OK) == 0;
+  int readonly = access("/control/session.json", W_OK) != 0;
+  int task_hidden = access("/packet/input.txt", F_OK) != 0 &&
+                    access("/packet/task.txt", F_OK) != 0 &&
+                    access("/packet/instructions.txt", F_OK) != 0;
+  int packet_writable = access("/packet", W_OK) == 0;
   int uid = geteuid() == 1000;
   int caps = has("/proc/self/status", "CapEff:\t0000000000000000") &&
              has("/proc/self/status", "CapBnd:\t0000000000000000");
@@ -60,15 +65,19 @@ int main(int argc, char **argv) {
   printf("{\"host_canary_hidden\":%s,\"other_arm_hidden\":%s,"
          "\"source_and_oracle_hidden\":%s,\"network_denied\":%s,"
          "\"only_scoped_bridges\":%s,\"fresh_home\":%s,"
-         "\"packet_readable\":%s,\"packet_readonly\":%s,\"nonroot\":%s,\"capabilities_dropped\":%s,"
+         "\"control_readable\":%s,\"control_readonly\":%s,"
+         "\"task_files_initially_hidden\":%s,\"packet_tmpfs_writable\":%s,"
+         "\"nonroot\":%s,\"capabilities_dropped\":%s,"
          "\"no_new_privileges\":%s,\"resource_limits_effective\":%s,"
          "\"docker_socket_absent\":%s,\"host_home_absent\":%s,\"repository_absent\":%s}\n",
          hidden?"true":"false", other?"true":"false", oracle?"true":"false",
          denied?"true":"false", allowed?"true":"false", home?"true":"false",
-         packet?"true":"false", readonly?"true":"false", uid?"true":"false", caps?"true":"false",
+         control?"true":"false", readonly?"true":"false", task_hidden?"true":"false",
+         packet_writable?"true":"false", uid?"true":"false", caps?"true":"false",
          nnp?"true":"false", limits?"true":"false", docker?"true":"false",
          hosthome?"true":"false", repo?"true":"false");
-  return !(hidden && other && oracle && denied && allowed && home && packet && readonly && uid &&
+  return !(hidden && other && oracle && denied && allowed && home && control && readonly &&
+           task_hidden && packet_writable && uid &&
            caps && nnp && limits && docker && hosthome && repo);
 }
 """
@@ -78,7 +87,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-id")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--context", type=Path, required=True)
     opts = parser.parse_args()
+    context = load_context(opts.context)
     if opts.image_id and not re.fullmatch(r"sha256:[a-f0-9]{64}", opts.image_id):
         parser.error("Only an immutable local image ID is allowed")
     with tempfile.TemporaryDirectory(prefix="devhub-isolation-") as temporary:
@@ -93,10 +104,9 @@ def main():
             .decode()
             .strip()
         )
-        packet = root / "packet"
+        packet = root / "control"
         packet.mkdir()
-        for name in ("input.txt", "task.txt", "instructions.txt", "session.json"):
-            (packet / name).write_text("synthetic only")
+        (packet / "session.json").write_text("synthetic control only")
         bridge = root / "bridge"
         bridge.mkdir()
         (bridge / "proxy.sock").touch()
@@ -111,30 +121,12 @@ def main():
             path = root / name
             path.write_text("not visible")
             forbidden.append(str(path))
-        bindings = RuntimeBindings.model_validate_json(
-            json.dumps(
-                {
-                    "image_id": image,
-                    "bootstrap_sha256": digest(bootstrap.read_bytes()),
-                    "environment": {
-                        "os": "synthetic Linux",
-                        "python": "not used",
-                        "codex_cli_version": "not used",
-                        "devhub_commit": "0" * 40,
-                        "ollama_version": "not used",
-                        "ollama_model": "not used",
-                        "ollama_digest": "0" * 64,
-                        "cpu": "synthetic",
-                        "gpu": None,
-                        "ram_bytes": None,
-                        "captured_at": "not a benchmark",
-                    },
-                    "isolation_probe_sha256": "0" * 64,
-                    "protocol_sha256": "0" * 64,
-                    "reviewed_plan_sha256": "0" * 64,
-                    "boundary_reviewed": True,
-                }
-            )
+        runtime = ContainerRuntimeSpec(
+            image_id=image,
+            bootstrap_sha256=digest(bootstrap.read_bytes()),
+            protocol_sha256="0" * 64,
+            reviewed_plan_sha256="0" * 64,
+            codex_cli_version="not invoked",
         )
         session = PlannedSession(
             order=1,
@@ -146,7 +138,7 @@ def main():
             packet_path="synthetic",
             available_mcp_tools=(),
         )
-        args = container_command(session, bindings, packet, bridge, capture, bootstrap, auth)
+        args = container_command(session, runtime, packet, bridge, capture, bootstrap, auth)
         args[len(DOCKER)] = "run"
         args.insert(len(DOCKER) + 1, "--rm")
         pos = args.index("--entrypoint")
@@ -162,6 +154,7 @@ def main():
             checks = json.loads(raw)
             assert all(value is True for value in checks.values())
             evidence = {
+                **receipt_header(context, "isolation"),
                 "kind": "synthetic_oci_isolation_probe",
                 "image_id": image,
                 "bootstrap_sha256": digest(bootstrap.read_bytes()),
@@ -169,6 +162,7 @@ def main():
                 "codex_executions": 0,
                 "provider_sends": 0,
                 "runtime_image_qualification": bool(opts.image_id),
+                "qualification_passed": bool(opts.image_id),
                 "limitation": "Kernel boundary only; Codex preflight still required.",
             }
             if opts.output:

@@ -1,0 +1,342 @@
+{
+  "build_backend": "hatchling==1.27.0",
+  "build_python_executable_sha256": "0b471133e110cfb53a061cad528ce8e517d7b9ac41a0a396c39ad795a487fc14",
+  "build_python_implementation": "CPython",
+  "build_python_version": "3.12.10",
+  "build_tool": "uv uv 0.12.10 (3c979abda 2026-09-04 x86_64-pc-windows-msvc)",
+  "build_tool_sha256": "a8bf95637ba520491de06713d718a55b90f18d127980b9531fd8fc5a8e99dc1d",
+  "dependency_lock_sha256": "4aeab7c781afad18ebc3844647b9e8aece889771326187280beaa3c1f3fc80ae",
+  "implementation_commit": "243d21a2520d0082a87c3cb36e6aadef4c5656ec",
+  "kind": "devfabric_python_runtime_artifact",
+  "model_requests": 0,
+  "package_name": "codex-dev-hub",
+  "package_version": "0.1.0",
+  "provider_sends": 0,
+  "runtime_environment": {
+    "payload": {
+      "dependency_lock_sha256": "4aeab7c781afad18ebc3844647b9e8aece889771326187280beaa3c1f3fc80ae",
+      "devhub_distribution_version": "0.1.0",
+      "devhub_module_origin": "Lib/site-packages/devhub/__init__.py",
+      "devhub_source_commit": "243d21a2520d0082a87c3cb36e6aadef4c5656ec",
+      "devhub_wheel_sha256": "6b1c2616f3f56d4a4d2efd2ed8f9b209cc60cd3aac7d9451adebff65bee39aef",
+      "distributions": [
+        {
+          "file_count": 9,
+          "name": "annotated-types",
+          "record_sha256": "d5c6dd4e8b428ee234acec6876179d9b384341baf0ea75c76cdf6bc746438add",
+          "schema_version": 1,
+          "version": "0.8.0"
+        },
+        {
+          "file_count": 55,
+          "name": "anyio",
+          "record_sha256": "06d676f3b7edf9855947fc0ceca75a9c5781f9ec408b21408a10081422a7a1ea",
+          "schema_version": 1,
+          "version": "4.15.1"
+        },
+        {
+          "file_count": 37,
+          "name": "attrs",
+          "record_sha256": "4cfc0373be8febb137866a093d10803e30ad0b1f2144a6fc7456ca61bc9eb745",
+          "schema_version": 1,
+          "version": "26.1.0"
+        },
+        {
+          "file_count": 14,
+          "name": "certifi",
+          "record_sha256": "d3dbc03a8ed9044863becf9e0bc088a3c38149fe42bb248fc982d1efd97b1548",
+          "schema_version": 1,
+          "version": "2026.7.22"
+        },
+        {
+          "file_count": 34,
+          "name": "cffi",
+          "record_sha256": "c5bf6e508c28e9a11ae5033027b313c311bf5967870b08064d157880db0a8545",
+          "schema_version": 1,
+          "version": "2.1.1"
+        },
+        {
+          "file_count": 24,
+          "name": "click",
+          "record_sha256": "e2011da5236bd17ca67f1da93394d8a994354606872332d444a883745a1a6fbb",
+          "schema_version": 1,
+          "version": "8.5.0"
+        },
+        {
+          "file_count": 57,
+          "name": "codex-dev-hub",
+          "record_sha256": "46519aa375cc8bbd22f940f5ebecc7c9b6a12bf792b43be03eb77653483cf514",
+          "schema_version": 1,
+          "version": "0.1.0"
+        },
+        {
+          "file_count": 19,
+          "name": "colorama",
+          "record_sha256": "594c33e8e710f258185cae9e4e3a08bfc77bc4986f2d99db09c8a07687858a7e",
+          "schema_version": 1,
+          "version": "0.4.6"
+        },
+        {
+          "file_count": 122,
+          "name": "cryptography",
+          "record_sha256": "2823382030fcb7b7c89f301428805d3c3b06df264668753426943bb8c38415db",
+          "schema_version": 1,
+          "version": "50.0.1"
+        },
+        {
+          "file_count": 30,
+          "name": "filelock",
+          "record_sha256": "683098bdafe640bad21704682b37825fc8c504e5ca69ea4eb5d345060498a8e5",
+          "schema_version": 1,
+          "version": "4.0.5"
+        },
+        {
+          "file_count": 64,
+          "name": "fsspec",
+          "record_sha256": "83fe8f8032cc9476d59cc3f3e1fd0a0785e9ee81fd613edd47df646d10343b1e",
+          "schema_version": 1,
+          "version": "2026.9.0"
+        },
+        {
+          "file_count": 19,
+          "name": "h11",
+          "record_sha256": "cc48da4ced29a003dbedb1ace3a72176a00d685d5182e703df2e022d65424343",
+          "schema_version": 1,
+          "version": "0.16.0"
+        },
+        {
+          "file_count": 9,
+          "name": "hf-xet",
+          "record_sha256": "789ff714b3e64881f84474df530600574e09422f28d9dec24eff786fcf285217",
+          "schema_version": 1,
+          "version": "1.6.0"
+        },
+        {
+          "file_count": 38,
+          "name": "httpcore",
+          "record_sha256": "96c4bb7fa2e350ca4734f9895c160fe65b20a5cf6d788f462dffcd2c87aacc59",
+          "schema_version": 1,
+          "version": "1.0.9"
+        },
+        {
+          "file_count": 38,
+          "name": "httpcore2",
+          "record_sha256": "e0b12b80989d2c42d1a54120caa3565aaaedfb22044ec121e48c8c6a3a24ae03",
+          "schema_version": 1,
+          "version": "2.13.1"
+        },
+        {
+          "file_count": 32,
+          "name": "httpx",
+          "record_sha256": "bf57f52e3ab23d60bfdf8893cd28f4ccde7dbdd4297d059a5cdb4bd501328d70",
+          "schema_version": 1,
+          "version": "0.28.1"
+        },
+        {
+          "file_count": 39,
+          "name": "httpx2",
+          "record_sha256": "280affa71a1932ca47ff786015de36718791fb00ccca3bea0fe65b8048ad1df5",
+          "schema_version": 1,
+          "version": "2.13.1"
+        },
+        {
+          "file_count": 199,
+          "name": "huggingface-hub",
+          "record_sha256": "78f1072ee24fbe169a673bb9394739d5c86993efb5de57345b9b2deadb781af0",
+          "schema_version": 1,
+          "version": "1.33.0"
+        },
+        {
+          "file_count": 19,
+          "name": "idna",
+          "record_sha256": "da31167e67f0bd5e9e002614dcea7ad6bdd76bf3e024404fa241e1c82f53c272",
+          "schema_version": 1,
+          "version": "3.20"
+        },
+        {
+          "file_count": 46,
+          "name": "jsonschema",
+          "record_sha256": "841cbf20ae76b3adc3e3a8cffd3a41c7e751bdc0a52a06d18fcfb34317e8d8e9",
+          "schema_version": 1,
+          "version": "4.26.0"
+        },
+        {
+          "file_count": 30,
+          "name": "jsonschema-specifications",
+          "record_sha256": "75949725140b69e189ad01cd2d2320a14b10b66b3857c6088b8de2509d77537c",
+          "schema_version": 1,
+          "version": "2025.9.1"
+        },
+        {
+          "file_count": 132,
+          "name": "mcp",
+          "record_sha256": "f06ac0d917fa0e831b5c0e21bb2d6fda937ff2db4dfe4d55d11c3654a119266b",
+          "schema_version": 1,
+          "version": "2.2.0"
+        },
+        {
+          "file_count": 15,
+          "name": "mcp-types",
+          "record_sha256": "c9f771874a6e513d5aaaa44a471ffb8e73b82b8ca3a307398f81078217e722f4",
+          "schema_version": 1,
+          "version": "2.2.0"
+        },
+        {
+          "file_count": 49,
+          "name": "opentelemetry-api",
+          "record_sha256": "36575e6f3df1606be37ba4583079ad5a2be65906c5b0ffb8c99db6bff012a2ed",
+          "schema_version": 1,
+          "version": "1.45.0"
+        },
+        {
+          "file_count": 31,
+          "name": "packaging",
+          "record_sha256": "21378c229a33e27c8e741b0f64874566bb5690ceb461a463e3afb0bc48d1f6fb",
+          "schema_version": 1,
+          "version": "26.3"
+        },
+        {
+          "file_count": 15,
+          "name": "pycparser",
+          "record_sha256": "9009b52f8ff24990343e1808d837b2c5f3d91ce16637e13c40dd0e6e2141188e",
+          "schema_version": 1,
+          "version": "3.0"
+        },
+        {
+          "file_count": 113,
+          "name": "pydantic",
+          "record_sha256": "76e47a618f84016fa4c6b8e5f92f17087ef3090de4e58e6d53b164110f414c81",
+          "schema_version": 1,
+          "version": "2.12.5"
+        },
+        {
+          "file_count": 11,
+          "name": "pydantic-core",
+          "record_sha256": "eda7befc56d6cc1e4c6be5d7c2f73845fa4741732f9d89a6d47c2a3becde00d1",
+          "schema_version": 1,
+          "version": "2.41.5"
+        },
+        {
+          "file_count": 21,
+          "name": "pyjwt",
+          "record_sha256": "425b17002a46aa8200e791de574e7f2bfec4c66f9f7d03fc66fc9894f9aca926",
+          "schema_version": 1,
+          "version": "2.15.0"
+        },
+        {
+          "file_count": 15,
+          "name": "python-multipart",
+          "record_sha256": "47ae0c47065bb17a371ce751e01b88a9a5a4b2b1d9e2aa218fe526d39295f707",
+          "schema_version": 1,
+          "version": "0.0.32"
+        },
+        {
+          "file_count": 615,
+          "name": "pywin32",
+          "record_sha256": "0fe10ede9b6620900e37696938b661bed1e23d64c0c0079b7fdab4cdac516ef7",
+          "schema_version": 1,
+          "version": "312"
+        },
+        {
+          "file_count": 26,
+          "name": "pyyaml",
+          "record_sha256": "bb716075a5cb2acc5ad2217b6dc113b631ed7a00a2c09b54212f18629f3c786a",
+          "schema_version": 1,
+          "version": "6.0.3"
+        },
+        {
+          "file_count": 21,
+          "name": "referencing",
+          "record_sha256": "387351ed80f44b3dc4d568f1293245561ce44942d30e3d29d00117dc3f31470e",
+          "schema_version": 1,
+          "version": "0.37.0"
+        },
+        {
+          "file_count": 11,
+          "name": "rpds-py",
+          "record_sha256": "3d47d0b716df487f87bb48d1a8c19355abf0f3496b4cffc5bc69264e12925a49",
+          "schema_version": 1,
+          "version": "2026.6.3"
+        },
+        {
+          "file_count": 13,
+          "name": "sse-starlette",
+          "record_sha256": "0f5faabc301dc0f1deb8c63fb70585f016c4ce0b52779ea7780b720e4122b8a0",
+          "schema_version": 1,
+          "version": "3.4.11"
+        },
+        {
+          "file_count": 43,
+          "name": "starlette",
+          "record_sha256": "b853b6c4ec6b500ba9a82c9524b91641569f0c8dac7612a7998dbdf66b1f6759",
+          "schema_version": 1,
+          "version": "1.7.0"
+        },
+        {
+          "file_count": 30,
+          "name": "tokenizers",
+          "record_sha256": "4abc22f9e9b2c7a4f85469497e79d710373d3c12bbacaf6e4a331f05c756605a",
+          "schema_version": 1,
+          "version": "0.22.1"
+        },
+        {
+          "file_count": 42,
+          "name": "tqdm",
+          "record_sha256": "9dfbc8c9216fe0aafe6a629f84b0ccd10b4b4ea62a81647df53ce9f6ed1dea03",
+          "schema_version": 1,
+          "version": "4.70.1"
+        },
+        {
+          "file_count": 13,
+          "name": "truststore",
+          "record_sha256": "f4498182b53533a2740bf63cc823f7d3573a91b4e5ccac976014d09db5d35a6a",
+          "schema_version": 1,
+          "version": "0.10.4"
+        },
+        {
+          "file_count": 7,
+          "name": "typing-extensions",
+          "record_sha256": "756e18908780ae10efc01000588e28b47bfe6c8a1548d8efc6374e6aaf3eb88d",
+          "schema_version": 1,
+          "version": "4.16.0"
+        },
+        {
+          "file_count": 11,
+          "name": "typing-inspection",
+          "record_sha256": "f9ebe959804026ac62ae794bb3849dbdbe1aa442c73cecd2dbfbbd900199972c",
+          "schema_version": 1,
+          "version": "0.4.4"
+        },
+        {
+          "file_count": 54,
+          "name": "uvicorn",
+          "record_sha256": "0ad3d3adc68cd5b987e4d76aeb299396d60396b18edded01983eb59bfef6c281",
+          "schema_version": 1,
+          "version": "0.54.0"
+        }
+      ],
+      "entrypoint": "devhub.delegate_server",
+      "isolated_argv": [
+        "-I",
+        "-m",
+        "devhub.delegate_server"
+      ],
+      "platform_machine": null,
+      "platform_system": "Windows",
+      "python_cache_tag": "cpython-312",
+      "python_executable_sha256": "0b471133e110cfb53a061cad528ce8e517d7b9ac41a0a396c39ad795a487fc14",
+      "python_implementation": "CPython",
+      "python_platform_tag": "win-amd64",
+      "python_soabi": null,
+      "python_version": "3.12.10",
+      "schema_version": 1
+    },
+    "python_runtime_environment_id": "512dec16e030295e99da3e3b61cf02ffcbebc1222541a08dba36ac0c3e82f225",
+    "schema_version": 1
+  },
+  "schema_version": 1,
+  "source_archive_sha256": "e29e9414d3e69aa0360d7dd36139751123d809a5ff0c6a28236fbf9da779b02a",
+  "wheel_filename": "codex_dev_hub-0.1.0-py3-none-any.whl",
+  "wheel_reproducibility_claimed": false,
+  "wheel_sha256": "6b1c2616f3f56d4a4d2efd2ed8f9b209cc60cd3aac7d9451adebff65bee39aef"
+}

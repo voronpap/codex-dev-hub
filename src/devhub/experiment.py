@@ -21,6 +21,7 @@ from devhub.context_models import ContextPolicy
 from devhub.models import Contract, Identifier
 from devhub.ollama import OllamaConfig
 from devhub.output import OutputPolicy, ProviderOutput, system_instruction
+from devhub.qualification import RuntimeBindings as RuntimeBindings
 
 CODEX_OVERRIDES = (
     'approval_policy="never"',
@@ -159,20 +160,6 @@ class EnvironmentManifest(Contract):
     # No hostname, usernames, serials, machine IDs, accounts or credentials.
 
 
-class RuntimeBindings(Contract):
-    """Required before real execution; absent in a proposal is a hard block."""
-
-    image_id: Annotated[str, Field(pattern=r"^sha256:[a-f0-9]{64}$")]
-    bootstrap_sha256: Digest
-    environment: EnvironmentManifest
-    isolation_probe_sha256: Digest
-    protocol_sha256: Digest
-    reviewed_plan_sha256: Digest
-    # Attestation is operator trust, not a cryptographic proof of OS security.
-    boundary_reviewed: Literal[True]
-    qualification_sha256: Digest | None = None
-
-
 class PlannedSession(Contract):
     order: int
     fixture_id: Identifier
@@ -273,6 +260,7 @@ def main() -> None:
     data = plan(Path(__file__).resolve().parents[2], protocol, args.run_id)
     if args.action == "schemas":
         from devhub.experiment_launch import AttemptResult, CodexUsage, DelegationObservation
+        from devhub.experiment_observation import BArmDelegationObservationV2
         from devhub.experiment_review import PairComparison
 
         data = {
@@ -282,6 +270,7 @@ def main() -> None:
             "attempt": AttemptResult.model_json_schema(),
             "codex_usage": CodexUsage.model_json_schema(),
             "delegation": DelegationObservation.model_json_schema(),
+            "b_arm_delegation": BArmDelegationObservationV2.model_json_schema(),
             "comparison": PairComparison.model_json_schema(),
         }
     with args.output.open("x", encoding="utf-8", newline="\n") as stream:

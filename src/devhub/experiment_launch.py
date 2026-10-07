@@ -4,6 +4,7 @@ Images, the scoped egress bridge and local-only MCP bridge must be reviewed and
 provisioned before calling this boundary. No implicit pull or host execution fallback.
 """
 
+import base64
 import json
 import os
 import platform
@@ -13,6 +14,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 from typing import Annotated, Literal, cast
 
 from pydantic import Field, JsonValue, model_validator
@@ -20,10 +22,24 @@ from pydantic import Field, JsonValue, model_validator
 from devhub.benchmark import Digest, canonical, digest, write_new, write_sealed
 from devhub.delegate import DelegationResult
 from devhub.events import AccountingEvent
-from devhub.experiment import ExperimentProtocol, PlannedSession, RuntimeBindings
+from devhub.experiment import ExperimentProtocol, PlannedSession
+from devhub.experiment_observation import BArmDelegationObservationV2
 from devhub.models import Contract
+from devhub.process_capture import CapturedStreamV1, ProcessCapture, capture_process
 
 DOCKER = ("docker", "--host=unix:///var/run/docker.sock")
+TASK_PAYLOAD_BYTE_LIMIT = 1024 * 1024
+FINAL_OUTPUT_BYTE_LIMIT = 1024 * 1024
+
+
+class ContainerRuntimeSpec(Contract):
+    """Derived launch mechanics; never an independent execution authority."""
+
+    image_id: Annotated[str, Field(pattern=r"^sha256:[a-f0-9]{64}$")]
+    bootstrap_sha256: Digest
+    protocol_sha256: Digest
+    reviewed_plan_sha256: Digest
+    codex_cli_version: str = Field(min_length=1)
 
 
 class ExecutorProvenance(Contract):
@@ -40,9 +56,11 @@ class ExecutorProvenance(Contract):
     exit_code: int | None
     launcher_exit_code: int | None
     timed_out: bool
-    task_exposed: bool
-    stdout_sha256: Digest
-    stderr_sha256: Digest
+    exposure_state: Literal["not_exposed", "exposed", "unknown"]
+    attempt_consumed: bool
+    cleanup_succeeded: bool
+    stdout: CapturedStreamV1
+    stderr: CapturedStreamV1
     output_sha256: Digest | None
 
     @model_validator(mode="after")
@@ -51,6 +69,54 @@ class ExecutorProvenance(Contract):
             raise ValueError("UTC timestamps required")
         if self.ended_at < self.started_at:
             raise ValueError("Invalid timing")
+        if self.attempt_consumed != (self.exposure_state != "not_exposed"):
+            raise ValueError("Attempt consumption must follow exposure evidence")
+        return self
+
+
+class GuestReadyV1(Contract):
+    kind: Literal["guest_ready"] = "guest_ready"
+    session_id: str
+    plan_sha256: Digest
+    prompt_sha256: Digest
+    prompt_length: Annotated[int, Field(ge=1, le=TASK_PAYLOAD_BYTE_LIMIT)]
+    protocol_sha256: Digest
+    bootstrap_sha256: Digest
+
+
+class TaskAcceptedV1(Contract):
+    kind: Literal["task_accepted"] = "task_accepted"
+    session_id: str
+    prompt_sha256: Digest
+    prompt_length: Annotated[int, Field(ge=1, le=TASK_PAYLOAD_BYTE_LIMIT)]
+
+
+class TaskFrameV1(Contract):
+    kind: Literal["task_frame"] = "task_frame"
+    session_id: str
+    prompt_sha256: Digest
+    prompt_length: Annotated[int, Field(ge=1, le=TASK_PAYLOAD_BYTE_LIMIT)]
+    payload_base64: str = Field(min_length=1, max_length=1_398_104)
+
+
+class AttemptAbortV1(Contract):
+    status: Literal["failed", "not_run"]
+    reason: str
+    last_state: Literal["claimed", "container_created", "guest_ready", "task_exposed"]
+    exposure_state: Literal["not_exposed", "exposed", "unknown"]
+    attempt_consumed: bool
+    rerun_permitted: Literal[False] | None
+    review_required: Literal[True] = True
+    cleanup_succeeded: bool | None
+
+    @model_validator(mode="after")
+    def exposure(self) -> "AttemptAbortV1":
+        if self.attempt_consumed != (self.exposure_state != "not_exposed"):
+            raise ValueError("Attempt consumption must follow exposure evidence")
+        if self.exposure_state == "exposed" and self.rerun_permitted is not False:
+            raise ValueError("Exposed attempts cannot be rerun")
+        if self.exposure_state != "exposed" and self.rerun_permitted is not None:
+            raise ValueError("Unexposed or ambiguous failures require review")
         return self
 
 
@@ -138,7 +204,7 @@ class AttemptResult(Contract):
     status: Literal["completed", "failed", "not_run"]
     reason: str
     codex_usage: CodexUsage
-    delegation: DelegationObservation
+    delegation: DelegationObservation | BArmDelegationObservationV2
     executor_retries: Literal[0] = 0
     benchmark_reruns: Literal[0] = 0
     quality_benchmark: None = None
@@ -149,12 +215,33 @@ class AttemptResult(Contract):
     def actual_attempt(self) -> "AttemptResult":
         p = self.provenance
         if self.status == "completed" and (
-            not p.task_exposed or p.exit_code != 0 or p.timed_out or p.output_sha256 is None
+            p.exposure_state != "exposed"
+            or p.exit_code != 0
+            or p.timed_out
+            or p.output_sha256 is None
+            or not p.cleanup_succeeded
         ):
             raise ValueError("No completed result without actual executor provenance")
-        if self.status == "not_run" and p.task_exposed:
+        if self.status == "not_run" and p.exposure_state != "not_exposed":
             raise ValueError("Post-exposure crash is an experiment attempt")
+        if (
+            self.status == "completed"
+            and isinstance(self.delegation, BArmDelegationObservationV2)
+            and not self.delegation.delegation_success
+        ):
+            raise ValueError("No completed B arm without authoritative delegation success")
         return self
+
+
+def delegation_complete_for_arm(
+    arm: Literal["A", "B"],
+    observation: DelegationObservation | BArmDelegationObservationV2,
+) -> bool:
+    """Arm B requires the strict authority-joined observation; Arm A has no delegation."""
+
+    return arm == "A" or (
+        isinstance(observation, BArmDelegationObservationV2) and observation.delegation_success
+    )
 
 
 def codex_argv(session: PlannedSession, protocol: ExperimentProtocol) -> list[str]:
@@ -205,8 +292,8 @@ def mount(path: Path, target: str, readonly: bool = True) -> list[str]:
 
 def container_command(
     session: PlannedSession,
-    bindings: RuntimeBindings,
-    packet: Path,
+    runtime: ContainerRuntimeSpec,
+    control: Path,
     bridge: Path,
     capture: Path,
     bootstrap: Path,
@@ -215,16 +302,12 @@ def container_command(
     expected = {"proxy.sock"} | ({"mcp.sock"} if session.arm == "B" else set())
     if {p.name for p in bridge.iterdir()} != expected:
         raise ValueError("Unexpected bridge access")
-    if {p.name for p in packet.iterdir()} != {
-        "input.txt",
-        "task.txt",
-        "instructions.txt",
-        "session.json",
-    }:
-        raise ValueError("Packet contains unexpected data")
-    if any(p.is_symlink() for p in packet.iterdir()) or any(capture.iterdir()):
-        raise ValueError("Packet links or reused output directory")
-    if digest(bootstrap.read_bytes()) != bindings.bootstrap_sha256:
+    # Task-bearing packet data is never mounted before the exposure handshake.
+    if {p.name for p in control.iterdir()} != {"session.json"}:
+        raise ValueError("Guest control contains unexpected data")
+    if any(p.is_symlink() for p in control.iterdir()) or any(capture.iterdir()):
+        raise ValueError("Control links or reused output directory")
+    if digest(bootstrap.read_bytes()) != runtime.bootstrap_sha256:
         raise ValueError("Bootstrap changed")
     return [
         *DOCKER,
@@ -246,6 +329,8 @@ def container_command(
         "/tmp:rw,noexec,nosuid,size=64m,mode=1777",
         "--tmpfs",
         "/home/runner:rw,noexec,nosuid,size=64m,uid=1000,gid=1000",
+        "--tmpfs",
+        "/packet:rw,noexec,nosuid,size=16m,uid=1000,gid=1000",
         "--env",
         "HOME=/home/runner",
         "--env",
@@ -258,14 +343,14 @@ def container_command(
         "NO_PROXY=",
         "--env",
         "LANG=C.UTF-8",
-        *mount(packet, "/packet"),
+        *mount(control, "/control"),
         *mount(bridge, "/bridge"),
         *mount(capture, "/capture", False),
         *mount(bootstrap, "/bootstrap.py"),
         *mount(auth, "/auth.json"),
         "--entrypoint",
         "python3",
-        bindings.image_id,
+        runtime.image_id,
         "/bootstrap.py",
         "run",
     ]
@@ -290,44 +375,27 @@ def safe_artifacts(blobs: tuple[bytes, ...], secret_values: tuple[bytes, ...] = 
         raise ValueError("Artifact withheld: possible credential disclosure; abort run")
 
 
-def capture_process(
-    argv: list[str],
-    stdin: bytes,
-    timeout: int,
-) -> tuple[bytes, bytes, int | None, bool, datetime, datetime, int]:
-    """Fixed argv, empty inherited environment. No shell and no automatic retry."""
-    started = datetime.now(UTC)
-    tick = time.perf_counter_ns()
-    process = subprocess.Popen(
-        argv,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env={"PATH": os.defpath, "LANG": "C.UTF-8"},
-    )
-    timed_out = False
-    try:
-        out, err = process.communicate(stdin, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        process.kill()
-        out, err = process.communicate(timeout=10)
-    return (
-        out,
-        err,
-        process.returncode,
-        timed_out,
-        started,
-        datetime.now(UTC),
-        time.perf_counter_ns() - tick,
-    )
-
-
 def durable_claim(path: Path, raw: bytes) -> None:
     with path.open("xb") as stream:
         stream.write(raw)
         stream.flush()
         os.fsync(stream.fileno())
+    if os.name == "posix":
+        descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
+def durable_publish(path: Path, raw: bytes) -> None:
+    """Publish a new control frame atomically and durably."""
+
+    temporary = path.with_name(path.name + ".tmp")
+    if path.exists() or temporary.exists():
+        raise FileExistsError(path)
+    durable_claim(temporary, raw)
+    os.replace(temporary, path)
     if os.name == "posix":
         descriptor = os.open(path.parent, os.O_RDONLY)
         try:
@@ -358,11 +426,48 @@ def completed_turn(raw: bytes) -> bool:
         return False
 
 
+def cleanup_container(cid: str) -> bool:
+    """Remove exactly one validated container and verify that it no longer exists."""
+
+    if re.fullmatch(r"[a-f0-9]{64}", cid) is None:
+        raise ValueError("Invalid container cleanup authority")
+    try:
+        removed = subprocess.run(
+            [*DOCKER, "rm", "--force", cid], capture_output=True, timeout=20, check=False
+        )
+        probe = subprocess.run(
+            [*DOCKER, "inspect", cid], capture_output=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return removed.returncode == 0 and probe.returncode != 0
+
+
+def _abort(
+    destination: Path,
+    *,
+    reason: str,
+    last_state: Literal["claimed", "container_created", "guest_ready", "task_exposed"],
+    exposure_state: Literal["not_exposed", "exposed", "unknown"],
+    cleanup_succeeded: bool | None,
+) -> None:
+    item = AttemptAbortV1(
+        status="not_run" if exposure_state == "not_exposed" else "failed",
+        reason=reason,
+        last_state=last_state,
+        exposure_state=exposure_state,
+        attempt_consumed=exposure_state != "not_exposed",
+        rerun_permitted=False if exposure_state == "exposed" else None,
+        cleanup_succeeded=cleanup_succeeded,
+    )
+    write_sealed(destination / "abort.json", canonical(item.model_dump(mode="json")))
+
+
 def launch_container(
     session: PlannedSession,
     protocol: ExperimentProtocol,
-    bindings: RuntimeBindings,
-    packet: Path,
+    runtime: ContainerRuntimeSpec,
+    control: Path,
     bridge: Path,
     capture: Path,
     bootstrap: Path,
@@ -372,7 +477,7 @@ def launch_container(
     *,
     reviewed_plan_sha256: str,
     secret_values: tuple[bytes, ...],
-    delegation: Callable[[], DelegationObservation],
+    delegation: Callable[[], DelegationObservation | BArmDelegationObservationV2],
 ) -> AttemptResult:
     """Low-level boundary; orchestration must preflight and hold bridges for its lifetime.
 
@@ -382,13 +487,14 @@ def launch_container(
     if platform.system() != "Linux":
         raise ValueError("Linux OCI boundary required; no native host fallback")
     if (
-        bindings.protocol_sha256 != protocol.hashes()["protocol"]
-        or reviewed_plan_sha256 != bindings.reviewed_plan_sha256
-        or bindings.environment.codex_cli_version != protocol.codex_cli_version
-        or bindings.environment.ollama_digest != protocol.ollama.model_digest
+        runtime.protocol_sha256 != protocol.hashes()["protocol"]
+        or reviewed_plan_sha256 != runtime.reviewed_plan_sha256
+        or runtime.codex_cli_version != protocol.codex_cli_version
     ):
         raise ValueError("Reviewed environment/protocol binding changed")
-    command = container_command(session, bindings, packet, bridge, capture, bootstrap, auth)
+    if not 0 < len(prompt) <= TASK_PAYLOAD_BYTE_LIMIT:
+        raise ValueError("Task payload exceeds reviewed control-channel limit")
+    command = container_command(session, runtime, control, bridge, capture, bootstrap, auth)
     destination.mkdir(parents=True, exist_ok=False)
     # Durable attempt claim before exposing the packet. Never resume/reuse this directory.
     durable_claim(
@@ -406,39 +512,143 @@ def launch_container(
             command, capture_output=True, check=False, env={"PATH": os.defpath}, timeout=30
         )
     except (OSError, subprocess.SubprocessError):
-        write_sealed(
-            destination / "not-run.json",
-            canonical(
-                {
-                    "status": "not_run",
-                    "reason": "container_creation_unconfirmed",
-                    "task_exposed": False,
-                }
-            ),
+        _abort(
+            destination,
+            reason="container_creation_unconfirmed",
+            last_state="claimed",
+            exposure_state="not_exposed",
+            cleanup_succeeded=None,
         )
         raise
     if created.returncode != 0:
-        write_sealed(
-            destination / "not-run.json",
-            canonical(
-                {"status": "not_run", "reason": "container_create_failed", "task_exposed": False}
-            ),
+        _abort(
+            destination,
+            reason="container_create_failed",
+            last_state="claimed",
+            exposure_state="not_exposed",
+            cleanup_succeeded=None,
         )
         raise RuntimeError("Container creation failed; claim consumed")
     cid = created.stdout.decode().strip()
     if re.fullmatch(r"[a-f0-9]{64}", cid) is None:
-        raise RuntimeError("Invalid container provenance; abort")
-    tick = time.perf_counter_ns()
-    start = datetime.now(UTC)
-    try:
-        # Time starts immediately before docker start/attach; includes Codex startup and tools.
-        out, err, code, timeout, _, _, _ = capture_process(
-            [*DOCKER, "start", "--attach", "--interactive", cid],
-            stdin=prompt,
-            timeout=protocol.timeout_seconds,
+        _abort(
+            destination,
+            reason="invalid_container_identity",
+            last_state="claimed",
+            exposure_state="not_exposed",
+            cleanup_succeeded=None,
         )
-        if timeout:
-            subprocess.run([*DOCKER, "kill", cid], capture_output=True, timeout=15, check=False)
+        raise RuntimeError("Invalid container provenance; abort")
+    prompt_hash = digest(prompt)
+    expected_ready = GuestReadyV1(
+        session_id=session.session_id,
+        plan_sha256=reviewed_plan_sha256,
+        prompt_sha256=prompt_hash,
+        prompt_length=len(prompt),
+        protocol_sha256=runtime.protocol_sha256,
+        bootstrap_sha256=runtime.bootstrap_sha256,
+    )
+    expected_accepted = TaskAcceptedV1(
+        session_id=session.session_id,
+        prompt_sha256=prompt_hash,
+        prompt_length=len(prompt),
+    )
+    last_state: Literal["claimed", "container_created", "guest_ready", "task_exposed"] = (
+        "container_created"
+    )
+    exposure_state: Literal["not_exposed", "exposed", "unknown"] = "not_exposed"
+    capture_result: ProcessCapture | None = None
+    state: dict[str, object] | None = None
+    container_code: int | None = None
+    raw: bytes | None = None
+    final_output_limit_exceeded = False
+    artifact_withheld = False
+    execution_error: Exception | None = None
+    cleanup_succeeded = False
+
+    def wait_record(path: Path, deadline: float, stop: Event) -> bytes:
+        while not path.is_file():
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"Missing {path.name}")
+            if stop.is_set():
+                raise RuntimeError("Executor output boundary terminated handshake")
+            time.sleep(0.02)
+        if path.is_symlink():
+            raise RuntimeError(f"Unsafe {path.name}")
+        return path.read_bytes()
+
+    def handshake(process: subprocess.Popen[bytes], deadline: float, stop: Event) -> None:
+        nonlocal exposure_state, last_state
+        ready = GuestReadyV1.model_validate_json(
+            wait_record(capture / "guest-ready.json", deadline, stop)
+        )
+        if ready != expected_ready:
+            raise ValueError("Guest READY binding mismatch")
+        last_state = "guest_ready"
+        # Once the pending receipt is durable, a host crash during publication is
+        # conservatively ambiguous rather than falsely declared unexposed.
+        durable_claim(
+            destination / "task-transfer-pending.json",
+            canonical(
+                {
+                    "schema_version": 1,
+                    "kind": "task_transfer_pending",
+                    "session_id": session.session_id,
+                    "plan_sha256": reviewed_plan_sha256,
+                    "prompt_sha256": prompt_hash,
+                    "prompt_length": len(prompt),
+                    "container_id": cid,
+                }
+            ),
+        )
+        exposure_state = "unknown"
+        frame = TaskFrameV1(
+            session_id=session.session_id,
+            prompt_sha256=prompt_hash,
+            prompt_length=len(prompt),
+            payload_base64=base64.b64encode(prompt).decode("ascii"),
+        )
+        durable_publish(capture / "task-frame.json", canonical(frame.model_dump(mode="json")))
+        accepted = TaskAcceptedV1.model_validate_json(
+            wait_record(capture / "task-accepted.json", deadline, stop)
+        )
+        if accepted != expected_accepted:
+            raise ValueError("TASK_ACCEPTED binding mismatch")
+        durable_claim(
+            destination / "task-exposed.json",
+            canonical(
+                {
+                    "schema_version": 1,
+                    "kind": "task_exposed",
+                    "session_id": session.session_id,
+                    "plan_sha256": reviewed_plan_sha256,
+                    "prompt_sha256": prompt_hash,
+                    "prompt_length": len(prompt),
+                    "container_id": cid,
+                    "guest_ready_sha256": digest(canonical(ready.model_dump(mode="json"))),
+                    "task_accepted_sha256": digest(canonical(accepted.model_dump(mode="json"))),
+                    "exposed_at": datetime.now(UTC).isoformat(),
+                    "task_exposed": True,
+                }
+            ),
+        )
+        exposure_state = "exposed"
+        last_state = "task_exposed"
+
+    def terminate_container() -> None:
+        subprocess.run([*DOCKER, "kill", cid], capture_output=True, timeout=15, check=False)
+
+    try:
+        # The original timing boundary is preserved: start before docker start/attach,
+        # including guest readiness, Codex startup and all tool execution.
+        capture_result = capture_process(
+            [*DOCKER, "start", "--attach", cid],
+            stdin=None,
+            timeout=protocol.timeout_seconds,
+            input_driver=handshake,
+            terminate_execution=terminate_container,
+            secret_values=secret_values,
+        )
         state = json.loads(
             subprocess.check_output(
                 [*DOCKER, "inspect", "--format", "{{json .State}}", cid], timeout=10
@@ -446,69 +656,108 @@ def launch_container(
         )
         if state.get("Running") is not False or type(state.get("ExitCode")) is not int:
             raise RuntimeError("Container did not reach a verified exit state")
-        container_code = state["ExitCode"]
+        container_code = cast(int, state["ExitCode"])
         final_path = capture / "final.txt"
-        raw = (
-            final_path.read_bytes()
-            if final_path.is_file() and not final_path.is_symlink()
-            else None
-        )
-        end = datetime.now(UTC)
-        elapsed = time.perf_counter_ns() - tick
-    except (OSError, subprocess.SubprocessError, ValueError, RuntimeError):
-        write_sealed(
-            destination / "failed.json",
-            canonical(
-                {
-                    "status": "failed",
-                    "reason": "executor_process_failure",
-                    "task_exposed": True,
-                    "retry": 0,
-                }
-            ),
-        )
-        raise
+        if final_path.is_file() and not final_path.is_symlink():
+            if final_path.stat().st_size > FINAL_OUTPUT_BYTE_LIMIT:
+                final_output_limit_exceeded = True
+            else:
+                raw = final_path.read_bytes()
+    except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as error:
+        execution_error = error
     finally:
-        # Killing the CLI alone does not kill the container. Stop the complete process tree.
-        subprocess.run([*DOCKER, "kill", cid], capture_output=True, timeout=15, check=False)
-    safe_artifacts((out, err, raw or b""), secret_values)
-    usage = codex_usage(out, bindings.environment.codex_cli_version, protocol.codex_cli_version)
+        cleanup_succeeded = cleanup_container(cid)
+    if capture_result is None:
+        _abort(
+            destination,
+            reason="executor_start_failure" if execution_error else "executor_capture_missing",
+            last_state=last_state,
+            exposure_state=exposure_state,
+            cleanup_succeeded=cleanup_succeeded,
+        )
+        if execution_error is not None:
+            raise execution_error
+        raise RuntimeError("Executor capture missing")
+    out = capture_result.stdout.data
+    err = capture_result.stderr.data
+    try:
+        safe_artifacts((out, err, raw or b""), secret_values)
+    except ValueError:
+        # Final-output scanning is a second boundary after incremental stream
+        # scanning. Never persist a secret-bearing final/stream artifact.
+        artifact_withheld = True
+        out = b""
+        err = b""
+        raw = None
+    usage = codex_usage(out, runtime.codex_cli_version, protocol.codex_cli_version)
     complete = (
-        code == 0
+        capture_result.returncode == 0
         and container_code == 0
-        and not timeout
+        and not capture_result.timed_out
+        and not capture_result.output_limit_exceeded
+        and not final_output_limit_exceeded
+        and not capture_result.secret_detected
+        and not artifact_withheld
+        and capture_result.input_error is None
         and raw is not None
         and completed_turn(out)
+        and exposure_state == "exposed"
+        and cleanup_succeeded
+        and execution_error is None
     )
     receipt = ExecutorProvenance(
         kind="linux_oci_process",
         session_id=session.session_id,
         plan_sha256=reviewed_plan_sha256,
-        protocol_sha256=bindings.protocol_sha256,
-        image_id=bindings.image_id,
+        protocol_sha256=runtime.protocol_sha256,
+        image_id=runtime.image_id,
         command_sha256=digest(canonical(cast(JsonValue, {"argv": command}))),
         container_id=cid,
-        started_at=start,
-        ended_at=end,
-        duration_ns=elapsed,
+        started_at=capture_result.started_at,
+        ended_at=capture_result.ended_at,
+        duration_ns=capture_result.duration_ns,
         exit_code=container_code,
-        launcher_exit_code=code,
-        timed_out=timeout,
-        task_exposed=True,
-        stdout_sha256=digest(out),
-        stderr_sha256=digest(err),
+        launcher_exit_code=capture_result.returncode,
+        timed_out=capture_result.timed_out,
+        exposure_state=exposure_state,
+        attempt_consumed=exposure_state != "not_exposed",
+        cleanup_succeeded=cleanup_succeeded,
+        stdout=capture_result.stdout.evidence,
+        stderr=capture_result.stderr.evidence,
         output_sha256=digest(raw) if raw is not None else None,
     )
+    delegation_observation = delegation()
+    b_arm_delegation_complete = delegation_complete_for_arm(session.arm, delegation_observation)
+    if session.arm == "B" and not b_arm_delegation_complete:
+        complete = False
     result = AttemptResult(
         provenance=receipt,
         status="completed" if complete else "failed",
-        reason="output_captured" if complete else "timeout" if timeout else "executor_failed",
+        reason=(
+            "output_captured"
+            if complete
+            else "timeout"
+            if capture_result.timed_out
+            else "artifact_withheld"
+            if capture_result.secret_detected or artifact_withheld
+            else "output_limit_exceeded"
+            if capture_result.output_limit_exceeded or final_output_limit_exceeded
+            else "executor_cleanup_failed"
+            if not cleanup_succeeded
+            else "task_exposure_unproven"
+            if exposure_state != "exposed"
+            else "b_arm_delegation_incomplete"
+            if session.arm == "B" and not b_arm_delegation_complete
+            else "executor_failed"
+        ),
         codex_usage=usage,
-        delegation=delegation(),
+        delegation=delegation_observation,
     )
     if raw is not None:
         write_new(destination / "output.bin", raw)  # exact bytes; no normalization
     write_new(destination / "events.jsonl", out)
     write_new(destination / "stderr.bin", err)
     write_sealed(destination / "result.json", canonical(result.model_dump(mode="json")))
+    if execution_error is not None:
+        raise execution_error
     return result

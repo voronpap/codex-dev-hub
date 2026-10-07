@@ -21,6 +21,7 @@ from devhub.experiment_run import secret_strings
 from devhub.experiment_tool_gate import policy_hash
 from devhub.ledger import MIGRATIONS
 from devhub.ollama import OllamaAdapter
+from devhub.qualification import RuntimeBindings, VerifiedQualificationV2, verify_manifest_tree
 
 ISOLATION_CHECKS = frozenset(
     {
@@ -89,18 +90,10 @@ def check_auth(path: Path) -> tuple[bytes, ...]:
     return secret_strings(data)
 
 
-def require_ready(raw: bytes, expected: dict[str, str]) -> None:
-    receipt = json.loads(raw)
-    if (
-        receipt.get("kind") != "stage3g_runtime_qualification"
-        or receipt.get("execution_ready") is not True
-    ):
-        raise ValueError("Stage 3G-C execution_ready is false")
-    gates = receipt.get("gates", {})
-    if set(gates) != REQUIRED_GATES or any(gates[k] is not True for k in REQUIRED_GATES):
-        raise ValueError("Incomplete runtime qualification")
-    if any(receipt.get(k) != value for k, value in expected.items()):
-        raise ValueError("Runtime qualification binding drift")
+def require_ready(manifest: Path, bindings: RuntimeBindings) -> VerifiedQualificationV2:
+    """Verify the sole final authority; component subsets cannot authorize execution."""
+
+    return verify_manifest_tree(manifest, bindings.qualification_manifest_id)
 
 
 REQUIRED_GATES = frozenset(
@@ -223,6 +216,12 @@ def preflight(
             and e["corrected_result"]["exit_status"] == 0
             and not e["buggy_result"]["timeout"]
             and not e["corrected_result"]["timeout"]
+            and not e["buggy_result"]["output_limit_exceeded"]
+            and not e["corrected_result"]["output_limit_exceeded"]
+            and not e["buggy_result"]["artifact_withheld"]
+            and not e["corrected_result"]["artifact_withheld"]
+            and e["buggy_result"]["input_error"] is None
+            and e["corrected_result"]["input_error"] is None
         )
         # Inspect existence by immutable ID, never pull an evaluator image here.
         subprocess.check_output([*DOCKER, "image", "inspect", e["image_id"]], timeout=20)

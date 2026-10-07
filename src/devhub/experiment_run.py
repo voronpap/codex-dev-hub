@@ -3,7 +3,6 @@
 import json
 import platform
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any, cast
@@ -13,7 +12,6 @@ from pydantic import JsonValue
 from devhub.baseline import verified_cases
 from devhub.benchmark import canonical, digest, read_sealed, write_new
 from devhub.delegate import DelegationConfig, ProviderProfile
-from devhub.events import EventOutbox
 from devhub.experiment import (
     ARM_A,
     ARM_B,
@@ -26,14 +24,23 @@ from devhub.experiment import (
 from devhub.experiment_bridge import MCPGate, UnixBridge, proxy
 from devhub.experiment_launch import (
     DOCKER,
+    AttemptAbortV1,
     AttemptResult,
+    ContainerRuntimeSpec,
     DelegationObservation,
     codex_argv,
     launch_container,
 )
-from devhub.ledger import Ledger, LedgerIdentityCoreV1
-from devhub.local import LocalConfig
+from devhub.experiment_observation import (
+    BArmDelegationObservationV2,
+    ProviderResourceModelIdentityV1,
+    observe_b_arm_delegation,
+)
+from devhub.ledger import Ledger
+from devhub.local import LocalConfig, local_resource_id
 from devhub.ollama import OllamaAdapter
+from devhub.qualification import VerifiedQualificationV2, verify_manifest_tree
+from devhub.runtime_artifact import verified_delegate_command
 
 
 def packet_bytes(
@@ -62,23 +69,26 @@ def packet_bytes(
     }
 
 
-def environment_guard(repo: Path, bindings: RuntimeBindings, protocol: ExperimentProtocol) -> None:
+def environment_guard(
+    repo: Path, qualification: VerifiedQualificationV2, protocol: ExperimentProtocol
+) -> None:
+    expected = qualification.context.payload
     if platform.system() != "Linux":
         raise ValueError("Real execution requires reviewed Linux OCI environment")
     if (
-        bindings.environment.devhub_commit
+        expected.implementation.devhub_commit
         != subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"]).decode().strip()
     ):
         raise ValueError("Implementation changed")
     if (
-        bindings.environment.os != platform.platform()
-        or bindings.environment.python != platform.python_version()
-        or bindings.environment.ollama_model != protocol.ollama.model
-        or bindings.environment.ollama_version != protocol.ollama.version
+        expected.ollama_expected.version != protocol.ollama.version
+        or expected.ollama_expected.model != protocol.ollama.model
+        or expected.ollama_expected.digest != protocol.ollama.model_digest
     ):
-        raise ValueError("Environment changed")
-    image = json.loads(subprocess.check_output([*DOCKER, "image", "inspect", bindings.image_id]))[0]
-    if image["Id"] != bindings.image_id or image["Config"].get("Volumes"):
+        raise ValueError("Ollama protocol identity differs from qualification")
+    image_id = expected.runtime_expected.image_id
+    image = json.loads(subprocess.check_output([*DOCKER, "image", "inspect", image_id]))[0]
+    if image["Id"] != image_id or image["Config"].get("Volumes"):
         raise ValueError("Image identity or implicit mounts changed")
     allowed_env = {"PATH", "LANG", "LC_ALL", "HOME", "PYTHON_VERSION"}
     if any(entry.split("=", 1)[0] not in allowed_env for entry in image["Config"].get("Env") or []):
@@ -99,7 +109,7 @@ def environment_guard(repo: Path, bindings: RuntimeBindings, protocol: Experimen
                 "--security-opt=no-new-privileges",
                 "--entrypoint",
                 "codex",
-                bindings.image_id,
+                image_id,
                 "--version",
             ],
             timeout=30,
@@ -107,7 +117,30 @@ def environment_guard(repo: Path, bindings: RuntimeBindings, protocol: Experimen
         .decode()
         .strip()
     )
-    if version != protocol.codex_cli_version:
+    binary = (
+        subprocess.check_output(
+            [
+                *DOCKER,
+                "run",
+                "--rm",
+                "--pull=never",
+                "--network=none",
+                "--read-only",
+                "--entrypoint",
+                "sha256sum",
+                image_id,
+                "/usr/local/bin/codex",
+            ],
+            timeout=30,
+        )
+        .decode()
+        .split()[0]
+    )
+    if (
+        version != protocol.codex_cli_version
+        or version != expected.codex.executable_version
+        or binary != expected.codex.executable_sha256
+    ):
         raise ValueError("Codex version changed")
     OllamaAdapter(protocol.ollama).inspect()  # metadata/tokenizer only, never inference
 
@@ -129,12 +162,10 @@ def execute_next(
     bindings: RuntimeBindings,
     run_root: Path,
     auth_file: Path,
-    isolation_probe: Path,
+    qualification_manifest: Path,
     accounting_root: Path,
     *,
-    ledger_identity: LedgerIdentityCoreV1 | None = None,
     operator_reviewed: bool = False,
-    qualification: Path | None = None,
 ) -> AttemptResult:
     """Opt-in API for the next reviewed phase, never called by 3G-B CLI/tests on fixtures.
 
@@ -143,34 +174,21 @@ def execute_next(
     """
     if not operator_reviewed:
         raise ValueError("Explicit protocol/environment review required")
-    if ledger_identity is None:
-        raise ValueError("Trusted ledger identity required")
-    from devhub.experiment_preflight import isolation_valid, require_ready
-
-    if qualification is None or bindings.qualification_sha256 is None:
-        raise ValueError("Stage 3G-C qualification required")
-    qualification_raw = qualification.read_bytes()
-    if digest(qualification_raw) != bindings.qualification_sha256:
-        raise ValueError("Qualification evidence changed")
-    require_ready(
-        qualification_raw,
-        {
-            "image_id": bindings.image_id,
-            "implementation_commit": bindings.environment.devhub_commit,
-            "protocol_sha256": bindings.protocol_sha256,
-            "plan_sha256": bindings.reviewed_plan_sha256,
-            "bootstrap_sha256": bindings.bootstrap_sha256,
-        },
+    qualification = verify_manifest_tree(qualification_manifest, bindings.qualification_manifest_id)
+    expected = qualification.context.payload
+    runtime = ContainerRuntimeSpec(
+        image_id=expected.runtime_expected.image_id,
+        bootstrap_sha256=expected.runtime_expected.bootstrap_sha256,
+        protocol_sha256=expected.benchmark.protocol_sha256,
+        reviewed_plan_sha256=expected.benchmark.plan_sha256,
+        codex_cli_version=expected.codex.executable_version,
     )
-    proof_raw = isolation_probe.read_bytes()
-    if digest(proof_raw) != bindings.isolation_probe_sha256:
-        raise ValueError("Isolation proof changed")
-    proof = json.loads(proof_raw)
-    if not isolation_valid(proof, bindings.image_id, bindings.bootstrap_sha256):
-        raise ValueError("Exact-image isolation proof required")
+    if protocol.hashes()["protocol"] != runtime.protocol_sha256:
+        raise ValueError("Protocol differs from final qualification manifest")
     current = plan(repo, protocol, frozen_plan["run_id"])
-    if current != frozen_plan or digest(canonical(current)) != bindings.reviewed_plan_sha256:
+    if current != frozen_plan or digest(canonical(current)) != runtime.reviewed_plan_sha256:
         raise ValueError("Plan/config/implementation changed")
+    delegate_argv = verified_delegate_command(qualification)
     if run_root.resolve().is_relative_to(repo.resolve()) or run_root.is_symlink():
         raise ValueError("Run storage must be external")
     run_root.mkdir(parents=True, exist_ok=True)
@@ -195,13 +213,27 @@ def execute_next(
                 raise ValueError("Execution order compromised")
             result_path = target / "result.json"
             if not result_path.exists():
-                raise ValueError("Interrupted attempt cannot be repeated or skipped")
+                abort_path = target / "abort.json"
+                if not abort_path.exists():
+                    raise ValueError("Attempt exposure is unknown; manual review required")
+                abort = AttemptAbortV1.model_validate_json(read_sealed(abort_path))
+                raise ValueError(
+                    f"Attempt stopped at {abort.last_state} with "
+                    f"{abort.exposure_state} exposure; manual review required"
+                )
             prior = AttemptResult.model_validate_json(read_sealed(result_path))
             if (
                 prior.status != "completed"
                 or prior.provenance.session_id != session.session_id
-                or prior.provenance.plan_sha256 != bindings.reviewed_plan_sha256
+                or prior.provenance.plan_sha256 != runtime.reviewed_plan_sha256
                 or prior.provenance.output_sha256 != digest((target / "output.bin").read_bytes())
+                or (
+                    session.arm == "B"
+                    and (
+                        not isinstance(prior.delegation, BArmDelegationObservationV2)
+                        or not prior.delegation.delegation_success
+                    )
+                )
             ):
                 raise ValueError("Failed/changed attempt cannot be repeated or skipped")
         elif selected is None:
@@ -211,7 +243,7 @@ def execute_next(
     session = selected
     volatile_capture = None
     try:
-        environment_guard(repo, bindings, protocol)
+        environment_guard(repo, qualification, protocol)
         packets = packet_bytes(repo, session, protocol)
         control = run_root / "private" / session.session_id
         control.mkdir(parents=True, exist_ok=False)
@@ -241,7 +273,9 @@ def execute_next(
         state = accounting_root.absolute()  # reuse accepted ledger, never mounted
         if not (state / "ledger.db").is_file() or state.is_relative_to(run_root.resolve()):
             raise ValueError("Existing accepted accounting state outside run required")
-        shared_ledger = Ledger(state / "ledger.db", ledger_identity, state_root=state)
+        shared_ledger = Ledger(
+            state / "ledger.db", expected.ledger_expected.identity, state_root=state
+        )
         if session.arm == "B":
             # Trusted Git snapshot for Brain contains only the two equivalent task source files.
             brain_root = control / "brain-source"
@@ -275,7 +309,7 @@ def execute_next(
                             project=session.session_id,
                             root=str(brain_root),
                             state_root=str(state),
-                            ledger_identity=ledger_identity,
+                            ledger_identity=expected.ledger_expected.identity,
                             approved_paths=("input.txt", "task.txt"),
                             authoritative_paths=("input.txt", "task.txt"),
                             ollama=protocol.ollama,
@@ -285,13 +319,7 @@ def execute_next(
             )
             config_path = control / "local.json"
             write_new(config_path, canonical(config.model_dump(mode="json")))
-            server_argv = [
-                sys.executable,
-                "-m",
-                "devhub.delegate_server",
-                "--config",
-                str(config_path),
-            ]
+            server_argv = [*delegate_argv, "--config", str(config_path)]
         bridges = [UnixBridge(bridge / "proxy.sock", proxy)]
         if session.arm == "B":
             bridges.append(
@@ -300,25 +328,32 @@ def execute_next(
                 )
             )
 
-        def observed() -> DelegationObservation:
+        def observed() -> DelegationObservation | BArmDelegationObservationV2:
             if gateway.violation or any(b.failed for b in bridges):
                 raise ValueError("Isolation/network/MCP boundary violation")
-            handoff = gateway.handoff
-            events = (
-                EventOutbox(shared_ledger).pending(project=session.session_id)
-                if state.exists()
-                else ()
+            if session.arm == "A":
+                return DelegationObservation(delegate_called=False, count=0, provider_sends=0)
+            ollama_receipt = qualification.receipts["ollama_metadata"]
+            resource = local_resource_id(protocol.ollama)
+            expected_identity = ProviderResourceModelIdentityV1(
+                provider="ollama",
+                resource=resource,
+                model=expected.ollama_expected.model,
+                ollama_version=expected.ollama_expected.version,
+                model_digest=expected.ollama_expected.digest,
             )
-            transitions = tuple(e.transition for e in events)
-            settled = bool(handoff and handoff.accounting == "settled")
-            return DelegationObservation(
-                delegate_called=gateway.calls > 0,
-                count=gateway.calls,
-                handoff=handoff,
-                outbox_transitions=transitions,
-                accounting_events=events,
-                provider_sends=1 if settled else 0 if not gateway.calls else None,
-                provider_api_cost_microusd=0 if settled else None,
+            return observe_b_arm_delegation(
+                shared_ledger,
+                session_id=session.session_id,
+                call_count=gateway.calls,
+                request_identity=gateway.request_identity,
+                response_kind=gateway.response_kind,
+                handoff_schema_sha256=gateway.handoff_schema_sha256,
+                handoff=gateway.handoff,
+                expected_provider_resource_model=expected_identity,
+                observed_ollama_version=cast(str, ollama_receipt["version"]),
+                observed_model=cast(str, ollama_receipt["model"]),
+                observed_model_digest=cast(str, ollama_receipt["digest"]),
             )
 
         prompt = canonical(
@@ -333,38 +368,72 @@ def execute_next(
                 },
             }
         )
+        guest_control = control / "guest-control"
+        guest_control.mkdir()
+        write_new(
+            guest_control / "session.json",
+            canonical(
+                {
+                    "codex_argv": cast(JsonValue, codex_argv(session, protocol)),
+                    "session_id": session.session_id,
+                    "plan_sha256": runtime.reviewed_plan_sha256,
+                    "prompt_sha256": digest(prompt),
+                    "prompt_length": len(prompt),
+                    "protocol_sha256": runtime.protocol_sha256,
+                    "bootstrap_sha256": runtime.bootstrap_sha256,
+                }
+            ),
+        )
         try:
             result = launch_container(
                 session,
                 protocol,
-                bindings,
-                packet,
+                runtime,
+                guest_control,
                 bridge,
                 capture,
                 repo / "scripts/benchmark_guest.py",
                 auth,
                 run_root / "attempts" / session.session_id,
                 prompt,
-                reviewed_plan_sha256=bindings.reviewed_plan_sha256,
+                reviewed_plan_sha256=runtime.reviewed_plan_sha256,
                 secret_values=secrets,
                 delegation=observed,
             )
         finally:
             for b in bridges:
                 b.close()
-        environment_guard(repo, bindings, protocol)
+        environment_guard(repo, qualification, protocol)
         if result.status != "completed":
             raise ValueError("Failed/timed-out attempt preserved; run aborted")
         return result
     except Exception:
         if not (run_root / "aborted.json").exists():
+            exposure_state = "not_exposed"
+            attempt_consumed = False
+            attempt_path = run_root / "attempts" / session.session_id
+            if (attempt_path / "result.json").exists():
+                failed = AttemptResult.model_validate_json(
+                    read_sealed(attempt_path / "result.json")
+                )
+                exposure_state = failed.provenance.exposure_state
+                attempt_consumed = failed.provenance.attempt_consumed
+            elif (attempt_path / "abort.json").exists():
+                aborted = AttemptAbortV1.model_validate_json(
+                    read_sealed(attempt_path / "abort.json")
+                )
+                exposure_state = aborted.exposure_state
+                attempt_consumed = aborted.attempt_consumed
             write_new(
                 run_root / "aborted.json",
                 canonical(
                     {
                         "session": session.session_id,
                         "reason": "preflight_or_attempt_failed",
-                        "rerun_permitted": False,
+                        "exposure_state": exposure_state,
+                        "attempt_consumed": attempt_consumed,
+                        "rerun_permitted": False if exposure_state == "exposed" else None,
+                        "review_required": True,
                     }
                 ),
             )

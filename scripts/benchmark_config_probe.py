@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import json
 import os
 import pathlib
@@ -5,7 +7,7 @@ import socket
 import subprocess
 import sys
 
-packet = json.loads(pathlib.Path("/packet/session.json").read_bytes())
+packet = json.loads(pathlib.Path("/control/session.json").read_bytes())
 argv = packet["codex_argv"]
 cfg = []
 for i, arg in enumerate(argv):
@@ -13,8 +15,44 @@ for i, arg in enumerate(argv):
         cfg.extend(argv[i : i + 2])
 # --strict-config is exec-only in this exact CLI; metadata commands still load overrides.
 cli = ["codex", *cfg]
-# Exercise the actual bootstrap's tmpfs auth-copy path using CLI --version only.
-packet["codex_argv"] = ["codex", "--version"]
+# Exercise the actual bootstrap's auth and staged-task path using CLI --version only.
+prompt = json.dumps(
+    {
+        "instructions": "synthetic only",
+        "task": "synthetic only",
+        "input": "synthetic only",
+        "session": {
+            "project": "config-probe",
+            "task_id": "config-probe",
+            "request_key": "config-probe",
+        },
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+).encode()
+guest_session = {
+    "codex_argv": ["codex", "--version"],
+    "session_id": "config-probe",
+    "plan_sha256": "0" * 64,
+    "prompt_sha256": hashlib.sha256(prompt).hexdigest(),
+    "prompt_length": len(prompt),
+    "protocol_sha256": "0" * 64,
+    "bootstrap_sha256": "0" * 64,
+}
+pathlib.Path("/capture/task-frame.json").write_text(
+    json.dumps(
+        {
+            "schema_version": 1,
+            "kind": "task_frame",
+            "session_id": "config-probe",
+            "prompt_sha256": guest_session["prompt_sha256"],
+            "prompt_length": len(prompt),
+            "payload_base64": base64.b64encode(prompt).decode(),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+)
 # Patch packet reading only in this synthetic metadata probe.
 sys.path.insert(0, "/")
 import bootstrap  # noqa: E402
@@ -23,7 +61,7 @@ original = pathlib.Path.read_bytes
 
 
 def read(p):
-    return json.dumps(packet).encode() if str(p) == "/packet/session.json" else original(p)
+    return json.dumps(guest_session).encode() if str(p) == "/control/session.json" else original(p)
 
 
 pathlib.Path.read_bytes = read

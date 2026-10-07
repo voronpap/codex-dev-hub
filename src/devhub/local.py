@@ -28,6 +28,12 @@ def now_ms() -> int:
     return time.time_ns() // 1_000_000
 
 
+def local_resource_id(config: OllamaConfig) -> str:
+    """Return the single authoritative local resource identity derivation."""
+
+    return "ollama-" + sha256(canonical(config.model_dump()).encode())[:32]
+
+
 class LocalConfig(Contract):
     project: Identifier
     root: str
@@ -82,7 +88,13 @@ class LocalRuntime:
         ledger = Ledger.initialize_state_root(Path(config.state_root), config.ledger_identity)
         return ledger.identity_sha256
 
-    def __init__(self, config: LocalConfig, *, output_policy: OutputPolicy | None = None) -> None:
+    def __init__(
+        self,
+        config: LocalConfig,
+        *,
+        output_policy: OutputPolicy | None = None,
+        recover_on_startup: bool = True,
+    ) -> None:
         self.output_policy = output_policy
         self.config = config
         root = Path(config.root).resolve(strict=True)
@@ -97,7 +109,7 @@ class LocalRuntime:
         self.builder = ContextBuilder(self.brain)
         self.core = ResourceController(ledger, allow_local_execution=True)
         self.adapter = OllamaAdapter(config.ollama, output_policy=output_policy)
-        self.resource = "ollama-" + sha256(canonical(config.ollama.model_dump()).encode())[:32]
+        self.resource = local_resource_id(config.ollama)
         self.buckets = {}
         for unit in ("requests", "input_tokens", "output_tokens", "total_tokens"):
             name = self.resource + "-" + unit
@@ -120,7 +132,10 @@ class LocalRuntime:
                 buckets=tuple(self.buckets.values()),
             )
         )
-        self.core.recover(now_ms=now_ms())
+        # Direct LocalRuntime use remains a supported entry point. DelegationRuntime
+        # passes False because it already reconciled the shared ledger exactly once.
+        if recover_on_startup:
+            self.core.recover(now_ms=now_ms())
 
     def run(self, request: LocalTask) -> LocalHandoff:
         # A repeated key must never cause another HTTP inference, even after restart.
