@@ -24,6 +24,7 @@ from devhub.experiment import (
 from devhub.experiment_bridge import MCPGate, UnixBridge, proxy
 from devhub.experiment_launch import (
     DOCKER,
+    AttemptAbortV1,
     AttemptResult,
     ContainerRuntimeSpec,
     DelegationObservation,
@@ -212,7 +213,14 @@ def execute_next(
                 raise ValueError("Execution order compromised")
             result_path = target / "result.json"
             if not result_path.exists():
-                raise ValueError("Interrupted attempt cannot be repeated or skipped")
+                abort_path = target / "abort.json"
+                if not abort_path.exists():
+                    raise ValueError("Attempt exposure is unknown; manual review required")
+                abort = AttemptAbortV1.model_validate_json(read_sealed(abort_path))
+                raise ValueError(
+                    f"Attempt stopped at {abort.last_state} with "
+                    f"{abort.exposure_state} exposure; manual review required"
+                )
             prior = AttemptResult.model_validate_json(read_sealed(result_path))
             if (
                 prior.status != "completed"
@@ -360,12 +368,28 @@ def execute_next(
                 },
             }
         )
+        guest_control = control / "guest-control"
+        guest_control.mkdir()
+        write_new(
+            guest_control / "session.json",
+            canonical(
+                {
+                    "codex_argv": cast(JsonValue, codex_argv(session, protocol)),
+                    "session_id": session.session_id,
+                    "plan_sha256": runtime.reviewed_plan_sha256,
+                    "prompt_sha256": digest(prompt),
+                    "prompt_length": len(prompt),
+                    "protocol_sha256": runtime.protocol_sha256,
+                    "bootstrap_sha256": runtime.bootstrap_sha256,
+                }
+            ),
+        )
         try:
             result = launch_container(
                 session,
                 protocol,
                 runtime,
-                packet,
+                guest_control,
                 bridge,
                 capture,
                 repo / "scripts/benchmark_guest.py",
@@ -385,13 +409,31 @@ def execute_next(
         return result
     except Exception:
         if not (run_root / "aborted.json").exists():
+            exposure_state = "not_exposed"
+            attempt_consumed = False
+            attempt_path = run_root / "attempts" / session.session_id
+            if (attempt_path / "result.json").exists():
+                failed = AttemptResult.model_validate_json(
+                    read_sealed(attempt_path / "result.json")
+                )
+                exposure_state = failed.provenance.exposure_state
+                attempt_consumed = failed.provenance.attempt_consumed
+            elif (attempt_path / "abort.json").exists():
+                aborted = AttemptAbortV1.model_validate_json(
+                    read_sealed(attempt_path / "abort.json")
+                )
+                exposure_state = aborted.exposure_state
+                attempt_consumed = aborted.attempt_consumed
             write_new(
                 run_root / "aborted.json",
                 canonical(
                     {
                         "session": session.session_id,
                         "reason": "preflight_or_attempt_failed",
-                        "rerun_permitted": False,
+                        "exposure_state": exposure_state,
+                        "attempt_consumed": attempt_consumed,
+                        "rerun_permitted": False if exposure_state == "exposed" else None,
+                        "review_required": True,
                     }
                 ),
             )

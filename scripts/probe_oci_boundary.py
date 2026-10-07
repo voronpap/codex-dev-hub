@@ -46,8 +46,12 @@ int main(int argc, char **argv) {
   }
   closedir(d);
   int home = access("/home/runner/.codex", F_OK) != 0;
-  int packet = access("/packet/input.txt", R_OK) == 0;
-  int readonly = access("/packet/input.txt", W_OK) != 0;
+  int control = access("/control/session.json", R_OK) == 0;
+  int readonly = access("/control/session.json", W_OK) != 0;
+  int task_hidden = access("/packet/input.txt", F_OK) != 0 &&
+                    access("/packet/task.txt", F_OK) != 0 &&
+                    access("/packet/instructions.txt", F_OK) != 0;
+  int packet_writable = access("/packet", W_OK) == 0;
   int uid = geteuid() == 1000;
   int caps = has("/proc/self/status", "CapEff:\t0000000000000000") &&
              has("/proc/self/status", "CapBnd:\t0000000000000000");
@@ -61,15 +65,19 @@ int main(int argc, char **argv) {
   printf("{\"host_canary_hidden\":%s,\"other_arm_hidden\":%s,"
          "\"source_and_oracle_hidden\":%s,\"network_denied\":%s,"
          "\"only_scoped_bridges\":%s,\"fresh_home\":%s,"
-         "\"packet_readable\":%s,\"packet_readonly\":%s,\"nonroot\":%s,\"capabilities_dropped\":%s,"
+         "\"control_readable\":%s,\"control_readonly\":%s,"
+         "\"task_files_initially_hidden\":%s,\"packet_tmpfs_writable\":%s,"
+         "\"nonroot\":%s,\"capabilities_dropped\":%s,"
          "\"no_new_privileges\":%s,\"resource_limits_effective\":%s,"
          "\"docker_socket_absent\":%s,\"host_home_absent\":%s,\"repository_absent\":%s}\n",
          hidden?"true":"false", other?"true":"false", oracle?"true":"false",
          denied?"true":"false", allowed?"true":"false", home?"true":"false",
-         packet?"true":"false", readonly?"true":"false", uid?"true":"false", caps?"true":"false",
+         control?"true":"false", readonly?"true":"false", task_hidden?"true":"false",
+         packet_writable?"true":"false", uid?"true":"false", caps?"true":"false",
          nnp?"true":"false", limits?"true":"false", docker?"true":"false",
          hosthome?"true":"false", repo?"true":"false");
-  return !(hidden && other && oracle && denied && allowed && home && packet && readonly && uid &&
+  return !(hidden && other && oracle && denied && allowed && home && control && readonly &&
+           task_hidden && packet_writable && uid &&
            caps && nnp && limits && docker && hosthome && repo);
 }
 """
@@ -96,10 +104,9 @@ def main():
             .decode()
             .strip()
         )
-        packet = root / "packet"
+        packet = root / "control"
         packet.mkdir()
-        for name in ("input.txt", "task.txt", "instructions.txt", "session.json"):
-            (packet / name).write_text("synthetic only")
+        (packet / "session.json").write_text("synthetic control only")
         bridge = root / "bridge"
         bridge.mkdir()
         (bridge / "proxy.sock").touch()

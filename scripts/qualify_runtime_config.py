@@ -57,8 +57,6 @@ def main():
                 packet_path="synthetic",
                 available_mcp_tools=() if arm == "A" else ("devhub_delegate",),
             )
-            for name in ("input.txt", "task.txt", "instructions.txt"):
-                (packet / name).write_text("synthetic metadata only")
             (packet / "session.json").write_bytes(
                 canonical({"codex_argv": codex_argv(session, protocol), "arm": arm})
             )

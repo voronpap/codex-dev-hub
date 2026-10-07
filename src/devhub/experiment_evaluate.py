@@ -4,62 +4,29 @@ import json
 import re
 import subprocess
 import tempfile
-import threading
-import time
 import uuid
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any
 
 from devhub.baseline import verified_cases
 from devhub.benchmark import canonical, digest, read_sealed, write_new
 from devhub.experiment import ExperimentProtocol, plan
-from devhub.experiment_launch import DOCKER, AttemptResult, mount, safe_artifacts
+from devhub.experiment_launch import DOCKER, AttemptResult, cleanup_container, mount, safe_artifacts
+from devhub.process_capture import ProcessCapture, capture_process
 
 
-def capture_evaluator(cid: str) -> tuple[bytes, bytes, bool, bool]:
-    """Bound untrusted stdout/stderr in memory; stop the entire container on overflow."""
-    process = subprocess.Popen(
-        [*DOCKER, "start", "--attach", cid], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+def capture_evaluator(cid: str) -> ProcessCapture:
+    """Use the same bounded stream algorithm as the main executor."""
+
+    def terminate_container() -> None:
+        subprocess.run([*DOCKER, "kill", cid], capture_output=True, timeout=15, check=False)
+
+    return capture_process(
+        [*DOCKER, "start", "--attach", cid],
+        None,
+        60,
+        terminate_execution=terminate_container,
     )
-    assert process.stdout is not None and process.stderr is not None
-    overflow = threading.Event()
-    streams: list[bytes] = [b"", b""]
-
-    def read(stream: BinaryIO, index: int) -> None:
-        data = bytearray()
-        while chunk := stream.read(65536):
-            if len(data) + len(chunk) > 1024 * 1024:
-                overflow.set()
-                break
-            data.extend(chunk)
-        streams[index] = bytes(data)
-
-    threads = [
-        threading.Thread(target=read, args=(stream, index), daemon=True)
-        for index, stream in enumerate((process.stdout, process.stderr))
-    ]
-    for thread in threads:
-        thread.start()
-    deadline = time.monotonic() + 60
-    timed_out = False
-    try:
-        while process.poll() is None:
-            timed_out = time.monotonic() >= deadline
-            if timed_out or overflow.is_set():
-                subprocess.run([*DOCKER, "kill", cid], capture_output=True, timeout=15, check=False)
-                process.kill()
-                break
-            time.sleep(0.05)
-        process.wait(timeout=10)
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=10)
-        for thread in threads:
-            thread.join(timeout=5)
-        process.stdout.close()
-        process.stderr.close()
-    return streams[0], streams[1], timed_out, overflow.is_set()
 
 
 def frozen_pair(
@@ -154,8 +121,10 @@ def evaluate_bytes(
             cid = subprocess.check_output(command, timeout=30).decode().strip()
             if re.fullmatch(r"[a-f0-9]{64}", cid) is None:
                 raise ValueError("Invalid evaluator provenance")
+            cleanup_succeeded = False
             try:
-                stdout, stderr, timeout, overflow = capture_evaluator(cid)
+                captured = capture_evaluator(cid)
+                stdout, stderr = captured.stdout.data, captured.stderr.data
                 state = json.loads(
                     subprocess.check_output(
                         [*DOCKER, "inspect", "--format", "{{json .State}}", cid], timeout=10
@@ -168,19 +137,27 @@ def evaluate_bytes(
                 write_new(destination / f"{label}.stderr", stderr)
                 results[label] = {
                     "reference_hash": digest(raw),
-                    "timeout": timeout,
-                    "output_limit_exceeded": overflow,
+                    "timeout": captured.timed_out,
+                    "output_limit_exceeded": captured.output_limit_exceeded,
+                    "artifact_withheld": captured.secret_detected,
+                    "input_error": captured.input_error,
                     "exit_status": state["ExitCode"],
                     "container_id": cid,
-                    "stdout_sha256": digest(stdout),
-                    "stderr_sha256": digest(stderr),
+                    "stdout": captured.stdout.evidence.model_dump(mode="json"),
+                    "stderr": captured.stderr.evidence.model_dump(mode="json"),
                 }
             finally:
-                subprocess.run(
-                    [*DOCKER, "rm", "--force", cid], capture_output=True, timeout=20, check=False
-                )
+                cleanup_succeeded = cleanup_container(cid)
+            if not cleanup_succeeded:
+                raise ValueError("Evaluator container cleanup failed")
     passed = (
-        not any(r["timeout"] or r["output_limit_exceeded"] for r in results.values())
+        not any(
+            r["timeout"]
+            or r["output_limit_exceeded"]
+            or r["artifact_withheld"]
+            or r["input_error"] is not None
+            for r in results.values()
+        )
         and results["buggy"]["exit_status"] == 1
         and results["corrected"]["exit_status"] == 0
     )

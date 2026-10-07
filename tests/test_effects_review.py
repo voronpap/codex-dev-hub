@@ -53,10 +53,38 @@ def test_critical_unknown_cannot_become_approval(fault):
 def test_probe_rejects_successful_protected_mutation():
     report = {
         "protected": {
-            "/packet/task.txt": {"unchanged": True, "operations": {"overwrite": {"denied": False}}}
+            "/control/session.json": {
+                "unchanged": True,
+                "operations": {"overwrite": {"denied": False}},
+            }
         },
-        "hidden": {},
-        "writable": {},
+        "hidden_host_paths": {},
+        "task_files_initially_absent": {},
+        "writable_tmpfs": {},
         "system_files": {},
     }
     assert not load("probe_effects_boundary").validate(report)
+
+
+def test_probe_separates_absent_task_files_from_writable_packet_tmpfs():
+    probe = load("probe_effects_boundary")
+    denied = {"denied": True, "errno": 13}
+    absent = {"denied": True, "errno": 2}
+    report = {
+        "protected": {
+            path: {
+                "unchanged": True,
+                "operations": {operation: denied for operation in ("overwrite", "append")},
+            }
+            for path in probe.PROTECTED_PATHS
+        },
+        "hidden_host_paths": {
+            path: {"stat": absent, "create": denied} for path in probe.HIDDEN_HOST_PATHS
+        },
+        # No create result exists for task files: creating them after TASK_ACCEPTED is valid.
+        "task_files_initially_absent": {path: {"stat": absent} for path in probe.TASK_FILES},
+        "writable_tmpfs": {path: True for path in probe.WRITABLE_TMPFS},
+        "system_files": {path: denied for path in ("/etc/hosts", "/etc/hostname")},
+    }
+    assert probe.validate(report)
+    assert report["writable_tmpfs"]["/packet"] is True

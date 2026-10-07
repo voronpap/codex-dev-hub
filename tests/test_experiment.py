@@ -4,6 +4,8 @@ import json
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,6 +16,7 @@ from devhub.benchmark import Quality, digest
 from devhub.experiment import ExperimentProtocol, PlannedSession, RuntimeBindings, plan
 from devhub.experiment_bridge import MCPGate, connect_target
 from devhub.experiment_launch import (
+    AttemptAbortV1,
     AttemptResult,
     ContainerRuntimeSpec,
     DelegationObservation,
@@ -28,6 +31,7 @@ from devhub.experiment_launch import (
 )
 from devhub.experiment_review import ComparisonInput, compare, reviewer_rules
 from devhub.experiment_run import execute_next, packet_bytes
+from devhub.process_capture import CapturedStream, CapturedStreamV1, ProcessCapture
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -115,10 +119,9 @@ def session(arm="A"):
 
 @pytest.fixture
 def boundary(tmp_path, protocol):
-    packet = tmp_path / "packet"
+    packet = tmp_path / "control"
     packet.mkdir()
-    for name in ("input.txt", "task.txt", "instructions.txt", "session.json"):
-        (packet / name).write_bytes(b"SYNTHETIC ONLY")
+    (packet / "session.json").write_bytes(b"SYNTHETIC CONTROL ONLY")
     bridge = tmp_path / "bridge"
     bridge.mkdir()
     (bridge / "proxy.sock").touch()
@@ -193,6 +196,9 @@ def test_oci_mount_and_network_scope(boundary):
     assert "--cap-drop=ALL" in args and "--security-opt=no-new-privileges" in args
     mounts = [args[i + 1] for i, v in enumerate(args) if v == "--mount"]
     assert len(mounts) == 5
+    assert any("dst=/control" in mount for mount in mounts)
+    assert not any("dst=/packet" in mount for mount in mounts)
+    assert any(value.startswith("/packet:rw,noexec,nosuid,size=16m") for value in args)
     assert all(str(ROOT) not in m and "docker.sock" not in m for m in mounts)
     assert not any("host" == a or "privileged" in a for a in args)
     assert not any("GROQ_API_KEY" in a or "GEMINI_API_KEY" in a for a in args)
@@ -202,11 +208,11 @@ def test_oci_mount_and_network_scope(boundary):
     assert container_command(session("B"), bindings, packet, bridge, capture, bootstrap, auth)
 
 
-@pytest.mark.parametrize("extra", ["oracle.json", "other-arm.txt", "previous-output.txt"])
-def test_contaminated_packet_rejected(boundary, extra):
+@pytest.mark.parametrize("extra", ["oracle.json", "task.txt", "previous-output.txt"])
+def test_contaminated_guest_control_rejected(boundary, extra):
     bindings, packet, bridge, capture, bootstrap, auth = boundary
     (packet / extra).write_text("canary")
-    with pytest.raises(ValueError, match="Packet"):
+    with pytest.raises(ValueError, match="control"):
         container_command(session(), bindings, packet, bridge, capture, bootstrap, auth)
 
 
@@ -248,14 +254,12 @@ def test_generated_execution_event_compromises_boundary():
 
 def test_actual_process_failure_timeout_and_raw_bytes():
     raw = b"original\r\n\x00bytes"
-    out, _, code, timeout, *_ = capture_process(
+    captured = capture_process(
         [sys.executable, "-c", f"import sys;sys.stdout.buffer.write({raw!r});sys.exit(7)"], b"", 5
     )
-    assert out == raw and code == 7 and not timeout
-    _, _, _, timeout, *_ = capture_process(
-        [sys.executable, "-c", "import time;time.sleep(3)"], b"", 0.05
-    )
-    assert timeout
+    assert captured.stdout.data == raw and captured.returncode == 7 and not captured.timed_out
+    timed = capture_process([sys.executable, "-c", "import time;time.sleep(3)"], b"", 0.05)
+    assert timed.timed_out
 
 
 def test_claim_exclusive_and_no_actual_result_without_provenance(tmp_path):
@@ -266,6 +270,25 @@ def test_claim_exclusive_and_no_actual_result_without_provenance(tmp_path):
     assert path.read_bytes() == b"first"
     with pytest.raises(ValidationError):
         AttemptResult.model_validate({"status": "completed", "reason": "invented"})
+
+
+@pytest.mark.parametrize(
+    "exposure,consumed,rerun",
+    [("not_exposed", False, None), ("unknown", True, None), ("exposed", True, False)],
+)
+def test_attempt_abort_exposure_contract(exposure, consumed, rerun):
+    item = AttemptAbortV1(
+        status="not_run" if exposure == "not_exposed" else "failed",
+        reason="synthetic",
+        last_state="claimed" if exposure == "not_exposed" else "guest_ready",
+        exposure_state=exposure,
+        attempt_consumed=consumed,
+        rerun_permitted=rerun,
+        cleanup_succeeded=True,
+    )
+    assert item.attempt_consumed is consumed
+    with pytest.raises(ValidationError):
+        AttemptAbortV1.model_validate(item.model_dump() | {"attempt_consumed": not consumed})
 
 
 def test_no_delegation_does_not_create_cost_measurement():
@@ -414,15 +437,81 @@ def test_synthetic_engine_freezes_unmodified_output_and_failure(
 
     def run(args, **kwargs):
         commands.append(args)
-        return subprocess.CompletedProcess(args, 0, ("d" * 64 + "\n").encode(), b"")
+        code = 1 if "inspect" in args else 0
+        stdout = ("d" * 64 + "\n").encode() if "create" in args else b""
+        return subprocess.CompletedProcess(args, code, stdout, b"")
 
     monkeypatch.setattr(mod.subprocess, "run", run)
     raw = b"unchanged\r\nfinal\x00"
 
     def process(*args, **kwargs):
+        ready = {
+            "schema_version": 1,
+            "kind": "guest_ready",
+            "session_id": "synthetic-session",
+            "plan_sha256": "c" * 64,
+            "prompt_sha256": digest(b"SYNTHETIC ONLY"),
+            "prompt_length": len(b"SYNTHETIC ONLY"),
+            "protocol_sha256": bindings.protocol_sha256,
+            "bootstrap_sha256": bindings.bootstrap_sha256,
+        }
+        (capture / "guest-ready.json").write_text(json.dumps(ready))
+
+        def accept():
+            frame_path = capture / "task-frame.json"
+            while True:
+                try:
+                    frame = json.loads(frame_path.read_bytes())
+                    break
+                except (FileNotFoundError, PermissionError):
+                    time.sleep(0.005)
+            (capture / "task-accepted.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "kind": "task_accepted",
+                        "session_id": frame["session_id"],
+                        "prompt_sha256": frame["prompt_sha256"],
+                        "prompt_length": frame["prompt_length"],
+                    }
+                )
+            )
+
+        thread = threading.Thread(target=accept)
+        thread.start()
+        kwargs["input_driver"](object(), time.monotonic() + 5, threading.Event())
+        thread.join(timeout=5)
         (capture / "final.txt").write_bytes(raw)
         now = datetime.now(UTC)
-        return events(), b"", exit_code, timed_out, now, now, 10
+        if timed_out:
+            kwargs["terminate_execution"]()
+        stdout = CapturedStream(
+            events(),
+            CapturedStreamV1(
+                retained_bytes=len(events()),
+                observed_bytes=len(events()),
+                truncated=False,
+                retained_sha256=digest(events()),
+            ),
+        )
+        stderr = CapturedStream(
+            b"",
+            CapturedStreamV1(
+                retained_bytes=0, observed_bytes=0, truncated=False, retained_sha256=digest(b"")
+            ),
+        )
+        return ProcessCapture(
+            stdout=stdout,
+            stderr=stderr,
+            returncode=exit_code,
+            timed_out=timed_out,
+            output_limit_exceeded=False,
+            secret_detected=False,
+            input_error=None,
+            started_at=now,
+            ended_at=now,
+            duration_ns=10,
+        )
 
     monkeypatch.setattr(mod, "capture_process", process)
     monkeypatch.setattr(
@@ -451,7 +540,7 @@ def test_synthetic_engine_freezes_unmodified_output_and_failure(
     assert (dest / "output.bin").read_bytes() == raw
     assert result.provenance.output_sha256 == digest(raw)
     assert result.status == ("completed" if exit_code == 0 and not timed_out else "failed")
-    assert any("kill" in args for args in commands)
+    assert any("rm" in args and "--force" in args for args in commands)
     assert result.executor_retries == 0
 
 

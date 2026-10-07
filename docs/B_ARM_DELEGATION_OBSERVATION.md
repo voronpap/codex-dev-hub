@@ -51,9 +51,12 @@ remains null until the later frozen review.
 - AUD-002 qualification authority: implemented and merged.
 - AUD-009 immutable Python runtime: implemented and merged.
 - AUD-003 B-arm observation: implemented by the focused change described here.
-- AUD-005 recovery ordering: open.
-- AUD-008 executor capture/cleanup: open.
-- AUD-011 task-exposure boundary: open.
+- AUD-005 recovery ordering: implemented in the focused execution-boundary change.
+- AUD-008 executor capture/cleanup: implemented in the focused execution-boundary change.
+- AUD-011 task-exposure boundary: implemented in the focused execution-boundary change.
+
+See [STAGE3G_EXECUTION_BOUNDARY.md](STAGE3G_EXECUTION_BOUNDARY.md). These infrastructure
+changes do not qualify Candidate B or make Stage 3G execution-ready.
 - Legacy ledger adoption: not implemented.
 
 Stage 3G-C and Stage 3G remain open. `execution_ready` remains false. Build-009 has

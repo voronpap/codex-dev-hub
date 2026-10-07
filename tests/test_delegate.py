@@ -21,6 +21,7 @@ from devhub.events import EventOutbox
 from devhub.local import LocalRuntime
 from devhub.ollama import OllamaError
 from devhub.output import OutputPolicy, validate_output
+from devhub.resources import Admission
 
 VALID = json.dumps(dict(schema_version=1, summary="Validate source hashes.", citations=["s1"]))
 
@@ -40,8 +41,9 @@ def configure_local(monkeypatch, runtime, response=VALID):
 
     runtime.adapter.http.request = http
 
-    def factory(config, *, output_policy):
+    def factory(config, *, output_policy, recover_on_startup=True):
         assert config == runtime.config
+        assert recover_on_startup is False
         runtime.output_policy = runtime.adapter.output_policy = output_policy
         return runtime
 
@@ -81,6 +83,132 @@ def test_local_structured_accounting_and_restart_replay(local, monkeypatch):
         == "request_already_attempted"
     )
     assert calls.count("/api/generate") == 1
+
+
+def expired_admission(runtime, task):
+    return Admission(
+        project=runtime.config.project,
+        task=task.task_id,
+        key=task.request_key,
+        resource=runtime.resource,
+        payload_sha256="a" * 64,
+        input_tokens=1,
+        max_output_tokens=1,
+        expires_ms=1,
+    )
+
+
+def test_delegation_startup_recovers_before_replay_and_is_idempotent(local):
+    runtime, task, calls, _ = local
+    admission = expired_admission(runtime, task)
+    ticket = runtime.core.reserve(admission, now_ms=0)
+    runtime.core.dispatch(ticket.id, admission, now_ms=0)
+    hub = service(runtime)
+    with hub.ledger.transaction() as connection:
+        state = connection.execute(
+            "SELECT state FROM reservations WHERE id=?", (ticket.id,)
+        ).fetchone()[0]
+    transitions = [
+        event.transition
+        for event in EventOutbox(hub.ledger).pending(project=runtime.config.project)
+    ]
+    assert state == "unknown_usage"
+    assert transitions == ["reserved", "dispatched", "unknown_usage"]
+    assert hub.run(request(runtime, task)).reason == "request_already_attempted"
+    assert calls.count("/api/generate") == 0
+    service(runtime)
+    assert [
+        event.transition
+        for event in EventOutbox(hub.ledger).pending(project=runtime.config.project)
+    ] == transitions
+
+
+def test_delegation_startup_releases_reserved_once_and_preserves_terminal_states(local):
+    runtime, task, _, _ = local
+    admission = expired_admission(runtime, task)
+    ticket = runtime.core.reserve(admission, now_ms=0)
+    hub = service(runtime)
+    with hub.ledger.transaction() as connection:
+        assert (
+            connection.execute(
+                "SELECT state FROM reservations WHERE id=?", (ticket.id,)
+            ).fetchone()[0]
+            == "released"
+        )
+    transitions = [
+        event.transition
+        for event in EventOutbox(hub.ledger).pending(project=runtime.config.project)
+    ]
+    assert transitions == ["reserved", "released"]
+    service(runtime)
+    assert [
+        event.transition
+        for event in EventOutbox(hub.ledger).pending(project=runtime.config.project)
+    ] == transitions
+
+
+def test_recovery_failure_prevents_delegation_runtime_startup(local, monkeypatch):
+    runtime, _, _, _ = local
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("recovery authority unavailable")
+
+    monkeypatch.setattr(delegate.ResourceController, "recover", fail)
+    with pytest.raises(RuntimeError, match="recovery authority"):
+        service(runtime)
+
+
+def test_shared_profiles_trigger_one_authoritative_startup_recovery(local, monkeypatch):
+    runtime, _, _, _ = local
+    original = delegate.ResourceController.recover
+    calls = []
+
+    def counted(self, *, now_ms):
+        calls.append(now_ms)
+        return original(self, now_ms=now_ms)
+
+    monkeypatch.setattr(delegate.ResourceController, "recover", counted)
+    DelegationRuntime(
+        DelegationConfig(
+            profiles=(
+                ProviderProfile(id="one", config=runtime.config),
+                ProviderProfile(id="two", config=runtime.config),
+            )
+        )
+    )
+    assert len(calls) == 1
+
+
+def test_startup_recovery_preserves_settled_and_unknown_liability(local):
+    runtime, task, _, _ = local
+    settled_admission = expired_admission(runtime, task).model_copy(
+        update={"task": "settled", "key": "settled"}
+    )
+    settled = runtime.core.reserve(settled_admission, now_ms=0)
+    runtime.core.dispatch(settled.id, settled_admission, now_ms=0)
+    runtime.core.settle(
+        settled.id,
+        project=runtime.config.project,
+        actual={
+            bucket: 2 if unit == "total_tokens" else 1 for unit, bucket in runtime.buckets.items()
+        },
+    )
+    unknown_admission = expired_admission(runtime, task).model_copy(update={"key": "unknown"})
+    unknown = runtime.core.reserve(unknown_admission, now_ms=0)
+    runtime.core.dispatch(unknown.id, unknown_admission, now_ms=0)
+    runtime.core.unknown(unknown.id, project=runtime.config.project)
+    before = [event.transition for event in EventOutbox(runtime.core.ledger).pending(project="p")]
+    service(runtime)
+    with runtime.core.ledger.transaction() as connection:
+        states = dict(
+            connection.execute(
+                "SELECT id,state FROM reservations WHERE id IN (?,?)", (unknown.id, settled.id)
+            )
+        )
+    assert states == {unknown.id: "unknown_usage", settled.id: "settled"}
+    assert [
+        event.transition for event in EventOutbox(runtime.core.ledger).pending(project="p")
+    ] == before
 
 
 @pytest.mark.parametrize(
@@ -234,8 +362,9 @@ def configure_cloud(monkeypatch, runtime, req, response=VALID):
 
     runtime.adapter.http.request = http
 
-    def factory(config, *, output_policy):
+    def factory(config, *, output_policy, recover_on_startup=True):
         assert config == runtime.config
+        assert recover_on_startup is False
         runtime.output_policy = runtime.adapter.output_policy = output_policy
         return runtime
 
@@ -285,7 +414,8 @@ def test_pre_reservation_ineligible_provider_chooses_next(local, monkeypatch):
     factory = delegate.LocalRuntime
     attempts = []
 
-    def next_candidate(config, *, output_policy):
+    def next_candidate(config, *, output_policy, recover_on_startup=True):
+        assert recover_on_startup is False
         attempts.append(config.ollama.model)
         if config.ollama.model == "unavailable":
             failed = LocalRuntime(config, output_policy=output_policy)
@@ -295,7 +425,7 @@ def test_pre_reservation_ineligible_provider_chooses_next(local, monkeypatch):
 
             monkeypatch.setattr(failed.adapter, "inspect", deny)
             return failed
-        return factory(config, output_policy=output_policy)
+        return factory(config, output_policy=output_policy, recover_on_startup=False)
 
     monkeypatch.setattr(delegate, "LocalRuntime", next_candidate)
     unavailable = runtime.config.model_copy(

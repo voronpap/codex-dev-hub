@@ -17,10 +17,7 @@ def attempt(operation):
 def main():
     protected = {}
     for name in (
-        "/packet/input.txt",
-        "/packet/task.txt",
-        "/packet/instructions.txt",
-        "/packet/session.json",
+        "/control/session.json",
         "/bootstrap.py",
         "/auth.json",
     ):
@@ -37,7 +34,7 @@ def main():
             "operations": operations,
             "unchanged": path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() == before,
         }
-    hidden = {}
+    hidden_host_paths = {}
     for name in (
         "/host",
         "/workspace",
@@ -53,15 +50,25 @@ def main():
         "/var/run/docker.sock",
     ):
         path = Path(name)
-        hidden[name] = {
+        hidden_host_paths[name] = {
             "stat": attempt(path.stat),
             "create": attempt(lambda path=path: path.mkdir(parents=True)),
         }
-    writable = {}
-    for name in ("/tmp", "/home/runner", "/capture", "/dev/shm"):
+    # The task files must be absent before the reviewed transfer. Do not attempt
+    # creation here: the guest legitimately creates them after TASK_ACCEPTED.
+    task_files_initially_absent = {
+        name: {"stat": attempt(Path(name).stat)}
+        for name in (
+            "/packet/input.txt",
+            "/packet/task.txt",
+            "/packet/instructions.txt",
+        )
+    }
+    writable_tmpfs = {}
+    for name in ("/tmp", "/home/runner", "/capture", "/dev/shm", "/packet"):
         path = Path(name) / "synthetic-effect"
         result = attempt(lambda path=path: path.write_bytes(b"synthetic only"))
-        writable[name] = not result["denied"]
+        writable_tmpfs[name] = not result["denied"]
     # Docker-generated /etc files can be rw mounts yet unwritable to UID 1000.
     system_files = {
         name: attempt(lambda p=Path(name): p.open("ab").close())
@@ -69,8 +76,9 @@ def main():
     }
     report = {
         "protected": protected,
-        "hidden": hidden,
-        "writable": writable,
+        "hidden_host_paths": hidden_host_paths,
+        "task_files_initially_absent": task_files_initially_absent,
+        "writable_tmpfs": writable_tmpfs,
         "system_files": system_files,
         "mountinfo": Path("/proc/self/mountinfo").read_text(),
         "namespaces": {p.name: os.readlink(p) for p in Path("/proc/self/ns").iterdir()},
