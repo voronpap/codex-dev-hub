@@ -157,7 +157,6 @@ def test_build009_stops_before_compile_on_arm_a_authority_gap() -> None:
         (REPO / "docs/evidence/stage3g-approved-call/build-009-preflight.json").read_bytes()
     )
     base = (REPO / "patches/stage3g-approved-call/candidate.patch").read_bytes()
-    host = (REPO / "patches/stage3g-approved-call/host-integration.patch").read_bytes()
     manifest = (REPO / "benchmarks/approved-delegate-host-manifest-v1.json").read_bytes()
     manifest_schema = (
         REPO / "benchmarks/approved-delegate-host-manifest-v1.schema.json"
@@ -165,9 +164,13 @@ def test_build009_stops_before_compile_on_arm_a_authority_gap() -> None:
     assert evidence["result"] == "BLOCKED_BEFORE_RUST_COMPILATION"
     assert evidence["classification"] == "PRODUCTION_HOST_ARM_A_CEILING_MISSING"
     assert evidence["candidate_b_base_patch_sha256"] == hashlib.sha256(base).hexdigest()
-    assert evidence["host_integration_patch_sha256"] == hashlib.sha256(host).hexdigest()
-    assert (
-        evidence["combined_production_patchset_sha256"] == hashlib.sha256(base + host).hexdigest()
+    # Attempt 1 is immutable historical evidence. The active host patch is refreshed
+    # separately after the remediation merge and must not rewrite these identities.
+    assert evidence["host_integration_patch_sha256"] == (
+        "c8d0c24a173ea34d66a53a8b7c81f26629ab23e3c51e18f615beff50637516ac"
+    )
+    assert evidence["combined_production_patchset_sha256"] == (
+        "a822c561bbeafa1cbb99ecb268d3e2c7fc8f17f471477fd4a2c694a9f8866113"
     )
     assert evidence["manifest"]["sha256"] == hashlib.sha256(manifest).hexdigest()
     assert evidence["manifest"]["schema_sha256"] == hashlib.sha256(manifest_schema).hexdigest()

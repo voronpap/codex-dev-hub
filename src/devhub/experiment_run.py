@@ -41,6 +41,7 @@ from devhub.local import LocalConfig, local_resource_id
 from devhub.ollama import OllamaAdapter
 from devhub.qualification import VerifiedQualificationV2, verify_manifest_tree
 from devhub.runtime_artifact import verified_delegate_command
+from devhub.stage3g_host import read_stage3g_host_manifest
 
 
 def packet_bytes(
@@ -86,6 +87,10 @@ def environment_guard(
         or expected.ollama_expected.digest != protocol.ollama.model_digest
     ):
         raise ValueError("Ollama protocol identity differs from qualification")
+    host_manifest = repo / "benchmarks" / "stage3g-host-manifest-v2.json"
+    _, host_manifest_raw = read_stage3g_host_manifest(host_manifest)
+    if digest(host_manifest_raw) != expected.runtime_expected.approved_host_manifest_sha256:
+        raise ValueError("Stage 3G host manifest differs from qualification")
     image_id = expected.runtime_expected.image_id
     image = json.loads(subprocess.check_output([*DOCKER, "image", "inspect", image_id]))[0]
     if image["Id"] != image_id or image["Config"].get("Volumes"):
@@ -244,6 +249,7 @@ def execute_next(
     volatile_capture = None
     try:
         environment_guard(repo, qualification, protocol)
+        host_manifest = repo / "benchmarks" / "stage3g-host-manifest-v2.json"
         packets = packet_bytes(repo, session, protocol)
         control = run_root / "private" / session.session_id
         control.mkdir(parents=True, exist_ok=False)
@@ -394,6 +400,7 @@ def execute_next(
                 capture,
                 repo / "scripts/benchmark_guest.py",
                 auth,
+                host_manifest,
                 run_root / "attempts" / session.session_id,
                 prompt,
                 reviewed_plan_sha256=runtime.reviewed_plan_sha256,

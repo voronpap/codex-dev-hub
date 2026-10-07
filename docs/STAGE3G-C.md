@@ -113,6 +113,16 @@ historical evidence; no attempt/permit reset, rerun, resume or fork.
 
 ## Current limits and CI
 
+The post-remediation build-009 source preflight keeps the historical Candidate B
+patch fixed and refreshes only shipping host integration. Its proposed
+`AllowedTools` states distinguish ordinary Codex (`None`) from Arm A (`Some([])`)
+and Arm B (`Some([mcp__devhub_delegate.devhub_delegate])`). Static source evidence
+therefore removes the previous Arm A/extra-tool ambiguity in the proposed binary.
+The currently built exact image still lacks that uncompiled integration and may
+continue to report the historical `cli_config`, `apply_patch`, and `write_file`
+gate failures. Actual process visibility remains null until build-009 is separately
+authorized and run. Stage 3G-C and Stage 3G remain open and `execution_ready=false`.
+
 Local Docker Desktop Linux daemon remains unavailable after startup attempts; its
 named pipe is absent. Therefore no local runtime image/environment can yet be
 qualified. The dedicated Linux qualification workflow builds exact images and uses

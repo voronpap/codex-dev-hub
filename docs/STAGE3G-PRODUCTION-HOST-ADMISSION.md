@@ -308,3 +308,32 @@ provider request, rehearsal or benchmark was run. Review must choose an explicit
 trusted Arm A no-tools ceiling or revise the expected Arm A surface before a
 Rust build is safe. Machine-readable evidence is in
 `docs/evidence/stage3g-approved-call/build-009-preflight.json`.
+
+## Remediation-integrated source refresh
+
+The first build-009 preflight result above is immutable historical evidence. Its
+Arm A ceiling finding is addressed in the refreshed, separately hashed host
+integration proposal without changing Candidate B. One versioned host manifest
+contains both reviewed arms. The trusted launcher selects the arm at `codex exec`
+startup and the host inserts the corresponding `AllowedTools` into the immutable
+fresh-thread `ExtensionDataInit` template:
+
+```text
+ordinary Codex: AllowedTools absent; ApprovedDelegatePolicy absent
+Arm A:          AllowedTools([]); ApprovedDelegatePolicy absent
+Arm B:          AllowedTools([mcp__devhub_delegate.devhub_delegate]); exact policy
+```
+
+The ceiling is installed before router construction. Existing reviewed
+`AllowedTools` source evidence covers registered, external, hosted, dynamic, and
+Code Mode generated surfaces. Thus the proposed source has no permitted
+`apply_patch`, `write_file`, or other non-delegate surface in either Stage 3G
+arm. This is a source/pre-build result only; finalized process visibility remains
+unobserved until the single separately authorized build-009 compilation and
+same-binary A/B inspection.
+
+The host manifest's exact raw hash is carried by `QualificationManifestV2`.
+The benchmark launcher revalidates that hash and mounts the reviewed manifest
+read-only. All other merged qualification and execution-boundary authorities
+remain unchanged. No Rust compilation, process task, provider request, rehearsal,
+or benchmark is performed by this refresh.

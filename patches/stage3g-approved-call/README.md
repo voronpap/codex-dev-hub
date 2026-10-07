@@ -42,3 +42,30 @@ The admitted schema must remain the real reviewed schema whose canonical JSON
 SHA-256 is `0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be`.
 Source assembly is explicit and refuses unmatched anchors. No generated Cargo.lock
 is committed. Historical #31/#32/#33 evidence remains unchanged.
+
+## Post-remediation host integration refresh
+
+After AUD-001/002/003/005/008/009/011 merged, current main was merged into the
+Stage 3G branch without rebasing. The historical Candidate B patch remains
+byte-identical. The separately versioned shipping host delta now consumes the
+strict shared `stage3g-host-manifest-v2.json` through dedicated `codex exec`
+startup arguments and installs host-owned `ExtensionDataInit` before
+`thread/start` and `build_tool_router`.
+
+The three distinct startup states are intentional:
+
+- ordinary Codex: no host manifest, `AllowedTools = None`, no approved policy;
+- Stage 3G Arm A: `AllowedTools = Some([])`, no approved policy;
+- Stage 3G Arm B: one canonical delegate in `AllowedTools` plus the exact
+  reviewed `ApprovedDelegatePolicy`.
+
+The manifest locator is not authority on its own. `QualificationManifestV2`
+binds its exact bytes, along with the immutable Python runtime, ledger, Codex,
+Ollama, evaluator, and other host-sensitive evidence. The launcher re-reads and
+rehashes the manifest before container exposure. Client request parameters,
+task content, MCP metadata, model output, and repository content cannot populate
+the Rust host template.
+
+This refresh is still pre-build evidence. It does not replace the required
+actual `codex exec` A/B process observation, does not establish process proof,
+and does not change `execution_ready`.

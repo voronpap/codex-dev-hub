@@ -1,9 +1,9 @@
 diff --git a/app-server-client/Cargo.toml b/app-server-client/Cargo.toml
-index daa6ef6..0e723bc 100644
+index daa6ef661f00486af405e764705a60bdcf7b1036..0e723bc46e98982326cda23a6f42806970abe501 100644
 --- a/app-server-client/Cargo.toml
 +++ b/app-server-client/Cargo.toml
 @@ -14,6 +14,7 @@ workspace = true
-
+ 
  [dependencies]
  codex-app-server = { workspace = true }
 +codex-extension-api = { workspace = true }
@@ -11,17 +11,17 @@ index daa6ef6..0e723bc 100644
  codex-arg0 = { workspace = true }
  codex-config = { workspace = true }
 diff --git a/app-server-client/src/lib.rs b/app-server-client/src/lib.rs
-index 588e5b1..375c432 100644
+index 588e5b1566f5b2b32f654500c9506a08f23dc685..904b0f50da9e1e749ff67b7c7a82757110e395f0 100644
 --- a/app-server-client/src/lib.rs
 +++ b/app-server-client/src/lib.rs
-@@ -31,6 +31,7 @@ pub use codex_app_server::app_server_control_socket_path;
- pub use codex_app_server::in_process::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
- pub use codex_app_server::in_process::InProcessServerEvent;
- use codex_app_server::in_process::InProcessStartArgs;
+@@ -52,6 +52,7 @@ use codex_core::config::Config;
+ pub use codex_core::otel_init::build_provider as build_otel_provider;
+ pub use codex_exec_server::EnvironmentManager;
+ pub use codex_exec_server::ExecServerRuntimePaths;
 +use codex_extension_api::ExtensionDataInit;
- use codex_app_server::in_process::LogDbLayer;
- pub use codex_app_server::in_process::StateDbHandle;
- use codex_app_server_protocol::ClientInfo;
+ use codex_feedback::CodexFeedback;
+ use codex_protocol::protocol::SessionSource;
+ use codex_utils_absolute_path::AbsolutePathBuf;
 @@ -206,6 +207,8 @@ pub struct InProcessClientStartArgs {
      pub mcp_server_openai_form_elicitation: bool,
      /// Notification methods this client opts out of receiving.
@@ -43,22 +43,20 @@ index 588e5b1..375c432 100644
              mcp_server_openai_form_elicitation: false,
              opt_out_notification_methods: Vec::new(),
              channel_capacity,
-+        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++            thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
          })
          .await
          .expect("in-process app-server client should start");
-@@ -2071,7 +2076,8 @@ mod tests {
+@@ -2071,6 +2076,7 @@ mod tests {
              experimental_api: true,
              mcp_server_openai_form_elicitation: true,
              opt_out_notification_methods: Vec::new(),
--            channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
 +            thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
-+        channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
+             channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
          }
          .into_runtime_start_args();
-
 diff --git a/app-server/src/in_process.rs b/app-server/src/in_process.rs
-index 20e44d3..c7c5aec 100644
+index 20e44d325329f2c02bf40e7ce5c80d5cb768bcbb..acf3604e93e4f2ed3cddf4652868d81c41322096 100644
 --- a/app-server/src/in_process.rs
 +++ b/app-server/src/in_process.rs
 @@ -162,6 +162,8 @@ pub struct InProcessStartArgs {
@@ -82,12 +80,12 @@ index 20e44d3..c7c5aec 100644
                  capabilities: None,
              },
              channel_capacity,
-+        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++            thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
          };
          let mut client = start(args).await.expect("in-process runtime should start");
          client._test_codex_home = Some(codex_home);
 diff --git a/app-server/src/lib.rs b/app-server/src/lib.rs
-index 68c48a2..b884add 100644
+index 68c48a2613984281d76421539b21ebc077a061b5..b884addb9f2c4fd654a50f20f86a8eebe6c68e31 100644
 --- a/app-server/src/lib.rs
 +++ b/app-server/src/lib.rs
 @@ -978,6 +978,7 @@ pub async fn run_main_with_transport_options(
@@ -99,7 +97,7 @@ index 68c48a2..b884add 100644
          let mut thread_created_rx = processor.thread_created_receiver();
          let mut running_turn_count_rx = processor.subscribe_running_assistant_turn_count();
 diff --git a/app-server/src/message_processor.rs b/app-server/src/message_processor.rs
-index 17b6d2d..005b1b4 100644
+index 17b6d2d4e5b191b0a2736c6aa535947ec00d8326..8e74f4df7bbbe6ee8717138490d1b86296c0eccd 100644
 --- a/app-server/src/message_processor.rs
 +++ b/app-server/src/message_processor.rs
 @@ -264,6 +264,8 @@ pub(crate) struct MessageProcessorArgs {
@@ -109,18 +107,17 @@ index 17b6d2d..005b1b4 100644
 +    /// Immutable trusted-host template for fresh thread extension state.
 +    pub(crate) thread_extension_init: codex_extension_api::ExtensionDataInit,
  }
-
+ 
  impl MessageProcessor {
-@@ -289,6 +291,8 @@ impl MessageProcessor {
+@@ -289,6 +291,7 @@ impl MessageProcessor {
              rpc_transport,
              remote_control_handle,
              plugin_startup_tasks,
 +            thread_extension_init,
-+        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
          } = args;
          let thread_state_manager = ThreadStateManager::new();
          outgoing.watch_user_verification_auth(Arc::clone(&auth_manager));
-@@ -514,6 +518,7 @@ impl MessageProcessor {
+@@ -514,6 +517,7 @@ impl MessageProcessor {
              Arc::clone(&skills_watcher),
              turn_cost_worker.as_ref().map(TurnCostWorker::handle),
              config_warnings,
@@ -129,19 +126,19 @@ index 17b6d2d..005b1b4 100644
          let turn_processor = TurnRequestProcessor::new(
              auth_manager,
 diff --git a/app-server/src/message_processor_tracing_tests.rs b/app-server/src/message_processor_tracing_tests.rs
-index 6715805..6b077cd 100644
+index 6715805dc94a2df1eba63e60d06f2c838fb70eee..f594810ff22f5794a1d696de5022b221e8c0b896 100644
 --- a/app-server/src/message_processor_tracing_tests.rs
 +++ b/app-server/src/message_processor_tracing_tests.rs
 @@ -276,6 +276,7 @@ async fn build_test_processor(
          rpc_transport: AppServerRpcTransport::Stdio,
          remote_control_handle: None,
          plugin_startup_tasks: Some(PluginStartupConfig::Current),
-+    thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
      }));
      (processor, outgoing_rx)
  }
 diff --git a/app-server/src/request_processors/thread_processor.rs b/app-server/src/request_processors/thread_processor.rs
-index 04c2229..23cef06 100644
+index 04c222965227872699ceefac485c96ce219d5183..e053cccc0a3e2311c50dc91526c3b736d70eec5d 100644
 --- a/app-server/src/request_processors/thread_processor.rs
 +++ b/app-server/src/request_processors/thread_processor.rs
 @@ -455,6 +455,8 @@ pub(crate) struct ThreadRequestProcessor {
@@ -151,7 +148,7 @@ index 04c2229..23cef06 100644
 +    /// Trusted host template. Client request payloads cannot replace these values.
 +    pub(super) thread_extension_init: ExtensionDataInit,
  }
-
+ 
  /// Whether resume attaches a client or restores a cold runtime during daemon startup.
 @@ -494,6 +496,7 @@ impl ThreadRequestProcessor {
          skills_watcher: Arc<SkillsWatcher>,
@@ -168,7 +165,7 @@ index 04c2229..23cef06 100644
 +            thread_extension_init,
          }
      }
-
+ 
 @@ -1456,7 +1460,7 @@ impl ThreadRequestProcessor {
              (!config.ephemeral && thread_store.supports_paginated_history_lists())
                  .then_some(ThreadHistoryMode::Paginated)
@@ -178,98 +175,102 @@ index 04c2229..23cef06 100644
          if !selected_capability_roots.is_empty() {
              thread_extension_init.insert(selected_capability_roots);
          }
-@@ -3590,6 +3594,14 @@ impl ThreadRequestProcessor {
+@@ -3590,6 +3594,16 @@ impl ThreadRequestProcessor {
          client_mcp_extensions: ClientMcpExtensions,
          prepared_config: &mut Option<PreparedResumeConfig>,
      ) -> Result<ControlFlow<()>, JSONRPCErrorError> {
 +        if self
 +            .thread_extension_init
-+            .get::<codex_core::ApprovedDelegatePolicy>()
++            .get::<codex_extension_api::AllowedTools>()
 +            .is_some()
 +        {
-+            return Err(invalid_request("approved delegate admission is fresh-thread only"));
++            return Err(invalid_request(
++                "Stage 3G host admission is fresh-thread only",
++            ));
 +        }
 +
          if let Ok(thread_id) = ThreadId::from_string(&params.thread_id)
              && self
                  .pending_thread_unloads
-@@ -4798,6 +4810,14 @@ impl ThreadRequestProcessor {
+@@ -4798,6 +4812,16 @@ impl ThreadRequestProcessor {
          app_server_client_version: Option<String>,
          client_mcp_extensions: ClientMcpExtensions,
      ) -> Result<(), JSONRPCErrorError> {
 +        if self
 +            .thread_extension_init
-+            .get::<codex_core::ApprovedDelegatePolicy>()
++            .get::<codex_extension_api::AllowedTools>()
 +            .is_some()
 +        {
-+            return Err(invalid_request("approved delegate admission is fresh-thread only"));
++            return Err(invalid_request(
++                "Stage 3G host admission is fresh-thread only",
++            ));
 +        }
 +
          let ThreadForkParams {
              thread_id,
              last_turn_id,
 diff --git a/app-server/src/user_verification_test_support.rs b/app-server/src/user_verification_test_support.rs
-index d2096bc..d0a7df7 100644
+index d2096bc1f17dce225d4e2edad6c62bbb67eb162b..3c97f86fdc85cf68818cb106a75029b2f0fd2203 100644
 --- a/app-server/src/user_verification_test_support.rs
 +++ b/app-server/src/user_verification_test_support.rs
 @@ -178,6 +178,7 @@ impl Harness {
              },
              remote_control_handle: None,
              plugin_startup_tasks: None,
-+        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++            thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
          }));
          Ok(Self {
              processor,
 diff --git a/app-server/tests/suite/conversation_summary.rs b/app-server/tests/suite/conversation_summary.rs
-index 02e65ab..9431c9b 100644
+index 02e65ab1551842cb782961275602845fec94a0bb..3ec19cac30d644d45e2f2c54ef9c304759080a2f 100644
 --- a/app-server/tests/suite/conversation_summary.rs
 +++ b/app-server/tests/suite/conversation_summary.rs
 @@ -181,6 +181,7 @@ async fn get_conversation_summary_by_thread_id_reads_pathless_store_thread() ->
              }),
          },
          channel_capacity: in_process::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
-+    thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
      })
      .await?;
-
+ 
 diff --git a/app-server/tests/suite/v2/mcp_resource.rs b/app-server/tests/suite/v2/mcp_resource.rs
-index 60d4a65..614f5fb 100644
+index 60d4a655858efd0afbd60d5fd42688e147a2431a..ca350d30ab9a5b8a1c33cc9ccefccf19f127327b 100644
 --- a/app-server/tests/suite/v2/mcp_resource.rs
 +++ b/app-server/tests/suite/v2/mcp_resource.rs
 @@ -1470,6 +1470,7 @@ async fn start_resource_in_process_client(
              }),
          },
          channel_capacity: in_process::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
-+    thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
      })
      .await?)
  }
 diff --git a/app-server/tests/suite/v2/model_provider_enforcement_tests.rs b/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
-index a0b3f77..802dfdc 100644
+index a0b3f772af86fda664960b570318376830ef10a5..8aa44bf1228e1c255346ba68a8a53635a1801091 100644
 --- a/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
 +++ b/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
 @@ -338,6 +338,7 @@ async fn malformed_system_defaults_do_not_block_existing_thread_turn() -> Result
              capabilities: None,
          },
          channel_capacity: in_process::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
-+    thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
      })
      .await?;
      let response = client
 diff --git a/app-server/tests/suite/v2/remote_thread_store.rs b/app-server/tests/suite/v2/remote_thread_store.rs
-index abf69a8..a430909 100644
+index abf69a853a7f3c657791c24a6b4b618d0db8d83f..21e7ef7412f6131388820262d62841f1adbbe30e 100644
 --- a/app-server/tests/suite/v2/remote_thread_store.rs
 +++ b/app-server/tests/suite/v2/remote_thread_store.rs
 @@ -548,6 +548,7 @@ async fn start_in_process_client(
              capabilities: None,
          },
          channel_capacity: in_process::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
-+    thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
      })
      .await
  }
 diff --git a/app-server/tests/suite/v2/thread_read.rs b/app-server/tests/suite/v2/thread_read.rs
-index 860f150..ce7f7dc 100644
+index 860f150869e0849a71582b583aa3dd8f081839ba..ce7f7dc0b36913f8649180c1ded24620df5b47f1 100644
 --- a/app-server/tests/suite/v2/thread_read.rs
 +++ b/app-server/tests/suite/v2/thread_read.rs
 @@ -875,6 +875,7 @@ async fn thread_turns_list_reads_store_history_without_rollout_path() -> Result<
@@ -297,37 +298,37 @@ index 860f150..ce7f7dc 100644
      })
      .await?;
 diff --git a/app-server/tests/suite/v2/thread_unarchive.rs b/app-server/tests/suite/v2/thread_unarchive.rs
-index 3af590c..41ba987 100644
+index 3af590c3121a9bbdedf768d049cb37acfc58ee41..e70189a9259be0bbe2248081a563337449898f79 100644
 --- a/app-server/tests/suite/v2/thread_unarchive.rs
 +++ b/app-server/tests/suite/v2/thread_unarchive.rs
 @@ -315,6 +315,7 @@ async fn thread_unarchive_preserves_pathless_store_metadata() -> Result<()> {
              }),
          },
          channel_capacity: in_process::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
-+    thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
      })
      .await?;
-
+ 
 diff --git a/app-server/tests/suite/v2/turn_cost_otel.rs b/app-server/tests/suite/v2/turn_cost_otel.rs
-index 48cfbe1..8bc0007 100644
+index 48cfbe1d1421b540b3097c214375063caacfa35f..e5073832f4f176990e806c50baab1658ea03de01 100644
 --- a/app-server/tests/suite/v2/turn_cost_otel.rs
 +++ b/app-server/tests/suite/v2/turn_cost_otel.rs
 @@ -168,6 +168,7 @@ metrics_exporter = {{ otlp-http = {{ endpoint = "{}/metrics", protocol = "json"
              }),
          },
          channel_capacity: in_process::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
-+    thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
++        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
      })
      .await?;
      wait_for_cost_queries(&server, /*count*/ 1).await;
 diff --git a/codex-mcp/src/binding.rs b/codex-mcp/src/binding.rs
-index f2b7e07..df4b929 100644
+index f2b7e07c2ab34d25497218b5ca9c19cfcf09b0a8..df4b92967438e1b1a45e21ff137599620b3db33b 100644
 --- a/codex-mcp/src/binding.rs
 +++ b/codex-mcp/src/binding.rs
 @@ -146,6 +146,16 @@ impl McpBinding {
          Ok(crate::ApprovedMcpCall { call })
      }
-
+ 
 +    /// Process-local opaque identity for proof observation. It is not authority.
 +    pub fn approved_generation_identity(&self) -> Option<String> {
 +        use std::hash::Hash;
@@ -342,13 +343,13 @@ index f2b7e07..df4b929 100644
          self.connections.has_servers()
      }
 diff --git a/core/src/approved_delegate.rs b/core/src/approved_delegate.rs
-index deb7e37..0dca5d1 100644
+index deb7e37f687f726c315aca822ee341adfb8a9e48..0dca5d14294ded586d20e7b4079f631db58028db 100644
 --- a/core/src/approved_delegate.rs
 +++ b/core/src/approved_delegate.rs
 @@ -30,6 +30,18 @@ impl ApprovedDelegatePolicy {
          }
      }
-
+ 
 +    pub(crate) fn proof_identity(&self) -> Option<ApprovedDelegateProofIdentity> {
 +        let admitted = self.admitted.lock().ok()?;
 +        let (binding, _) = admitted.as_ref()?;
@@ -378,21 +379,27 @@ index deb7e37..0dca5d1 100644
 +    pub(crate) generation_identity: String,
 +}
 diff --git a/core/src/lib.rs b/core/src/lib.rs
-index 1ef4395..0bbd8a6 100644
+index 1ef4395f8ac9a39f18fa0ee1bc00afede7365438..83981a857e7a62d9a4ad976d90bffc088669e785 100644
 --- a/core/src/lib.rs
 +++ b/core/src/lib.rs
-@@ -45,6 +45,8 @@ pub use codex_protocol::protocol::EnvironmentConfig;
+@@ -45,12 +45,14 @@ pub use codex_protocol::protocol::EnvironmentConfig;
  pub use codex_thread::BackgroundTerminalInfo;
  mod approved_delegate;
  pub use approved_delegate::ApprovedDelegatePolicy;
 +mod proof_router_observer;
-+pub use proof_router_observer::ProofRouterObserver;
  pub use codex_thread::CodexThread;
  pub use codex_thread::CodexThreadSettingsOverrides;
  pub use codex_thread::GuardianAuthorizationVersion;
+ pub use codex_thread::GuardianRootMessage;
+ pub use codex_thread::GuardianRootSnapshot;
+ pub use codex_thread::ThreadConfigSnapshot;
++pub use proof_router_observer::ProofRouterObserver;
+ pub use session::turn_context::TurnContext;
+ mod agent;
+ mod agent_communication;
 diff --git a/core/src/proof_router_observer.rs b/core/src/proof_router_observer.rs
 new file mode 100644
-index 0000000..c1e8a61
+index 0000000000000000000000000000000000000000..c1e8a6153f3f103e8d8ae14aec28276285a63764
 --- /dev/null
 +++ b/core/src/proof_router_observer.rs
 @@ -0,0 +1,107 @@
@@ -504,7 +511,7 @@ index 0000000..c1e8a61
 +    }
 +}
 diff --git a/core/src/session/mod.rs b/core/src/session/mod.rs
-index 9252c89..f176eae 100644
+index 9252c8952d489d45f001ea25231f84c24496b882..f176eae5ba3bba3a5a2c1aa3db3efbd70b894391 100644
 --- a/core/src/session/mod.rs
 +++ b/core/src/session/mod.rs
 @@ -3889,6 +3889,26 @@ impl Session {
@@ -535,7 +542,7 @@ index 9252c89..f176eae 100644
              settings,
              token_budget,
 diff --git a/exec/Cargo.toml b/exec/Cargo.toml
-index a8ced9c..6f0b43e 100644
+index a8ced9cdd7656ab0e1ed20df272c5e5241459f82..6f0b43ecb475bebae687bdf2b599dd0ab2c86d76 100644
 --- a/exec/Cargo.toml
 +++ b/exec/Cargo.toml
 @@ -32,6 +32,8 @@ codex-config = { workspace = true }
@@ -557,15 +564,16 @@ index a8ced9c..6f0b43e 100644
      "io-std",
 diff --git a/exec/src/approved_delegate_host.rs b/exec/src/approved_delegate_host.rs
 new file mode 100644
-index 0000000..1efc59e
+index 0000000000000000000000000000000000000000..eb9198cfd9274275fc7f52de053b07541892aafb
 --- /dev/null
 +++ b/exec/src/approved_delegate_host.rs
-@@ -0,0 +1,176 @@
-+//! Trusted `codex exec` host admission for the single reviewed DevFabric delegate.
+@@ -0,0 +1,253 @@
++//! Trusted `codex exec` Stage 3G tool ceilings.
 +//!
-+//! This module accepts authority only from an explicit startup manifest. Task input,
-+//! MCP metadata, model output, and project files never populate this state.
++//! Authority comes only from the dedicated host startup manifest and arm option.
++//! Task input, MCP metadata, model output, and project files never populate it.
 +
++use crate::cli::Stage3gHostArm;
 +use anyhow::Context;
 +use codex_core::ApprovedDelegatePolicy;
 +use codex_core::ProofRouterObserver;
@@ -580,7 +588,7 @@ index 0000000..1efc59e
 +use std::collections::BTreeMap;
 +use std::path::Path;
 +
-+const MANIFEST_VERSION: u32 = 1;
++const MANIFEST_VERSION: u32 = 2;
 +const SERVER_KEY: &str = "devhub_delegate";
 +const RAW_TOOL: &str = "devhub_delegate";
 +const CANONICAL_NAMESPACE: &str = "mcp__devhub_delegate";
@@ -591,19 +599,38 @@ index 0000000..1efc59e
 +
 +#[derive(Debug, Deserialize)]
 +#[serde(deny_unknown_fields)]
-+struct ApprovedDelegateHostManifest {
++struct Stage3gHostManifest {
 +    schema_version: u32,
++    expected_global_tool_mode: String,
++    error_on_tool_collisions: bool,
++    arms: Stage3gArms,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Stage3gArms {
++    arm_a: Stage3gArmPolicy,
++    arm_b: Stage3gArmPolicy,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Stage3gArmPolicy {
++    tool_ceiling: Vec<String>,
++    approved_delegate: Option<ApprovedDelegateManifest>,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct ApprovedDelegateManifest {
 +    server_key: String,
 +    raw_tool: String,
 +    canonical_namespace: String,
 +    canonical_function: String,
-+    allowed_tools: Vec<String>,
 +    expected_mcp_server_config_sha256: String,
 +    expected_input_schema: Value,
 +    expected_input_schema_sha256: String,
 +    direct_only_tool_namespaces: Vec<String>,
-+    expected_global_tool_mode: String,
-+    error_on_tool_collisions: bool,
 +}
 +
 +pub(crate) struct HostAdmission {
@@ -613,6 +640,7 @@ index 0000000..1efc59e
 +pub(crate) fn build(
 +    config: &Config,
 +    manifest_path: Option<&Path>,
++    arm: Option<Stage3gHostArm>,
 +    observer_path: Option<&Path>,
 +) -> anyhow::Result<HostAdmission> {
 +    let mut extension_init = ExtensionDataInit::new();
@@ -620,57 +648,87 @@ index 0000000..1efc59e
 +    let mut observed_schema_sha256 = None;
 +
 +    if let Some(path) = manifest_path {
++        let arm = arm.context("Stage 3G arm missing for host manifest")?;
 +        let bytes = std::fs::read(path)
-+            .with_context(|| format!("read approved delegate host manifest {}", path.display()))?;
-+        let manifest: ApprovedDelegateHostManifest = serde_json::from_slice(&bytes)
-+            .context("parse strict approved delegate host manifest")?;
++            .with_context(|| format!("read Stage 3G host manifest {}", path.display()))?;
++        let manifest: Stage3gHostManifest =
++            serde_json::from_slice(&bytes).context("parse strict Stage 3G host manifest")?;
 +        validate_static_contract(&manifest)?;
-+
-+        let server = config
-+            .mcp_servers
-+            .get(SERVER_KEY)
-+            .context("reviewed devhub_delegate MCP server missing from resolved config")?;
-+        let resolved_hash = canonical_sha256(&serde_json::to_value(server)?)?;
-+        anyhow::ensure!(
-+            resolved_hash == manifest.expected_mcp_server_config_sha256,
-+            "resolved devhub_delegate MCP config hash mismatch"
-+        );
-+        anyhow::ensure!(
-+            config.code_mode.direct_only_tool_namespaces == [CANONICAL_NAMESPACE],
-+            "approved delegate direct-only namespace mismatch"
-+        );
 +        anyhow::ensure!(
 +            config.tool_registry.error_on_tool_collisions,
-+            "approved delegate requires fatal tool collisions"
-+        );
-+        anyhow::ensure!(
-+            config.mcp_servers.len() == 1,
-+            "approved delegate host must configure exactly one MCP server"
++            "Stage 3G requires fatal tool collisions"
 +        );
 +
-+        let schema_hash = canonical_sha256(&manifest.expected_input_schema)?;
-+        anyhow::ensure!(
-+            schema_hash == SCHEMA_SHA256
-+                && schema_hash == manifest.expected_input_schema_sha256,
-+            "approved delegate schema hash mismatch"
-+        );
-+
-+        extension_init.insert(AllowedTools(vec![ToolName::namespaced(
-+            CANONICAL_NAMESPACE,
-+            CANONICAL_FUNCTION,
-+        )]));
-+        extension_init.insert(ApprovedDelegatePolicy::delegate(
-+            server.clone(),
-+            manifest.expected_input_schema,
++        let selected = match arm {
++            Stage3gHostArm::A => &manifest.arms.arm_a,
++            Stage3gHostArm::B => &manifest.arms.arm_b,
++        };
++        extension_init.insert(AllowedTools(
++            selected
++                .tool_ceiling
++                .iter()
++                .map(|name| match name.as_str() {
++                    ALLOWED_TOOL => Ok(ToolName::namespaced(
++                        CANONICAL_NAMESPACE,
++                        CANONICAL_FUNCTION,
++                    )),
++                    _ => anyhow::bail!("unreviewed Stage 3G tool ceiling"),
++                })
++                .collect::<anyhow::Result<Vec<_>>>()?,
 +        ));
++
++        match (arm, selected.approved_delegate.as_ref()) {
++            (Stage3gHostArm::A, None) => {
++                anyhow::ensure!(
++                    config.mcp_servers.is_empty(),
++                    "Stage 3G Arm A must not configure MCP servers"
++                );
++                anyhow::ensure!(
++                    config.code_mode.direct_only_tool_namespaces.is_empty(),
++                    "Stage 3G Arm A must not configure direct-only namespaces"
++                );
++            }
++            (Stage3gHostArm::B, Some(delegate)) => {
++                let server = config
++                    .mcp_servers
++                    .get(SERVER_KEY)
++                    .context("reviewed devhub_delegate MCP server missing from resolved config")?;
++                let resolved_hash = canonical_sha256(&serde_json::to_value(server)?)?;
++                anyhow::ensure!(
++                    resolved_hash == delegate.expected_mcp_server_config_sha256,
++                    "resolved devhub_delegate MCP config hash mismatch"
++                );
++                anyhow::ensure!(
++                    config.code_mode.direct_only_tool_namespaces == [CANONICAL_NAMESPACE],
++                    "approved delegate direct-only namespace mismatch"
++                );
++                anyhow::ensure!(
++                    config.mcp_servers.len() == 1,
++                    "approved delegate host must configure exactly one MCP server"
++                );
++                let schema_hash = canonical_sha256(&delegate.expected_input_schema)?;
++                anyhow::ensure!(
++                    schema_hash == SCHEMA_SHA256
++                        && schema_hash == delegate.expected_input_schema_sha256,
++                    "approved delegate schema hash mismatch"
++                );
++                extension_init.insert(ApprovedDelegatePolicy::delegate(
++                    server.clone(),
++                    delegate.expected_input_schema.clone(),
++                ));
++                observed_schema_sha256 = Some(schema_hash);
++            }
++            _ => anyhow::bail!("Stage 3G arm policy does not match selected arm"),
++        }
 +        manifest_sha256 = Some(sha256_bytes(&bytes));
-+        observed_schema_sha256 = Some(schema_hash);
++    } else {
++        anyhow::ensure!(arm.is_none(), "Stage 3G arm requires host manifest");
 +    }
 +
 +    if let Some(path) = observer_path {
 +        extension_init.insert(ProofRouterObserver::new(
 +            path.to_path_buf(),
-+            manifest_sha256.clone(),
++            manifest_sha256,
 +            observed_schema_sha256,
 +        ));
 +    }
@@ -678,34 +736,57 @@ index 0000000..1efc59e
 +    Ok(HostAdmission { extension_init })
 +}
 +
-+fn validate_static_contract(manifest: &ApprovedDelegateHostManifest) -> anyhow::Result<()> {
-+    anyhow::ensure!(manifest.schema_version == MANIFEST_VERSION, "unsupported host manifest version");
-+    anyhow::ensure!(manifest.server_key == SERVER_KEY, "approved server key mismatch");
-+    anyhow::ensure!(manifest.raw_tool == RAW_TOOL, "approved raw tool mismatch");
++fn validate_static_contract(manifest: &Stage3gHostManifest) -> anyhow::Result<()> {
 +    anyhow::ensure!(
-+        manifest.canonical_namespace == CANONICAL_NAMESPACE,
-+        "approved canonical namespace mismatch"
-+    );
-+    anyhow::ensure!(
-+        manifest.canonical_function == CANONICAL_FUNCTION,
-+        "approved canonical function mismatch"
-+    );
-+    anyhow::ensure!(manifest.allowed_tools == [ALLOWED_TOOL], "approved AllowedTools mismatch");
-+    anyhow::ensure!(
-+        manifest.direct_only_tool_namespaces == [CANONICAL_NAMESPACE],
-+        "approved direct-only namespace mismatch"
++        manifest.schema_version == MANIFEST_VERSION,
++        "unsupported Stage 3G host manifest version"
 +    );
 +    anyhow::ensure!(
 +        manifest.expected_global_tool_mode == GLOBAL_MODE,
-+        "approved global tool mode mismatch"
++        "Stage 3G global tool mode mismatch"
 +    );
-+    anyhow::ensure!(manifest.error_on_tool_collisions, "fatal collisions must be required");
 +    anyhow::ensure!(
-+        is_sha256(&manifest.expected_mcp_server_config_sha256),
++        manifest.error_on_tool_collisions,
++        "fatal collisions must be required"
++    );
++    anyhow::ensure!(
++        manifest.arms.arm_a.tool_ceiling.is_empty()
++            && manifest.arms.arm_a.approved_delegate.is_none(),
++        "Stage 3G Arm A must be an empty ceiling without delegate policy"
++    );
++    anyhow::ensure!(
++        manifest.arms.arm_b.tool_ceiling == [ALLOWED_TOOL],
++        "Stage 3G Arm B AllowedTools mismatch"
++    );
++    let delegate = manifest
++        .arms
++        .arm_b
++        .approved_delegate
++        .as_ref()
++        .context("Stage 3G Arm B delegate policy missing")?;
++    anyhow::ensure!(
++        delegate.server_key == SERVER_KEY,
++        "approved server key mismatch"
++    );
++    anyhow::ensure!(delegate.raw_tool == RAW_TOOL, "approved raw tool mismatch");
++    anyhow::ensure!(
++        delegate.canonical_namespace == CANONICAL_NAMESPACE,
++        "approved canonical namespace mismatch"
++    );
++    anyhow::ensure!(
++        delegate.canonical_function == CANONICAL_FUNCTION,
++        "approved canonical function mismatch"
++    );
++    anyhow::ensure!(
++        delegate.direct_only_tool_namespaces == [CANONICAL_NAMESPACE],
++        "approved direct-only namespace mismatch"
++    );
++    anyhow::ensure!(
++        is_sha256(&delegate.expected_mcp_server_config_sha256),
 +        "invalid resolved MCP config hash"
 +    );
 +    anyhow::ensure!(
-+        manifest.expected_input_schema_sha256 == SCHEMA_SHA256,
++        delegate.expected_input_schema_sha256 == SCHEMA_SHA256,
 +        "unreviewed schema hash"
 +    );
 +    Ok(())
@@ -735,79 +816,129 @@ index 0000000..1efc59e
 +}
 +
 +fn is_sha256(value: &str) -> bool {
-+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
++    value.len() == 64
++        && value
++            .bytes()
++            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 +}
 diff --git a/exec/src/cli.rs b/exec/src/cli.rs
-index 0ef0be6..da51282 100644
+index 0ef0be6af9cc177e86da68e9fa20df05f9ac813c..5a52e5fc15213781e262c342fca1f3fe54ae1148 100644
 --- a/exec/src/cli.rs
 +++ b/exec/src/cli.rs
-@@ -48,6 +48,14 @@ pub struct Cli {
+@@ -48,6 +48,26 @@ pub struct Cli {
      #[arg(long = "output-schema", value_name = "FILE", global = true)]
      pub output_schema: Option<PathBuf>,
-
-+    /// Trusted host admission manifest for the reviewed DevFabric delegate.
-+    #[arg(long = "approved-delegate-host-manifest", value_name = "FILE", global = true)]
-+    pub approved_delegate_host_manifest: Option<PathBuf>,
+ 
++    /// Trusted Stage 3G host manifest containing the reviewed Arm A/B ceilings.
++    #[arg(
++        long = "devhub-stage3g-host-manifest",
++        value_name = "FILE",
++        global = true
++    )]
++    pub devhub_stage3g_host_manifest: Option<PathBuf>,
++
++    /// Arm selected by the trusted Stage 3G launcher. Requires the host manifest.
++    #[arg(long = "devhub-stage3g-arm", value_enum, global = true)]
++    pub devhub_stage3g_arm: Option<Stage3gHostArm>,
 +
 +    /// Proof-only pre-sampling router observation path. Never grants tool authority.
-+    #[arg(long = "devhub-proof-observe-router", value_name = "FILE", global = true)]
++    #[arg(
++        long = "devhub-proof-observe-router",
++        value_name = "FILE",
++        global = true
++    )]
 +    pub devhub_proof_observe_router: Option<PathBuf>,
 +
      #[clap(skip)]
      pub config_overrides: CliConfigOverrides,
-
+ 
+@@ -80,6 +100,12 @@ pub struct Cli {
+     pub prompt: Option<String>,
+ }
+ 
++#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
++pub enum Stage3gHostArm {
++    A,
++    B,
++}
++
+ impl std::ops::Deref for Cli {
+     type Target = SharedCliOptions;
+ 
 diff --git a/exec/src/lib.rs b/exec/src/lib.rs
-index b56a56f..a3af428 100644
+index b56a56f1ebea4e91b300913af17d6812db35e9f4..1a0eb76282426bc86b51f94d450da1258d1b2a31 100644
 --- a/exec/src/lib.rs
 +++ b/exec/src/lib.rs
 @@ -5,6 +5,7 @@
  #![recursion_limit = "256"]
  #![deny(clippy::print_stdout)]
-
+ 
 +mod approved_delegate_host;
  mod cli;
  mod event_processor;
  mod event_processor_with_human_output;
-@@ -275,6 +276,8 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -275,6 +276,9 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
          json: json_mode,
          prompt,
          output_schema: output_schema_path,
-+        approved_delegate_host_manifest,
++        devhub_stage3g_host_manifest,
++        devhub_stage3g_arm,
 +        devhub_proof_observe_router,
          mut config_overrides,
      } = cli;
      let mut shared = shared.into_inner();
-@@ -294,6 +297,17 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -294,6 +298,37 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
          worktree,
      } = shared;
-
-+    if approved_delegate_host_manifest.is_some() {
-+        anyhow::ensure!(ephemeral, "approved delegate host admission requires --ephemeral");
-+        anyhow::ensure!(command.is_none(), "approved delegate host admission is fresh-thread only");
-+        anyhow::ensure!(!worktree, "approved delegate host admission does not support --worktree");
+ 
++    anyhow::ensure!(
++        devhub_stage3g_host_manifest.is_some() == devhub_stage3g_arm.is_some(),
++        "Stage 3G host manifest and arm must be supplied together"
++    );
++    if devhub_stage3g_host_manifest.is_some() {
++        anyhow::ensure!(ephemeral, "Stage 3G host admission requires --ephemeral");
++        anyhow::ensure!(
++            command.is_none(),
++            "Stage 3G host admission is fresh-thread only"
++        );
++        anyhow::ensure!(
++            !worktree,
++            "Stage 3G host admission does not support --worktree"
++        );
 +    }
 +    if devhub_proof_observe_router.is_some() {
++        anyhow::ensure!(
++            devhub_stage3g_host_manifest.is_some(),
++            "router proof observation requires Stage 3G host admission"
++        );
 +        anyhow::ensure!(ephemeral, "router proof observation requires --ephemeral");
-+        anyhow::ensure!(command.is_none(), "router proof observation is fresh-thread only");
-+        anyhow::ensure!(!worktree, "router proof observation does not support --worktree");
++        anyhow::ensure!(
++            command.is_none(),
++            "router proof observation is fresh-thread only"
++        );
++        anyhow::ensure!(
++            !worktree,
++            "router proof observation does not support --worktree"
++        );
 +    }
 +
      if worktree {
          if ignore_user_config {
              anyhow::bail!("--worktree cannot be combined with --ignore-user-config");
-@@ -606,6 +620,11 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -606,6 +641,12 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
          build_config,
      )
      .await?;
 +    let host_admission = approved_delegate_host::build(
 +        &config,
-+        approved_delegate_host_manifest.as_deref(),
++        devhub_stage3g_host_manifest.as_deref(),
++        devhub_stage3g_arm,
 +        devhub_proof_observe_router.as_deref(),
 +    )?;
      let resume_approvals_reviewer_override = cli_kv_overrides
          .iter()
          .any(|(key, _)| key == "approvals_reviewer")
-@@ -716,6 +735,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -716,6 +757,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
          experimental_api: true,
          mcp_server_openai_form_elicitation: false,
          opt_out_notification_methods: Vec::new(),
@@ -816,7 +947,7 @@ index b56a56f..a3af428 100644
      };
      run_exec_session(ExecRunArgs {
 diff --git a/exec/src/worktree.rs b/exec/src/worktree.rs
-index d73e3ad..0050377 100644
+index d73e3ad639f7260c63a55bdc6f2eee5fe301febd..00503775f93128f2415ff010a2998dea551de9fc 100644
 --- a/exec/src/worktree.rs
 +++ b/exec/src/worktree.rs
 @@ -44,6 +44,7 @@ pub(super) async fn fork_source(
@@ -828,7 +959,7 @@ index d73e3ad..0050377 100644
      })
      .await?;
 diff --git a/tui/Cargo.toml b/tui/Cargo.toml
-index 0fe40e2..01f0235 100644
+index 0fe40e2707b04afbb04368e9218991cb0b0c2d15..01f0235d85f30b740b3e54eb6c105a0b74954e32 100644
 --- a/tui/Cargo.toml
 +++ b/tui/Cargo.toml
 @@ -43,6 +43,7 @@ codex-history = { workspace = true }
@@ -840,7 +971,7 @@ index 0fe40e2..01f0235 100644
  codex-git-utils = { workspace = true }
  codex-http-client = { workspace = true }
 diff --git a/tui/src/lib.rs b/tui/src/lib.rs
-index 121a854..121cb66 100644
+index 121a8542b9ca19d20947fa6fbfd98579f327bdd8..121cb66a5460e2f9861faa052b75b22894dfe237 100644
 --- a/tui/src/lib.rs
 +++ b/tui/src/lib.rs
 @@ -451,6 +451,7 @@ async fn connect_remote_app_server(
@@ -860,16 +991,14 @@ index 121a854..121cb66 100644
      })
      .await
 diff --git a/tui/src/onboarding/auth.rs b/tui/src/onboarding/auth.rs
-index d242732..7cbb64a 100644
+index d242732ca83f8a0d14009c655f9f3a3fc3b1bf1c..f3437bf0f5e6c1af0ca65546d9bf8ed36a4b65b9 100644
 --- a/tui/src/onboarding/auth.rs
 +++ b/tui/src/onboarding/auth.rs
-@@ -1158,7 +1158,8 @@ mod tests {
+@@ -1158,6 +1158,7 @@ mod tests {
              experimental_api: true,
              mcp_server_openai_form_elicitation: false,
              opt_out_notification_methods: Vec::new(),
--            channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
 +            thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
-+        channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
+             channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
          })
          .await
-         .unwrap();

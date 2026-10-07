@@ -76,7 +76,11 @@ def main() -> None:
             image_id=runtime["image_id"],
             image_metadata_sha256=digest(runtime_raw),
             bootstrap_sha256=digest((Path(__file__).with_name("benchmark_guest.py")).read_bytes()),
-            approved_host_manifest_sha256=synthetic,
+            approved_host_manifest_sha256=digest(
+                (
+                    Path(__file__).parents[1] / "benchmarks/stage3g-host-manifest-v2.json"
+                ).read_bytes()
+            ),
         ),
         ledger_expected=LedgerExpectedV1(
             identity=ledger,
