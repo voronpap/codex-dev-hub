@@ -126,7 +126,9 @@ def collect(candidate_source: Path | None = None) -> dict[str, object]:
     return {
         "schema_version": 2,
         "build_id": "build-009",
-        "phase": "cheap_prebuild_gate_attempt_2",
+        "phase": "cheap_prebuild_gate_attempt_3",
+        "supersedes": "docs/evidence/stage3g-approved-call/build-009-preflight-2.json",
+        "prior_attempt_result": "BLOCKED_PREBUILD_CI_INTEGRATION",
         "source_commit": SOURCE_COMMIT,
         "implementation_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True

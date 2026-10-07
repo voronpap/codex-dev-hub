@@ -332,6 +332,13 @@ arm. This is a source/pre-build result only; finalized process visibility remain
 unobserved until the single separately authorized build-009 compilation and
 same-binary A/B inspection.
 
+The first refreshed receipt (`build-009-preflight-2.json`) was superseded before
+any Rust build after CI found a platform-dependent raw-manifest hash and two
+synthetic probes still using the old launcher function signature. The corrected
+receipt binds the LF-normalized repository bytes required by `.gitattributes` and
+passes the host manifest to every synthetic container-construction path. No
+historical receipt was rewritten and neither issue reached task exposure.
+
 The host manifest's exact raw hash is carried by `QualificationManifestV2`.
 The benchmark launcher revalidates that hash and mounts the reviewed manifest
 read-only. All other merged qualification and execution-boundary authorities
