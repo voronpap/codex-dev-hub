@@ -20,6 +20,8 @@ jobs:
       - name: Install pinned toolchain and build prerequisites
         run: |
           rustup toolchain install 1.95.0 --profile minimal
+          rustup component add --toolchain 1.95.0 rustfmt
+          rustup run 1.95.0 rustfmt --version
           rustup override set 1.95.0
           sudo apt-get update -y
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev libasound2-dev bubblewrap
@@ -39,7 +41,7 @@ jobs:
               archive.extractall(target, filter="data")
           PY
           PYTHONPATH=src python scripts/preflight_stage3g_build009.py --pinned-source "$RUNNER_TEMP/build009-preflight-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs" > "$RUNNER_TEMP/build009-preflight.json"
-          cargo fmt --all --manifest-path "$RUNNER_TEMP/build009-preflight-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs/Cargo.toml" -- --check
+          cargo +1.95.0 fmt --all --manifest-path "$RUNNER_TEMP/build009-preflight-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs/Cargo.toml" -- --check
           python - <<'PY'
           import json, os
           from pathlib import Path
