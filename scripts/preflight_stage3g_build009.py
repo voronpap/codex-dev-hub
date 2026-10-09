@@ -5,6 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from build_stage3g_build009 import prepare_build_source
 from jsonschema import Draft202012Validator
 from stage3g_schema_hash import canonical_schema_sha256, read_schema_identity
 
@@ -23,7 +24,7 @@ def _sha(path: Path) -> str:
     return digest(path.read_bytes())
 
 
-def collect(candidate_source: Path | None = None) -> dict[str, object]:
+def collect(pinned_source: Path | None = None) -> dict[str, object]:
     candidate = ROOT / "patches/stage3g-approved-call/candidate.patch"
     host = ROOT / "patches/stage3g-approved-call/host-integration.patch"
     manifest_path = ROOT / "benchmarks/stage3g-host-manifest-v2.json"
@@ -83,19 +84,13 @@ def collect(candidate_source: Path | None = None) -> dict[str, object]:
         if required_source not in source_excerpts:
             raise ValueError(f"AllowedTools source evidence is incomplete: {required_source}")
 
-    apply_check: bool | None = None
-    if candidate_source is not None:
-        result = subprocess.run(
-            ["git", "apply", "--check", str(host)],
-            cwd=candidate_source,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
+    preparation: dict[str, object] | None = None
+    if pinned_source is not None:
+        preparation = prepare_build_source(
+            pinned_source,
+            candidate_patch=candidate_bytes,
+            host_patch=host_bytes,
         )
-        if result.returncode != 0:
-            raise ValueError(f"Host patch does not apply to Candidate B source: {result.stderr}")
-        apply_check = True
 
     launcher = (ROOT / "src/devhub/experiment_launch.py").read_text()
     runner = (ROOT / "src/devhub/experiment_run.py").read_text()
@@ -136,7 +131,10 @@ def collect(candidate_source: Path | None = None) -> dict[str, object]:
         "candidate_b_base_patch_sha256": digest(candidate_bytes),
         "host_integration_patch_sha256": digest(host_bytes),
         "combined_production_patchset_sha256": digest(candidate_bytes + host_bytes),
-        "host_patch_applies_to_candidate_source": apply_check,
+        "source_preparation": preparation,
+        "host_patch_applies_to_candidate_source": (
+            None if preparation is None else preparation["host_patch_applied"]
+        ),
         "delegation_request_schema_sha256": SCHEMA_SHA256,
         "host_manifest": {
             "path": str(manifest_path.relative_to(ROOT)).replace("\\", "/"),
@@ -214,10 +212,10 @@ def collect(candidate_source: Path | None = None) -> dict[str, object]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--candidate-source", type=Path)
+    parser.add_argument("--pinned-source", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = collect(args.candidate_source)
+    result = collect(args.pinned_source)
     raw = canonical(result)
     if args.output is not None:
         write_new(args.output, raw)

@@ -39,6 +39,46 @@ def write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def prepare_build_source(
+    root: Path,
+    *,
+    candidate_patch: bytes,
+    host_patch: bytes,
+    evidence_directory: Path | None = None,
+) -> dict[str, object]:
+    """Derive the proof lock and apply both reviewed patches without compiling Rust."""
+    original_lock = (root / "Cargo.lock").read_bytes()
+    if sha256_bytes(original_lock) != ORIGINAL:
+        raise ValueError("original Cargo.lock changed")
+    derived_lock, lock_changes = derive(root)
+    if sha256_bytes(derived_lock) != DERIVED:
+        raise ValueError("derived proof Cargo.lock changed")
+    (root / "Cargo.lock").write_bytes(derived_lock)
+
+    if evidence_directory is not None:
+        (evidence_directory / "Cargo.lock.original").write_bytes(original_lock)
+        (evidence_directory / "Cargo.lock.proof").write_bytes(derived_lock)
+        write_json(evidence_directory / "derived-lock-manifest-bindings.json", lock_changes)
+
+    subprocess.run(
+        ["git", "apply", "--check", "-"],
+        cwd=root.parent,
+        input=candidate_patch,
+        check=True,
+    )
+    subprocess.run(["git", "apply", "-"], cwd=root.parent, input=candidate_patch, check=True)
+    subprocess.run(["git", "apply", "--check", "-"], cwd=root, input=host_patch, check=True)
+    subprocess.run(["git", "apply", "-"], cwd=root, input=host_patch, check=True)
+    return {
+        "original_cargo_lock_sha256": sha256_bytes(original_lock),
+        "proof_cargo_lock_sha256": sha256_bytes(derived_lock),
+        "candidate_patch_cwd": "pinned_source_parent",
+        "host_patch_cwd": "codex-rs",
+        "candidate_patch_applied": True,
+        "host_patch_applied": True,
+    }
+
+
 def _run_capture(
     command: list[str], directory: Path, *, cwd: Path, env: dict[str, str], timeout: int
 ) -> dict[str, object]:
@@ -338,19 +378,12 @@ def main() -> None:
     with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
         archive.extractall(args.workspace, filter="data")
     root = args.workspace / f"codex-{SOURCE_COMMIT}" / "codex-rs"
-    original_lock = (root / "Cargo.lock").read_bytes()
-    if sha256_bytes(original_lock) != ORIGINAL:
-        raise ValueError("original Cargo.lock changed")
-    (args.output / "Cargo.lock.original").write_bytes(original_lock)
-    derived_lock, lock_changes = derive(root)
-    (root / "Cargo.lock").write_bytes(derived_lock)
-    (args.output / "Cargo.lock.proof").write_bytes(derived_lock)
-    write_json(args.output / "derived-lock-manifest-bindings.json", lock_changes)
-
-    subprocess.run(["git", "apply", "--check", "-"], cwd=root.parent, input=candidate, check=True)
-    subprocess.run(["git", "apply", "-"], cwd=root.parent, input=candidate, check=True)
-    subprocess.run(["git", "apply", "--check", "-"], cwd=root.parent, input=host, check=True)
-    subprocess.run(["git", "apply", "-"], cwd=root.parent, input=host, check=True)
+    receipt["source_preparation"] = prepare_build_source(
+        root,
+        candidate_patch=candidate,
+        host_patch=host,
+        evidence_directory=args.output,
+    )
     receipt["patch_application"] = "PASS"
     receipt["toolchain"] = {
         "rustc": subprocess.check_output(["rustc", "-vV"], cwd=root, text=True),
