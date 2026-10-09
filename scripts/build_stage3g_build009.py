@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 
 from derive_router_build_lock import DERIVED, ORIGINAL, derive
+from stage3g_schema_hash import read_schema_identity
 
 SOURCE_COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 SOURCE_ARCHIVE_SHA256 = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
@@ -297,8 +298,14 @@ def main() -> None:
         raise ValueError("host integration patch changed")
     if sha256_bytes(candidate + host) != COMBINED_SHA256:
         raise ValueError("combined production patchset changed")
-    if sha256_file(manifest) != HOST_MANIFEST_SHA256 or sha256_file(schema) != SCHEMA_SHA256:
-        raise ValueError("host manifest or DelegationRequest schema changed")
+    if sha256_file(manifest) != HOST_MANIFEST_SHA256:
+        raise ValueError("host manifest changed")
+    schema_identity = read_schema_identity(schema, expected_canonical_sha256=SCHEMA_SHA256)
+    receipt["delegation_request_schema_identity"] = {
+        "canonical_schema_sha256": schema_identity.canonical_schema_sha256,
+        "raw_schema_file_sha256": schema_identity.raw_file_sha256,
+    }
+    write_json(result_path, receipt)
     resolved_config = {
         "args": ["/bootstrap.py", "mcp"],
         "command": "python3",

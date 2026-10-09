@@ -1,12 +1,12 @@
 """Cheap build-009 source/hash gate. Never compiles Rust or starts Codex/providers."""
 
 import argparse
-import hashlib
 import json
 import subprocess
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+from stage3g_schema_hash import canonical_schema_sha256, read_schema_identity
 
 from devhub.benchmark import canonical, digest, write_new
 from devhub.delegate import DelegationRequest
@@ -21,11 +21,6 @@ SOURCE_COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 
 def _sha(path: Path) -> str:
     return digest(path.read_bytes())
-
-
-def _compact_schema_hash(value: object) -> str:
-    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(raw).hexdigest()
 
 
 def collect(candidate_source: Path | None = None) -> dict[str, object]:
@@ -43,8 +38,13 @@ def collect(candidate_source: Path | None = None) -> dict[str, object]:
     manifest, manifest_bytes = read_stage3g_host_manifest(manifest_path)
     Draft202012Validator(json.loads(schema_path.read_bytes())).validate(json.loads(manifest_bytes))
     generated_schema = DelegationRequest.model_json_schema()
-    stored_schema = json.loads(stored_schema_path.read_bytes())
-    if generated_schema != stored_schema or _compact_schema_hash(generated_schema) != SCHEMA_SHA256:
+    stored_schema = read_schema_identity(
+        stored_schema_path, expected_canonical_sha256=SCHEMA_SHA256
+    )
+    if (
+        generated_schema != stored_schema.value
+        or canonical_schema_sha256(generated_schema) != SCHEMA_SHA256
+    ):
         raise ValueError("DelegationRequest schema identity changed")
 
     patch = host_bytes.decode()
