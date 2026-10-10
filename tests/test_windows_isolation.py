@@ -572,6 +572,8 @@ def test_profile_id_golden() -> None:
 def test_probe_main_forwards_host_arguments_by_qualify_parameter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows probe CLI path")
     module_spec = importlib.util.spec_from_file_location(
         "windows_isolation_probe_main_test",
         Path("scripts/probe_windows_native_isolation.py"),
