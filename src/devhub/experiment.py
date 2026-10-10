@@ -182,11 +182,9 @@ class PlannedSession(Contract):
     generated_code_execution: Literal[False] = False
 
 
-def plan(repo: Path, protocol: ExperimentProtocol, run_id: str) -> dict[str, Any]:
-    from devhub.experiment_review import reviewer_rules
+def verify_loaded_experiment_sources(repo: Path, commit: str) -> None:
+    """Bind every loaded experiment module to the reviewed implementation commit."""
 
-    commit = clean_commit(repo)
-    # The loaded launcher/parser implementation must match the declared commit too.
     import subprocess
 
     for source in Path(__file__).parent.glob("experiment*.py"):
@@ -195,6 +193,13 @@ def plan(repo: Path, protocol: ExperimentProtocol, run_id: str) -> dict[str, Any
         )
         if committed.replace(b"\r\n", b"\n") != source.read_bytes().replace(b"\r\n", b"\n"):
             raise ValueError("Loaded launcher differs from implementation commit")
+
+
+def plan(repo: Path, protocol: ExperimentProtocol, run_id: str) -> dict[str, Any]:
+    from devhub.experiment_review import reviewer_rules
+
+    commit = clean_commit(repo)
+    verify_loaded_experiment_sources(repo, commit)
     cases = verified_cases(repo / "benchmarks")
     sessions: list[dict[str, Any]] = []
     for index, case in enumerate(cases):

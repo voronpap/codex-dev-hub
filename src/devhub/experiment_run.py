@@ -10,7 +10,7 @@ from typing import Any, cast
 from pydantic import JsonValue
 
 from devhub.baseline import verified_cases
-from devhub.benchmark import canonical, digest, read_sealed, write_new
+from devhub.benchmark import canonical, digest, read_sealed, write_new, write_sealed
 from devhub.delegate import DelegationConfig, ProviderProfile
 from devhub.experiment import (
     ARM_A,
@@ -28,6 +28,7 @@ from devhub.experiment_launch import (
     AttemptResult,
     ContainerRuntimeSpec,
     DelegationObservation,
+    ExecutionSession,
     codex_argv,
     launch_container,
 )
@@ -35,6 +36,12 @@ from devhub.experiment_observation import (
     BArmDelegationObservationV2,
     ProviderResourceModelIdentityV1,
     observe_b_arm_delegation,
+)
+from devhub.experiment_rehearsal import (
+    Stage3GRehearsalPairResultV1,
+    Stage3GRehearsalPlanV1,
+    build_rehearsal_plan,
+    rehearsal_packet_bytes,
 )
 from devhub.ledger import Ledger
 from devhub.local import LocalConfig, local_resource_id
@@ -160,97 +167,38 @@ def secret_strings(value: Any) -> tuple[bytes, ...]:
     return ()
 
 
-def execute_next(
-    repo: Path,
-    protocol: ExperimentProtocol,
-    frozen_plan: dict[str, Any],
-    bindings: RuntimeBindings,
-    run_root: Path,
-    auth_file: Path,
-    qualification_manifest: Path,
-    accounting_root: Path,
-    *,
-    operator_reviewed: bool = False,
-) -> AttemptResult:
-    """Opt-in API for the next reviewed phase, never called by 3G-B CLI/tests on fixtures.
-
-    Fails closed without reviewed bindings. Source/run/controller storage stays outside
-    every mount; only derived files for one arm are ever exposed.
-    """
-    if not operator_reviewed:
-        raise ValueError("Explicit protocol/environment review required")
-    qualification = verify_manifest_tree(qualification_manifest, bindings.qualification_manifest_id)
+def _runtime_spec(
+    qualification: VerifiedQualificationV2, execution_plan_sha256: str
+) -> ContainerRuntimeSpec:
     expected = qualification.context.payload
-    runtime = ContainerRuntimeSpec(
+    return ContainerRuntimeSpec(
         image_id=expected.runtime_expected.image_id,
         bootstrap_sha256=expected.runtime_expected.bootstrap_sha256,
         protocol_sha256=expected.benchmark.protocol_sha256,
-        reviewed_plan_sha256=expected.benchmark.plan_sha256,
+        reviewed_plan_sha256=execution_plan_sha256,
         codex_cli_version=expected.codex.executable_version,
     )
-    if protocol.hashes()["protocol"] != runtime.protocol_sha256:
-        raise ValueError("Protocol differs from final qualification manifest")
-    current = plan(repo, protocol, frozen_plan["run_id"])
-    if current != frozen_plan or digest(canonical(current)) != runtime.reviewed_plan_sha256:
-        raise ValueError("Plan/config/implementation changed")
+
+
+def _execute_reviewed_session(
+    repo: Path,
+    protocol: ExperimentProtocol,
+    qualification: VerifiedQualificationV2,
+    runtime: ContainerRuntimeSpec,
+    session: ExecutionSession,
+    packets: dict[str, bytes],
+    run_root: Path,
+    auth_file: Path,
+    accounting_root: Path,
+) -> AttemptResult:
+    """Single production launch path shared by benchmark and rehearsal coordinators."""
+
+    expected = qualification.context.payload
     delegate_argv = verified_delegate_command(qualification)
-    if run_root.resolve().is_relative_to(repo.resolve()) or run_root.is_symlink():
-        raise ValueError("Run storage must be external")
-    run_root.mkdir(parents=True, exist_ok=True)
-    if (run_root / "aborted.json").exists():
-        raise ValueError("Run aborted; preserve it and use a new run ID")
-    manifest_path = run_root / "plan.json"
-    if not manifest_path.exists():
-        if any(run_root.iterdir()):
-            raise ValueError("Unbound run directory is not empty")
-        write_new(manifest_path, canonical(current))
-        write_new(run_root / "bindings.json", canonical(bindings.model_dump(mode="json")))
-    if manifest_path.read_bytes() != canonical(current) or (
-        run_root / "bindings.json"
-    ).read_bytes() != (canonical(bindings.model_dump(mode="json"))):
-        raise ValueError("Run binding changed")
-    sessions = [PlannedSession.model_validate_json(json.dumps(s)) for s in frozen_plan["sessions"]]
-    selected = None
-    for session in sessions:
-        target = run_root / "attempts" / session.session_id
-        if target.exists():
-            if selected is not None:
-                raise ValueError("Execution order compromised")
-            result_path = target / "result.json"
-            if not result_path.exists():
-                abort_path = target / "abort.json"
-                if not abort_path.exists():
-                    raise ValueError("Attempt exposure is unknown; manual review required")
-                abort = AttemptAbortV1.model_validate_json(read_sealed(abort_path))
-                raise ValueError(
-                    f"Attempt stopped at {abort.last_state} with "
-                    f"{abort.exposure_state} exposure; manual review required"
-                )
-            prior = AttemptResult.model_validate_json(read_sealed(result_path))
-            if (
-                prior.status != "completed"
-                or prior.provenance.session_id != session.session_id
-                or prior.provenance.plan_sha256 != runtime.reviewed_plan_sha256
-                or prior.provenance.output_sha256 != digest((target / "output.bin").read_bytes())
-                or (
-                    session.arm == "B"
-                    and (
-                        not isinstance(prior.delegation, BArmDelegationObservationV2)
-                        or not prior.delegation.delegation_success
-                    )
-                )
-            ):
-                raise ValueError("Failed/changed attempt cannot be repeated or skipped")
-        elif selected is None:
-            selected = session
-    if selected is None:
-        raise ValueError("All sessions attempted")
-    session = selected
     volatile_capture = None
     try:
         environment_guard(repo, qualification, protocol)
         host_manifest = repo / "benchmarks" / "stage3g-host-manifest-v2.json"
-        packets = packet_bytes(repo, session, protocol)
         control = run_root / "private" / session.session_id
         control.mkdir(parents=True, exist_ok=False)
         control.chmod(0o700)
@@ -283,7 +231,7 @@ def execute_next(
             state / "ledger.db", expected.ledger_expected.identity, state_root=state
         )
         if session.arm == "B":
-            # Trusted Git snapshot for Brain contains only the two equivalent task source files.
+            # Trusted Git snapshot contains only this reviewed task's two source files.
             brain_root = control / "brain-source"
             brain_root.mkdir()
             for name in ("input.txt", "task.txt"):
@@ -298,7 +246,7 @@ def execute_next(
                     "user.email=benchmark@example.invalid",
                     "commit",
                     "-qm",
-                    "Frozen task input",
+                    "Reviewed task input",
                 ],
             ):
                 subprocess.run(
@@ -448,3 +396,174 @@ def execute_next(
     finally:
         if volatile_capture is not None:
             volatile_capture.cleanup()
+
+
+def execute_next(
+    repo: Path,
+    protocol: ExperimentProtocol,
+    frozen_plan: dict[str, Any],
+    bindings: RuntimeBindings,
+    run_root: Path,
+    auth_file: Path,
+    qualification_manifest: Path,
+    accounting_root: Path,
+    *,
+    operator_reviewed: bool = False,
+) -> AttemptResult:
+    """Opt-in API for the next reviewed phase, never called by 3G-B CLI/tests on fixtures.
+
+    Fails closed without reviewed bindings. Source/run/controller storage stays outside
+    every mount; only derived files for one arm are ever exposed.
+    """
+    if not operator_reviewed:
+        raise ValueError("Explicit protocol/environment review required")
+    qualification = verify_manifest_tree(qualification_manifest, bindings.qualification_manifest_id)
+    expected = qualification.context.payload
+    runtime = _runtime_spec(qualification, expected.benchmark.plan_sha256)
+    if protocol.hashes()["protocol"] != runtime.protocol_sha256:
+        raise ValueError("Protocol differs from final qualification manifest")
+    current = plan(repo, protocol, frozen_plan["run_id"])
+    if current != frozen_plan or digest(canonical(current)) != runtime.reviewed_plan_sha256:
+        raise ValueError("Plan/config/implementation changed")
+    if run_root.resolve().is_relative_to(repo.resolve()) or run_root.is_symlink():
+        raise ValueError("Run storage must be external")
+    run_root.mkdir(parents=True, exist_ok=True)
+    if (run_root / "aborted.json").exists():
+        raise ValueError("Run aborted; preserve it and use a new run ID")
+    manifest_path = run_root / "plan.json"
+    if not manifest_path.exists():
+        if any(run_root.iterdir()):
+            raise ValueError("Unbound run directory is not empty")
+        write_new(manifest_path, canonical(current))
+        write_new(run_root / "bindings.json", canonical(bindings.model_dump(mode="json")))
+    if manifest_path.read_bytes() != canonical(current) or (
+        run_root / "bindings.json"
+    ).read_bytes() != (canonical(bindings.model_dump(mode="json"))):
+        raise ValueError("Run binding changed")
+    sessions = [PlannedSession.model_validate_json(json.dumps(s)) for s in frozen_plan["sessions"]]
+    selected = None
+    for session in sessions:
+        target = run_root / "attempts" / session.session_id
+        if target.exists():
+            if selected is not None:
+                raise ValueError("Execution order compromised")
+            result_path = target / "result.json"
+            if not result_path.exists():
+                abort_path = target / "abort.json"
+                if not abort_path.exists():
+                    raise ValueError("Attempt exposure is unknown; manual review required")
+                abort = AttemptAbortV1.model_validate_json(read_sealed(abort_path))
+                raise ValueError(
+                    f"Attempt stopped at {abort.last_state} with "
+                    f"{abort.exposure_state} exposure; manual review required"
+                )
+            prior = AttemptResult.model_validate_json(read_sealed(result_path))
+            if (
+                prior.status != "completed"
+                or prior.provenance.session_id != session.session_id
+                or prior.provenance.plan_sha256 != runtime.reviewed_plan_sha256
+                or prior.provenance.output_sha256 != digest((target / "output.bin").read_bytes())
+                or (
+                    session.arm == "B"
+                    and (
+                        not isinstance(prior.delegation, BArmDelegationObservationV2)
+                        or not prior.delegation.delegation_success
+                    )
+                )
+            ):
+                raise ValueError("Failed/changed attempt cannot be repeated or skipped")
+        elif selected is None:
+            selected = session
+    if selected is None:
+        raise ValueError("All sessions attempted")
+    session = selected
+    return _execute_reviewed_session(
+        repo,
+        protocol,
+        qualification,
+        runtime,
+        session,
+        packet_bytes(repo, session, protocol),
+        run_root,
+        auth_file,
+        accounting_root,
+    )
+
+
+def execute_rehearsal_pair(
+    repo: Path,
+    protocol: ExperimentProtocol,
+    rehearsal: Stage3GRehearsalPlanV1,
+    bindings: RuntimeBindings,
+    run_root: Path,
+    auth_file: Path,
+    qualification_manifest: Path,
+    accounting_root: Path,
+    *,
+    operator_reviewed: bool = False,
+) -> Stage3GRehearsalPairResultV1:
+    """Run one reviewed non-benchmark A/B pair with no resume or automatic retry."""
+
+    if not operator_reviewed:
+        raise ValueError("Explicit rehearsal review required")
+    qualification = verify_manifest_tree(qualification_manifest, bindings.qualification_manifest_id)
+    expected = qualification.context.payload
+    payload = rehearsal.payload
+    current = build_rehearsal_plan(
+        repo,
+        protocol,
+        qualification,
+        run_id=payload.run_id,
+        task_id=payload.task_id,
+        input_bytes=payload.input_bytes(),
+        task_bytes=payload.task_bytes(),
+    )
+    if current != rehearsal:
+        raise ValueError("Rehearsal plan differs from qualification authority")
+    if run_root.resolve().is_relative_to(repo.resolve()) or run_root.is_symlink():
+        raise ValueError("Rehearsal storage must be external")
+    run_root.mkdir(parents=True, exist_ok=True)
+    if any(run_root.iterdir()):
+        raise ValueError("Rehearsal cannot resume or overwrite an existing run")
+    write_sealed(run_root / "rehearsal-plan.json", canonical(rehearsal.model_dump(mode="json")))
+    write_sealed(run_root / "bindings.json", canonical(bindings.model_dump(mode="json")))
+    runtime = _runtime_spec(qualification, rehearsal.rehearsal_plan_id)
+    results = []
+    for session in payload.sessions:
+        results.append(
+            _execute_reviewed_session(
+                repo,
+                protocol,
+                qualification,
+                runtime,
+                session,
+                rehearsal_packet_bytes(rehearsal, session, protocol),
+                run_root,
+                auth_file,
+                accounting_root,
+            )
+        )
+    arm_a, arm_b = results
+    if arm_a.provenance.output_sha256 is None or arm_b.provenance.output_sha256 is None:
+        raise ValueError("Completed rehearsal output identity is missing")
+    if not isinstance(arm_b.delegation, BArmDelegationObservationV2) or not (
+        arm_b.delegation.delegation_success
+    ):
+        raise ValueError("Rehearsal B arm lacks authoritative delegation observation")
+    summary = Stage3GRehearsalPairResultV1(
+        rehearsal_plan_id=rehearsal.rehearsal_plan_id,
+        qualification_manifest_id=qualification.manifest.qualification_manifest_id,
+        qualification_context_id=qualification.context.qualification_context_id,
+        environment_instance_id=expected.environment_instance_id,
+        arm_a_result_sha256=digest(
+            read_sealed(run_root / "attempts" / payload.sessions[0].session_id / "result.json")
+        ),
+        arm_b_result_sha256=digest(
+            read_sealed(run_root / "attempts" / payload.sessions[1].session_id / "result.json")
+        ),
+        arm_a_output_sha256=arm_a.provenance.output_sha256,
+        arm_b_output_sha256=arm_b.provenance.output_sha256,
+        arm_b_delegation_success=True,
+    )
+    write_sealed(run_root / "pair-summary.json", canonical(summary.model_dump(mode="json")))
+    return summary
