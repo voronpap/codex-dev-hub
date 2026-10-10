@@ -344,3 +344,14 @@ The benchmark launcher revalidates that hash and mounts the reviewed manifest
 read-only. All other merged qualification and execution-boundary authorities
 remain unchanged. No Rust compilation, process task, provider request, rehearsal,
 or benchmark is performed by this refresh.
+
+Build-009 later started compilation and failed because its historical `LOCK_B`
+did not include dependency edges added by the host-integration manifests. It
+produced no executable and no process proof. The successor Build-010 proposal
+uses a separately hashed complete minimal lock and also makes the proof-only
+observer reachable without a host manifest so the ordinary `AllowedTools=None`
+path is observed through the same production binary. That observer remains
+read-only: an absent manifest still creates no `AllowedTools` ceiling and no
+`ApprovedDelegatePolicy`, while task text cannot populate either authority.
+Build-010 remains a qualification attempt until actual same-binary Default/A/B
+receipts and all negative results pass.

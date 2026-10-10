@@ -13,14 +13,18 @@ import time
 import urllib.request
 from pathlib import Path
 
-from derive_router_build_lock import DERIVED, ORIGINAL, derive
+from derive_router_build_lock import DERIVED as BUILD009_DERIVED
+from derive_router_build_lock import ORIGINAL
+from derive_router_build_lock import derive as derive_build009
+from derive_stage3g_production_lock import PRODUCTION_HOST_LOCK_SHA256
+from derive_stage3g_production_lock import derive as derive_production_host_lock
 from stage3g_schema_hash import read_schema_identity
 
 SOURCE_COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 SOURCE_ARCHIVE_SHA256 = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
 CANDIDATE_SHA256 = "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
-HOST_SHA256 = "5ae02614f62db13101e74b1fb087e45466abbbd84dd8d8f45055d6e0960e6d2e"
-COMBINED_SHA256 = "c7add12c5fe2dc72542dae5c183afda05616ec7184740655c9dae28fcd796ba8"
+HOST_SHA256 = "7deb6ddf8aa38589b40a52ffb0b8471c7bbb91e96337daa41dffca2255410f34"
+COMBINED_SHA256 = "42fc1a5b80c4ccf90972da3c092db7036c082ff4808f3257229d70163fc84210"
 HOST_MANIFEST_SHA256 = "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b"
 SCHEMA_SHA256 = "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
 DELEGATE = "mcp__devhub_delegate.devhub_delegate"
@@ -39,27 +43,51 @@ def write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _preserve_runner_assets(
+    repo: Path, output: Path, *, manifest: Path, schema: Path
+) -> tuple[Path, dict[str, str]]:
+    """Retain every local input needed to audit source preparation before Cargo starts."""
+    assets = output / "assets"
+    assets.mkdir(exist_ok=False)
+    sources = (
+        (manifest, "stage3g-host-manifest-v2.json"),
+        (schema, "delegation-request-schema.json"),
+        (repo / "patches/stage3g-approved-call/candidate.patch", "candidate.patch"),
+        (
+            repo / "patches/stage3g-approved-call/host-integration.patch",
+            "host-integration.patch",
+        ),
+        (repo / "scripts/stage3g_build009_mcp.py", "stage3g_build009_mcp.py"),
+        (repo / "scripts/build_stage3g_build009.py", "build_stage3g_build009.py"),
+        (repo / "scripts/preflight_stage3g_build009.py", "preflight_stage3g_build009.py"),
+        (repo / "scripts/derive_router_build_lock.py", "derive_router_build_lock.py"),
+        (
+            repo / "scripts/derive_stage3g_production_lock.py",
+            "derive_stage3g_production_lock.py",
+        ),
+        (repo / "scripts/stage3g_schema_hash.py", "stage3g_schema_hash.py"),
+        (
+            repo / ".github/workflows/production-router-proof.yml",
+            "production-router-proof.yml",
+        ),
+    )
+    for source, name in sources:
+        shutil.copy2(source, assets / name)
+    return assets, {path.name: sha256_file(path) for path in sorted(assets.iterdir())}
+
+
 def prepare_build_source(
     root: Path,
     *,
     candidate_patch: bytes,
     host_patch: bytes,
     evidence_directory: Path | None = None,
+    build_id: str = "build-009",
 ) -> dict[str, object]:
-    """Derive the proof lock and apply both reviewed patches without compiling Rust."""
+    """Apply both reviewed patches and derive the selected proof lock."""
     original_lock = (root / "Cargo.lock").read_bytes()
     if sha256_bytes(original_lock) != ORIGINAL:
         raise ValueError("original Cargo.lock changed")
-    derived_lock, lock_changes = derive(root)
-    if sha256_bytes(derived_lock) != DERIVED:
-        raise ValueError("derived proof Cargo.lock changed")
-    (root / "Cargo.lock").write_bytes(derived_lock)
-
-    if evidence_directory is not None:
-        (evidence_directory / "Cargo.lock.original").write_bytes(original_lock)
-        (evidence_directory / "Cargo.lock.proof").write_bytes(derived_lock)
-        write_json(evidence_directory / "derived-lock-manifest-bindings.json", lock_changes)
-
     subprocess.run(
         ["git", "apply", "--check", "-"],
         cwd=root.parent,
@@ -69,9 +97,28 @@ def prepare_build_source(
     subprocess.run(["git", "apply", "-"], cwd=root.parent, input=candidate_patch, check=True)
     subprocess.run(["git", "apply", "--check", "-"], cwd=root, input=host_patch, check=True)
     subprocess.run(["git", "apply", "-"], cwd=root, input=host_patch, check=True)
+    if build_id == "build-009":
+        derived_lock, lock_changes = derive_build009(root)
+        expected_lock = BUILD009_DERIVED
+        lock_strategy = "LOCK_B_minimal_manifest_bound_derived_lock"
+    elif build_id == "build-010":
+        derived_lock, lock_changes = derive_production_host_lock(root)
+        expected_lock = PRODUCTION_HOST_LOCK_SHA256
+        lock_strategy = "complete_patched_manifest_bound_derived_lock"
+    else:
+        raise ValueError(f"unsupported build ID: {build_id}")
+    if sha256_bytes(derived_lock) != expected_lock:
+        raise ValueError(f"{build_id} proof Cargo.lock changed")
+    (root / "Cargo.lock").write_bytes(derived_lock)
+
+    if evidence_directory is not None:
+        (evidence_directory / "Cargo.lock.original").write_bytes(original_lock)
+        (evidence_directory / "Cargo.lock.proof").write_bytes(derived_lock)
+        write_json(evidence_directory / "derived-lock-manifest-bindings.json", lock_changes)
     return {
         "original_cargo_lock_sha256": sha256_bytes(original_lock),
         "proof_cargo_lock_sha256": sha256_bytes(derived_lock),
+        "lock_strategy": lock_strategy,
         "candidate_patch_cwd": "pinned_source_parent",
         "host_patch_cwd": "codex-rs",
         "candidate_patch_applied": True,
@@ -115,6 +162,74 @@ def _run_capture(
         "stderr_sha256": sha256_file(directory / "stderr"),
         "stdout": (directory / "stdout").read_text(errors="replace"),
         "stderr": (directory / "stderr").read_text(errors="replace"),
+    }
+
+
+def _verify_locked_resolution(root: Path, output: Path, expected_lock: str) -> dict[str, object]:
+    """Prove the corrected lock resolves and fetches without byte mutation."""
+    commands = {
+        "metadata": [
+            "cargo",
+            "+1.95.0",
+            "metadata",
+            "--locked",
+            "--format-version",
+            "1",
+            "--filter-platform",
+            "x86_64-unknown-linux-gnu",
+        ],
+        "fetch": [
+            "cargo",
+            "+1.95.0",
+            "fetch",
+            "--locked",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+        ],
+    }
+    observed: dict[str, object] = {}
+    for label, command in commands.items():
+        before = sha256_file(root / "Cargo.lock")
+        run = subprocess.run(command, cwd=root, capture_output=True, check=False)
+        stdout = output / f"cargo-{label}.stdout"
+        stderr = output / f"cargo-{label}.stderr"
+        stdout.write_bytes(run.stdout)
+        stderr.write_bytes(run.stderr)
+        after = sha256_file(root / "Cargo.lock")
+        observed[label] = {
+            "command": command,
+            "exit_code": run.returncode,
+            "lock_sha256_before": before,
+            "lock_sha256_after": after,
+            "lock_unchanged": before == after == expected_lock,
+            "stdout_sha256": sha256_file(stdout),
+            "stderr_sha256": sha256_file(stderr),
+        }
+        if run.returncode != 0 or before != expected_lock or after != expected_lock:
+            raise ValueError(f"locked Cargo {label} verification failed")
+    return observed
+
+
+def _pinned_toolchain_identity(root: Path) -> dict[str, object]:
+    rustc_command = ["rustup", "run", "1.95.0", "rustc", "-vV"]
+    cargo_command = ["rustup", "run", "1.95.0", "cargo", "--version", "--verbose"]
+    rustc = subprocess.check_output(rustc_command, cwd=root, text=True)
+    cargo = subprocess.check_output(cargo_command, cwd=root, text=True)
+    host = next(
+        (line.removeprefix("host: ") for line in rustc.splitlines() if line.startswith("host: ")),
+        None,
+    )
+    if host is None:
+        raise ValueError("pinned rustc did not report a host target")
+    if host != "x86_64-unknown-linux-gnu":
+        raise ValueError(f"unexpected pinned Rust host target: {host}")
+    return {
+        "rustc_command": rustc_command,
+        "rustc": rustc,
+        "cargo_command": cargo_command,
+        "cargo": cargo,
+        "platform": platform.platform(),
+        "target": host,
     }
 
 
@@ -217,6 +332,47 @@ def _host_exec(
     return [*args, "-"]
 
 
+def _default_exec(work: Path, observer: Path, prompt: str = "-") -> list[str]:
+    return [
+        *_base_exec(work),
+        "--devhub-proof-observe-router",
+        str(observer),
+        prompt,
+    ]
+
+
+def _verify_default_observer(path: Path) -> dict[str, object]:
+    value = json.loads(path.read_bytes())
+    if value.get("allowed_tools_ceiling_present") is not False:
+        raise ValueError("default process unexpectedly installed an AllowedTools ceiling")
+    if value.get("allowed_tools") != []:
+        raise ValueError("default observer serialized unexpected AllowedTools entries")
+    if value.get("approved_delegate_policy_present") is not False:
+        raise ValueError("default process unexpectedly installed delegate policy")
+    if value.get("approved_identity") is not None:
+        raise ValueError("default process unexpectedly has approved delegate identity")
+    if value.get("host_manifest_sha256") is not None:
+        raise ValueError("default process unexpectedly has host manifest identity")
+    if value.get("expected_schema_sha256") is not None:
+        raise ValueError("default process unexpectedly has approved schema identity")
+    if DELEGATE in value.get("visible_model_tools", []):
+        raise ValueError("default process unexpectedly exposed the delegate")
+    if any(DELEGATE in item for item in value.get("nested_code_mode_map", [])):
+        raise ValueError("default process unexpectedly nested the delegate")
+    if value.get("model_requests") != 0 or value.get("provider_sends") != 0:
+        raise ValueError("default observer crossed the pre-sampling boundary")
+    return value
+
+
+def _proof_stopped(result: dict[str, object]) -> bool:
+    combined = str(result.get("stdout", "")) + str(result.get("stderr", ""))
+    return (
+        result.get("timed_out") is False
+        and result.get("exit_code") not in (None, 0)
+        and "DevFabric proof observer stopped before model sampling" in combined
+    )
+
+
 def _verify_observer(path: Path, arm: str) -> dict[str, object]:
     value = json.loads(path.read_bytes())
     expected_visible = [] if arm == "a" else [DELEGATE]
@@ -231,10 +387,15 @@ def _verify_observer(path: Path, arm: str) -> dict[str, object]:
         raise ValueError(f"Arm {arm} hosted/dynamic surface widened")
     if value.get("allowed_tools") != expected_allowed:
         raise ValueError(f"Arm {arm} AllowedTools mismatch")
+    if value.get("allowed_tools_ceiling_present") is not True:
+        raise ValueError(f"Arm {arm} AllowedTools ceiling is absent")
     if value.get("approved_delegate_policy_present") is (arm == "a"):
         raise ValueError(f"Arm {arm} approved policy presence mismatch")
     if value.get("host_manifest_sha256") != HOST_MANIFEST_SHA256:
         raise ValueError(f"Arm {arm} host manifest identity mismatch")
+    expected_schema = None if arm == "a" else SCHEMA_SHA256
+    if value.get("expected_schema_sha256") != expected_schema:
+        raise ValueError(f"Arm {arm} expected schema identity mismatch")
     if value.get("model_requests") != 0 or value.get("provider_sends") != 0:
         raise ValueError(f"Arm {arm} crossed pre-sampling boundary")
     identity = value.get("approved_identity")
@@ -292,14 +453,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--build-id", choices=("build-009", "build-010"), default="build-009")
     args = parser.parse_args()
+    expected_lock = (
+        BUILD009_DERIVED if args.build_id == "build-009" else PRODUCTION_HOST_LOCK_SHA256
+    )
+    lock_strategy = (
+        "LOCK_B_minimal_manifest_bound_derived_lock"
+        if args.build_id == "build-009"
+        else "complete_patched_manifest_bound_derived_lock"
+    )
     repo = Path(__file__).resolve().parents[1]
     args.workspace.mkdir(parents=True, exist_ok=False)
     args.output.mkdir(parents=True, exist_ok=False)
     result_path = args.output / "result.json"
     receipt: dict[str, object] = {
         "schema_version": 1,
-        "build_id": "build-009",
+        "build_id": args.build_id,
         "implementation_commit": os.environ.get("GITHUB_SHA"),
         "source_commit": SOURCE_COMMIT,
         "source_archive_sha256": SOURCE_ARCHIVE_SHA256,
@@ -309,8 +479,8 @@ def main() -> None:
         "host_manifest_sha256": HOST_MANIFEST_SHA256,
         "delegation_request_schema_sha256": SCHEMA_SHA256,
         "original_cargo_lock_sha256": ORIGINAL,
-        "proof_cargo_lock_sha256": DERIVED,
-        "lock_strategy": "LOCK_B_minimal_manifest_bound_derived_lock",
+        "proof_cargo_lock_sha256": expected_lock,
+        "lock_strategy": lock_strategy,
         "compilation": "NOT_RUN",
         "process_proof": None,
         "production_host_activation": "BLOCKED_PREBUILD",
@@ -345,6 +515,11 @@ def main() -> None:
         "canonical_schema_sha256": schema_identity.canonical_schema_sha256,
         "raw_schema_file_sha256": schema_identity.raw_file_sha256,
     }
+    assets, asset_hashes = _preserve_runner_assets(
+        repo, args.output, manifest=manifest, schema=schema
+    )
+    receipt["asset_hashes"] = asset_hashes
+    write_json(args.output / "runner-manifest.json", receipt)
     write_json(result_path, receipt)
     resolved_config = {
         "args": ["/bootstrap.py", "mcp"],
@@ -383,20 +558,28 @@ def main() -> None:
         candidate_patch=candidate,
         host_patch=host,
         evidence_directory=args.output,
+        build_id=args.build_id,
     )
     receipt["patch_application"] = "PASS"
-    receipt["toolchain"] = {
-        "rustc": subprocess.check_output(["rustc", "-vV"], cwd=root, text=True),
-        "cargo": subprocess.check_output(["cargo", "--version", "--verbose"], cwd=root, text=True),
-        "platform": platform.platform(),
-        "target": "default rustc host target (no --target override)",
-    }
+    receipt["toolchain"] = _pinned_toolchain_identity(root)
+    try:
+        receipt["locked_resolution"] = _verify_locked_resolution(root, args.output, expected_lock)
+    except Exception as error:
+        receipt["precompilation_failure"] = {
+            "classification": "PRECOMPILATION_LOCKED_RESOLUTION_FAILURE",
+            "error_type": type(error).__name__,
+            "message": str(error),
+        }
+        write_json(args.output / "runner-manifest.json", receipt)
+        write_json(result_path, receipt)
+        raise
+    write_json(args.output / "runner-manifest.json", receipt)
     write_json(result_path, receipt)
 
-    command = ["cargo", "build", "--locked", "-p", "codex-cli", "--bin", "codex"]
+    command = ["cargo", "+1.95.0", "build", "--locked", "-p", "codex-cli", "--bin", "codex"]
     receipt["build_command"] = command
     receipt["rust_compilation_started"] = True
-    receipt["build_009_run"] = True
+    receipt[args.build_id.replace("-", "_") + "_run"] = True
     started = time.monotonic()
     with (
         (args.output / "build.stdout").open("xb") as stdout,
@@ -433,7 +616,7 @@ def main() -> None:
     receipt["compilation"] = "PASS" if build_exit_code == 0 else "FAIL"
     write_json(result_path, receipt)
     if build_exit_code != 0:
-        raise SystemExit("build-009 Rust compilation failed; no second compilation permitted")
+        raise SystemExit(f"{args.build_id} Rust compilation failed")
 
     built = root / "target/debug/codex"
     binary_dir = args.output / "binary"
@@ -458,17 +641,6 @@ def main() -> None:
         "ldd_stderr": ldd.stderr,
         "runtime_assumptions": "Ubuntu 24.04 x86_64 glibc ABI and listed dynamic libraries",
     }
-    assets = args.output / "assets"
-    assets.mkdir(exist_ok=False)
-    for source, name in (
-        (manifest, "stage3g-host-manifest-v2.json"),
-        (schema, "delegation-request-schema.json"),
-        (repo / "scripts/stage3g_build009_mcp.py", "stage3g_build009_mcp.py"),
-        (repo / "scripts/build_stage3g_build009.py", "build_stage3g_build009.py"),
-        (repo / "scripts/preflight_stage3g_build009.py", "preflight_stage3g_build009.py"),
-    ):
-        shutil.copy2(source, assets / name)
-    receipt["asset_hashes"] = {path.name: sha256_file(path) for path in sorted(assets.iterdir())}
     write_json(args.output / "runner-manifest.json", receipt)
     write_json(result_path, receipt)
 
@@ -515,7 +687,9 @@ def main() -> None:
             )
             run["observer"] = _verify_observer(observer, arm)
             run["observer_sha256"] = sha256_file(observer)
-            run["passed"] = True
+            run["passed"] = _proof_stopped(run)
+            if not run["passed"]:
+                raise ValueError(f"Arm {arm} did not stop at the proof observer boundary")
             arm_results[arm.upper()] = run
             receipt["arms"] = arm_results
             write_json(result_path, receipt)
@@ -543,24 +717,28 @@ def main() -> None:
         default_home = default_dir / "codex-home"
         default_home.mkdir(parents=True)
         default_env = {**env, "HOME": str(default_home), "CODEX_HOME": str(default_home)}
+        default_observer = default_dir / "observer.json"
         default_run = _run_capture(
-            _isolated(binary, ["exec", "--help"]),
+            _isolated(binary, _default_exec(work, default_observer)),
             default_dir / "process",
             cwd=work,
             env=default_env,
-            timeout=30,
+            timeout=120,
         )
-        default_source = (root / "exec/src/approved_delegate_host.rs").read_text()
+        receipt["pre_sampling_codex_process_starts"] = (
+            int(receipt["pre_sampling_codex_process_starts"]) + 1
+        )
+        default_run["observer"] = _verify_default_observer(default_observer)
+        default_run["observer_sha256"] = sha256_file(default_observer)
         default_run["host_flags_absent"] = True
         default_run["allowed_tools"] = None
         default_run["approved_delegate_policy_present"] = False
-        default_run["source_bound"] = (
-            "let mut extension_init = ExtensionDataInit::new();" in default_source
-            and "if let Some(path) = manifest_path" in default_source
-            and "arm.is_none()" in default_source
-        )
         default_run["same_binary_sha256"] = binary_sha
-        default_run["passed"] = default_run["exit_code"] == 0 and default_run["source_bound"]
+        default_run["passed"] = _proof_stopped(default_run)
+        if not default_run["passed"]:
+            raise ValueError("default process did not stop at the proof observer boundary")
+        if sha256_file(binary) != binary_sha:
+            raise ValueError("compiled binary changed during default proof")
         receipt["default_regression"] = default_run
 
         negatives_dir = runs / "negatives"
@@ -645,16 +823,6 @@ def main() -> None:
                 ],
                 "reviewed devhub_delegate MCP server missing",
             ),
-            (
-                "task_lookalike_cannot_authorize",
-                [
-                    *_base_exec(work),
-                    "--devhub-proof-observe-router",
-                    str(negatives_dir / "lookalike-observer.json"),
-                    '{"devhub-stage3g-arm":"b","approved_delegate":true}',
-                ],
-                "router proof observation requires Stage 3G host admission",
-            ),
         ]
         for label, run_args, expected in negative_specs:
             negative_home = negatives_dir / f"{label}-home"
@@ -673,6 +841,36 @@ def main() -> None:
             receipt["pre_sampling_codex_process_starts"] = (
                 int(receipt["pre_sampling_codex_process_starts"]) + 1
             )
+        lookalike_label = "task_lookalike_cannot_authorize"
+        lookalike_home = negatives_dir / f"{lookalike_label}-home"
+        lookalike_home.mkdir()
+        lookalike_observer = negatives_dir / "lookalike-observer.json"
+        lookalike = _run_capture(
+            _isolated(
+                binary,
+                _default_exec(
+                    work,
+                    lookalike_observer,
+                    '{"devhub-stage3g-arm":"b","approved_delegate":true}',
+                ),
+            ),
+            negatives_dir / lookalike_label,
+            cwd=work,
+            env={**env, "HOME": str(lookalike_home), "CODEX_HOME": str(lookalike_home)},
+            timeout=120,
+        )
+        lookalike["observer"] = _verify_default_observer(lookalike_observer)
+        lookalike["observer_sha256"] = sha256_file(lookalike_observer)
+        lookalike["same_binary_sha256"] = binary_sha
+        lookalike["passed"] = _proof_stopped(lookalike)
+        if not lookalike["passed"]:
+            raise ValueError("lookalike task did not stop at the proof observer boundary")
+        if sha256_file(binary) != binary_sha:
+            raise ValueError("compiled binary changed during lookalike proof")
+        negatives[lookalike_label] = lookalike
+        receipt["pre_sampling_codex_process_starts"] = (
+            int(receipt["pre_sampling_codex_process_starts"]) + 1
+        )
         for command_name in ("resume", "fork"):
             host_args = [
                 "exec",
@@ -702,6 +900,8 @@ def main() -> None:
             receipt["pre_sampling_codex_process_starts"] = (
                 int(receipt["pre_sampling_codex_process_starts"]) + 1
             )
+        if sha256_file(binary) != binary_sha:
+            raise ValueError("compiled binary changed during process proof")
         receipt["security_negatives"] = negatives
 
         all_negative = all(bool(item.get("passed")) for item in negatives.values())
@@ -719,7 +919,7 @@ def main() -> None:
         )
         write_json(result_path, receipt)
         if not passed:
-            raise SystemExit("build-009 process proof failed")
+            raise SystemExit(f"{args.build_id} process proof failed")
     except Exception as error:
         receipt["process_proof"] = "FAIL"
         receipt["production_host_activation"] = "BLOCKED"

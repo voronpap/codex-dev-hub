@@ -1,4 +1,4 @@
-"""Cheap build-009 source/hash gate. Never compiles Rust or starts Codex/providers."""
+"""Cheap Stage 3G production-host source/hash gate."""
 
 import argparse
 import json
@@ -24,7 +24,7 @@ def _sha(path: Path) -> str:
     return digest(path.read_bytes())
 
 
-def collect(pinned_source: Path | None = None) -> dict[str, object]:
+def collect(pinned_source: Path | None = None, *, build_id: str = "build-010") -> dict[str, object]:
     candidate = ROOT / "patches/stage3g-approved-call/candidate.patch"
     host = ROOT / "patches/stage3g-approved-call/host-integration.patch"
     manifest_path = ROOT / "benchmarks/stage3g-host-manifest-v2.json"
@@ -60,6 +60,7 @@ def collect(pinned_source: Path | None = None) -> dict[str, object]:
         "Stage3gHostArm::B",
         "ApprovedDelegatePolicy::delegate",
         "AllowedTools(",
+        '"allowed_tools_ceiling_present": allowed_tools.is_some()',
         "DevFabric proof observer stopped before model sampling",
     )
     missing = [item for item in required if item not in patch]
@@ -67,6 +68,8 @@ def collect(pinned_source: Path | None = None) -> dict[str, object]:
         raise ValueError(f"Host integration anchors missing: {missing}")
     if "ThreadStartParams" in patch:
         raise ValueError("Client ThreadStartParams must not carry host authority")
+    if "router proof observation requires Stage 3G host admission" in patch:
+        raise ValueError("Read-only default router observation remains unreachable")
 
     allowed_tools_evidence = json.loads(allowed_tools_evidence_path.read_bytes())
     source_excerpts = "\n".join(
@@ -90,6 +93,7 @@ def collect(pinned_source: Path | None = None) -> dict[str, object]:
             pinned_source,
             candidate_patch=candidate_bytes,
             host_patch=host_bytes,
+            build_id=build_id,
         )
 
     launcher = (ROOT / "src/devhub/experiment_launch.py").read_text()
@@ -120,10 +124,9 @@ def collect(pinned_source: Path | None = None) -> dict[str, object]:
 
     return {
         "schema_version": 2,
-        "build_id": "build-009",
-        "phase": "cheap_prebuild_gate_attempt_3",
-        "supersedes": "docs/evidence/stage3g-approved-call/build-009-preflight-2.json",
-        "prior_attempt_result": "BLOCKED_PREBUILD_CI_INTEGRATION",
+        "build_id": build_id,
+        "phase": "corrected_full_dependency_resolution",
+        "prior_build_result": "BUILD_009_CARGO_LOCK_INCOMPLETE",
         "source_commit": SOURCE_COMMIT,
         "implementation_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
@@ -192,7 +195,7 @@ def collect(pinned_source: Path | None = None) -> dict[str, object]:
             ),
             "actual_process_visibility": None,
         },
-        "result": "BUILD_009_READY_FOR_AUTHORIZATION",
+        "result": f"{build_id.upper().replace('-', '_')}_READY_FOR_AUTHORIZATION",
         "rust_compilation_started": False,
         "build_009_run": False,
         "build_010_run": False,
@@ -214,8 +217,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pinned-source", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--build-id", choices=("build-009", "build-010"), default="build-010")
     args = parser.parse_args()
-    result = collect(args.pinned_source)
+    result = collect(args.pinned_source, build_id=args.build_id)
     raw = canonical(result)
     if args.output is not None:
         write_new(args.output, raw)

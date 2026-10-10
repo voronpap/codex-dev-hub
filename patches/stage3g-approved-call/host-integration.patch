@@ -402,7 +402,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..c1e8a6153f3f103e8d8ae14aec28276285a63764
 --- /dev/null
 +++ b/core/src/proof_router_observer.rs
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,109 @@
 +//! Read-only, host-installed pre-sampling proof observer.
 +
 +use crate::ApprovedDelegatePolicy;
@@ -485,6 +485,7 @@ index 0000000000000000000000000000000000000000..c1e8a6153f3f103e8d8ae14aec282762
 +            "hosted_tools": hosted,
 +            "dynamic_tool_count": dynamic_tool_count,
 +            "allowed_tools": allowed,
++            "allowed_tools_ceiling_present": allowed_tools.is_some(),
 +            "approved_delegate_policy_present": policy.is_some(),
 +            "approved_identity": identity.as_ref().map(|identity| json!({
 +                "server_key": identity.server_key,
@@ -495,6 +496,7 @@ index 0000000000000000000000000000000000000000..c1e8a6153f3f103e8d8ae14aec282762
 +                "schema_sha256": self.expected_schema_sha256,
 +            })),
 +            "host_manifest_sha256": self.manifest_sha256,
++            "expected_schema_sha256": self.expected_schema_sha256,
 +            "model_requests": 0,
 +            "provider_sends": 0,
 +            "real_codex_task_executions": 0,
@@ -887,7 +889,7 @@ index b56a56f1ebea4e91b300913af17d6812db35e9f4..1a0eb76282426bc86b51f94d450da125
          mut config_overrides,
      } = cli;
      let mut shared = shared.into_inner();
-@@ -294,6 +298,37 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -294,6 +298,33 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
          worktree,
      } = shared;
  
@@ -907,10 +909,6 @@ index b56a56f1ebea4e91b300913af17d6812db35e9f4..1a0eb76282426bc86b51f94d450da125
 +        );
 +    }
 +    if devhub_proof_observe_router.is_some() {
-+        anyhow::ensure!(
-+            devhub_stage3g_host_manifest.is_some(),
-+            "router proof observation requires Stage 3G host admission"
-+        );
 +        anyhow::ensure!(ephemeral, "router proof observation requires --ephemeral");
 +        anyhow::ensure!(
 +            command.is_none(),
@@ -925,7 +923,7 @@ index b56a56f1ebea4e91b300913af17d6812db35e9f4..1a0eb76282426bc86b51f94d450da125
      if worktree {
          if ignore_user_config {
              anyhow::bail!("--worktree cannot be combined with --ignore-user-config");
-@@ -606,6 +641,12 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -606,6 +637,12 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
          build_config,
      )
      .await?;
@@ -938,7 +936,7 @@ index b56a56f1ebea4e91b300913af17d6812db35e9f4..1a0eb76282426bc86b51f94d450da125
      let resume_approvals_reviewer_override = cli_kv_overrides
          .iter()
          .any(|(key, _)| key == "approvals_reviewer")
-@@ -716,6 +757,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -716,6 +753,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
          experimental_api: true,
          mcp_server_openai_form_elicitation: false,
          opt_out_notification_methods: Vec::new(),

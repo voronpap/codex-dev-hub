@@ -153,3 +153,28 @@ proof remains bound to its exact implementation and inputs.
 Final state: Stage 3G-C OPEN, Stage 3G OPEN, execution_ready=false,
 real_codex_executions=0, provider_sends=0. Semantic acceptance, quality benchmark,
 Delegation Value, savings and internal Codex retries remain null.
+
+## Build-009 full executable lock result
+
+Build-009 run `37976011705` passed source preparation and its cheap gates, then
+started the first actual `codex-cli` compilation. Cargo 1.95.0 rejected the build
+under `--locked` because the earlier `LOCK_B` covered the 152 stale local package
+versions but not the dependency edges added by the separately reviewed shipping
+host-integration patch. No executable was produced and process proof remained null.
+The classification is `BUILD_009_CARGO_LOCK_INCOMPLETE`; Build-009 is immutable
+failed evidence and is not rerun.
+
+The minimal successor lock starts from `LOCK_B` and adds only these reviewed local
+manifest edges:
+
+- `codex-app-server-client` → `codex-extension-api`;
+- `codex-exec` → `codex-extension-api`, `codex-tools`, `sha2 0.10.9`;
+- `codex-tui` → `codex-extension-api`.
+
+It adds or removes no package and changes no external version, source, checksum,
+or Git revision. Its proposed SHA-256 is
+`9236f6c0b8703eaf337dd219c8fdfb6834c14fa430a0a83b938159016371bb88`.
+Before any successor compilation, the fresh patched source must pass Cargo 1.95.0
+`metadata --locked` for `x86_64-unknown-linux-gnu`, `fetch --locked` for that
+target, and byte-for-byte lock equality after both commands. A successful check
+authorizes only a separately identified Build-010; it does not rewrite Build-009.
