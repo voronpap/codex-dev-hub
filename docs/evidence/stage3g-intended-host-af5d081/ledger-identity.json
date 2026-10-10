@@ -1,0 +1,17 @@
+{
+  "dispatched_count": 0,
+  "domain_schema_version": 6,
+  "environment_instance_id": "169a6b903825d8c88973dd592c4601d9",
+  "identity_record_count": 1,
+  "integrity_check": "ok",
+  "kind": "intended_host_ledger_identity",
+  "ledger_identity_sha256": "c87eb22ec1e0ea04c61534feecd1bf00ab737988baf6096a77eee044e8733df5",
+  "path_is_locator_only": true,
+  "qualification_context_id": "5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168",
+  "qualification_passed": true,
+  "receipt_kind": "ledger_identity",
+  "reserved_count": 0,
+  "schema_version": 1,
+  "sqlite_application_id": 1145459276,
+  "unknown_usage_count": 0
+}

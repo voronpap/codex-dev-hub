@@ -1,0 +1,31 @@
+{
+  "allowed_connect_targets": [
+    "api.openai.com:443",
+    "chatgpt.com:443"
+  ],
+  "auth_json_object": true,
+  "auth_material_nonempty": true,
+  "auth_material_published": false,
+  "auth_regular_file": true,
+  "auth_source": "existing_operator_codex_auth",
+  "denied_connect_targets": [
+    "10.0.0.1:443",
+    "127.0.0.1:443",
+    "169.254.169.254:443",
+    "api.groq.com:443",
+    "example.com:443",
+    "generativelanguage.googleapis.com:443"
+  ],
+  "environment_instance_id": "169a6b903825d8c88973dd592c4601d9",
+  "kind": "intended_host_auth_egress",
+  "model_requests": 0,
+  "policy_checks_passed": true,
+  "provider_sends": 0,
+  "proxy_environment_inherited": false,
+  "qualification_context_id": "5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168",
+  "qualification_passed": true,
+  "receipt_kind": "auth_egress",
+  "schema_version": 1,
+  "staged_copy_matches_source": true,
+  "staged_copy_mode": "0600"
+}

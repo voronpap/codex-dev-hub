@@ -1,0 +1,27 @@
+{
+  "dependency_lock_sha256": "4aeab7c781afad18ebc3844647b9e8aece889771326187280beaa3c1f3fc80ae",
+  "editable_install": false,
+  "entrypoint": "devhub.delegate_server",
+  "environment_instance_id": "169a6b903825d8c88973dd592c4601d9",
+  "ignore_environment_flag": true,
+  "interpreter_path": "/usr/bin/python3.12",
+  "interpreter_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+  "isolated_argv": [
+    "-I",
+    "-m",
+    "devhub.delegate_server"
+  ],
+  "isolated_flag": true,
+  "lock_path": "/home/vrn/stage3g-intended-9289745/python-artifact/uv.lock",
+  "module_origin": "lib/python3.12/site-packages/devhub/__init__.py",
+  "no_user_site_flag": true,
+  "python_implementation": "CPython",
+  "python_version": "3.12.3",
+  "qualification_context_id": "5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168",
+  "qualification_passed": true,
+  "receipt_kind": "python_runtime",
+  "runtime_environment_id": "9781e69eb2d307c6bdc48f2b25bab02a981dcd66c0a1f1c538633be7e8a78e11",
+  "schema_version": 1,
+  "wheel_path": "/home/vrn/stage3g-intended-9289745/python-artifact/codex_dev_hub-0.1.0-py3-none-any.whl",
+  "wheel_sha256": "cc1e5da20fc673f6fb99d925945e8350fe151d00ac149628ff2896487e50b769"
+}

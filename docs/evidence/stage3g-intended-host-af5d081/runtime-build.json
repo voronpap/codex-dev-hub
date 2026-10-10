@@ -1,0 +1,24 @@
+{
+  "base_image": "python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe",
+  "candidate_b_base_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "codex_binary_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+  "codex_source_archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+  "codex_source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "codex_version": "codex-cli 0.155.0-alpha.9.2",
+  "combined_patchset_sha256": "e63b68840ecec005703fc61fa1e26aba988c5a9e44a956efedbfbdea96d10c59",
+  "dockerfile_sha256": "488164e67d950e9006d643e226ed75cb5242a6b12de4b39c33b306ad591355e7",
+  "host_integration_patch_sha256": "f22369f10ed45d04a740205fca0cb7111ddb56d3b1bdbee603dfcfdfdd7de9ad",
+  "image_id": "sha256:9001bd161de5e5b4e5e717fbeb481f6391460f0338aa5815ee4e8602592e8a84",
+  "kind": "runtime_image_build",
+  "provider_sends": 0,
+  "real_codex_executions": 0,
+  "runtime_lock_sha256": "76d5ddb550f78ad99067986576d49d20478dcc71b7a04553a964d06c4875147d",
+  "schema_version": 1,
+  "source_artifact": {
+    "artifact_id": 11659714382,
+    "artifact_name": "stage3g-build020-production-host-proof",
+    "artifact_zip_sha256": "c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979",
+    "build_evidence_sha256": "6f4fdb1aacdeef2e3446e7f2760d4f84e2832df833034befb4ce0a81997a32f0",
+    "workflow_run_id": 38024891950
+  }
+}

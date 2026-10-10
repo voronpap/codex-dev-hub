@@ -1,0 +1,107 @@
+{
+  "payload": {
+    "context": {
+      "relative_path": "context.json",
+      "schema_version": 1,
+      "sha256": "4b04bcf844635e1a2dfb94c8a8fa0c59f415762654221b6cef788245fa851c40"
+    },
+    "environment_instance_id": "169a6b903825d8c88973dd592c4601d9",
+    "execution_ready": true,
+    "gates": {
+      "artifact_integrity": true,
+      "auth_egress": true,
+      "codex_executable": true,
+      "context_integrity": true,
+      "effects_boundary": true,
+      "evaluator": true,
+      "host_process_visibility": true,
+      "isolation": true,
+      "ledger_identity": true,
+      "ollama_metadata": true,
+      "python_runtime": true,
+      "runtime_config_probe": true,
+      "same_environment": true,
+      "schema_version": 1
+    },
+    "observed_artifacts": {
+      "codex_executable_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+      "dependency_lock_sha256": "4aeab7c781afad18ebc3844647b9e8aece889771326187280beaa3c1f3fc80ae",
+      "devhub_wheel_sha256": "cc1e5da20fc673f6fb99d925945e8350fe151d00ac149628ff2896487e50b769",
+      "evaluator_artifact_sha256": "8bb366424347ac9051e25d0ee534616d27e495b92ae83b410a40ab254bafe4b5",
+      "ledger_identity_sha256": "c87eb22ec1e0ea04c61534feecd1bf00ab737988baf6096a77eee044e8733df5",
+      "ollama_model_digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+      "python_executable_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+      "python_runtime_environment_id": "9781e69eb2d307c6bdc48f2b25bab02a981dcd66c0a1f1c538633be7e8a78e11",
+      "qualification_context_sha256": "4b04bcf844635e1a2dfb94c8a8fa0c59f415762654221b6cef788245fa851c40",
+      "runtime_image_metadata_sha256": "cf17bb8c79d787e1b5b67b5f30e4ed2066af7e16afe9165ec8c2801dd3af51d9",
+      "schema_version": 1
+    },
+    "qualification_context_id": "5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168",
+    "receipts": {
+      "auth_egress": {
+        "receipt_kind": "auth_egress",
+        "relative_path": "auth-egress.json",
+        "schema_version": 1,
+        "sha256": "c2ddd0bec03611aef2bb3e4f504036bf939ca2355082f190e0458e1461088a04"
+      },
+      "codex_executable": {
+        "receipt_kind": "codex_executable",
+        "relative_path": "codex-executable.json",
+        "schema_version": 1,
+        "sha256": "ad07a580fac1aad42f612ec8ec38888a61aaffca9cd0a8a521cd40eef91d8253"
+      },
+      "effects_boundary": {
+        "receipt_kind": "effects_boundary",
+        "relative_path": "effects.json",
+        "schema_version": 1,
+        "sha256": "aa7643731c6de8ec8d810445ec583584df65d851748db50f713d29b0daab9cb0"
+      },
+      "evaluator": {
+        "receipt_kind": "evaluator",
+        "relative_path": "evaluator-proof/qualification-receipt.json",
+        "schema_version": 1,
+        "sha256": "49fa633c0be6a53a4382c2c98abe2190128cbe21e9a92a53825c3d0d76f55db0"
+      },
+      "host_process_visibility": {
+        "receipt_kind": "host_process_visibility",
+        "relative_path": "host-process-visibility.json",
+        "schema_version": 1,
+        "sha256": "7745b126e52640532ec531b18207ba0ae46327347595856a5a6c8092e5d4b9a8"
+      },
+      "isolation": {
+        "receipt_kind": "isolation",
+        "relative_path": "isolation.json",
+        "schema_version": 1,
+        "sha256": "c28b38fcdc206d64403b509b8430e3951665719101eae2898c42c8e68f925238"
+      },
+      "ledger_identity": {
+        "receipt_kind": "ledger_identity",
+        "relative_path": "ledger-identity.json",
+        "schema_version": 1,
+        "sha256": "59330d8bc82c0f7cc93f78597ba90d41ec60162c7ae65916fdaf289a39941528"
+      },
+      "ollama_metadata": {
+        "receipt_kind": "ollama_metadata",
+        "relative_path": "ollama-metadata.json",
+        "schema_version": 1,
+        "sha256": "606bd2924eb8a0527cf8b52bb4daf55588b9bfc307759a4586111a92e758f60b"
+      },
+      "python_runtime": {
+        "receipt_kind": "python_runtime",
+        "relative_path": "python-runtime.json",
+        "schema_version": 1,
+        "sha256": "3c3dc04f835c72aad57d06374fc62155d3f4463ea0de58896e2daf7f4362ce6f"
+      },
+      "runtime_config_probe": {
+        "receipt_kind": "runtime_config_probe",
+        "relative_path": "runtime-checks.json",
+        "schema_version": 1,
+        "sha256": "f58b5d16cad5cbed04b2cbe8cf9c7afa25e6ec3d3f6ce54abe1a2133b21eef3d"
+      },
+      "schema_version": 1
+    },
+    "schema_version": 2
+  },
+  "qualification_manifest_id": "d6d3e1f565064846af495b5d9cab6e3f54738616d383c5c6afddf02c666b5441",
+  "schema_version": 2
+}
