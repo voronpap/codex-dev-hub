@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "receipt_kind": "isolation",
+  "qualification_context_id": "2f5d5a1b0b6d0ef2580a7f5691ae763387beae4600a50f85e0fd07cf106f20e4",
+  "environment_instance_id": "e56fd0924abe390e62b215fab07988de",
+  "kind": "synthetic_oci_isolation_probe",
+  "image_id": "sha256:1c3af54d783ed41f86b0a5a8c9b32eab801dff6571171cbc5f93fd4d28f1e78a",
+  "bootstrap_sha256": "6efdf9ccc4b5f583e71f0f9fbbbd91dccaa97a11d551969015d3de28d987283a",
+  "checks": {
+    "host_canary_hidden": true,
+    "other_arm_hidden": true,
+    "source_and_oracle_hidden": true,
+    "network_denied": true,
+    "only_scoped_bridges": true,
+    "fresh_home": true,
+    "control_readable": true,
+    "control_readonly": true,
+    "task_files_initially_hidden": true,
+    "packet_tmpfs_writable": true,
+    "nonroot": true,
+    "capabilities_dropped": true,
+    "no_new_privileges": true,
+    "resource_limits_effective": true,
+    "docker_socket_absent": true,
+    "host_home_absent": true,
+    "repository_absent": true
+  },
+  "codex_executions": 0,
+  "provider_sends": 0,
+  "runtime_image_qualification": true,
+  "qualification_passed": true,
+  "limitation": "Kernel boundary only; Codex preflight still required."
+}

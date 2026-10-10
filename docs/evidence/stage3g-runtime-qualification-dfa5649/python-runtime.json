@@ -1,0 +1,27 @@
+{
+  "dependency_lock_sha256": "4aeab7c781afad18ebc3844647b9e8aece889771326187280beaa3c1f3fc80ae",
+  "editable_install": false,
+  "entrypoint": "devhub.delegate_server",
+  "environment_instance_id": "e56fd0924abe390e62b215fab07988de",
+  "ignore_environment_flag": true,
+  "interpreter_path": "/opt/hostedtoolcache/Python/3.12.15/x64/bin/python3.12",
+  "interpreter_sha256": "53dab24bf9e0e9c490088a53d71770b6f027b057678b313648e75f7fc87a675e",
+  "isolated_argv": [
+    "-I",
+    "-m",
+    "devhub.delegate_server"
+  ],
+  "isolated_flag": true,
+  "lock_path": "/home/runner/work/_temp/qualification/python-artifact/uv.lock",
+  "module_origin": "lib/python3.12/site-packages/devhub/__init__.py",
+  "no_user_site_flag": true,
+  "python_implementation": "CPython",
+  "python_version": "3.12.15",
+  "qualification_context_id": "2f5d5a1b0b6d0ef2580a7f5691ae763387beae4600a50f85e0fd07cf106f20e4",
+  "qualification_passed": true,
+  "receipt_kind": "python_runtime",
+  "runtime_environment_id": "dca0c08a21664e5e0133271c1e316db7b52976cc38fdf94d68cbe0343c129a01",
+  "schema_version": 1,
+  "wheel_path": "/home/runner/work/_temp/qualification/python-artifact/codex_dev_hub-0.1.0-py3-none-any.whl",
+  "wheel_sha256": "e19c3db90852759e00bdc4cc6a915e08409b1bc751a95a2ef6c222a6f9af25d8"
+}

@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "kind": "stage3g_ci_runtime_qualification_exact_head",
+  "scope": "ci_mechanics_only_not_intended_host",
+  "implementation_commit": "dfa564951fdd94421620a98eb0985a75c1aa6405",
+  "workflow": {
+    "runtime_run_id": 38039583922,
+    "runtime_conclusion": "success",
+    "artifact_id": 11665048431,
+    "artifact_name": "synthetic-runtime-qualification",
+    "artifact_zip_bytes": 173274,
+    "artifact_zip_sha256": "f2f2aa0b0b8fb5de1efd543a31c9b9de6009543b04f58c25ab31c40f9ffa6f08",
+    "offline_core_run_id": 38039583823,
+    "linux": "success",
+    "windows_smoke": "success",
+    "windows_full": "skipped_by_policy"
+  },
+  "source_authority": {
+    "artifact_implementation_commit": "dfa564951fdd94421620a98eb0985a75c1aa6405",
+    "runtime_payload_source_commit": "dfa564951fdd94421620a98eb0985a75c1aa6405",
+    "context_devhub_commit": "dfa564951fdd94421620a98eb0985a75c1aa6405",
+    "context_runtime_source_commit": "dfa564951fdd94421620a98eb0985a75c1aa6405",
+    "exact_head_match": true
+  },
+  "python_runtime": {
+    "wheel_sha256": "e19c3db90852759e00bdc4cc6a915e08409b1bc751a95a2ef6c222a6f9af25d8",
+    "source_archive_sha256": "801ac89c0637f013ef60077a24861515854efe7ae39fe71b5e237417fbb283c6",
+    "dependency_lock_sha256": "4aeab7c781afad18ebc3844647b9e8aece889771326187280beaa3c1f3fc80ae",
+    "python_executable_sha256": "53dab24bf9e0e9c490088a53d71770b6f027b057678b313648e75f7fc87a675e",
+    "python_implementation": "CPython",
+    "python_version": "3.12.15",
+    "python_platform_tag": "linux-x86_64",
+    "python_soabi": "cpython-312-x86_64-linux-gnu",
+    "platform_machine": "x86_64",
+    "module_origin": "lib/python3.12/site-packages/devhub/__init__.py",
+    "isolated_argv": [
+      "-I",
+      "-m",
+      "devhub.delegate_server"
+    ],
+    "runtime_environment_id": "dca0c08a21664e5e0133271c1e316db7b52976cc38fdf94d68cbe0343c129a01",
+    "receipt_passed": true
+  },
+  "codex": {
+    "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+    "executable_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+    "executable_version": "codex-cli 0.155.0-alpha.9.2",
+    "candidate_b_base_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+    "host_integration_patch_sha256": "f22369f10ed45d04a740205fca0cb7111ddb56d3b1bdbee603dfcfdfdd7de9ad",
+    "combined_patchset_sha256": "e63b68840ecec005703fc61fa1e26aba988c5a9e44a956efedbfbdea96d10c59"
+  },
+  "qualification": {
+    "environment_instance_id": "e56fd0924abe390e62b215fab07988de",
+    "qualification_context_id": "2f5d5a1b0b6d0ef2580a7f5691ae763387beae4600a50f85e0fd07cf106f20e4",
+    "qualification_manifest_id": "32ac13311ef694ea51e0e5f10fcbfa20b25107a19e22939c8d042c051c836cea",
+    "execution_ready": false,
+    "gates": {
+      "artifact_integrity": true,
+      "auth_egress": false,
+      "codex_executable": true,
+      "context_integrity": true,
+      "effects_boundary": true,
+      "evaluator": true,
+      "host_process_visibility": true,
+      "isolation": true,
+      "ledger_identity": false,
+      "ollama_metadata": false,
+      "python_runtime": true,
+      "runtime_config_probe": true,
+      "same_environment": true,
+      "schema_version": 1
+    },
+    "missing_intended_host_receipts": [
+      "auth_egress",
+      "ledger_identity",
+      "ollama_metadata"
+    ]
+  },
+  "host_visibility": {
+    "default_ceiling_present": false,
+    "default_policy_present": false,
+    "arm_a_visible": [],
+    "arm_a_ceiling": [],
+    "arm_a_policy_present": false,
+    "arm_b_visible": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ],
+    "arm_b_ceiling": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ],
+    "arm_b_policy_present": true,
+    "b_minus_a": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ],
+    "a_minus_b": [],
+    "catalog_tools_list_count": 1,
+    "mcp_tool_call_count": 0
+  },
+  "counters": {
+    "model_requests": 0,
+    "provider_sends": 0,
+    "mcp_tool_executions": 0,
+    "real_codex_executions": 0
+  },
+  "classification": {
+    "mechanics": "PASS",
+    "source_authority": "PASS",
+    "intended_host_qualification": "NOT_PERFORMED",
+    "stage_3g_c": "OPEN",
+    "stage_3g": "OPEN",
+    "rehearsal": "NOT_RUN",
+    "benchmark": "NOT_RUN"
+  },
+  "evidence_sha256": {
+    "allowed-tools.json": "4800f63dcae7fefb88d679d78e5768e390f75885d0403b77ac1893082f9d9f2a",
+    "build.json": "8779e731965958fb5ec468e2faea4911e85cdbdbb25129866a7364def15e9ca1",
+    "codex-executable.json": "50165bc2b021e460ebd21e6b773712da879a0bab778ec03a335e2e1b90f928fb",
+    "context.json": "2bdf45f676b9d573b62c3f12f12b25805db27d0c4d3a4bc09312e56b77edba86",
+    "effects.json": "2014b9d883d25e2ff294661439bb3452f8986978d9dd9b58e65aafeefa21c5b7",
+    "environment.json": "bae97215dc9df7f2cb8d098bc8b45b9bf14c3f0f7f932ee06f2437e1140884b8",
+    "evaluator-build.json": "1ba30c22a1625e5775360d3de163cf5be2a05aa2f036f7449f7fcd679277538f",
+    "evaluator-proof/buggy.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "evaluator-proof/buggy.stdout": "fab756ffafa1a5f723c6fc4e46060350723221a232468151ded8a7aab5203a4d",
+    "evaluator-proof/claim.json": "92a3fed9d9cd361fe61cba49a3a0531e1bad948034e6b3248847d660a8d3efac",
+    "evaluator-proof/corrected.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "evaluator-proof/corrected.stdout": "bea5a77cc68582c0c66ca0fc860c9b8f449e679bec8d6a9178605ee7b7dc69a3",
+    "evaluator-proof/qualification-receipt.json": "8700ea8f718f520846c5c85a9edc34c973e0343ed43493c580c334e84271b0c9",
+    "evaluator-proof/result.json": "f4ea1736f208e126c7d53197064a578e0a7ae6cb721a4654791f59eaae537de1",
+    "host-process-visibility.json": "748c197da7bb7327473634c955abced07d716b17753eb0506263f157f6546010",
+    "isolation.json": "afb6b8cffaa8984f9fe583a5d2161fb5a6b831ef16593b1b504d263a54f198c1",
+    "manifest.json": "1f9151db534d2ec7aeba145f14c3a5b04d02846545dd6022ac4c65a3c54eb44b",
+    "python-artifact/codex_dev_hub-0.1.0-py3-none-any.whl": "e19c3db90852759e00bdc4cc6a915e08409b1bc751a95a2ef6c222a6f9af25d8",
+    "python-artifact/runtime-artifact.json": "a628f1ff455325c89ac94570b7338cfa773137ab46aa0129464242fccea17861",
+    "python-artifact/uv.lock": "4aeab7c781afad18ebc3844647b9e8aece889771326187280beaa3c1f3fc80ae",
+    "python-runtime.json": "b5ba03b734e274ea26a6601aa28c58728fb9942655c87e10ae7d0c01d853ebeb",
+    "runtime-checks.json": "791a6775771afe00f2c5f1b7e658ab8d3fb571e6155ed45c65b661fc8d872eb6"
+  }
+}

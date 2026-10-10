@@ -1,0 +1,112 @@
+{
+  "a_minus_b": [],
+  "approved_host_manifest_sha256": "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b",
+  "arm_a_observation": {
+    "allowed_tools": [],
+    "allowed_tools_ceiling_present": true,
+    "approved_delegate_policy_present": false,
+    "approved_identity": null,
+    "dynamic_tool_count": 0,
+    "effective_tool_mode": "CodeModeOnly",
+    "expected_schema_sha256": null,
+    "host_manifest_sha256": "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b",
+    "hosted_tools": [],
+    "model_requests": 0,
+    "nested_code_mode_map": [],
+    "observer": "read_only_pre_sampling_router_v1",
+    "provider_sends": 0,
+    "real_codex_task_executions": 0,
+    "schema_version": 1,
+    "visible_model_tools": []
+  },
+  "arm_b_observation": {
+    "allowed_tools": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ],
+    "allowed_tools_ceiling_present": true,
+    "approved_delegate_policy_present": true,
+    "approved_identity": {
+      "canonical_function": "devhub_delegate",
+      "canonical_namespace": "mcp__devhub_delegate",
+      "generation_identity": "generation-f2d86193bd8afa5e",
+      "raw_tool": "devhub_delegate",
+      "schema_sha256": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+      "schema_version": 1,
+      "server_key": "devhub_delegate"
+    },
+    "dynamic_tool_count": 0,
+    "effective_tool_mode": "CodeModeOnly",
+    "expected_schema_sha256": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+    "host_manifest_sha256": "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b",
+    "hosted_tools": [],
+    "model_requests": 0,
+    "nested_code_mode_map": [],
+    "observer": "read_only_pre_sampling_router_v1",
+    "provider_sends": 0,
+    "real_codex_task_executions": 0,
+    "schema_version": 1,
+    "visible_model_tools": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ]
+  },
+  "b_minus_a": [
+    "mcp__devhub_delegate.devhub_delegate"
+  ],
+  "catalog_records": [
+    {
+      "event": "tools_list",
+      "provider_send": false,
+      "schema_sha256": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+      "schema_version": 1
+    }
+  ],
+  "catalog_tools_list_count": 1,
+  "default_observation": {
+    "allowed_tools": [],
+    "allowed_tools_ceiling_present": false,
+    "approved_delegate_policy_present": false,
+    "approved_identity": null,
+    "dynamic_tool_count": 0,
+    "effective_tool_mode": "CodeModeOnly",
+    "expected_schema_sha256": null,
+    "host_manifest_sha256": null,
+    "hosted_tools": [],
+    "model_requests": 0,
+    "nested_code_mode_map": [
+      "apply_patch=apply_patch",
+      "clock__curr_time=clockcurr_time",
+      "view_image=view_image"
+    ],
+    "observer": "read_only_pre_sampling_router_v1",
+    "provider_sends": 0,
+    "real_codex_task_executions": 0,
+    "schema_version": 1,
+    "visible_model_tools": [
+      "clock.sleep",
+      "collaboration.followup_task",
+      "collaboration.interrupt_agent",
+      "collaboration.list_agents",
+      "collaboration.send_message",
+      "collaboration.spawn_agent",
+      "collaboration.wait_agent",
+      "functions.exec",
+      "functions.request_user_input",
+      "functions.request_user_input_async",
+      "functions.wait"
+    ]
+  },
+  "environment_instance_id": "e56fd0924abe390e62b215fab07988de",
+  "executable_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+  "executable_version": "codex-cli 0.155.0-alpha.9.2",
+  "image_id": "sha256:1c3af54d783ed41f86b0a5a8c9b32eab801dff6571171cbc5f93fd4d28f1e78a",
+  "kind": "actual_codex_exec_pre_sampling_router_visibility",
+  "mcp_tool_call_count": 0,
+  "model_requests": 0,
+  "provider_sends": 0,
+  "qualification_context_id": "2f5d5a1b0b6d0ef2580a7f5691ae763387beae4600a50f85e0fd07cf106f20e4",
+  "qualification_passed": true,
+  "real_codex_task_executions": 0,
+  "receipt_kind": "host_process_visibility",
+  "schema_version": 1,
+  "stopped_before_sampling": true
+}
