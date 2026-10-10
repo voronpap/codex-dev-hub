@@ -69,7 +69,10 @@ def test_shipping_patch_keeps_authority_out_of_client_payloads() -> None:
     assert "devhub-stage3g-host-manifest" in patch
     assert "devhub-stage3g-arm" in patch
     assert "thread_extension_init: ExtensionDataInit" in patch
-    assert "let mut thread_extension_init = self.thread_extension_init.clone();" in patch
+    assert "let host_thread_extension_init = self.thread_extension_init.clone();" in patch
+    assert "host_thread_extension_init," in patch
+    assert "mut thread_extension_init: ExtensionDataInit" in patch
+    assert "let mut thread_extension_init = self.thread_extension_init.clone();" not in patch
     assert "ThreadStartParams" not in patch
     assert "Stage3gHostArm::A" in patch and "AllowedTools" in patch
     assert "Stage3gHostArm::B" in patch and "ApprovedDelegatePolicy::delegate" in patch
