@@ -35,6 +35,7 @@ from devhub.windows_isolation import (
 
 H = "1" * 64
 ENVIRONMENT = "2" * 32
+IMPLEMENTATION_COMMIT = "3" * 40
 
 
 def load_probe_module(name: str):
@@ -1629,6 +1630,8 @@ def test_probe_main_forwards_host_arguments_by_qualify_parameter(
             str(output),
             "--environment-instance-id",
             ENVIRONMENT,
+            "--expected-implementation-commit",
+            IMPLEMENTATION_COMMIT,
         ],
     )
 
@@ -1640,8 +1643,55 @@ def test_probe_main_forwards_host_arguments_by_qualify_parameter(
         "scratch": scratch,
         "output": output,
         "environment_instance_id": ENVIRONMENT,
+        "expected_implementation_commit": IMPLEMENTATION_COMMIT,
     }
     assert json.loads(capsys.readouterr().out) == {"status": "passed"}
+
+
+def test_qualify_rejects_stale_bundle_before_platform_or_native_acquisition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows host qualification path")
+    probe = load_probe_module("windows_isolation_stale_bundle_test")
+    manifest = tmp_path / "bundle.json"
+    manifest.write_bytes(b"{}")
+    scratch = tmp_path / "scratch"
+    output = tmp_path / "evidence.json"
+    bundle = SimpleNamespace(
+        payload=SimpleNamespace(implementation_commit="4" * 40),
+    )
+
+    class BundleParser:
+        @classmethod
+        def model_validate_json(cls, _: bytes) -> object:
+            return bundle
+
+    monkeypatch.setattr(probe, "NativeBundleV1", BundleParser)
+    monkeypatch.setattr(probe, "verify_native_bundle", lambda *_, **__: None)
+    monkeypatch.setattr(
+        probe,
+        "observed_windows_platform",
+        lambda: pytest.fail("platform observation occurred for a stale bundle"),
+    )
+    monkeypatch.setattr(
+        probe.socket,
+        "socket",
+        lambda *_: pytest.fail("native listener acquisition occurred for a stale bundle"),
+    )
+
+    with pytest.raises(ValueError, match="implementation commit differs"):
+        probe.qualify(
+            tmp_path / "bundle",
+            manifest,
+            scratch,
+            output,
+            ENVIRONMENT,
+            IMPLEMENTATION_COMMIT,
+        )
+    assert not scratch.exists()
+    assert not output.exists()
+    assert not output.with_name(output.name + ".failure.json").exists()
 
 
 def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeypatch) -> None:
@@ -1666,6 +1716,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     bundle = SimpleNamespace(
         bundle_id=H,
         payload=SimpleNamespace(
+            implementation_commit=IMPLEMENTATION_COMMIT,
             codex=SimpleNamespace(executable_sha256="3" * 64),
             python=SimpleNamespace(
                 executable_path="python/python.exe",
@@ -1786,7 +1837,9 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     with pytest.raises(OSError, match="could not prove"):
         probe._open_process_failure_proves_absent(5)
 
-    evidence = probe.qualify(bundle_root, manifest, scratch, output, ENVIRONMENT)
+    evidence = probe.qualify(
+        bundle_root, manifest, scratch, output, ENVIRONMENT, IMPLEMENTATION_COMMIT
+    )
     retained = WindowsIsolationEvidenceV2.model_validate_json(output.read_bytes())
     assert retained == evidence
     assert retained.receipt.payload.no_direct_network_baseline_qualified is True
@@ -1808,6 +1861,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
                 rejected_scratch,
                 rejected_output,
                 ENVIRONMENT,
+                IMPLEMENTATION_COMMIT,
             )
         assert not rejected_output.exists()
         assert not rejected_output.with_name(rejected_output.name + ".failure.json").exists()
@@ -1822,7 +1876,14 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         lambda *_: [OSError("post-observation cleanup failed")],
     )
     with pytest.raises(ExceptionGroup, match="probe cleanup failed"):
-        probe.qualify(bundle_root, manifest, failed_scratch, failed_output, ENVIRONMENT)
+        probe.qualify(
+            bundle_root,
+            manifest,
+            failed_scratch,
+            failed_output,
+            ENVIRONMENT,
+            IMPLEMENTATION_COMMIT,
+        )
     assert not failed_output.exists()
 
 
@@ -1846,7 +1907,9 @@ def test_qualify_cleans_every_early_acquisition_failure(
     manifest.write_bytes(b"{}")
     scratch = tmp_path / "scratch"
     output = tmp_path / "evidence.json"
-    bundle = SimpleNamespace(bundle_id=H, payload=SimpleNamespace())
+    bundle = SimpleNamespace(
+        bundle_id=H, payload=SimpleNamespace(implementation_commit=IMPLEMENTATION_COMMIT)
+    )
 
     class BundleParser:
         @classmethod
@@ -1895,7 +1958,7 @@ def test_qualify_cleans_every_early_acquisition_failure(
     monkeypatch.setattr(probe, "_registry_exists", lambda _: False)
     monkeypatch.setattr(probe.shutil, "rmtree", remove_scratch)
     with pytest.raises(OSError, match=failure_stage):
-        probe.qualify(bundle_root, manifest, scratch, output, ENVIRONMENT)
+        probe.qualify(bundle_root, manifest, scratch, output, ENVIRONMENT, IMPLEMENTATION_COMMIT)
     assert not output.exists()
     assert not scratch.exists()
     assert "listener" in calls
