@@ -30,6 +30,17 @@ H = "1" * 64
 ENVIRONMENT = "2" * 32
 
 
+def test_windows_last_error_preserves_ctypes_saved_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(isolation.ctypes, "get_last_error", lambda: 12345, raising=False)
+    assert isolation._windows_last_error() == 12345
+
+
+def test_windows_last_error_fails_closed_when_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(isolation.ctypes, "get_last_error", None, raising=False)
+    with pytest.raises(RuntimeError, match="get_last_error is unavailable"):
+        isolation._windows_last_error()
+
+
 def path(name: str, index: int) -> NativePathIdentityV1:
     return NativePathIdentityV1(
         locator=rf"C:\qualification\{name}",

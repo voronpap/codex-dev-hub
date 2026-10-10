@@ -37,6 +37,16 @@ NO_HANDLE_INHERITANCE = "inherit_handles_false"
 _HEX_32 = re.compile(r"^[a-f0-9]{32}$")
 _PROFILE_NAME = re.compile(r"^devfabric_[a-f0-9]{32}$")
 
+
+def _windows_last_error() -> int:
+    """Return the Win32 thread-local last-error value without Linux stubs."""
+
+    getter = getattr(ctypes, "get_last_error", None)
+    if not callable(getter):
+        raise RuntimeError("ctypes.get_last_error is unavailable on this platform")
+    return int(getter())
+
+
 # Identity of the reviewed Microsoft ``BaseContainerSpecification.fbs`` wire
 # layout used here.  It binds every slot rather than a mutable URL or filename.
 WINDOWS_SANDBOX_SCHEMA_IDENTITY = digest(
@@ -422,7 +432,7 @@ def _reject_reparse_chain(path: Path, *, require_directory: bool = True) -> Path
         current /= part
         observed = attributes(str(current))
         if observed == invalid:
-            raise OSError(ctypes.get_last_error(), "GetFileAttributesW failed")
+            raise OSError(_windows_last_error(), "GetFileAttributesW failed")
         if observed & reparse:
             raise ValueError("Isolation roots cannot traverse reparse points")
     return absolute
@@ -473,14 +483,14 @@ def windows_path_identity(path: Path) -> NativePathIdentityV1:
     )
     invalid_handle = ctypes.c_void_p(-1).value
     if handle in (None, invalid_handle):
-        raise OSError(ctypes.get_last_error(), "CreateFileW failed for isolation root")
+        raise OSError(_windows_last_error(), "CreateFileW failed for isolation root")
     try:
         information = ByHandleFileInformation()
         get_information = kernel.GetFileInformationByHandle
         get_information.argtypes = [ctypes.c_void_p, ctypes.POINTER(ByHandleFileInformation)]
         get_information.restype = ctypes.c_int
         if not get_information(handle, ctypes.byref(information)):
-            raise OSError(ctypes.get_last_error(), "GetFileInformationByHandle failed")
+            raise OSError(_windows_last_error(), "GetFileInformationByHandle failed")
         file_index = (information.file_index_high << 32) | information.file_index_low
         return NativePathIdentityV1(
             locator=str(absolute),
@@ -528,13 +538,13 @@ class WindowsSandboxProcess:
         if wait == 0x102:
             raise TimeoutError("Isolated process did not exit before its deadline")
         if wait != 0:
-            raise OSError(ctypes.get_last_error(), "WaitForSingleObject failed")
+            raise OSError(_windows_last_error(), "WaitForSingleObject failed")
         code = ctypes.c_uint32()
         get_exit = kernel.GetExitCodeProcess
         get_exit.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
         get_exit.restype = ctypes.c_int
         if not get_exit(self.process_handle, ctypes.byref(code)):
-            raise OSError(ctypes.get_last_error(), "GetExitCodeProcess failed")
+            raise OSError(_windows_last_error(), "GetExitCodeProcess failed")
         return int(code.value)
 
     def terminate_tree(self, exit_code: int = 1) -> None:
@@ -545,7 +555,7 @@ class WindowsSandboxProcess:
         terminate.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         terminate.restype = ctypes.c_int
         if not terminate(self.job_handle, exit_code):
-            error = ctypes.get_last_error()
+            error = _windows_last_error()
             if error not in (0, 6):
                 raise OSError(error, "TerminateJobObject failed")
 
@@ -575,7 +585,7 @@ class WindowsSandboxProcess:
             if handle and close_handle(handle):
                 setattr(self, field, 0)
             elif handle:
-                errors.append(OSError(ctypes.get_last_error(), f"CloseHandle failed for {field}"))
+                errors.append(OSError(_windows_last_error(), f"CloseHandle failed for {field}"))
         if not self._profile_deleted:
             try:
                 self._profile_deleted = _delete_appcontainer_profile(self.appcontainer_identity)
@@ -642,7 +652,7 @@ def _set_job_limits(job: int, limits: WindowsJobLimitsV1) -> None:
     setter.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
     setter.restype = ctypes.c_int
     if not setter(job, 9, ctypes.byref(information), ctypes.sizeof(information)):
-        raise OSError(ctypes.get_last_error(), "SetInformationJobObject failed")
+        raise OSError(_windows_last_error(), "SetInformationJobObject failed")
 
 
 def _verify_profile_paths(profile: WindowsIsolationProfileV1) -> None:
@@ -702,16 +712,16 @@ def _cleanup_failed_launch(
     close_handle.argtypes = [ctypes.c_void_p]
     close_handle.restype = ctypes.c_int
     if process_handle and not terminate_process(process_handle, 1):
-        errors.append(OSError(ctypes.get_last_error(), "TerminateProcess cleanup failed"))
+        errors.append(OSError(_windows_last_error(), "TerminateProcess cleanup failed"))
     if job_handle and not terminate_job(job_handle, 1):
-        errors.append(OSError(ctypes.get_last_error(), "TerminateJobObject cleanup failed"))
+        errors.append(OSError(_windows_last_error(), "TerminateJobObject cleanup failed"))
     for name, handle in (
         ("thread", thread_handle),
         ("process", process_handle),
         ("job", job_handle),
     ):
         if handle and not close_handle(handle):
-            errors.append(OSError(ctypes.get_last_error(), f"CloseHandle cleanup failed: {name}"))
+            errors.append(OSError(_windows_last_error(), f"CloseHandle cleanup failed: {name}"))
     try:
         if not _delete_appcontainer_profile(appcontainer_identity):
             errors.append(RuntimeError("AppContainer profile cleanup was not confirmed"))
@@ -784,7 +794,7 @@ def launch_windows_isolated(
     create_job.restype = ctypes.c_void_p
     job = create_job(None, None)
     if not job:
-        raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
+        raise OSError(_windows_last_error(), "CreateJobObjectW failed")
     process_information = ProcessInformation()
     try:
         _set_job_limits(job, profile.payload.job_limits)
@@ -833,7 +843,7 @@ def launch_windows_isolated(
             len(spec),
             ctypes.byref(process_information),
         ):
-            raise OSError(ctypes.get_last_error(), "Experimental_CreateProcessInSandbox failed")
+            raise OSError(_windows_last_error(), "Experimental_CreateProcessInSandbox failed")
         assign = kernel.AssignProcessToJobObject
         assign.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         assign.restype = ctypes.c_int
@@ -841,9 +851,9 @@ def launch_windows_isolated(
         resume.argtypes = [ctypes.c_void_p]
         resume.restype = ctypes.c_uint32
         if not assign(job, process_information.process):
-            raise OSError(ctypes.get_last_error(), "AssignProcessToJobObject failed")
+            raise OSError(_windows_last_error(), "AssignProcessToJobObject failed")
         if resume(process_information.thread) == 0xFFFFFFFF:
-            raise OSError(ctypes.get_last_error(), "ResumeThread failed")
+            raise OSError(_windows_last_error(), "ResumeThread failed")
         return WindowsSandboxProcess(
             process_handle=int(process_information.process or 0),
             thread_handle=int(process_information.thread or 0),
