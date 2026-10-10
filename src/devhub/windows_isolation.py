@@ -761,7 +761,7 @@ def launch_windows_isolated(
 ) -> WindowsSandboxProcess:
     """Create one suspended AppContainer process and bind its complete child tree."""
 
-    env_text = _windows_environment_block(environment)
+    _windows_environment_block(environment)
     local_app_data_value = next(
         value for name, value in environment.items() if name.casefold() == "localappdata"
     )
@@ -783,9 +783,13 @@ def launch_windows_isolated(
         raise ValueError("Isolated launcher executable hash mismatch")
     if not cwd.is_dir() or not any(cwd.is_relative_to(root) for root in writable):
         raise ValueError("Isolated cwd must belong to an exact writable root")
-    _reject_reparse_chain(local_app_data)
+    local_app_data = _reject_reparse_chain(local_app_data)
     if not any(local_app_data.is_relative_to(root) for root in writable):
         raise ValueError("Isolated LOCALAPPDATA must belong to an exact writable root")
+    isolated_environment = dict(environment)
+    local_app_data_name = next(name for name in environment if name.casefold() == "localappdata")
+    isolated_environment[local_app_data_name] = str(local_app_data)
+    env_text = _windows_environment_block(isolated_environment)
 
     class StartupInfo(ctypes.Structure):
         _fields_ = [

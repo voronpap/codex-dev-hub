@@ -384,6 +384,10 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
     )
     profile = WindowsIsolationProfileV1.create(payload)
     calls: list[str] = []
+    supplied_environment = {
+        "SYSTEMROOT": r"C:\Windows",
+        "LOCALAPPDATA": str(writable / "intermediate" / ".." / local_app_data.name),
+    }
     expected_environment = {
         "SYSTEMROOT": r"C:\Windows",
         "LOCALAPPDATA": str(local_app_data),
@@ -429,7 +433,7 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
     monkeypatch.setattr(
         isolation,
         "_reject_reparse_chain",
-        lambda value, **_: Path(value).absolute(),
+        lambda value, **_: Path(os.path.abspath(value)),
     )
     monkeypatch.setattr(isolation, "_set_job_limits", lambda *_: calls.append("limits_set"))
     monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
@@ -438,7 +442,7 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
         executable,
         ("-c", "pass"),
         cwd=writable,
-        environment=expected_environment,
+        environment=supplied_environment,
     )
     assert calls == [
         "job_created",
@@ -538,6 +542,60 @@ def test_local_app_data_outside_writable_roots_fails_before_job_acquisition(
             ("-c", "pass"),
             cwd=writable,
             environment={"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": str(outside)},
+        )
+
+
+def test_local_app_data_traversal_is_normalized_before_authority_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Win32 path authority")
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    writable = tmp_path / "workspace"
+    writable.mkdir()
+    outside = tmp_path / "outside-profile"
+    outside.mkdir()
+    traversal = writable / ".." / outside.name
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+                "read_only_roots": (
+                    NativePathIdentityV1(
+                        locator=str(bundle), volume_serial_number=1, file_index="1" * 16
+                    ),
+                ),
+                "writable_roots": (
+                    NativePathIdentityV1(
+                        locator=str(writable), volume_serial_number=1, file_index="2" * 16
+                    ),
+                ),
+                "denied_roots": (),
+            }
+        )
+    )
+    monkeypatch.setattr(isolation, "observed_windows_platform", lambda: (26200, "x86_64"))
+    monkeypatch.setattr(isolation, "_verify_profile_paths", lambda _: None)
+    monkeypatch.setattr(
+        isolation,
+        "_reject_reparse_chain",
+        lambda value, **_: Path(os.path.abspath(value)),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_windows_dll",
+        lambda *_: pytest.fail("job API acquired after LOCALAPPDATA traversal"),
+    )
+    with pytest.raises(ValueError, match="LOCALAPPDATA must belong"):
+        isolation.launch_windows_isolated(
+            profile,
+            executable,
+            ("-c", "pass"),
+            cwd=writable,
+            environment={"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": str(traversal)},
         )
 
 
