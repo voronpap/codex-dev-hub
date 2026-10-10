@@ -166,16 +166,39 @@ index 04c222965227872699ceefac485c96ce219d5183..e053cccc0a3e2311c50dc91526c3b736
          }
      }
  
-@@ -1456,7 +1460,7 @@ impl ThreadRequestProcessor {
+@@ -1221,6 +1225,7 @@ impl ThreadRequestProcessor {
+         let config_manager = self.config_manager.clone();
+         let thread_store = Arc::clone(&self.thread_store);
+         let initial_config_warnings = Arc::clone(&self.initial_config_warnings);
++        let host_thread_extension_init = self.thread_extension_init.clone();
+         let outgoing = Arc::clone(&listener_task_context.outgoing);
+         let error_request_id = request_id.clone();
+         let thread_start_task = async move {
+@@ -1247,6 +1252,7 @@ impl ThreadRequestProcessor {
+                 experimental_raw_events,
+                 request_trace,
+                 initial_config_warnings,
++                host_thread_extension_init,
+             )
+             .await
+             {
+@@ -1329,6 +1335,7 @@ impl ThreadRequestProcessor {
+         experimental_raw_events: bool,
+         request_trace: Option<W3cTraceContext>,
+         initial_config_warnings: Arc<Vec<ConfigWarningNotification>>,
++        mut thread_extension_init: ExtensionDataInit,
+     ) -> Result<(), JSONRPCErrorError> {
+         let thread_start_started_at = std::time::Instant::now();
+         let requested_cwd = typesafe_overrides.cwd.clone();
+@@ -1456,7 +1463,6 @@ impl ThreadRequestProcessor {
              (!config.ephemeral && thread_store.supports_paginated_history_lists())
                  .then_some(ThreadHistoryMode::Paginated)
          });
 -        let mut thread_extension_init = ExtensionDataInit::new();
-+        let mut thread_extension_init = self.thread_extension_init.clone();
          if !selected_capability_roots.is_empty() {
              thread_extension_init.insert(selected_capability_roots);
          }
-@@ -3590,6 +3594,16 @@ impl ThreadRequestProcessor {
+@@ -3590,6 +3596,16 @@ impl ThreadRequestProcessor {
          client_mcp_extensions: ClientMcpExtensions,
          prepared_config: &mut Option<PreparedResumeConfig>,
      ) -> Result<ControlFlow<()>, JSONRPCErrorError> {
@@ -192,7 +215,7 @@ index 04c222965227872699ceefac485c96ce219d5183..e053cccc0a3e2311c50dc91526c3b736
          if let Ok(thread_id) = ThreadId::from_string(&params.thread_id)
              && self
                  .pending_thread_unloads
-@@ -4798,6 +4812,16 @@ impl ThreadRequestProcessor {
+@@ -4798,6 +4814,16 @@ impl ThreadRequestProcessor {
          app_server_client_version: Option<String>,
          client_mcp_extensions: ClientMcpExtensions,
      ) -> Result<(), JSONRPCErrorError> {

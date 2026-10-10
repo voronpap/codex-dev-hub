@@ -149,6 +149,23 @@ def test_host_patch_maps_observer_error_into_session_error_boundary() -> None:
     )
 
 
+def test_host_patch_passes_owned_extension_template_into_static_start_task() -> None:
+    patch = (
+        Path(__file__).resolve().parents[1] / "patches/stage3g-approved-call/host-integration.patch"
+    ).read_text(encoding="utf-8")
+
+    clone = "+        let host_thread_extension_init = self.thread_extension_init.clone();"
+    task = "         let thread_start_task = async move {"
+    assert clone in patch
+    assert task in patch
+    assert patch.index(clone) < patch.index(task)
+    assert "+                host_thread_extension_init," in patch
+    assert "+        mut thread_extension_init: ExtensionDataInit," in patch
+    assert (
+        "+        let mut thread_extension_init = self.thread_extension_init.clone();" not in patch
+    )
+
+
 def test_locked_resolution_requires_byte_identical_lock(tmp_path, monkeypatch) -> None:
     root = tmp_path / "source"
     output = tmp_path / "evidence"

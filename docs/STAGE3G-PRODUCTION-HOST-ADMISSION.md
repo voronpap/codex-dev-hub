@@ -374,3 +374,10 @@ required rustfmt's multiline method-chain indentation for that observer call.
 Build-013 carries only the formatter-exact patch representation. It does not
 change the mapped error, host authority, router eligibility, observer state,
 locked dependencies, or process-proof semantics.
+
+Build-013 run `38012265371` passed cheap preflight but compilation failed because
+the static background `thread_start_task` attempted to read `self`. Build-014
+keeps the existing trusted startup chain and instead clones the host-owned
+`ExtensionDataInit` before `async move`, then passes the owned template explicitly
+to the static task. `ThreadStartParams` still cannot create or widen authority;
+each fresh thread still mutates only its cloned extension data.

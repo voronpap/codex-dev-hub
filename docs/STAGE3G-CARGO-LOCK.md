@@ -204,3 +204,12 @@ new observer method chain to use rustfmt's multiline indentation. It is immutabl
 `rust_compilation_started=false`. Build-013 changes only those patch bytes to the
 exact formatter output; the error conversion, authority boundaries, lock,
 manifest, schema, and proof behavior are unchanged.
+
+Build-013 run `38012265371` passed cheap preflight and immutable locked
+metadata/fetch, then started Cargo and failed after 457.573 seconds. The static
+`thread_start_task` incorrectly accessed `self.thread_extension_init`; no
+executable or process proof exists. The classification is
+`BUILD_013_THREAD_EXTENSION_PROPAGATION_COMPILE_FAILURE`. Build-014 clones the
+trusted template before the existing `async move` boundary and passes that owned
+value explicitly into the static task. Client request types and authority remain
+unchanged.
