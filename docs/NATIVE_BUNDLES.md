@@ -115,11 +115,20 @@ publication.
 
 If the isolated probe exits before it can create success evidence, the host may
 retain `<success-output>.failure.json`. This self-hashed, non-success diagnostic
-binds the environment, profile, probe and exact unsigned process exit code. A
-bounded child detail is marked as validated, invalid or absent; invalid and
-absent details are never trusted. The diagnostic is published only after
-exhaustive cleanup succeeds, never grants readiness and leaves the success
-output absent.
+binds the environment, profile, probe, stdlib-only child-bootstrap hash and exact
+unsigned process exit code. Before importing the probe, that separately hashed
+bootstrap atomically writes a strict, identity-bound `bootstrap_started` frame.
+Reserved exit codes distinguish a loader/self-hash failure, inability to write
+that frame, a top-level import failure and inability to retain bounded failure
+detail. Both the bootstrap frame and child detail are independently marked as
+validated, invalid or absent; invalid and absent data are never trusted. Success
+requires the validated frame. The diagnostic is published only after exhaustive
+cleanup succeeds, never grants readiness and leaves the success output absent.
+The V2 receipt retains the validated marker ID and an explicit true observation;
+the evidence recomputes that ID from the retained profile identities.
+Bootstrap-bearing profile, receipt, evidence and failure contracts are V2. The
+strict V1 parsers remain unchanged for the earlier retained non-success evidence;
+V1 evidence is historical and cannot satisfy the V2 bootstrap gate.
 
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,

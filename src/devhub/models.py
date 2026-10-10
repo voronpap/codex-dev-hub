@@ -21,6 +21,20 @@ class Contract(BaseModel):
         return value
 
 
+class ContractV2(BaseModel):
+    """Strict base for explicitly version-2 contracts."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, validate_default=True)
+    schema_version: Literal[2] = 2
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def integer_version(cls, value: object) -> object:
+        if type(value) is not int:
+            raise ValueError("schema_version must be an integer")
+        return value
+
+
 class Policy(Contract):
     context_token_cap: Annotated[int, Field(ge=1, le=1_000_000)] = 8000
     summary_token_cap: Annotated[int, Field(ge=1, le=100_000)] = 1500

@@ -11,11 +11,11 @@ import secrets
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 from devhub.benchmark import Digest, canonical, digest
 from devhub.ledger import LedgerIdentityCoreV1, ledger_identity_sha256
-from devhub.models import Contract
+from devhub.models import Contract, ContractV2
 from devhub.ollama_transport import OllamaBridgeAuthorityV1
 
 GitCommit = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
@@ -68,20 +68,6 @@ def generate_environment_instance_id() -> str:
 
 def _model_hash(value: BaseModel) -> str:
     return digest(canonical(cast(JsonValue, value.model_dump(mode="json"))))
-
-
-class ContractV2(BaseModel):
-    """Strict envelope base for the intentionally version-2 final manifest."""
-
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, validate_default=True)
-    schema_version: Literal[2] = 2
-
-    @field_validator("schema_version", mode="before")
-    @classmethod
-    def integer_version(cls, value: object) -> object:
-        if type(value) is not int:
-            raise ValueError("schema_version must be an integer")
-        return value
 
 
 class PythonRuntimeExpectedV1(Contract):
