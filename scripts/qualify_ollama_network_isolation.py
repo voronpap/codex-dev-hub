@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import os
 import platform
+import re
 import socket
 from pathlib import Path
 
@@ -22,6 +23,7 @@ PROXY_KEYS = {
 }
 
 IPV6_ROUTE_FLAG_REJECT = 0x0200
+NETWORK_NAMESPACE_ID = re.compile(r"net:\[[0-9]+\]")
 
 
 def _non_loopback_routes_from_text(ipv4: str, ipv6: str) -> int:
@@ -56,9 +58,22 @@ def _non_loopback_routes() -> int:
     )
 
 
+def _separate_network_namespace(child: str, host: str) -> bool:
+    """Compare the observed child namespace with the trusted pre-unshare host value."""
+
+    if NETWORK_NAMESPACE_ID.fullmatch(host) is None:
+        raise ValueError("Host network namespace ID is malformed")
+    if NETWORK_NAMESPACE_ID.fullmatch(child) is None:
+        raise ValueError("Child network namespace ID is malformed")
+    if child == host:
+        raise ValueError("Ollama process must use a separate network namespace")
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, required=True)
+    parser.add_argument("--host-network-namespace-id", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if platform.system() != "Linux":
@@ -68,7 +83,11 @@ def main() -> None:
     executable = args.executable
     if executable.is_symlink() or not executable.is_file():
         parser.error("Ollama executable must be a regular non-symlink file")
-    separate = os.readlink("/proc/self/ns/net") != os.readlink("/proc/1/ns/net")
+    try:
+        child_namespace = os.readlink("/proc/self/ns/net")
+        separate = _separate_network_namespace(child_namespace, args.host_network_namespace_id)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         loopback = listener.getsockname()[0] == "127.0.0.1"
@@ -81,7 +100,7 @@ def main() -> None:
             denied = True
     value = OllamaNetworkIsolationObservationV1(
         executable_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
-        network_namespace_id=os.readlink("/proc/self/ns/net"),
+        network_namespace_id=child_namespace,
         separate_network_namespace=separate,
         loopback_bind_available=loopback,
         non_loopback_route_count=_non_loopback_routes(),
