@@ -18,7 +18,14 @@ def _append_receipt(value: dict[str, object]) -> None:
 def main() -> None:
     if sys.argv[1:] != ["mcp"]:
         raise SystemExit("build-009 synthetic endpoint requires the exact 'mcp' mode")
-    schema = json.loads(Path("/stage3g-schema.json").read_bytes())
+    pid_path = os.environ.get("DEVHUB_BUILD009_MCP_PID")
+    if pid_path is not None:
+        Path(pid_path).write_text(str(os.getpid()) + "\n", encoding="ascii")
+    # The historical Linux proof uses the fixed root path. Native Windows proof
+    # supplies a reviewed absolute locator through the admitted MCP environment;
+    # schema content, rather than the locator, remains the authority.
+    schema_path = Path(os.environ.get("DEVHUB_BUILD009_SCHEMA", "/stage3g-schema.json"))
+    schema = json.loads(schema_path.read_bytes())
     schema_sha256 = hashlib.sha256(
         json.dumps(schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()

@@ -25,6 +25,12 @@ not reasons to start the entire runtime now. Live provider accounts, model/hardw
 selection and search data policy block their own later stages, not offline Stage 1.
 Repository license is unresolved; choose it before public package distribution.
 
+The current native delivery track is maintained in
+[the Windows and Linux bundle plan](NATIVE_BUNDLES.md). It preserves the accepted
+shared core while assigning separate executable, runtime, isolation and
+qualification authority to each native platform; historical OCI evidence is not
+portable authority for a native profile.
+
 ## Stages and exit evidence
 
 | Stage | Small implementation slices | Acceptance / exit evidence | Rollback |
