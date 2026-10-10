@@ -75,10 +75,13 @@ availability constraint; it does not change the recorded content authority.
 
 ## Immutable DevFabric Python runtime
 
-`scripts/build_devhub_runtime_artifact.py` requires a clean checkout, records exact
-HEAD, archives that commit, builds one wheel, and installs the wheel without editable
-mode into a dedicated environment. It records the reviewed wheel SHA-256 rather than
-claiming that future builds reproduce identical wheel bytes.
+`scripts/build_devhub_runtime_artifact.py` requires a clean checkout and an explicit
+reviewed implementation commit, rejects a different current HEAD, archives that exact
+commit, builds one wheel, and installs the wheel without editable mode into a dedicated
+environment. Pull-request qualification checks out the PR head SHA explicitly rather
+than GitHub's synthetic merge ref; workflow dispatch uses its selected exact SHA. The
+builder records the reviewed wheel SHA-256 rather than claiming that future builds
+reproduce identical wheel bytes.
 
 The runtime identity binds CPython version/platform tag (and observed nullable SOABI
 and machine detail), invoked interpreter bytes,

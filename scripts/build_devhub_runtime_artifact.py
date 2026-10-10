@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -32,13 +33,25 @@ def _runtime_python(root: Path) -> Path:
     return root / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 
 
-def build(repo: Path, output: Path, runtime_root: Path) -> PythonRuntimeArtifactEvidenceV1:
-    repo = repo.resolve(strict=True)
+def reviewed_commit(repo: Path, expected_commit: str) -> str:
+    if re.fullmatch(r"[0-9a-f]{40}", expected_commit) is None:
+        raise ValueError("Expected implementation commit must be a lowercase 40-hex SHA")
     if _output(["git", "status", "--porcelain=v1"], cwd=repo):
         raise ValueError("Runtime artifact must be built from a clean repository")
     commit = _output(["git", "rev-parse", "HEAD"], cwd=repo)
-    if len(commit) != 40:
-        raise ValueError("Exact Git implementation commit required")
+    if commit != expected_commit:
+        raise ValueError("Runtime artifact checkout differs from expected implementation commit")
+    return commit
+
+
+def build(
+    repo: Path,
+    output: Path,
+    runtime_root: Path,
+    expected_commit: str,
+) -> PythonRuntimeArtifactEvidenceV1:
+    repo = repo.resolve(strict=True)
+    commit = reviewed_commit(repo, expected_commit)
     uv = shutil.which("uv")
     if uv is None:
         raise ValueError("Reviewed uv executable required")
@@ -134,8 +147,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--runtime-root", type=Path, required=True)
+    parser.add_argument("--expected-commit", required=True)
     args = parser.parse_args()
-    evidence = build(Path(__file__).resolve().parents[1], args.output, args.runtime_root)
+    evidence = build(
+        Path(__file__).resolve().parents[1],
+        args.output,
+        args.runtime_root,
+        args.expected_commit,
+    )
     print(json.dumps(evidence.model_dump(mode="json"), sort_keys=True))
 
 
