@@ -685,6 +685,7 @@ def test_every_post_profile_preprocess_failure_cleans_owned_profile(
     )
     monkeypatch.setattr(isolation, "_windows_environment_block", environment_block)
     monkeypatch.setattr(isolation, "_windows_dll", dll)
+    monkeypatch.setattr(isolation, "_windows_last_error", lambda: 183)
     monkeypatch.setattr(isolation, "_set_job_limits", lambda *_: None)
     monkeypatch.setattr(
         isolation,
