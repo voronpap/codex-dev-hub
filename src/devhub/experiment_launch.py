@@ -15,14 +15,14 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal, Protocol, cast
 
 from pydantic import Field, JsonValue, model_validator
 
 from devhub.benchmark import Digest, canonical, digest, write_new, write_sealed
 from devhub.delegate import DelegationResult
 from devhub.events import AccountingEvent
-from devhub.experiment import ExperimentProtocol, PlannedSession
+from devhub.experiment import ExperimentProtocol
 from devhub.experiment_observation import BArmDelegationObservationV2
 from devhub.models import Contract
 from devhub.process_capture import CapturedStreamV1, ProcessCapture, capture_process
@@ -31,6 +31,13 @@ DOCKER = ("docker", "--host=unix:///var/run/docker.sock")
 TASK_PAYLOAD_BYTE_LIMIT = 1024 * 1024
 FINAL_OUTPUT_BYTE_LIMIT = 1024 * 1024
 STAGE3G_HOST_MANIFEST_CONTAINER = "/stage3g-host.json"
+
+
+class ExecutionSession(Protocol):
+    """The only session fields used by the shared production launch boundary."""
+
+    arm: Literal["A", "B"]
+    session_id: str
 
 
 class ContainerRuntimeSpec(Contract):
@@ -245,7 +252,7 @@ def delegation_complete_for_arm(
     )
 
 
-def codex_argv(session: PlannedSession, protocol: ExperimentProtocol) -> list[str]:
+def codex_argv(session: ExecutionSession, protocol: ExperimentProtocol) -> list[str]:
     args = [
         "codex",
         "exec",
@@ -298,7 +305,7 @@ def mount(path: Path, target: str, readonly: bool = True) -> list[str]:
 
 
 def container_command(
-    session: PlannedSession,
+    session: ExecutionSession,
     runtime: ContainerRuntimeSpec,
     control: Path,
     bridge: Path,
@@ -473,7 +480,7 @@ def _abort(
 
 
 def launch_container(
-    session: PlannedSession,
+    session: ExecutionSession,
     protocol: ExperimentProtocol,
     runtime: ContainerRuntimeSpec,
     control: Path,

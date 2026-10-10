@@ -153,6 +153,10 @@ temporary files are deliberately excluded. Stage 3G remains OPEN pending a separ
 rehearsal and the frozen paired run. All quality, semantic acceptance, Delegation
 Value and savings claims remain null.
 
+The separate rehearsal control is documented in
+[STAGE3G-REHEARSAL.md](STAGE3G-REHEARSAL.md). It cannot consume a frozen benchmark
+fixture and must be rebound to a fresh manifest after its implementation commit.
+
 The B-arm completion gate is specified in
 [B_ARM_DELEGATION_OBSERVATION.md](B_ARM_DELEGATION_OBSERVATION.md). A tool call count
 alone is not success: the runner must join the strict handoff to the exact reservation,
