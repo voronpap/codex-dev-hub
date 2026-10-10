@@ -187,3 +187,12 @@ representations were conflated. Build-010 is immutable
 `PREBUILD_WORKSPACE_REQUIREMENT_REPRESENTATION_FAILURE` evidence with
 `rust_compilation_started=false`. Build-011 verifies the exact workspace
 requirement `0.10` and separately retains the exact lock edge `sha2 0.10.9`.
+
+Build-011 run `38010540892` passed cheap preflight, Cargo 1.95.0 locked
+metadata/fetch, and byte-for-byte lock verification. Its compilation then failed
+after 380.350 seconds because the proof observer returned `anyhow::Error` through
+a session function whose error type is `CodexErr`; no conversion existed at the
+call boundary. No executable or process proof exists. Build-011 is immutable
+`BUILD_011_OBSERVER_ERROR_CONVERSION_COMPILE_FAILURE` evidence. Build-012 adds
+only the explicit observer-error conversion already used by Candidate B at the
+same `CodexErrorDetails::InvalidRequest` boundary; lock identities are unchanged.

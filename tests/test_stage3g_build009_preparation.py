@@ -135,6 +135,14 @@ def test_proof_stop_requires_exact_pre_sampling_termination() -> None:
     assert not RUNNER._proof_stopped({**valid, "stderr": "other failure"})
 
 
+def test_host_patch_maps_observer_error_into_session_error_boundary() -> None:
+    patch = (
+        Path(__file__).resolve().parents[1] / "patches/stage3g-approved-call/host-integration.patch"
+    ).read_text(encoding="utf-8")
+
+    assert ".map_err(|error| CodexErrorDetails::InvalidRequest(error.to_string()))?;" in patch
+
+
 def test_locked_resolution_requires_byte_identical_lock(tmp_path, monkeypatch) -> None:
     root = tmp_path / "source"
     output = tmp_path / "evidence"

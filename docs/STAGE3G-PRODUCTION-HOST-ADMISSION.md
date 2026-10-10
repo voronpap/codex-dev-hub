@@ -361,3 +361,10 @@ conflated the workspace semver requirement `sha2 = "0.10"` with the resolved
 lock identity `sha2 0.10.9`. Build-011 corrects only that representation check;
 the proposed lock, production patches, host manifest, authority model, and
 process-proof semantics remain unchanged.
+
+Build-011 run `38010540892` passed its locked dependency gates but failed Rust
+compilation because `ProofRouterObserver::observe()` returned `anyhow::Error`
+through a `CodexErr` session boundary without an explicit conversion. Build-012
+maps only that proof-observer error to `CodexErrorDetails::InvalidRequest`, the
+same typed boundary used by Candidate B registration. It does not change host
+authority, router eligibility, observer state, or process-proof semantics.

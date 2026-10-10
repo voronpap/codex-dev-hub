@@ -23,8 +23,8 @@ from stage3g_schema_hash import read_schema_identity
 SOURCE_COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 SOURCE_ARCHIVE_SHA256 = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
 CANDIDATE_SHA256 = "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
-HOST_SHA256 = "7deb6ddf8aa38589b40a52ffb0b8471c7bbb91e96337daa41dffca2255410f34"
-COMBINED_SHA256 = "42fc1a5b80c4ccf90972da3c092db7036c082ff4808f3257229d70163fc84210"
+HOST_SHA256 = "e0b7be437bb1e7c30e3e00eaff74722f9791e693ec0fec966ec8032c8039a598"
+COMBINED_SHA256 = "a20eb1b5fb3c8dcfd0d9ae81dcf96e294a34fcee205485f85a545064a9e7b9e2"
 HOST_MANIFEST_SHA256 = "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b"
 SCHEMA_SHA256 = "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
 DELEGATE = "mcp__devhub_delegate.devhub_delegate"
@@ -101,7 +101,7 @@ def prepare_build_source(
         derived_lock, lock_changes = derive_build009(root)
         expected_lock = BUILD009_DERIVED
         lock_strategy = "LOCK_B_minimal_manifest_bound_derived_lock"
-    elif build_id in {"build-010", "build-011"}:
+    elif build_id in {"build-010", "build-011", "build-012"}:
         derived_lock, lock_changes = derive_production_host_lock(root)
         expected_lock = PRODUCTION_HOST_LOCK_SHA256
         lock_strategy = "complete_patched_manifest_bound_derived_lock"
@@ -454,7 +454,9 @@ def main() -> None:
     parser.add_argument("--workspace", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
-        "--build-id", choices=("build-009", "build-010", "build-011"), default="build-009"
+        "--build-id",
+        choices=("build-009", "build-010", "build-011", "build-012"),
+        default="build-009",
     )
     args = parser.parse_args()
     expected_lock = (
@@ -495,6 +497,7 @@ def main() -> None:
         "build_009_run": False,
         "build_010_run": False,
         "build_011_run": False,
+        "build_012_run": False,
         "stage_3g_c": "OPEN",
         "stage_3g": "OPEN",
         "execution_ready": False,

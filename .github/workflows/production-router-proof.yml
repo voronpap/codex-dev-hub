@@ -40,16 +40,16 @@ jobs:
           with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
               archive.extractall(target, filter="data")
           PY
-          PYTHONPATH=src python scripts/preflight_stage3g_build009.py --build-id build-011 --pinned-source "$RUNNER_TEMP/build009-preflight-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs" > "$RUNNER_TEMP/build009-preflight.json"
+          PYTHONPATH=src python scripts/preflight_stage3g_build009.py --build-id build-012 --pinned-source "$RUNNER_TEMP/build009-preflight-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs" > "$RUNNER_TEMP/build009-preflight.json"
           cargo +1.95.0 fmt --all --manifest-path "$RUNNER_TEMP/build009-preflight-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs/Cargo.toml" -- --check
           python - <<'PY'
           import json, os
           from pathlib import Path
           value = json.loads(Path(os.environ["RUNNER_TEMP"]).joinpath("build009-preflight.json").read_bytes())
-          assert value["result"] == "BUILD_011_READY_FOR_AUTHORIZATION"
+          assert value["result"] == "BUILD_012_READY_FOR_AUTHORIZATION"
           assert value["candidate_b_base_patch_sha256"] == "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
-          assert value["host_integration_patch_sha256"] == "7deb6ddf8aa38589b40a52ffb0b8471c7bbb91e96337daa41dffca2255410f34"
-          assert value["combined_production_patchset_sha256"] == "42fc1a5b80c4ccf90972da3c092db7036c082ff4808f3257229d70163fc84210"
+          assert value["host_integration_patch_sha256"] == "e0b7be437bb1e7c30e3e00eaff74722f9791e693ec0fec966ec8032c8039a598"
+          assert value["combined_production_patchset_sha256"] == "a20eb1b5fb3c8dcfd0d9ae81dcf96e294a34fcee205485f85a545064a9e7b9e2"
           assert value["host_manifest"]["sha256"] == "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b"
           assert value["delegation_request_schema_sha256"] == "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
           assert value["source_preparation"]["proof_cargo_lock_sha256"] == "9236f6c0b8703eaf337dd219c8fdfb6834c14fa430a0a83b938159016371bb88"
@@ -59,11 +59,11 @@ jobs:
           assert value["source_preparation"]["candidate_patch_cwd"] == "pinned_source_parent"
           assert value["source_preparation"]["host_patch_cwd"] == "codex-rs"
           assert value["rust_compilation_started"] is False
-          assert value["build_011_run"] is False
+          assert value["build_012_run"] is False
           assert value["process_proof"] is None
           PY
-      - name: Build-011 Rust compilation and same-binary process proof
-        run: python scripts/build_stage3g_build009.py --build-id build-011 --workspace "$RUNNER_TEMP/build009-source" --output "$RUNNER_TEMP/build009-evidence"
+      - name: Build-012 Rust compilation and same-binary process proof
+        run: python scripts/build_stage3g_build009.py --build-id build-012 --workspace "$RUNNER_TEMP/build009-source" --output "$RUNNER_TEMP/build009-evidence"
       - name: Preserve cheap preflight with build evidence
         if: always()
         run: |
@@ -72,6 +72,6 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: stage3g-build011-production-host-proof
+          name: stage3g-build012-production-host-proof
           path: ${{ runner.temp }}/build009-evidence
           if-no-files-found: error
