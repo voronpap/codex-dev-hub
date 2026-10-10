@@ -20,15 +20,15 @@ from pydantic import Field, JsonValue, model_validator
 
 from devhub.benchmark import Digest, canonical, digest
 from devhub.experiment_launch import durable_publish
-from devhub.models import Contract
+from devhub.models import Contract, ContractV2
 from devhub.native_bundle import NativeBundleV1, verify_native_bundle
 from devhub.windows_isolation import (
     WindowsIsolationChildResultV1,
-    WindowsIsolationEvidenceV1,
-    WindowsIsolationProfilePayloadV1,
-    WindowsIsolationProfileV1,
-    WindowsIsolationReceiptPayloadV1,
-    WindowsIsolationReceiptV1,
+    WindowsIsolationEvidenceV2,
+    WindowsIsolationProfilePayloadV2,
+    WindowsIsolationProfileV2,
+    WindowsIsolationReceiptPayloadV2,
+    WindowsIsolationReceiptV2,
     _reject_reparse_chain,
     appcontainer_identity,
     launch_windows_isolated,
@@ -39,6 +39,7 @@ from devhub.windows_isolation import (
 
 ACCESS_DENIED_ERRORS = {5, 13, 10013}
 MAX_CHILD_FAILURE_BYTES = 4096
+MAX_BOOTSTRAP_STATUS_BYTES = 4096
 
 
 class WindowsIsolationChildFailureV1(Contract):
@@ -47,6 +48,34 @@ class WindowsIsolationChildFailureV1(Contract):
     exception_class: Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")]
     winerror: int | None = None
     errno: int | None = None
+
+
+class WindowsIsolationChildFailureV2(ContractV2):
+    phase: Literal["bootstrap_import", "bootstrap_invoke", "child_probe"] = "child_probe"
+    exception_class: Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")]
+    winerror: int | None = None
+    errno: int | None = None
+
+
+class WindowsIsolationBootstrapStartedPayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    phase: Literal["bootstrap_started"] = "bootstrap_started"
+    child_bootstrap_sha256: Digest
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    windows_isolation_profile_id: Digest
+    probe_sha256: Digest
+
+
+class WindowsIsolationBootstrapStartedV1(Contract):
+    bootstrap_started_id: Digest
+    payload: WindowsIsolationBootstrapStartedPayloadV1
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationBootstrapStartedV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.bootstrap_started_id != expected:
+            raise ValueError("Windows isolation bootstrap-started hash mismatch")
+        return self
 
 
 class WindowsIsolationFailureDiagnosticPayloadV1(Contract):
@@ -87,15 +116,67 @@ class WindowsIsolationFailureDiagnosticV1(Contract):
         return self
 
 
+class WindowsIsolationFailureDiagnosticPayloadV2(ContractV2):
+    failure_kind: Literal["child_before_evidence"] = "child_before_evidence"
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    windows_isolation_profile_id: Digest
+    probe_sha256: Digest
+    child_bootstrap_sha256: Digest
+    process_exit_code: Annotated[int, Field(ge=0, le=0xFFFFFFFF)]
+    bootstrap_started_status: Literal["absent", "validated", "invalid"]
+    bootstrap_started: WindowsIsolationBootstrapStartedV1 | None = None
+    child_failure_status: Literal["absent", "validated", "invalid"]
+    child_failure: WindowsIsolationChildFailureV2 | None = None
+    success_evidence_published: Literal[False] = False
+
+    @model_validator(mode="after")
+    def strict_status_and_bindings(self) -> WindowsIsolationFailureDiagnosticPayloadV2:
+        if (self.bootstrap_started is not None) != (self.bootstrap_started_status == "validated"):
+            raise ValueError("Bootstrap-started status does not match the validated frame")
+        if (self.child_failure is not None) != (self.child_failure_status == "validated"):
+            raise ValueError("Child failure status does not match the validated diagnostic")
+        if self.bootstrap_started is not None:
+            started = self.bootstrap_started.payload
+            if (
+                started.child_bootstrap_sha256 != self.child_bootstrap_sha256
+                or started.environment_instance_id != self.environment_instance_id
+                or started.windows_isolation_profile_id != self.windows_isolation_profile_id
+                or started.probe_sha256 != self.probe_sha256
+            ):
+                raise ValueError("Bootstrap-started frame does not bind the failed child")
+        return self
+
+
+class WindowsIsolationFailureDiagnosticV2(ContractV2):
+    diagnostic_id: Digest
+    payload: WindowsIsolationFailureDiagnosticPayloadV2
+
+    @classmethod
+    def create(
+        cls, payload: WindowsIsolationFailureDiagnosticPayloadV2
+    ) -> WindowsIsolationFailureDiagnosticV2:
+        return cls(
+            diagnostic_id=digest(canonical(payload.model_dump(mode="json"))), payload=payload
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationFailureDiagnosticV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.diagnostic_id != expected:
+            raise ValueError("Windows isolation failure diagnostic hash mismatch")
+        return self
+
+
 class WindowsIsolationChildExitError(RuntimeError):
     phase = "child_before_evidence"
 
-    def __init__(self, diagnostic: WindowsIsolationFailureDiagnosticV1) -> None:
+    def __init__(self, diagnostic: WindowsIsolationFailureDiagnosticV2) -> None:
         self.diagnostic = diagnostic
         self.exit_code = diagnostic.payload.process_exit_code
         super().__init__(
             "Windows isolation child exited before evidence "
             f"(exit_code={self.exit_code}, hex=0x{self.exit_code:08X}, "
+            f"bootstrap_started={diagnostic.payload.bootstrap_started_status}, "
             f"child_failure={diagnostic.payload.child_failure_status})"
         )
 
@@ -220,7 +301,7 @@ def _child_guarded(request_path: Path, result_path: Path, failure_path: Path) ->
     try:
         return _child(request_path, result_path)
     except BaseException as error:
-        failure = WindowsIsolationChildFailureV1(
+        failure = WindowsIsolationChildFailureV2(
             exception_class=type(error).__name__,
             winerror=getattr(error, "winerror", None),
             errno=getattr(error, "errno", None),
@@ -236,7 +317,7 @@ def _child_guarded(request_path: Path, result_path: Path, failure_path: Path) ->
 
 def _read_child_failure(
     failure_path: Path,
-) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV1 | None]:
+) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV2 | None]:
     if not failure_path.is_file():
         return "absent", None
     try:
@@ -245,16 +326,52 @@ def _read_child_failure(
             encoded = stream.read(MAX_CHILD_FAILURE_BYTES + 1)
         if len(encoded) > MAX_CHILD_FAILURE_BYTES:
             return "invalid", None
-        return "validated", WindowsIsolationChildFailureV1.model_validate_json(encoded)
+        return "validated", WindowsIsolationChildFailureV2.model_validate_json(encoded)
     except (OSError, ValueError):
         return "invalid", None
+
+
+def _read_bootstrap_started(
+    status_path: Path,
+) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationBootstrapStartedV1 | None]:
+    if not status_path.is_file():
+        return "absent", None
+    try:
+        _reject_reparse_chain(status_path, require_directory=False)
+        with status_path.open("rb") as stream:
+            encoded = stream.read(MAX_BOOTSTRAP_STATUS_BYTES + 1)
+        if len(encoded) > MAX_BOOTSTRAP_STATUS_BYTES:
+            return "invalid", None
+        return "validated", WindowsIsolationBootstrapStartedV1.model_validate_json(encoded)
+    except (OSError, ValueError):
+        return "invalid", None
+
+
+def _require_bootstrap_started(
+    status_path: Path,
+    profile: WindowsIsolationProfileV2,
+    environment_instance_id: str,
+) -> WindowsIsolationBootstrapStartedV1:
+    status, started = _read_bootstrap_started(status_path)
+    if status != "validated" or started is None:
+        raise RuntimeError(f"Windows isolation bootstrap-started frame is {status}")
+    payload = started.payload
+    if (
+        payload.child_bootstrap_sha256 != profile.payload.child_bootstrap_sha256
+        or payload.environment_instance_id != environment_instance_id
+        or payload.windows_isolation_profile_id != profile.windows_isolation_profile_id
+        or payload.probe_sha256 != profile.payload.probe_sha256
+    ):
+        raise RuntimeError("Windows isolation bootstrap-started frame identity mismatch")
+    return started
 
 
 def _raise_if_child_exited(
     process: Any,
     child_result: Path,
     child_failure: Path,
-    profile: WindowsIsolationProfileV1,
+    bootstrap_status: Path,
+    profile: WindowsIsolationProfileV2,
     environment_instance_id: str,
 ) -> None:
     if child_result.is_file():
@@ -262,13 +379,19 @@ def _raise_if_child_exited(
     exit_code = process.poll_exit_code()
     if exit_code is None:
         return
+    bootstrap_started_status, validated_bootstrap_started = _read_bootstrap_started(
+        bootstrap_status
+    )
     child_failure_status, validated_child_failure = _read_child_failure(child_failure)
-    diagnostic = WindowsIsolationFailureDiagnosticV1.create(
-        WindowsIsolationFailureDiagnosticPayloadV1(
+    diagnostic = WindowsIsolationFailureDiagnosticV2.create(
+        WindowsIsolationFailureDiagnosticPayloadV2(
             environment_instance_id=environment_instance_id,
             windows_isolation_profile_id=profile.windows_isolation_profile_id,
             probe_sha256=profile.payload.probe_sha256,
+            child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
             process_exit_code=exit_code,
+            bootstrap_started_status=bootstrap_started_status,
+            bootstrap_started=validated_bootstrap_started,
             child_failure_status=child_failure_status,
             child_failure=validated_child_failure,
         )
@@ -279,7 +402,7 @@ def _raise_if_child_exited(
 def _raise_after_cleanup(
     primary_error: BaseException,
     cleanup_errors: list[Exception],
-    failure_diagnostic: WindowsIsolationFailureDiagnosticV1 | None,
+    failure_diagnostic: WindowsIsolationFailureDiagnosticV2 | None,
     failure_output: Path,
 ) -> NoReturn:
     if cleanup_errors:
@@ -426,7 +549,7 @@ def qualify(
     scratch: Path,
     output: Path,
     environment_instance_id: str,
-) -> WindowsIsolationEvidenceV1:
+) -> WindowsIsolationEvidenceV2:
     observed_build, observed_architecture = observed_windows_platform()
     failure_output = output.with_name(output.name + ".failure.json")
     if scratch.exists() or output.exists() or failure_output.exists():
@@ -442,9 +565,9 @@ def qualify(
     listener: socket.socket | None = None
     event: int | None = None
     process: Any | None = None
-    evidence: WindowsIsolationEvidenceV1 | None = None
+    evidence: WindowsIsolationEvidenceV2 | None = None
     primary_error: BaseException | None = None
-    failure_diagnostic: WindowsIsolationFailureDiagnosticV1 | None = None
+    failure_diagnostic: WindowsIsolationFailureDiagnosticV2 | None = None
     try:
         scratch.mkdir(parents=True)
         allowed = scratch / "allowed"
@@ -453,10 +576,16 @@ def qualify(
         hidden.mkdir()
         hidden_canary = hidden / "canary.txt"
         hidden_canary.write_text("private", encoding="ascii")
+        bootstrap_source = Path(__file__).with_name("windows_isolation_child_bootstrap.py")
+        bootstrap_bytes = bootstrap_source.read_bytes()
+        child_bootstrap = allowed / "child-bootstrap.py"
+        child_bootstrap.write_bytes(bootstrap_bytes)
+        probe_bytes = Path(__file__).read_bytes()
         child_script = allowed / "probe-child.py"
-        child_script.write_bytes(Path(__file__).read_bytes())
+        child_script.write_bytes(probe_bytes)
         child_result = allowed / "child-result.json"
         child_failure = allowed / "child-failure.json"
+        bootstrap_status = allowed / "bootstrap-started.json"
         request_path = allowed / "request.json"
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
@@ -465,14 +594,15 @@ def qualify(
         event = _inheritable_event()
         _delete_registry(registry_path)
         reparse_rejected = _reparse_rejected(scratch, hidden)
-        profile = WindowsIsolationProfileV1.create(
-            WindowsIsolationProfilePayloadV1(
+        profile = WindowsIsolationProfileV2.create(
+            WindowsIsolationProfilePayloadV2(
                 environment_instance_id=environment_instance_id,
                 appcontainer_identity=appcontainer_identity(environment_instance_id),
                 native_bundle_id=bundle.bundle_id,
                 codex_executable_sha256=bundle.payload.codex.executable_sha256,
                 launcher_executable_sha256=bundle.payload.python.executable_sha256,
-                probe_sha256=digest(Path(__file__).read_bytes()),
+                probe_sha256=digest(probe_bytes),
+                child_bootstrap_sha256=digest(bootstrap_bytes),
                 read_only_roots=(windows_path_identity(bundle_root),),
                 writable_roots=(windows_path_identity(allowed),),
                 denied_roots=(windows_path_identity(hidden),),
@@ -503,11 +633,16 @@ def qualify(
             (
                 "-I",
                 "-B",
+                str(child_bootstrap),
                 str(child_script),
-                "--child",
                 str(request_path),
                 str(child_result),
                 str(child_failure),
+                str(bootstrap_status),
+                profile.payload.child_bootstrap_sha256,
+                environment_instance_id,
+                profile.windows_isolation_profile_id,
+                profile.payload.probe_sha256,
             ),
             cwd=allowed,
             environment=environment,
@@ -519,6 +654,7 @@ def qualify(
                     process,
                     child_result,
                     child_failure,
+                    bootstrap_status,
                     profile,
                     environment_instance_id,
                 )
@@ -528,6 +664,9 @@ def qualify(
             time.sleep(0.05)
         if not child_result.is_file():
             raise TimeoutError("Isolation probe did not produce evidence")
+        bootstrap_started = _require_bootstrap_started(
+            bootstrap_status, profile, environment_instance_id
+        )
         child = WindowsIsolationChildResultV1.model_validate_json(child_result.read_bytes())
         try:
             listener.accept()
@@ -539,10 +678,13 @@ def qualify(
         profile_deleted = process.close()
         host_registry_unchanged = not _registry_exists(registry_path)
         spec = windows_sandbox_spec(profile)
-        payload = WindowsIsolationReceiptPayloadV1(
+        payload = WindowsIsolationReceiptPayloadV2(
             windows_isolation_profile_id=profile.windows_isolation_profile_id,
             environment_instance_id=environment_instance_id,
             probe_sha256=profile.payload.probe_sha256,
+            child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
+            bootstrap_started_id=bootstrap_started.bootstrap_started_id,
+            bootstrap_started_validated=True,
             sandbox_spec_sha256=digest(spec),
             observed_windows_build=observed_build,
             observed_architecture=observed_architecture,
@@ -560,8 +702,8 @@ def qualify(
             direct_public_denied=child.public.denied,
             appcontainer_profile_deleted=profile_deleted,
         )
-        receipt = WindowsIsolationReceiptV1.create(payload)
-        evidence = WindowsIsolationEvidenceV1.create(profile, spec, receipt)
+        receipt = WindowsIsolationReceiptV2.create(payload)
+        evidence = WindowsIsolationEvidenceV2.create(profile, spec, receipt)
     except BaseException as error:
         primary_error = error
     cleanup_errors = _cleanup_probe_resources(process, event, listener, registry_path, scratch)

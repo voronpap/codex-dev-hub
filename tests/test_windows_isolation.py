@@ -19,11 +19,17 @@ from devhub.windows_isolation import (
     NativePathIdentityV1,
     WindowsIsolationChildResultV1,
     WindowsIsolationEvidenceV1,
+    WindowsIsolationEvidenceV2,
     WindowsIsolationProfilePayloadV1,
+    WindowsIsolationProfilePayloadV2,
     WindowsIsolationProfileV1,
+    WindowsIsolationProfileV2,
     WindowsIsolationReceiptPayloadV1,
+    WindowsIsolationReceiptPayloadV2,
     WindowsIsolationReceiptV1,
+    WindowsIsolationReceiptV2,
     appcontainer_identity,
+    windows_isolation_bootstrap_started_id,
     windows_sandbox_spec,
 )
 
@@ -40,6 +46,17 @@ def load_probe_module(name: str):
     sys.modules[module_spec.name] = probe
     module_spec.loader.exec_module(probe)
     return probe
+
+
+def load_bootstrap_module(name: str):
+    module_spec = importlib.util.spec_from_file_location(
+        name, Path("scripts/windows_isolation_child_bootstrap.py")
+    )
+    assert module_spec is not None and module_spec.loader is not None
+    bootstrap = importlib.util.module_from_spec(module_spec)
+    sys.modules[module_spec.name] = bootstrap
+    module_spec.loader.exec_module(bootstrap)
+    return bootstrap
 
 
 def test_windows_last_error_preserves_ctypes_saved_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,7 +193,9 @@ def profile_payload() -> WindowsIsolationProfilePayloadV1:
     )
 
 
-def receipt_payload(profile: WindowsIsolationProfileV1) -> dict[str, object]:
+def receipt_payload(
+    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2,
+) -> dict[str, object]:
     return {
         "windows_isolation_profile_id": profile.windows_isolation_profile_id,
         "environment_instance_id": ENVIRONMENT,
@@ -200,6 +219,25 @@ def receipt_payload(profile: WindowsIsolationProfileV1) -> dict[str, object]:
     }
 
 
+def profile_payload_v2() -> WindowsIsolationProfilePayloadV2:
+    payload = profile_payload().model_dump(mode="python")
+    payload["schema_version"] = 2
+    return WindowsIsolationProfilePayloadV2(
+        **payload,
+        child_bootstrap_sha256="6" * 64,
+    )
+
+
+def receipt_payload_v2(profile: WindowsIsolationProfileV2) -> dict[str, object]:
+    payload = receipt_payload(profile)
+    payload["schema_version"] = 2
+    payload["windows_isolation_profile_id"] = profile.windows_isolation_profile_id
+    payload["child_bootstrap_sha256"] = profile.payload.child_bootstrap_sha256
+    payload["bootstrap_started_id"] = windows_isolation_bootstrap_started_id(profile)
+    payload["bootstrap_started_validated"] = True
+    return payload
+
+
 @pytest.mark.windows_smoke
 def test_profile_and_receipt_are_canonical_strict_authority() -> None:
     profile = WindowsIsolationProfileV1.create(profile_payload())
@@ -221,6 +259,47 @@ def test_profile_and_receipt_are_canonical_strict_authority() -> None:
     changed["windows_isolation_profile_id"] = "f" * 64
     with pytest.raises(ValidationError, match="profile hash mismatch"):
         WindowsIsolationProfileV1.model_validate_json(json.dumps(changed))
+
+
+@pytest.mark.windows_smoke
+def test_v2_profile_receipt_and_evidence_bind_child_bootstrap_without_reinterpreting_v1() -> None:
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    receipt = WindowsIsolationReceiptV2.create(
+        WindowsIsolationReceiptPayloadV2.model_validate(receipt_payload_v2(profile))
+    )
+    spec = windows_sandbox_spec(profile)
+    evidence = WindowsIsolationEvidenceV2.create(profile, spec, receipt)
+    assert evidence == WindowsIsolationEvidenceV2.model_validate_json(
+        canonical(evidence.model_dump(mode="json"))
+    )
+    assert evidence.receipt.payload.child_bootstrap_sha256 == "6" * 64
+    assert evidence.receipt.payload.bootstrap_started_validated is True
+    assert evidence.receipt.payload.bootstrap_started_id == windows_isolation_bootstrap_started_id(
+        profile
+    )
+
+    with pytest.raises(ValidationError):
+        WindowsIsolationProfileV1.model_validate_json(canonical(profile.model_dump(mode="json")))
+    changed = evidence.model_dump(mode="json")
+    wrong_receipt_payload = receipt.payload.model_copy(update={"child_bootstrap_sha256": "f" * 64})
+    changed["receipt"] = WindowsIsolationReceiptV2.create(wrong_receipt_payload).model_dump(
+        mode="json"
+    )
+    with pytest.raises(ValidationError, match="does not bind"):
+        WindowsIsolationEvidenceV2.model_validate_json(canonical(changed))
+
+    changed = evidence.model_dump(mode="json")
+    wrong_started_payload = receipt.payload.model_copy(update={"bootstrap_started_id": "e" * 64})
+    changed["receipt"] = WindowsIsolationReceiptV2.create(wrong_started_payload).model_dump(
+        mode="json"
+    )
+    with pytest.raises(ValidationError, match="does not bind"):
+        WindowsIsolationEvidenceV2.model_validate_json(canonical(changed))
+
+    missing = receipt_payload_v2(profile)
+    del missing["bootstrap_started_id"]
+    with pytest.raises(ValidationError):
+        WindowsIsolationReceiptPayloadV2.model_validate(missing)
 
 
 @pytest.mark.windows_smoke
@@ -1058,27 +1137,227 @@ def test_probe_cleanup_attempts_every_resource_after_failures(tmp_path: Path, mo
     assert calls == ["process", "event", "listener", "registry", "scratch"]
 
 
+def _bootstrap_argv(
+    tmp_path: Path,
+    child_source: str,
+) -> tuple[list[str], Path, Path, Path]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    child = tmp_path / "child.py"
+    request = tmp_path / "request.json"
+    result = tmp_path / "result.json"
+    failure = tmp_path / "failure.json"
+    status = tmp_path / "bootstrap-started.json"
+    child.write_text(child_source, encoding="utf-8")
+    source = Path("scripts/windows_isolation_child_bootstrap.py")
+    bootstrap_sha = digest(source.read_bytes())
+    probe_sha = digest(child.read_bytes())
+    return (
+        [
+            str(source),
+            str(child),
+            str(request),
+            str(result),
+            str(failure),
+            str(status),
+            bootstrap_sha,
+            ENVIRONMENT,
+            "7" * 64,
+            probe_sha,
+        ],
+        result,
+        failure,
+        status,
+    )
+
+
+def test_stdlib_bootstrap_writes_bound_started_frame_before_valid_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_success_test")
+    argv, result, failure, status = _bootstrap_argv(
+        tmp_path,
+        "def _child_guarded(request, result, failure):\n"
+        "    result.write_bytes(b'{}')\n"
+        "    return 0\n",
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert bootstrap.main() == 0
+    assert result.read_bytes() == b"{}"
+    assert not failure.exists()
+    frame = json.loads(status.read_bytes())
+    payload = frame["payload"]
+    assert set(frame) == {"bootstrap_started_id", "payload"}
+    assert payload == {
+        "child_bootstrap_sha256": argv[6],
+        "environment_instance_id": ENVIRONMENT,
+        "phase": "bootstrap_started",
+        "probe_sha256": argv[9],
+        "schema_version": 1,
+        "windows_isolation_profile_id": "7" * 64,
+    }
+    assert frame["bootstrap_started_id"] == digest(canonical(payload))
+
+
+def test_stdlib_bootstrap_distinguishes_status_import_and_failure_write_denials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    status_denied = load_bootstrap_module("windows_isolation_bootstrap_status_denied_test")
+    argv, _, failure, status = _bootstrap_argv(tmp_path / "status", "pass\n")
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(
+        status_denied,
+        "_atomic_write",
+        lambda *_: (_ for _ in ()).throw(PermissionError(13, "denied")),
+    )
+    assert status_denied.main() == status_denied.EXIT_STATUS_WRITE_DENIED
+    assert not status.exists()
+    assert not failure.exists()
+
+    import_failed = load_bootstrap_module("windows_isolation_bootstrap_import_failed_test")
+    import_root = tmp_path / "import"
+    import_root.mkdir()
+    argv, _, failure, status = _bootstrap_argv(
+        import_root, "raise ImportError('sensitive import detail')\n"
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+    assert import_failed.main() == import_failed.EXIT_IMPORT_FAILED
+    assert status.is_file()
+    observed = json.loads(failure.read_bytes())
+    assert observed == {
+        "errno": None,
+        "exception_class": "ImportError",
+        "phase": "bootstrap_import",
+        "schema_version": 2,
+        "winerror": None,
+    }
+    assert b"sensitive" not in failure.read_bytes()
+
+    write_denied = load_bootstrap_module("windows_isolation_bootstrap_failure_denied_test")
+    denied_root = tmp_path / "failure-write"
+    denied_root.mkdir()
+    argv, _, failure, status = _bootstrap_argv(denied_root, "raise ImportError('not retained')\n")
+    writes = 0
+    original_write = write_denied._atomic_write
+
+    def deny_second_write(path: Path, payload: bytes) -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 2:
+            raise PermissionError(13, "denied")
+        original_write(path, payload)
+
+    monkeypatch.setattr(write_denied, "_atomic_write", deny_second_write)
+    monkeypatch.setattr(sys, "argv", argv)
+    assert write_denied.main() == write_denied.EXIT_IMPORT_FAILURE_WRITE_DENIED
+    assert status.is_file()
+    assert not failure.exists()
+
+
+def test_stdlib_bootstrap_distinguishes_invoke_failure_and_self_tampering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_invoke_test")
+    argv, _, failure, status = _bootstrap_argv(
+        tmp_path,
+        "def _child_guarded(request, result, failure):\n"
+        "    raise RuntimeError('sensitive invocation detail')\n",
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+    assert bootstrap.main() == bootstrap.EXIT_INVOKE_FAILED
+    assert status.is_file()
+    observed = json.loads(failure.read_bytes())
+    assert observed["phase"] == "bootstrap_invoke"
+    assert observed["exception_class"] == "RuntimeError"
+    assert b"sensitive" not in failure.read_bytes()
+
+    tampered = load_bootstrap_module("windows_isolation_bootstrap_tamper_test")
+    tamper_root = tmp_path / "tamper"
+    tamper_root.mkdir()
+    argv, _, failure, status = _bootstrap_argv(tamper_root, "pass\n")
+    argv[6] = "f" * 64
+    monkeypatch.setattr(sys, "argv", argv)
+    assert tampered.main() == tampered.EXIT_SELF_HASH_MISMATCH
+    assert not status.exists()
+    assert not failure.exists()
+
+    probe_tampered = load_bootstrap_module("windows_isolation_bootstrap_probe_tamper_test")
+    probe_root = tmp_path / "probe-tamper"
+    probe_root.mkdir()
+    argv, _, failure, status = _bootstrap_argv(probe_root, "pass\n")
+    Path(argv[1]).write_text("# changed after authority hash\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", argv)
+    assert probe_tampered.main() == probe_tampered.EXIT_PROBE_HASH_MISMATCH
+    assert not status.exists()
+    assert not failure.exists()
+
+
+def test_stdlib_bootstrap_bounds_failure_before_writing_and_reserves_exit_codes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_oversize_test")
+    oversized_name = "X" * 5000
+    argv, _, failure, status = _bootstrap_argv(
+        tmp_path,
+        f"Oversized = type({oversized_name!r}, (Exception,), {{}})\n"
+        "def _child_guarded(request, result, failure):\n"
+        "    raise Oversized()\n",
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+    assert bootstrap.main() == bootstrap.EXIT_INVOKE_FAILURE_TOO_LARGE
+    assert status.is_file()
+    assert not failure.exists()
+
+    exit_codes = {
+        bootstrap.EXIT_ARGUMENTS_INVALID,
+        bootstrap.EXIT_SELF_HASH_MISMATCH,
+        bootstrap.EXIT_PROBE_HASH_MISMATCH,
+        bootstrap.EXIT_STATUS_WRITE_DENIED,
+        bootstrap.EXIT_IMPORT_FAILED,
+        bootstrap.EXIT_IMPORT_FAILURE_WRITE_DENIED,
+        bootstrap.EXIT_IMPORT_FAILURE_TOO_LARGE,
+        bootstrap.EXIT_INVOKE_FAILED,
+        bootstrap.EXIT_INVOKE_FAILURE_WRITE_DENIED,
+        bootstrap.EXIT_INVOKE_FAILURE_TOO_LARGE,
+    }
+    assert len(exit_codes) == 10
+    assert exit_codes == set(range(189, 199))
+
+
 def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malformed_data(
     tmp_path: Path,
 ) -> None:
     if os.name != "nt":
         pytest.skip("Windows child diagnostic path")
     probe = load_probe_module("windows_isolation_child_failure_test")
-    profile = WindowsIsolationProfileV1.create(profile_payload())
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
     result = tmp_path / "child-result.json"
     failure = tmp_path / "child-failure.json"
+    bootstrap = tmp_path / "bootstrap-started.json"
 
     process = SimpleNamespace(poll_exit_code=lambda: 0xC0000135)
     with pytest.raises(probe.WindowsIsolationChildExitError) as loader_failure:
-        probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+        probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
     assert loader_failure.value.exit_code == 0xC0000135
+    assert loader_failure.value.diagnostic.payload.bootstrap_started_status == "absent"
     assert loader_failure.value.diagnostic.payload.child_failure_status == "absent"
     assert "0xC0000135" in str(loader_failure.value)
 
+    started_payload = probe.WindowsIsolationBootstrapStartedPayloadV1(
+        child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
+        environment_instance_id=ENVIRONMENT,
+        windows_isolation_profile_id=profile.windows_isolation_profile_id,
+        probe_sha256=profile.payload.probe_sha256,
+    )
+    started = probe.WindowsIsolationBootstrapStartedV1(
+        bootstrap_started_id=digest(canonical(started_payload.model_dump(mode="json"))),
+        payload=started_payload,
+    )
+    bootstrap.write_bytes(canonical(started.model_dump(mode="json")))
     failure.write_bytes(
         canonical(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "phase": "child_probe",
                 "exception_class": "PermissionError",
                 "winerror": 5,
@@ -1088,9 +1367,11 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
     )
     process = SimpleNamespace(poll_exit_code=lambda: 1)
     with pytest.raises(probe.WindowsIsolationChildExitError) as python_failure:
-        probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+        probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
     diagnostic = python_failure.value.diagnostic.payload
     assert diagnostic.process_exit_code == 1
+    assert diagnostic.bootstrap_started_status == "validated"
+    assert diagnostic.bootstrap_started == started
     assert diagnostic.child_failure_status == "validated"
     assert diagnostic.child_failure.exception_class == "PermissionError"
     assert diagnostic.child_failure.winerror == 5
@@ -1098,9 +1379,17 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
 
     failure.write_bytes(b"{" + b"x" * probe.MAX_CHILD_FAILURE_BYTES)
     with pytest.raises(probe.WindowsIsolationChildExitError) as malformed:
-        probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+        probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
     assert malformed.value.diagnostic.payload.child_failure_status == "invalid"
     assert malformed.value.diagnostic.payload.child_failure is None
+
+    tampered = json.loads(bootstrap.read_bytes())
+    tampered["payload"]["probe_sha256"] = "f" * 64
+    bootstrap.write_bytes(canonical(tampered))
+    failure.unlink()
+    with pytest.raises(probe.WindowsIsolationChildExitError) as invalid_started:
+        probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
+    assert invalid_started.value.diagnostic.payload.bootstrap_started_status == "invalid"
 
 
 def test_child_result_precedes_exit_diagnostic_and_running_child_remains_pending(
@@ -1109,18 +1398,19 @@ def test_child_result_precedes_exit_diagnostic_and_running_child_remains_pending
     if os.name != "nt":
         pytest.skip("Windows child diagnostic path")
     probe = load_probe_module("windows_isolation_child_state_test")
-    profile = WindowsIsolationProfileV1.create(profile_payload())
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
     result = tmp_path / "child-result.json"
     failure = tmp_path / "child-failure.json"
+    bootstrap = tmp_path / "bootstrap-started.json"
     result.write_bytes(b"{}")
     process = SimpleNamespace(
         poll_exit_code=lambda: pytest.fail("exit code inspected after success result existed")
     )
-    probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+    probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
 
     result.unlink()
     process = SimpleNamespace(poll_exit_code=lambda: None)
-    probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+    probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
 
 
 def test_child_guard_writes_only_bounded_strict_failure_data(
@@ -1136,12 +1426,30 @@ def test_child_guard_writes_only_bounded_strict_failure_data(
     monkeypatch.setattr(probe, "_child", lambda *_: (_ for _ in ()).throw(error))
 
     assert probe._child_guarded(request, result, failure) == 1
-    observed = probe.WindowsIsolationChildFailureV1.model_validate_json(failure.read_bytes())
+    observed = probe.WindowsIsolationChildFailureV2.model_validate_json(failure.read_bytes())
     assert observed.exception_class == "PermissionError"
     assert observed.errno == 13
     assert len(failure.read_bytes()) <= probe.MAX_CHILD_FAILURE_BYTES
     assert b"sensitive" not in failure.read_bytes()
     assert not result.exists()
+
+
+def test_retained_v1_failure_diagnostic_remains_strictly_parseable() -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_failure_v1_compatibility_test")
+    payload = probe.WindowsIsolationFailureDiagnosticPayloadV1(
+        environment_instance_id=ENVIRONMENT,
+        windows_isolation_profile_id="7" * 64,
+        probe_sha256="4" * 64,
+        process_exit_code=1,
+        child_failure_status="absent",
+    )
+    retained = probe.WindowsIsolationFailureDiagnosticV1.create(payload)
+    encoded = canonical(retained.model_dump(mode="json"))
+    assert probe.WindowsIsolationFailureDiagnosticV1.model_validate_json(encoded) == retained
+    with pytest.raises(ValidationError):
+        probe.WindowsIsolationFailureDiagnosticV2.model_validate_json(encoded)
 
 
 def test_failure_diagnostic_publishes_only_after_clean_cleanup(
@@ -1150,13 +1458,15 @@ def test_failure_diagnostic_publishes_only_after_clean_cleanup(
     if os.name != "nt":
         pytest.skip("Windows child diagnostic path")
     probe = load_probe_module("windows_isolation_failure_publish_test")
-    profile = WindowsIsolationProfileV1.create(profile_payload())
-    diagnostic = probe.WindowsIsolationFailureDiagnosticV1.create(
-        probe.WindowsIsolationFailureDiagnosticPayloadV1(
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    diagnostic = probe.WindowsIsolationFailureDiagnosticV2.create(
+        probe.WindowsIsolationFailureDiagnosticPayloadV2(
             environment_instance_id=ENVIRONMENT,
             windows_isolation_profile_id=profile.windows_isolation_profile_id,
             probe_sha256=profile.payload.probe_sha256,
+            child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
             process_exit_code=0xC0000135,
+            bootstrap_started_status="absent",
             child_failure_status="absent",
         )
     )
@@ -1164,7 +1474,7 @@ def test_failure_diagnostic_publishes_only_after_clean_cleanup(
     error = probe.WindowsIsolationChildExitError(diagnostic)
     with pytest.raises(probe.WindowsIsolationChildExitError):
         probe._raise_after_cleanup(error, [], diagnostic, output)
-    retained = probe.WindowsIsolationFailureDiagnosticV1.model_validate_json(output.read_bytes())
+    retained = probe.WindowsIsolationFailureDiagnosticV2.model_validate_json(output.read_bytes())
     assert retained == diagnostic
 
     blocked = tmp_path / "blocked.json"
@@ -1358,6 +1668,8 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         def close(self) -> bool:
             return True
 
+    marker_mode = {"value": "valid"}
+
     def launch(*args: object, **kwargs: object) -> Process:
         arguments = args[2]
         assert isinstance(arguments, tuple)
@@ -1372,7 +1684,22 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         }
         assert all(name.casefold() != "path" for name in environment)
         assert all(name.casefold() != "localappdata" for name in environment)
-        Path(arguments[-2]).write_bytes(canonical(child))
+        bootstrap_payload = probe.WindowsIsolationBootstrapStartedPayloadV1(
+            child_bootstrap_sha256=arguments[8],
+            environment_instance_id=arguments[9],
+            windows_isolation_profile_id=arguments[10],
+            probe_sha256=arguments[11],
+        )
+        bootstrap_started = probe.WindowsIsolationBootstrapStartedV1(
+            bootstrap_started_id=digest(canonical(bootstrap_payload.model_dump(mode="json"))),
+            payload=bootstrap_payload,
+        )
+        if marker_mode["value"] != "missing":
+            started_json = bootstrap_started.model_dump(mode="json")
+            if marker_mode["value"] == "tampered":
+                started_json["payload"]["probe_sha256"] = "f" * 64
+            Path(arguments[7]).write_bytes(canonical(started_json))
+        Path(arguments[5]).write_bytes(canonical(child))
         return Process()
 
     def identity(path_value: Path) -> NativePathIdentityV1:
@@ -1400,7 +1727,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         probe._open_process_failure_proves_absent(5)
 
     evidence = probe.qualify(bundle_root, manifest, scratch, output, ENVIRONMENT)
-    retained = WindowsIsolationEvidenceV1.model_validate_json(output.read_bytes())
+    retained = WindowsIsolationEvidenceV2.model_validate_json(output.read_bytes())
     assert retained == evidence
     assert retained.receipt.payload.no_direct_network_baseline_qualified is True
     assert retained.receipt.payload.native_executor_isolation_qualified is False
@@ -1408,8 +1735,27 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     assert not scratch.exists()
     assert not output.with_name(output.name + ".tmp").exists()
 
+    for mode in ("missing", "tampered"):
+        marker_mode["value"] = mode
+        rejected_output = tmp_path / f"{mode}-marker-evidence.json"
+        rejected_scratch = tmp_path / f"{mode}-marker-scratch"
+        with pytest.raises(
+            RuntimeError, match=f"frame is {'absent' if mode == 'missing' else 'invalid'}"
+        ):
+            probe.qualify(
+                bundle_root,
+                manifest,
+                rejected_scratch,
+                rejected_output,
+                ENVIRONMENT,
+            )
+        assert not rejected_output.exists()
+        assert not rejected_output.with_name(rejected_output.name + ".failure.json").exists()
+        assert not rejected_scratch.exists()
+
     failed_output = tmp_path / "cleanup-failed-evidence.json"
     failed_scratch = tmp_path / "cleanup-failed-scratch"
+    marker_mode["value"] = "valid"
     monkeypatch.setattr(
         probe,
         "_cleanup_probe_resources",

@@ -23,7 +23,7 @@ import flatbuffers  # type: ignore[import-untyped]
 from pydantic import Field, JsonValue, field_validator, model_validator
 
 from devhub.benchmark import Digest, canonical, digest
-from devhub.models import Contract
+from devhub.models import Contract, ContractV2
 
 WINDOWS_SANDBOX_SPEC_VERSION = "0.1.0"
 WINDOWS_SANDBOX_FILE_IDENTIFIER = b"SBOX"
@@ -171,6 +171,44 @@ class WindowsIsolationProfileV1(Contract):
         return self
 
 
+class WindowsIsolationProfilePayloadV2(WindowsIsolationProfilePayloadV1):
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    child_bootstrap_sha256: Digest
+
+
+class WindowsIsolationProfileV2(ContractV2):
+    windows_isolation_profile_id: Digest
+    payload: WindowsIsolationProfilePayloadV2
+
+    @classmethod
+    def create(cls, payload: WindowsIsolationProfilePayloadV2) -> WindowsIsolationProfileV2:
+        return cls(
+            windows_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationProfileV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.windows_isolation_profile_id != expected:
+            raise ValueError("Windows isolation profile hash mismatch")
+        return self
+
+
+def windows_isolation_bootstrap_started_id(profile: WindowsIsolationProfileV2) -> str:
+    """Derive the exact marker ID that proves the reviewed child bootstrap started."""
+
+    payload: dict[str, JsonValue] = {
+        "schema_version": 1,
+        "phase": "bootstrap_started",
+        "child_bootstrap_sha256": profile.payload.child_bootstrap_sha256,
+        "environment_instance_id": profile.payload.environment_instance_id,
+        "windows_isolation_profile_id": profile.windows_isolation_profile_id,
+        "probe_sha256": profile.payload.probe_sha256,
+    }
+    return digest(canonical(payload))
+
+
 class WindowsIsolationReceiptPayloadV1(Contract):
     receipt_kind: Literal["windows_native_isolation"] = "windows_native_isolation"
     windows_isolation_profile_id: Digest
@@ -238,6 +276,32 @@ class WindowsIsolationReceiptV1(Contract):
 
     @model_validator(mode="after")
     def verified_id(self) -> WindowsIsolationReceiptV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.windows_isolation_receipt_id != expected:
+            raise ValueError("Windows isolation receipt hash mismatch")
+        return self
+
+
+class WindowsIsolationReceiptPayloadV2(WindowsIsolationReceiptPayloadV1):
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    child_bootstrap_sha256: Digest
+    bootstrap_started_id: Digest
+    bootstrap_started_validated: Literal[True] = True
+
+
+class WindowsIsolationReceiptV2(ContractV2):
+    windows_isolation_receipt_id: Digest
+    payload: WindowsIsolationReceiptPayloadV2
+
+    @classmethod
+    def create(cls, payload: WindowsIsolationReceiptPayloadV2) -> WindowsIsolationReceiptV2:
+        return cls(
+            windows_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationReceiptV2:
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.windows_isolation_receipt_id != expected:
             raise ValueError("Windows isolation receipt hash mismatch")
@@ -355,6 +419,73 @@ class WindowsIsolationEvidenceV1(Contract):
         return self
 
 
+class WindowsIsolationEvidenceV2(ContractV2):
+    windows_isolation_evidence_id: Digest
+    profile: WindowsIsolationProfileV2
+    sandbox_spec_base64: str
+    sandbox_spec_sha256: Digest
+    receipt: WindowsIsolationReceiptV2
+
+    @classmethod
+    def create(
+        cls,
+        profile: WindowsIsolationProfileV2,
+        sandbox_spec: bytes,
+        receipt: WindowsIsolationReceiptV2,
+    ) -> WindowsIsolationEvidenceV2:
+        encoded = base64.b64encode(sandbox_spec).decode("ascii")
+        sandbox_hash = digest(sandbox_spec)
+        payload: dict[str, JsonValue] = {
+            "schema_version": 2,
+            "profile": profile.model_dump(mode="json"),
+            "sandbox_spec_base64": encoded,
+            "sandbox_spec_sha256": sandbox_hash,
+            "receipt": receipt.model_dump(mode="json"),
+        }
+        return cls(
+            windows_isolation_evidence_id=digest(canonical(payload)),
+            profile=profile,
+            sandbox_spec_base64=encoded,
+            sandbox_spec_sha256=sandbox_hash,
+            receipt=receipt,
+        )
+
+    @model_validator(mode="after")
+    def strict_joins(self) -> WindowsIsolationEvidenceV2:
+        try:
+            spec = base64.b64decode(self.sandbox_spec_base64, validate=True)
+        except ValueError as error:
+            raise ValueError("SandboxSpec is not canonical base64") from error
+        if base64.b64encode(spec).decode("ascii") != self.sandbox_spec_base64:
+            raise ValueError("SandboxSpec is not canonical base64")
+        expected_spec = windows_sandbox_spec(self.profile)
+        if spec != expected_spec or digest(spec) != self.sandbox_spec_sha256:
+            raise ValueError("Retained SandboxSpec does not match the profile")
+        receipt = self.receipt.payload
+        if (
+            receipt.windows_isolation_profile_id != self.profile.windows_isolation_profile_id
+            or receipt.environment_instance_id != self.profile.payload.environment_instance_id
+            or receipt.probe_sha256 != self.profile.payload.probe_sha256
+            or receipt.child_bootstrap_sha256 != self.profile.payload.child_bootstrap_sha256
+            or receipt.bootstrap_started_id != windows_isolation_bootstrap_started_id(self.profile)
+            or receipt.sandbox_spec_sha256 != self.sandbox_spec_sha256
+        ):
+            raise ValueError("Windows isolation receipt does not bind the retained profile")
+        payload: dict[str, JsonValue] = {
+            "schema_version": self.schema_version,
+            "profile": self.profile.model_dump(mode="json"),
+            "sandbox_spec_base64": self.sandbox_spec_base64,
+            "sandbox_spec_sha256": self.sandbox_spec_sha256,
+            "receipt": self.receipt.model_dump(mode="json"),
+        }
+        if digest(canonical(payload)) != self.windows_isolation_evidence_id:
+            raise ValueError("Windows isolation evidence hash mismatch")
+        return self
+
+
+WindowsIsolationProfile = WindowsIsolationProfileV1 | WindowsIsolationProfileV2
+
+
 def _string_vector(builder: flatbuffers.Builder, values: tuple[str, ...]) -> int:
     offsets = [builder.CreateString(item) for item in values]
     builder.StartVector(4, len(offsets), 4)
@@ -363,7 +494,7 @@ def _string_vector(builder: flatbuffers.Builder, values: tuple[str, ...]) -> int
     return cast(int, builder.EndVector())
 
 
-def windows_sandbox_spec(profile: WindowsIsolationProfileV1) -> bytes:
+def windows_sandbox_spec(profile: WindowsIsolationProfile) -> bytes:
     """Encode the reviewed Microsoft ``SandboxSpec`` v0.1.0 field layout."""
 
     payload = profile.payload
@@ -703,7 +834,7 @@ def _set_job_limits(job: int, limits: WindowsJobLimitsV1) -> None:
         raise OSError(_windows_last_error(), "SetInformationJobObject failed")
 
 
-def _verify_profile_paths(profile: WindowsIsolationProfileV1) -> None:
+def _verify_profile_paths(profile: WindowsIsolationProfile) -> None:
     for expected in (
         *profile.payload.read_only_roots,
         *profile.payload.writable_roots,
@@ -857,7 +988,7 @@ def _delete_appcontainer_profile(identity: str) -> bool:
     return result in (0, 0x80070002)
 
 
-def _reject_broad_roots(profile: WindowsIsolationProfileV1) -> None:
+def _reject_broad_roots(profile: WindowsIsolationProfile) -> None:
     protected = {
         Path(value).absolute()
         for value in (
@@ -920,7 +1051,7 @@ def _cleanup_failed_launch(
 
 
 def launch_windows_isolated(
-    profile: WindowsIsolationProfileV1,
+    profile: WindowsIsolationProfile,
     executable: Path,
     arguments: tuple[str, ...],
     *,
