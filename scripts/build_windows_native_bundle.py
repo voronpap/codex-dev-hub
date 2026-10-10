@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -50,6 +51,7 @@ PYTHON_SBOM = "python-3.12.10-embed-amd64.zip.spdx.json"
 PYTHON_SBOM_SHA256 = "efa53ba4f26e8a06410677ec6d010e97133a7a1ab38e0485f6936da2911879fa"
 PYTHON_LICENSE = "PSF-2.0"
 PIP_BUILD_VERSION = "26.2.1"
+FILE_ATTRIBUTE_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 CODEX_SOURCE_COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 CODEX_SOURCE_ARCHIVE_SHA256 = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
 CANDIDATE_SHA256 = "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
@@ -154,6 +156,24 @@ def _pip_download_command(interpreter: Path, wheelhouse: Path, requirements: Pat
         "-r",
         str(requirements),
     ]
+
+
+def _remove_uv_target_lock(site_packages: Path) -> None:
+    """Remove only uv's exact empty root target-install coordination file."""
+
+    target = site_packages / ".lock"
+    try:
+        result = target.lstat()
+    except FileNotFoundError:
+        return
+    reparse = getattr(result, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT
+    if target.is_symlink() or reparse or not stat.S_ISREG(result.st_mode):
+        raise ValueError("uv target-install lock is not a plain regular file")
+    if result.st_size != 0:
+        raise ValueError("uv target-install lock is unexpectedly non-empty")
+    target.unlink()
+    if target.exists() or target.is_symlink():
+        raise ValueError("uv target-install lock cleanup did not complete")
 
 
 def reviewed_commit(repo: Path, expected: str) -> str:
@@ -623,6 +643,7 @@ def _assemble_bundle(
                 str(devhub_wheel),
             ]
         )
+        _remove_uv_target_lock(site_packages)
         sanitize_installed_wheel_tree(
             site_packages, (*tuple(sorted(wheelhouse.glob("*.whl"))), devhub_wheel)
         )
