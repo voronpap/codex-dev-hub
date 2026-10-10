@@ -238,3 +238,19 @@ immutable `PREBUILD_RUSTFMT_RESOLVED_CONFIG_CHAIN_FAILURE` evidence with
 `rust_compilation_started=false`. Build-017 carries exactly rustfmt's emitted
 representation; resolved-config authority, lock bytes, and dependency edges are
 unchanged.
+
+Build-017 run `38016240008` passed every cheap and locked dependency gate and
+completed the Rust compilation in `529.002760457` seconds. The retained
+production executable has SHA-256
+`2adc72002a033fefd3ef05d3b4bb6085eb922d1df325a3aa0240cc93d43d06c5`.
+Arm A reached the read-only observer, while Arm B stopped during required MCP
+initialization because the pinned MCP client clears the child environment and
+the reviewed server config had not allowlisted the synthetic receipt locator.
+The endpoint therefore closed at its first `tools/list` receipt write; no model,
+provider, real task, or MCP tool call occurred. Build-017 is immutable
+`BUILD_017_COMPILATION_PASS_MCP_CHILD_ENV_PROPAGATION_PROCESS_FAILURE`
+evidence. Build-018 adds only the host-owned non-secret
+`DEVHUB_BUILD009_MCP_RECEIPT` name to the synthetic Arm B MCP `env_vars`
+allowlist and binds that exact resolved config in a newly hashed strict host
+manifest. Production patches, source, lock, schema, stack, and authority remain
+byte-identical.

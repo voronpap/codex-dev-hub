@@ -135,6 +135,77 @@ def test_proof_stop_requires_exact_pre_sampling_termination() -> None:
     assert not RUNNER._proof_stopped({**valid, "stderr": "other failure"})
 
 
+def test_arm_b_alone_forwards_exact_synthetic_receipt_locator(tmp_path) -> None:
+    manifest = tmp_path / "manifest.json"
+    observer = tmp_path / "observer.json"
+
+    arm_a = RUNNER._host_exec(tmp_path, manifest, observer, "a")
+    arm_b = RUNNER._host_exec(tmp_path, manifest, observer, "b")
+    default = RUNNER._default_exec(tmp_path, observer)
+    env_setting = 'mcp_servers.devhub_delegate.env_vars=["DEVHUB_BUILD009_MCP_RECEIPT"]'
+
+    assert env_setting not in arm_a
+    assert env_setting not in default
+    assert arm_b.count(env_setting) == 1
+
+
+def test_reviewed_mcp_config_hash_matches_strict_host_manifest() -> None:
+    config = {
+        "args": ["/bootstrap.py", "mcp"],
+        "command": "python3",
+        "enabled": True,
+        "enabled_tools": ["devhub_delegate"],
+        "environment_id": "local",
+        "env_vars": [RUNNER.MCP_RECEIPT_ENV_VAR],
+        "required": True,
+        "tool_timeout_sec": None,
+        "tools": {"devhub_delegate": {"approval_mode": "approve"}},
+    }
+    config_hash = hashlib.sha256(
+        json.dumps(config, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    manifest = json.loads(
+        (
+            Path(__file__).resolve().parents[1] / "benchmarks/stage3g-host-manifest-v2.json"
+        ).read_bytes()
+    )
+
+    assert config_hash == RUNNER.EXPECTED_CONFIG_HASH
+    assert (
+        manifest["arms"]["arm_b"]["approved_delegate"]["expected_mcp_server_config_sha256"]
+        == config_hash
+    )
+
+
+def test_catalog_receipt_requires_one_list_and_no_call() -> None:
+    expected = {
+        "event": "tools_list",
+        "schema_sha256": RUNNER.SCHEMA_SHA256,
+        "provider_send": False,
+    }
+
+    RUNNER._verify_mcp_catalog_records([expected])
+
+    for invalid in (
+        [],
+        [expected, expected],
+        [
+            expected,
+            {
+                "event": "unexpected_tools_call",
+                "schema_sha256": RUNNER.SCHEMA_SHA256,
+                "provider_send": False,
+            },
+        ],
+    ):
+        try:
+            RUNNER._verify_mcp_catalog_records(invalid)
+        except ValueError as error:
+            assert "exact catalog-only" in str(error)
+        else:
+            raise AssertionError("process proof accepted a non-catalog-only MCP receipt")
+
+
 def test_host_patch_maps_observer_error_into_session_error_boundary() -> None:
     patch = (
         Path(__file__).resolve().parents[1] / "patches/stage3g-approved-call/host-integration.patch"

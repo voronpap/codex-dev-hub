@@ -403,3 +403,15 @@ resolved MCP config lookup. Build-017 uses the exact pinned rustfmt layout and
 returns the new-file hunk to its actual 253-line length. The constrained-map
 `get()` followed by the exact server-key lookup, host authority, process proof,
 and all locked dependencies remain unchanged.
+
+Build-017 run `38016240008` compiled the actual production executable and
+proved Arm A, but Arm B failed closed before router observation when its required
+synthetic MCP transport closed. The pinned MCP launcher uses `env_clear()` and
+only forwards default variables plus the server's reviewed `env_vars`; the
+outer proof environment alone was therefore insufficient to supply the receipt
+locator required at `tools/list`. Build-018 allowlists exactly the non-secret
+`DEVHUB_BUILD009_MCP_RECEIPT` name for Arm B and rebinds the canonical resolved
+server config and strict host-manifest hashes. Arm A and ordinary default Codex
+configure no MCP server and no MCP-child receipt-variable allowlist; the common
+outer proof environment remains identical between arms. The process proof now
+requires exactly one catalog receipt and still rejects any `tools/call`.

@@ -16,7 +16,7 @@ from devhub.stage3g_host import (
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "benchmarks/stage3g-host-manifest-v2.json"
 SCHEMA = ROOT / "benchmarks/stage3g-host-manifest-v2.schema.json"
-MANIFEST_SHA256 = "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b"
+MANIFEST_SHA256 = "d31edc7cb0604ea7d2c526521adb1c59ae21a35a902a8c2a9a7c2807bc29957e"
 
 
 def test_reviewed_host_manifest_has_exact_a_b_surfaces() -> None:

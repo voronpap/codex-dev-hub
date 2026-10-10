@@ -25,10 +25,11 @@ SOURCE_ARCHIVE_SHA256 = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf79
 CANDIDATE_SHA256 = "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
 HOST_SHA256 = "954baf24dc83bd997d2082e31161e6fbb502e9677a4fc657664c9e9a969c8b95"
 COMBINED_SHA256 = "7c009b069955c323803246696fce56515f6fdcac92dc0434cc9251dac94e5f68"
-HOST_MANIFEST_SHA256 = "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b"
+HOST_MANIFEST_SHA256 = "d31edc7cb0604ea7d2c526521adb1c59ae21a35a902a8c2a9a7c2807bc29957e"
 SCHEMA_SHA256 = "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
 DELEGATE = "mcp__devhub_delegate.devhub_delegate"
-EXPECTED_CONFIG_HASH = "ff866e1aea6710de0373474e6671dbd412173a11cf0284c321e20c5b47ce199b"
+EXPECTED_CONFIG_HASH = "9f22ac491ea2fc2e158e4a779c504e959bdc56cd983eedd18866c2567e59c014"
+MCP_RECEIPT_ENV_VAR = "DEVHUB_BUILD009_MCP_RECEIPT"
 
 
 def sha256_bytes(raw: bytes) -> str:
@@ -110,6 +111,7 @@ def prepare_build_source(
         "build-015",
         "build-016",
         "build-017",
+        "build-018",
     }:
         derived_lock, lock_changes = derive_production_host_lock(root)
         expected_lock = PRODUCTION_HOST_LOCK_SHA256
@@ -332,6 +334,8 @@ def _host_exec(
             "-c",
             'mcp_servers.devhub_delegate.args=["/bootstrap.py","mcp"]',
             "-c",
+            f'mcp_servers.devhub_delegate.env_vars=["{MCP_RECEIPT_ENV_VAR}"]',
+            "-c",
             "mcp_servers.devhub_delegate.required=true",
             "-c",
             'mcp_servers.devhub_delegate.enabled_tools=["devhub_delegate"]',
@@ -380,6 +384,16 @@ def _proof_stopped(result: dict[str, object]) -> bool:
         and result.get("exit_code") not in (None, 0)
         and "DevFabric proof observer stopped before model sampling" in combined
     )
+
+
+def _verify_mcp_catalog_records(records: list[dict[str, object]]) -> None:
+    expected = {
+        "event": "tools_list",
+        "schema_sha256": SCHEMA_SHA256,
+        "provider_send": False,
+    }
+    if records != [expected]:
+        raise ValueError("process proof did not produce the exact catalog-only MCP receipt")
 
 
 def _verify_observer(path: Path, arm: str) -> dict[str, object]:
@@ -474,6 +488,7 @@ def main() -> None:
             "build-015",
             "build-016",
             "build-017",
+            "build-018",
         ),
         default="build-009",
     )
@@ -522,6 +537,7 @@ def main() -> None:
         "build_015_run": False,
         "build_016_run": False,
         "build_017_run": False,
+        "build_018_run": False,
         "stage_3g_c": "OPEN",
         "stage_3g": "OPEN",
         "execution_ready": False,
@@ -557,6 +573,7 @@ def main() -> None:
         "enabled": True,
         "enabled_tools": ["devhub_delegate"],
         "environment_id": "local",
+        "env_vars": [MCP_RECEIPT_ENV_VAR],
         "required": True,
         "tool_timeout_sec": None,
         "tools": {"devhub_delegate": {"approval_mode": "approve"}},
@@ -735,8 +752,7 @@ def main() -> None:
             "passed": b_visible - a_visible == {DELEGATE} and not (a_visible - b_visible),
         }
         mcp_records = [json.loads(line) for line in mcp_receipt.read_bytes().splitlines()]
-        if any(item.get("event") == "unexpected_tools_call" for item in mcp_records):
-            raise ValueError("process proof invoked the MCP handler")
+        _verify_mcp_catalog_records(mcp_records)
         receipt["mcp_catalog_receipt"] = {
             "sha256": sha256_file(mcp_receipt),
             "records": mcp_records,
