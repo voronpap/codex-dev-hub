@@ -31,6 +31,17 @@ H = "1" * 64
 ENVIRONMENT = "2" * 32
 
 
+def load_probe_module(name: str):
+    module_spec = importlib.util.spec_from_file_location(
+        name, Path("scripts/probe_windows_native_isolation.py")
+    )
+    assert module_spec is not None and module_spec.loader is not None
+    probe = importlib.util.module_from_spec(module_spec)
+    sys.modules[module_spec.name] = probe
+    module_spec.loader.exec_module(probe)
+    return probe
+
+
 def test_windows_last_error_preserves_ctypes_saved_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(isolation.ctypes, "get_last_error", lambda: 12345, raising=False)
     assert isolation._windows_last_error() == 12345
@@ -867,6 +878,45 @@ def test_process_close_retries_profile_deletion_after_closing_handles(monkeypatc
     assert calls.count("CloseHandle") == 3
 
 
+@pytest.mark.parametrize(
+    ("wait_result", "exit_code", "expected"),
+    [(0x102, 0, None), (0, 0xC0000135, 0xC0000135)],
+)
+def test_process_poll_exit_code_uses_retained_handle_and_preserves_unsigned_status(
+    wait_result: int,
+    exit_code: int,
+    expected: int | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, int]] = []
+
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __call__(self, *args: object) -> int:
+            calls.append((self.name, int(args[0])))
+            if self.name == "WaitForSingleObject":
+                assert args[1] == 0
+                return wait_result
+            assert self.name == "GetExitCodeProcess"
+            args[1]._obj.value = exit_code  # type: ignore[attr-defined]
+            return 1
+
+    class Dll:
+        WaitForSingleObject = Function("WaitForSingleObject")
+        GetExitCodeProcess = Function("GetExitCodeProcess")
+
+    monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
+    process = isolation.WindowsSandboxProcess(101, 102, 100, 333, "devfabric_" + ENVIRONMENT, ())
+    assert process.poll_exit_code() == expected
+    assert calls[0] == ("WaitForSingleObject", 101)
+    assert ("GetExitCodeProcess", 101) in calls if expected is not None else len(calls) == 1
+
+
 @pytest.mark.parametrize("failure", ["TerminateJobObject", "CloseHandle"])
 def test_process_close_never_deletes_profile_before_process_cleanup(
     failure: str, monkeypatch: pytest.MonkeyPatch
@@ -1008,6 +1058,161 @@ def test_probe_cleanup_attempts_every_resource_after_failures(tmp_path: Path, mo
     assert calls == ["process", "event", "listener", "registry", "scratch"]
 
 
+def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malformed_data(
+    tmp_path: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_child_failure_test")
+    profile = WindowsIsolationProfileV1.create(profile_payload())
+    result = tmp_path / "child-result.json"
+    failure = tmp_path / "child-failure.json"
+
+    process = SimpleNamespace(poll_exit_code=lambda: 0xC0000135)
+    with pytest.raises(probe.WindowsIsolationChildExitError) as loader_failure:
+        probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+    assert loader_failure.value.exit_code == 0xC0000135
+    assert loader_failure.value.diagnostic.payload.child_failure_status == "absent"
+    assert "0xC0000135" in str(loader_failure.value)
+
+    failure.write_bytes(
+        canonical(
+            {
+                "schema_version": 1,
+                "phase": "child_probe",
+                "exception_class": "PermissionError",
+                "winerror": 5,
+                "errno": 13,
+            }
+        )
+    )
+    process = SimpleNamespace(poll_exit_code=lambda: 1)
+    with pytest.raises(probe.WindowsIsolationChildExitError) as python_failure:
+        probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+    diagnostic = python_failure.value.diagnostic.payload
+    assert diagnostic.process_exit_code == 1
+    assert diagnostic.child_failure_status == "validated"
+    assert diagnostic.child_failure.exception_class == "PermissionError"
+    assert diagnostic.child_failure.winerror == 5
+    assert diagnostic.child_failure.errno == 13
+
+    failure.write_bytes(b"{" + b"x" * probe.MAX_CHILD_FAILURE_BYTES)
+    with pytest.raises(probe.WindowsIsolationChildExitError) as malformed:
+        probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+    assert malformed.value.diagnostic.payload.child_failure_status == "invalid"
+    assert malformed.value.diagnostic.payload.child_failure is None
+
+
+def test_child_result_precedes_exit_diagnostic_and_running_child_remains_pending(
+    tmp_path: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_child_state_test")
+    profile = WindowsIsolationProfileV1.create(profile_payload())
+    result = tmp_path / "child-result.json"
+    failure = tmp_path / "child-failure.json"
+    result.write_bytes(b"{}")
+    process = SimpleNamespace(
+        poll_exit_code=lambda: pytest.fail("exit code inspected after success result existed")
+    )
+    probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+
+    result.unlink()
+    process = SimpleNamespace(poll_exit_code=lambda: None)
+    probe._raise_if_child_exited(process, result, failure, profile, ENVIRONMENT)
+
+
+def test_child_guard_writes_only_bounded_strict_failure_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_child_guard_test")
+    request = tmp_path / "request.json"
+    result = tmp_path / "result.json"
+    failure = tmp_path / "failure.json"
+    error = PermissionError(13, "sensitive path must not be retained")
+    monkeypatch.setattr(probe, "_child", lambda *_: (_ for _ in ()).throw(error))
+
+    assert probe._child_guarded(request, result, failure) == 1
+    observed = probe.WindowsIsolationChildFailureV1.model_validate_json(failure.read_bytes())
+    assert observed.exception_class == "PermissionError"
+    assert observed.errno == 13
+    assert len(failure.read_bytes()) <= probe.MAX_CHILD_FAILURE_BYTES
+    assert b"sensitive" not in failure.read_bytes()
+    assert not result.exists()
+
+
+def test_failure_diagnostic_publishes_only_after_clean_cleanup(
+    tmp_path: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_failure_publish_test")
+    profile = WindowsIsolationProfileV1.create(profile_payload())
+    diagnostic = probe.WindowsIsolationFailureDiagnosticV1.create(
+        probe.WindowsIsolationFailureDiagnosticPayloadV1(
+            environment_instance_id=ENVIRONMENT,
+            windows_isolation_profile_id=profile.windows_isolation_profile_id,
+            probe_sha256=profile.payload.probe_sha256,
+            process_exit_code=0xC0000135,
+            child_failure_status="absent",
+        )
+    )
+    output = tmp_path / "diagnostic.json"
+    error = probe.WindowsIsolationChildExitError(diagnostic)
+    with pytest.raises(probe.WindowsIsolationChildExitError):
+        probe._raise_after_cleanup(error, [], diagnostic, output)
+    retained = probe.WindowsIsolationFailureDiagnosticV1.model_validate_json(output.read_bytes())
+    assert retained == diagnostic
+
+    blocked = tmp_path / "blocked.json"
+    with pytest.raises(BaseExceptionGroup, match="probe and cleanup failed"):
+        probe._raise_after_cleanup(error, [OSError("cleanup")], diagnostic, blocked)
+    assert not blocked.exists()
+
+
+def test_probe_child_cli_forwards_all_three_paths_and_rejects_missing_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows probe CLI child path")
+    probe = load_probe_module("windows_isolation_child_cli_test")
+    request = tmp_path / "request.json"
+    result = tmp_path / "result.json"
+    failure = tmp_path / "failure.json"
+    forwarded: list[tuple[Path, Path, Path]] = []
+    monkeypatch.setattr(
+        probe,
+        "_child_guarded",
+        lambda request_path, result_path, failure_path: forwarded.append(
+            (request_path, result_path, failure_path)
+        )
+        or 7,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["probe_windows_native_isolation.py", "--child", str(request), str(result), str(failure)],
+    )
+    with pytest.raises(SystemExit) as completed:
+        probe.main()
+    assert completed.value.code == 7
+    assert forwarded == [(request, result, failure)]
+
+    forwarded.clear()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["probe_windows_native_isolation.py", "--child", str(request), str(result)],
+    )
+    with pytest.raises(SystemExit) as rejected:
+        probe.main()
+    assert rejected.value.code == 2
+    assert forwarded == []
+
+
 def test_profile_id_golden() -> None:
     profile = WindowsIsolationProfileV1.create(profile_payload())
     assert profile.windows_isolation_profile_id == digest(
@@ -1144,6 +1349,9 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     class Process:
         process_id = 1000
 
+        def poll_exit_code(self) -> None:
+            return None
+
         def terminate_tree(self) -> None:
             pass
 
@@ -1164,7 +1372,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         }
         assert all(name.casefold() != "path" for name in environment)
         assert all(name.casefold() != "localappdata" for name in environment)
-        Path(arguments[-1]).write_bytes(canonical(child))
+        Path(arguments[-2]).write_bytes(canonical(child))
         return Process()
 
     def identity(path_value: Path) -> NativePathIdentityV1:

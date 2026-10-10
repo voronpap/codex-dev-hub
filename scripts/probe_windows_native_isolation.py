@@ -14,12 +14,13 @@ import time
 import winreg
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, Literal, NoReturn, cast
 
-from pydantic import JsonValue
+from pydantic import Field, JsonValue, model_validator
 
-from devhub.benchmark import canonical, digest
+from devhub.benchmark import Digest, canonical, digest
 from devhub.experiment_launch import durable_publish
+from devhub.models import Contract
 from devhub.native_bundle import NativeBundleV1, verify_native_bundle
 from devhub.windows_isolation import (
     WindowsIsolationChildResultV1,
@@ -28,6 +29,7 @@ from devhub.windows_isolation import (
     WindowsIsolationProfileV1,
     WindowsIsolationReceiptPayloadV1,
     WindowsIsolationReceiptV1,
+    _reject_reparse_chain,
     appcontainer_identity,
     launch_windows_isolated,
     observed_windows_platform,
@@ -36,6 +38,66 @@ from devhub.windows_isolation import (
 )
 
 ACCESS_DENIED_ERRORS = {5, 13, 10013}
+MAX_CHILD_FAILURE_BYTES = 4096
+
+
+class WindowsIsolationChildFailureV1(Contract):
+    schema_version: Literal[1] = 1
+    phase: Literal["child_probe"] = "child_probe"
+    exception_class: Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")]
+    winerror: int | None = None
+    errno: int | None = None
+
+
+class WindowsIsolationFailureDiagnosticPayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    failure_kind: Literal["child_before_evidence"] = "child_before_evidence"
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    windows_isolation_profile_id: Digest
+    probe_sha256: Digest
+    process_exit_code: Annotated[int, Field(ge=0, le=0xFFFFFFFF)]
+    child_failure_status: Literal["absent", "validated", "invalid"]
+    child_failure: WindowsIsolationChildFailureV1 | None = None
+    success_evidence_published: Literal[False] = False
+
+    @model_validator(mode="after")
+    def strict_child_failure_status(self) -> WindowsIsolationFailureDiagnosticPayloadV1:
+        if (self.child_failure is not None) != (self.child_failure_status == "validated"):
+            raise ValueError("Child failure status does not match the validated diagnostic")
+        return self
+
+
+class WindowsIsolationFailureDiagnosticV1(Contract):
+    diagnostic_id: Digest
+    payload: WindowsIsolationFailureDiagnosticPayloadV1
+
+    @classmethod
+    def create(
+        cls, payload: WindowsIsolationFailureDiagnosticPayloadV1
+    ) -> WindowsIsolationFailureDiagnosticV1:
+        return cls(
+            diagnostic_id=digest(canonical(payload.model_dump(mode="json"))), payload=payload
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationFailureDiagnosticV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.diagnostic_id != expected:
+            raise ValueError("Windows isolation failure diagnostic hash mismatch")
+        return self
+
+
+class WindowsIsolationChildExitError(RuntimeError):
+    phase = "child_before_evidence"
+
+    def __init__(self, diagnostic: WindowsIsolationFailureDiagnosticV1) -> None:
+        self.diagnostic = diagnostic
+        self.exit_code = diagnostic.payload.process_exit_code
+        super().__init__(
+            "Windows isolation child exited before evidence "
+            f"(exit_code={self.exit_code}, hex=0x{self.exit_code:08X}, "
+            f"child_failure={diagnostic.payload.child_failure_status})"
+        )
 
 
 def _error_code(error: BaseException) -> int | None:
@@ -152,6 +214,86 @@ def _child(request_path: Path, result_path: Path) -> int:
     os.replace(temporary, result_path)
     time.sleep(60)
     return 0
+
+
+def _child_guarded(request_path: Path, result_path: Path, failure_path: Path) -> int:
+    try:
+        return _child(request_path, result_path)
+    except BaseException as error:
+        failure = WindowsIsolationChildFailureV1(
+            exception_class=type(error).__name__,
+            winerror=getattr(error, "winerror", None),
+            errno=getattr(error, "errno", None),
+        )
+        encoded = canonical(failure.model_dump(mode="json"))
+        if len(encoded) > MAX_CHILD_FAILURE_BYTES:
+            return 1
+        temporary = failure_path.with_name(failure_path.name + ".tmp")
+        temporary.write_bytes(encoded)
+        os.replace(temporary, failure_path)
+        return 1
+
+
+def _read_child_failure(
+    failure_path: Path,
+) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV1 | None]:
+    if not failure_path.is_file():
+        return "absent", None
+    try:
+        _reject_reparse_chain(failure_path, require_directory=False)
+        with failure_path.open("rb") as stream:
+            encoded = stream.read(MAX_CHILD_FAILURE_BYTES + 1)
+        if len(encoded) > MAX_CHILD_FAILURE_BYTES:
+            return "invalid", None
+        return "validated", WindowsIsolationChildFailureV1.model_validate_json(encoded)
+    except (OSError, ValueError):
+        return "invalid", None
+
+
+def _raise_if_child_exited(
+    process: Any,
+    child_result: Path,
+    child_failure: Path,
+    profile: WindowsIsolationProfileV1,
+    environment_instance_id: str,
+) -> None:
+    if child_result.is_file():
+        return
+    exit_code = process.poll_exit_code()
+    if exit_code is None:
+        return
+    child_failure_status, validated_child_failure = _read_child_failure(child_failure)
+    diagnostic = WindowsIsolationFailureDiagnosticV1.create(
+        WindowsIsolationFailureDiagnosticPayloadV1(
+            environment_instance_id=environment_instance_id,
+            windows_isolation_profile_id=profile.windows_isolation_profile_id,
+            probe_sha256=profile.payload.probe_sha256,
+            process_exit_code=exit_code,
+            child_failure_status=child_failure_status,
+            child_failure=validated_child_failure,
+        )
+    )
+    raise WindowsIsolationChildExitError(diagnostic)
+
+
+def _raise_after_cleanup(
+    primary_error: BaseException,
+    cleanup_errors: list[Exception],
+    failure_diagnostic: WindowsIsolationFailureDiagnosticV1 | None,
+    failure_output: Path,
+) -> NoReturn:
+    if cleanup_errors:
+        raise BaseExceptionGroup(
+            "Windows isolation probe and cleanup failed",
+            [primary_error, *cleanup_errors],
+        ) from primary_error
+    if failure_diagnostic is not None:
+        failure_output.parent.mkdir(parents=True, exist_ok=True)
+        durable_publish(
+            failure_output,
+            canonical(failure_diagnostic.model_dump(mode="json")),
+        )
+    raise primary_error
 
 
 def _pid_active(pid: int) -> bool:
@@ -286,8 +428,9 @@ def qualify(
     environment_instance_id: str,
 ) -> WindowsIsolationEvidenceV1:
     observed_build, observed_architecture = observed_windows_platform()
-    if scratch.exists() or output.exists():
-        raise FileExistsError("Scratch and output must not already exist")
+    failure_output = output.with_name(output.name + ".failure.json")
+    if scratch.exists() or output.exists() or failure_output.exists():
+        raise FileExistsError("Scratch and output paths must not already exist")
     bundle = NativeBundleV1.model_validate_json(bundle_manifest.read_bytes())
     verify_native_bundle(
         bundle,
@@ -301,6 +444,7 @@ def qualify(
     process: Any | None = None
     evidence: WindowsIsolationEvidenceV1 | None = None
     primary_error: BaseException | None = None
+    failure_diagnostic: WindowsIsolationFailureDiagnosticV1 | None = None
     try:
         scratch.mkdir(parents=True)
         allowed = scratch / "allowed"
@@ -312,6 +456,7 @@ def qualify(
         child_script = allowed / "probe-child.py"
         child_script.write_bytes(Path(__file__).read_bytes())
         child_result = allowed / "child-result.json"
+        child_failure = allowed / "child-failure.json"
         request_path = allowed / "request.json"
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
@@ -355,14 +500,31 @@ def qualify(
         process = launch_windows_isolated(
             profile,
             python,
-            ("-I", "-B", str(child_script), "--child", str(request_path), str(child_result)),
+            (
+                "-I",
+                "-B",
+                str(child_script),
+                "--child",
+                str(request_path),
+                str(child_result),
+                str(child_failure),
+            ),
             cwd=allowed,
             environment=environment,
         )
         deadline = time.monotonic() + 30
         while not child_result.is_file() and time.monotonic() < deadline:
-            if not _pid_active(process.process_id):
-                raise RuntimeError("Isolation probe exited before producing evidence")
+            try:
+                _raise_if_child_exited(
+                    process,
+                    child_result,
+                    child_failure,
+                    profile,
+                    environment_instance_id,
+                )
+            except WindowsIsolationChildExitError as error:
+                failure_diagnostic = error.diagnostic
+                raise
             time.sleep(0.05)
         if not child_result.is_file():
             raise TimeoutError("Isolation probe did not produce evidence")
@@ -404,12 +566,7 @@ def qualify(
         primary_error = error
     cleanup_errors = _cleanup_probe_resources(process, event, listener, registry_path, scratch)
     if primary_error is not None:
-        if cleanup_errors:
-            raise BaseExceptionGroup(
-                "Windows isolation probe and cleanup failed",
-                [primary_error, *cleanup_errors],
-            ) from primary_error
-        raise primary_error
+        _raise_after_cleanup(primary_error, cleanup_errors, failure_diagnostic, failure_output)
     if cleanup_errors:
         raise ExceptionGroup("Windows isolation probe cleanup failed", cleanup_errors)
     if evidence is None:
@@ -424,6 +581,7 @@ def main() -> None:
     parser.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("child_request", nargs="?", type=Path)
     parser.add_argument("child_result", nargs="?", type=Path)
+    parser.add_argument("child_failure", nargs="?", type=Path)
     parser.add_argument("--bundle", type=Path)
     parser.add_argument("--bundle-manifest", type=Path)
     parser.add_argument("--scratch", type=Path)
@@ -431,9 +589,9 @@ def main() -> None:
     parser.add_argument("--environment-instance-id")
     args = parser.parse_args()
     if args.child:
-        if args.child_request is None or args.child_result is None:
-            parser.error("child mode requires request and result paths")
-        raise SystemExit(_child(args.child_request, args.child_result))
+        if args.child_request is None or args.child_result is None or args.child_failure is None:
+            parser.error("child mode requires request, result and failure paths")
+        raise SystemExit(_child_guarded(args.child_request, args.child_result, args.child_failure))
     required: dict[str, Any] = {
         "bundle_root": args.bundle,
         "bundle_manifest": args.bundle_manifest,

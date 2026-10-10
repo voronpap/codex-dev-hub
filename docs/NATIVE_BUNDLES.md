@@ -113,6 +113,14 @@ All terminal paths close process and job handles before deleting only that
 invocation's profile, and any profile cleanup failure blocks evidence
 publication.
 
+If the isolated probe exits before it can create success evidence, the host may
+retain `<success-output>.failure.json`. This self-hashed, non-success diagnostic
+binds the environment, profile, probe and exact unsigned process exit code. A
+bounded child detail is marked as validated, invalid or absent; invalid and
+absent details are never trusted. The diagnostic is published only after
+exhaustive cleanup succeeds, never grants readiness and leaves the success
+output absent.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of
