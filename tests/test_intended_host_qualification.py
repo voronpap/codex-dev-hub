@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 import shutil
+import stat
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -178,6 +179,7 @@ def test_auth_and_ledger_qualifier_main_paths(tmp_path, monkeypatch, capsys):
     )
     output = tmp_path / "auth-receipt.json"
     original_read = Path.read_bytes
+    original_stat = Path.stat
     reads = 0
 
     def counted_read(path):
@@ -187,6 +189,14 @@ def test_auth_and_ledger_qualifier_main_paths(tmp_path, monkeypatch, capsys):
         return original_read(path)
 
     monkeypatch.setattr(Path, "read_bytes", counted_read)
+
+    def linux_mode_stat(path, *args, **kwargs):
+        observed = original_stat(path, *args, **kwargs)
+        if path.name == "auth.json" and path.parent.name.startswith("devhub-auth-stage-"):
+            return SimpleNamespace(st_mode=stat.S_IFREG | 0o600)
+        return observed
+
+    monkeypatch.setattr(Path, "stat", linux_mode_stat)
     monkeypatch.setattr(
         sys,
         "argv",
