@@ -67,7 +67,7 @@ class OllamaBridgeAuthorityV1(Contract):
     @field_validator("socket_path", "bridge_python_path")
     @classmethod
     def absolute_locator(cls, value: str) -> str:
-        if not Path(value).is_absolute():
+        if not PurePosixPath(value).is_absolute():
             raise ValueError("Ollama bridge locators must be absolute")
         return value
 

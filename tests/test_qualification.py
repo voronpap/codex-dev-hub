@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from devhub.benchmark import canonical, digest
 from devhub.ledger import LedgerIdentityCoreV1, ledger_identity_sha256
+from devhub.ollama_transport import OllamaBridgeAuthorityV1
 from devhub.qualification import (
     RECEIPT_KINDS,
     ArmExpectedV1,
@@ -800,6 +801,37 @@ def test_ollama_bridge_runtime_and_namespace_substitution_rejected(tmp_path):
     )
     with pytest.raises(ValueError, match="immutable Python runtime"):
         verify_manifest_tree(path, changed.qualification_manifest_id)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("socket_path", "/run/devfabric/ollama.sock"),
+        ("bridge_python_path", "/opt/devfabric-runtime/bin/python"),
+    ],
+)
+def test_ollama_bridge_accepts_posix_absolute_locators_cross_platform(tmp_path, field, value):
+    raw = materialized_receipt(tmp_path, "ollama_metadata")["bridge"]
+    raw[field] = value
+    OllamaBridgeAuthorityV1.model_validate_json(canonical(raw))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("socket_path", "run/devfabric/ollama.sock"),
+        ("socket_path", r"C:\run\devfabric\ollama.sock"),
+        ("socket_path", r"\\server\share\ollama.sock"),
+        ("bridge_python_path", "opt/devfabric-runtime/bin/python"),
+        ("bridge_python_path", r"C:\opt\devfabric-runtime\python.exe"),
+        ("bridge_python_path", r"\\server\share\python.exe"),
+    ],
+)
+def test_ollama_bridge_rejects_non_posix_absolute_locators_cross_platform(tmp_path, field, value):
+    raw = materialized_receipt(tmp_path, "ollama_metadata")["bridge"]
+    raw[field] = value
+    with pytest.raises(ValidationError, match="locators must be absolute"):
+        OllamaBridgeAuthorityV1.model_validate_json(canonical(raw))
 
 
 def test_historical_ollama_v1_parses_but_cannot_authorize_execution(tmp_path):
