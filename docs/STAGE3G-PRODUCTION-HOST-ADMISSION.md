@@ -368,3 +368,9 @@ through a `CodexErr` session boundary without an explicit conversion. Build-012
 maps only that proof-observer error to `CodexErrorDetails::InvalidRequest`, the
 same typed boundary used by Candidate B registration. It does not change host
 authority, router eligibility, observer state, or process-proof semantics.
+
+Build-012 run `38011524953` stopped before Cargo after the pinned formatting gate
+required rustfmt's multiline method-chain indentation for that observer call.
+Build-013 carries only the formatter-exact patch representation. It does not
+change the mapped error, host authority, router eligibility, observer state,
+locked dependencies, or process-proof semantics.

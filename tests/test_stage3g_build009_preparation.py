@@ -141,6 +141,12 @@ def test_host_patch_maps_observer_error_into_session_error_boundary() -> None:
     ).read_text(encoding="utf-8")
 
     assert ".map_err(|error| CodexErrorDetails::InvalidRequest(error.to_string()))?;" in patch
+    assert (
+        """observer
++                .observe(
++                    tool_router.as_ref(),"""
+        in patch
+    )
 
 
 def test_locked_resolution_requires_byte_identical_lock(tmp_path, monkeypatch) -> None:

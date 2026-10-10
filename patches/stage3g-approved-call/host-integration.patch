@@ -516,7 +516,7 @@ diff --git a/core/src/session/mod.rs b/core/src/session/mod.rs
 index 9252c8952d489d45f001ea25231f84c24496b882..f176eae5ba3bba3a5a2c1aa3db3efbd70b894391 100644
 --- a/core/src/session/mod.rs
 +++ b/core/src/session/mod.rs
-@@ -3889,6 +3889,27 @@ impl Session {
+@@ -3889,6 +3889,28 @@ impl Session {
          )
          .or_cancel(cancellation_token)
          .await??;
@@ -529,13 +529,14 @@ index 9252c8952d489d45f001ea25231f84c24496b882..f176eae5ba3bba3a5a2c1aa3db3efbd7
 +                .services
 +                .thread_extension_data
 +                .get::<crate::ApprovedDelegatePolicy>();
-+            observer.observe(
-+                tool_router.as_ref(),
-+                turn_context.dynamic_tools.len(),
-+                self.allowed_tools.as_deref(),
-+                policy.as_deref(),
-+            )
-+            .map_err(|error| CodexErrorDetails::InvalidRequest(error.to_string()))?;
++            observer
++                .observe(
++                    tool_router.as_ref(),
++                    turn_context.dynamic_tools.len(),
++                    self.allowed_tools.as_deref(),
++                    policy.as_deref(),
++                )
++                .map_err(|error| CodexErrorDetails::InvalidRequest(error.to_string()))?;
 +            return Err(CodexErrorDetails::InvalidRequest(
 +                "DevFabric proof observer stopped before model sampling".into(),
 +            )

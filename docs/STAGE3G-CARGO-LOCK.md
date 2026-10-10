@@ -196,3 +196,11 @@ call boundary. No executable or process proof exists. Build-011 is immutable
 `BUILD_011_OBSERVER_ERROR_CONVERSION_COMPILE_FAILURE` evidence. Build-012 adds
 only the explicit observer-error conversion already used by Candidate B at the
 same `CodexErrorDetails::InvalidRequest` boundary; lock identities are unchanged.
+
+Build-012 run `38011524953` passed source preparation and every identity check,
+then stopped before Cargo because pinned `cargo +1.95.0 fmt --check` required the
+new observer method chain to use rustfmt's multiline indentation. It is immutable
+`PREBUILD_RUSTFMT_OBSERVER_CHAIN_FAILURE` evidence with
+`rust_compilation_started=false`. Build-013 changes only those patch bytes to the
+exact formatter output; the error conversion, authority boundaries, lock,
+manifest, schema, and proof behavior are unchanged.
