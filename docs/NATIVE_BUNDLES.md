@@ -130,6 +130,12 @@ Bootstrap-bearing profile, receipt, evidence and failure contracts are V2. The
 strict V1 parsers remain unchanged for the earlier retained non-success evidence;
 V1 evidence is historical and cannot satisfy the V2 bootstrap gate.
 
+The host probe also requires an explicit trusted expected DevFabric implementation
+commit. After strict bundle verification and before platform observation, scratch
+creation or native resource acquisition, it compares that authority with the
+bundle's immutable implementation commit. A valid but stale bundle therefore
+fails before launch; a filesystem locator cannot select a different runtime.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of

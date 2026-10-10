@@ -560,8 +560,8 @@ def qualify(
     scratch: Path,
     output: Path,
     environment_instance_id: str,
+    expected_implementation_commit: str,
 ) -> WindowsIsolationEvidenceV2:
-    observed_build, observed_architecture = observed_windows_platform()
     failure_output = output.with_name(output.name + ".failure.json")
     if scratch.exists() or output.exists() or failure_output.exists():
         raise FileExistsError("Scratch and output paths must not already exist")
@@ -572,6 +572,15 @@ def qualify(
         expected_platform="windows",
         expected_architecture="x86_64",
     )
+    if len(expected_implementation_commit) != 40 or any(
+        character not in "0123456789abcdef" for character in expected_implementation_commit
+    ):
+        raise ValueError(
+            "Expected implementation commit must be 40 lowercase hexadecimal characters"
+        )
+    if bundle.payload.implementation_commit != expected_implementation_commit:
+        raise ValueError("Native bundle implementation commit differs from expected authority")
+    observed_build, observed_architecture = observed_windows_platform()
     registry_path = rf"Software\DevFabric\IsolationProbe\{environment_instance_id}"
     listener: socket.socket | None = None
     event: int | None = None
@@ -740,6 +749,7 @@ def main() -> None:
     parser.add_argument("--scratch", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--environment-instance-id")
+    parser.add_argument("--expected-implementation-commit")
     args = parser.parse_args()
     if args.child:
         if args.child_request is None or args.child_result is None or args.child_failure is None:
@@ -751,6 +761,7 @@ def main() -> None:
         "scratch": args.scratch,
         "output": args.output,
         "environment_instance_id": args.environment_instance_id,
+        "expected_implementation_commit": args.expected_implementation_commit,
     }
     if any(value is None for value in required.values()):
         parser.error("host mode requires bundle, manifest, scratch, output and environment ID")
