@@ -75,14 +75,50 @@ def test_ollama_route_parser_uses_interface_and_rejects_default_routes():
     script = load_script("qualify_ollama_network_isolation")
     ipv4_header = "Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\n"
     ipv4_loopback = ipv4_header + "lo 0000007F 00000000 0001 0 0 0 000000FF 0 0 0\n"
-    ipv6_loopback = "0" * 31 + "1 80 " + "0" * 32 + " 00 00000000 00000000 00000000 00000001 lo\n"
+    ipv6_loopback = (
+        "0" * 31
+        + "1 80 "
+        + "0" * 32
+        + " 00 "
+        + "0" * 32
+        + " 00000000 00000000 00000000 00000001 lo\n"
+    )
     assert script._non_loopback_routes_from_text(ipv4_loopback, ipv6_loopback) == 0
     ipv4_eth = ipv4_header + "eth0 00000000 010011AC 0003 0 0 0 00000000 0 0 0\n"
     assert script._non_loopback_routes_from_text(ipv4_eth, ipv6_loopback) == 1
     ipv4_default_on_lo = ipv4_header + "lo 00000000 00000000 0001 0 0 0 00000000 0 0 0\n"
     assert script._non_loopback_routes_from_text(ipv4_default_on_lo, ipv6_loopback) == 1
-    ipv6_default = "0" * 32 + " 00 " + "0" * 32 + " 00 00000000 00000000 00000000 00000001 lo\n"
+    ipv6_default = (
+        "0" * 32
+        + " 00 "
+        + "0" * 32
+        + " 00 "
+        + "0" * 32
+        + " 00000000 00000000 00000000 00000001 lo\n"
+    )
     assert script._non_loopback_routes_from_text(ipv4_loopback, ipv6_default) == 1
+
+    ipv6_kernel_rejects = (
+        "0" * 32
+        + " 00 "
+        + "0" * 32
+        + " 00 "
+        + "0" * 32
+        + " ffffffff 00000001 00000000 00200200 lo\n"
+    ) * 2
+    assert script._non_loopback_routes_from_text(ipv4_loopback, ipv6_kernel_rejects) == 0
+
+    ipv6_non_loopback = (
+        "20010db8000000000000000000000000 40 "
+        + "0" * 32
+        + " 00 "
+        + "0" * 32
+        + " 00000000 00000000 00000000 00000001 eth0\n"
+    )
+    assert script._non_loopback_routes_from_text(ipv4_loopback, ipv6_non_loopback) == 1
+    ipv6_rejected_non_loopback = ipv6_non_loopback.replace("00000001 eth0", "00000200 eth0")
+    assert script._non_loopback_routes_from_text(ipv4_loopback, ipv6_rejected_non_loopback) == 0
+    assert script._non_loopback_routes_from_text(ipv4_loopback, "malformed route\n") == 1
 
 
 def test_ollama_metadata_rejects_network_namespace_mismatch():
