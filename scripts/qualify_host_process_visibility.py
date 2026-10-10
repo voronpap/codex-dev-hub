@@ -180,6 +180,8 @@ def _run_observer(
         "--tmpfs",
         "/home/runner:rw,noexec,nosuid,size=64m,uid=1000,gid=1000",
         "--tmpfs",
+        "/home/runner/.codex:rw,noexec,nosuid,size=16m,uid=1000,gid=1000,mode=0700",
+        "--tmpfs",
         "/packet:rw,noexec,nosuid,size=16m,uid=1000,gid=1000",
         "--env",
         "HOME=/home/runner",
