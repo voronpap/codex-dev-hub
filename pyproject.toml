@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Offline-first MCP toolbox skeleton for Codex development"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "flatbuffers==25.12.19",
     "mcp==2.2.0",
     "pydantic==2.12.5",
     "tokenizers==0.22.1",
