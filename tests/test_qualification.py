@@ -22,6 +22,7 @@ from devhub.qualification import (
     ObservedArtifactHashesV2,
     OllamaExpectedV1,
     OllamaMetadataReceiptV1,
+    OllamaMetadataReceiptV2,
     PythonRuntimeExpectedV1,
     QualificationContextPayloadV1,
     QualificationContextV1,
@@ -39,6 +40,7 @@ from devhub.qualification import (
 
 H = "a" * 64
 ENVIRONMENT = "b" * 32
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def context_payload() -> QualificationContextPayloadV1:
@@ -145,7 +147,7 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
             },
             "ollama_metadata": {
                 **expected.ollama_expected.model_dump(mode="json", exclude={"schema_version"}),
-                "kind": "intended_host_ollama_metadata",
+                "kind": "intended_host_ollama_metadata_v2",
                 "endpoint": "http://127.0.0.1:11434",
                 "release_asset": "ollama-linux-amd64.tar.zst",
                 "release_artifact_sha256": (
@@ -179,6 +181,38 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
                         }
                     )
                 ),
+                "bridge": {
+                    "schema_version": 1,
+                    "kind": "stage3g_ollama_unix_bridge",
+                    "socket_path": "/run/user/1000/devhub-ollama/ollama.sock",
+                    "socket_parent_uid": 1000,
+                    "socket_parent_mode": 448,
+                    "socket_uid": 1000,
+                    "socket_mode": 384,
+                    "socket_device": 1,
+                    "socket_inode": 2,
+                    "bridge_pid": 101,
+                    "bridge_start_time_ticks": 1001,
+                    "bridge_uid": 1000,
+                    "bridge_network_namespace_id": "net:[123]",
+                    "bridge_python_path": "/opt/devhub/bin/python",
+                    "bridge_python_executable_sha256": "3" * 64,
+                    "bridge_process_executable_sha256": "3" * 64,
+                    "bridge_runtime_environment_id": "4" * 64,
+                    "bridge_module_origin": (
+                        "lib/python3.12/site-packages/devhub/ollama_transport.py"
+                    ),
+                    "bridge_module_sha256": "8" * 64,
+                    "bridge_proxy_environment_inherited": False,
+                    "server_pid": 102,
+                    "server_start_time_ticks": 1002,
+                    "server_uid": 1000,
+                    "server_executable_sha256": "7" * 64,
+                    "server_network_namespace_id": "net:[123]",
+                    "server_listener_inode": 42,
+                    "destination_host": "127.0.0.1",
+                    "destination_port": 11434,
+                },
                 "model_metadata_sha256": "9" * 64,
                 "context_tokens": 32768,
                 "completion_capability": True,
@@ -327,9 +361,14 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
                 "runner_sha256": expected.evaluator_expected.runner_sha256,
             },
             "python_runtime": {
+                "interpreter_path": "/opt/devhub/bin/python",
+                "wheel_path": "/opt/artifacts/devhub.whl",
+                "lock_path": "/opt/artifacts/uv.lock",
                 "interpreter_sha256": (
                     expected.implementation.python_runtime.python_executable_sha256
                 ),
+                "python_implementation": "CPython",
+                "python_version": "3.12.11",
                 "wheel_sha256": expected.implementation.python_runtime.wheel_sha256,
                 "dependency_lock_sha256": (
                     expected.implementation.python_runtime.dependency_lock_sha256
@@ -337,6 +376,13 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
                 "runtime_environment_id": (
                     expected.implementation.python_runtime.runtime_environment_id
                 ),
+                "module_origin": "lib/python3.12/site-packages/devhub/__init__.py",
+                "entrypoint": "devhub.delegate_server",
+                "isolated_argv": ["-I", "-m", "devhub.delegate_server"],
+                "isolated_flag": True,
+                "ignore_environment_flag": True,
+                "no_user_site_flag": True,
+                "editable_install": False,
             },
             "runtime_config_probe": {
                 "image_id": expected.runtime_expected.image_id,
@@ -377,7 +423,7 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
             },
         }
         receipt_value = {
-            "schema_version": 1,
+            "schema_version": 2 if kind == "ollama_metadata" else 1,
             "receipt_kind": kind,
             "qualification_context_id": context.qualification_context_id,
             "environment_instance_id": ENVIRONMENT,
@@ -390,6 +436,7 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
             "ledger_identity",
             "codex_executable",
             "host_process_visibility",
+            "python_runtime",
             "runtime_config_probe",
         }:
             receipt_value["synthetic_observation"] = index
@@ -497,7 +544,7 @@ def test_context_and_manifest_ids_are_stable_golden(tmp_path):
         == "81dc09d6460651f9459114455447e6a8440dae0bb919c78594404641fce76c79"
     )
     assert manifest.qualification_manifest_id == (
-        "8f40a4a6420d321ea1c8ffefd91ad3432b246e25414e66e11ad77fe68040da5c"
+        "dd30a5f01b3bcdd4a67c74538a2dbc4dadf5f8ba11b342fa9ce9c4dead6e8e35"
     )
 
 
@@ -708,28 +755,89 @@ def test_ollama_receipt_rejects_generate_or_missing_isolation(tmp_path):
     raw = materialized_receipt(tmp_path, "ollama_metadata")
     raw["generate_requests"] = 1
     with pytest.raises(ValidationError):
-        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
+        OllamaMetadataReceiptV2.model_validate_json(canonical(raw))
     raw["generate_requests"] = 0
     raw["outbound_network_denied"] = False
     with pytest.raises(ValidationError):
-        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
+        OllamaMetadataReceiptV2.model_validate_json(canonical(raw))
 
 
 def test_ollama_receipt_binds_embedded_network_observation(tmp_path):
     raw = materialized_receipt(tmp_path, "ollama_metadata")
     isolation = raw.pop("network_isolation")
     with pytest.raises(ValidationError):
-        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
+        OllamaMetadataReceiptV2.model_validate_json(canonical(raw))
     raw["network_isolation"] = isolation
     raw["network_isolation"]["network_namespace_id"] = "net:[456]"
     with pytest.raises(ValidationError, match="hash mismatch"):
-        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
+        OllamaMetadataReceiptV2.model_validate_json(canonical(raw))
     other = tmp_path / "other"
     other.mkdir()
     raw = materialized_receipt(other, "ollama_metadata")
     raw["network_isolation"]["executable_sha256"] = "6" * 64
     with pytest.raises(ValidationError, match="another executable"):
-        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
+        OllamaMetadataReceiptV2.model_validate_json(canonical(raw))
+
+
+def test_ollama_bridge_runtime_and_namespace_substitution_rejected(tmp_path):
+    raw = materialized_receipt(tmp_path, "ollama_metadata")
+    raw["bridge"]["server_network_namespace_id"] = "net:[456]"
+    with pytest.raises(ValidationError, match="namespaces differ"):
+        OllamaMetadataReceiptV2.model_validate_json(canonical(raw))
+    other = tmp_path / "other"
+    other.mkdir()
+    _, manifest, _ = materialize(other)
+    changed, path = rewrite_receipt(
+        other,
+        manifest,
+        "ollama_metadata",
+        lambda receipt: receipt["bridge"].update(
+            {
+                "bridge_python_executable_sha256": "f" * 64,
+                "bridge_process_executable_sha256": "f" * 64,
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="immutable Python runtime"):
+        verify_manifest_tree(path, changed.qualification_manifest_id)
+
+
+def test_historical_ollama_v1_parses_but_cannot_authorize_execution(tmp_path):
+    historical = json.loads(
+        (ROOT / "docs/evidence/stage3g-intended-host-af5d081/ollama-metadata.json").read_bytes()
+    )
+    parsed = OllamaMetadataReceiptV1.model_validate_json(canonical(historical))
+    assert parsed.schema_version == 1
+    with pytest.raises(ValidationError):
+        OllamaMetadataReceiptV2.model_validate_json(canonical(historical))
+
+    _, manifest, path = materialize(tmp_path)
+    changed, changed_path = rewrite_receipt(
+        tmp_path,
+        manifest,
+        "ollama_metadata",
+        lambda receipt: (
+            receipt.pop("bridge"),
+            receipt.__setitem__("schema_version", 1),
+            receipt.__setitem__("kind", "intended_host_ollama_metadata"),
+        ),
+    )
+    with pytest.raises(ValueError, match="V1 is non-authorizing"):
+        verify_manifest_tree(changed_path, changed.qualification_manifest_id)
+
+
+def test_manifest_rejects_bridge_from_other_runtime_locator(tmp_path):
+    _, manifest, _ = materialize(tmp_path)
+    changed, path = rewrite_receipt(
+        tmp_path,
+        manifest,
+        "ollama_metadata",
+        lambda receipt: receipt["bridge"].__setitem__(
+            "bridge_python_path", "/opt/other-venv/bin/python"
+        ),
+    )
+    with pytest.raises(ValueError, match="exact qualified Python runtime"):
+        verify_manifest_tree(path, changed.qualification_manifest_id)
 
 
 def test_receipt_hash_and_kind_substitution_rejected(tmp_path):

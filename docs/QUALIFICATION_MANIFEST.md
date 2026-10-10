@@ -44,9 +44,23 @@ auth bytes. `ledger_identity` reopens the exact `LedgerIdentityCoreV1`, verifies
 SQLite application/schema/integrity state, and rejects outstanding reserved,
 dispatched, or `unknown_usage` liability. `ollama_metadata` binds the official
 `ollama-linux-amd64.tar.zst` v0.34.2 release artifact, the running executable, a
-separate no-outbound network namespace, and metadata-only version/tags/show results.
-It records zero generate/model/provider requests. A common header plus
+separate no-outbound network namespace, a fixed-destination Unix bridge in that same
+namespace, and metadata-only version/tags/show results through the bridge. The bridge
+has no destination argument: it can connect only to `127.0.0.1:11434`. Its receipt
+binds the server and bridge PIDs plus process start times, namespace, exact immutable
+Python/runtime/module identities, the running bridge executable through `/proc`, the
+exact Ollama LISTEN socket inode owned by the reviewed server PID, private socket
+ownership/mode/device/inode, peer UID, and the fixed destination. The qualifier
+re-inspects the context-bound Python runtime receipt, wheel, lock and installed RECORD
+inventory; the final manifest cross-joins that receipt with the bridge interpreter
+locator/hash/runtime ID. Runtime revalidates those identities and Linux peer
+credentials before metadata inspection and before the B-arm MCP server becomes
+available. It records zero generate/model/provider requests. A common header plus
 `qualification_passed=true` is not sufficient for any of these gates.
+
+The bridge-bearing Ollama metadata receipt is schema V2. Historical strict V1 receipts
+remain parseable for audit, but lack a reachable transport binding and cannot authorize
+current execution.
 
 The frozen Linux Ollama release provenance was observed on 2026-10-10 from the
 official GitHub release tag `v0.34.2`: asset `ollama-linux-amd64.tar.zst`, release
@@ -109,7 +123,8 @@ builder records the reviewed wheel SHA-256 rather than claiming that future buil
 reproduce identical wheel bytes.
 
 The runtime identity binds CPython version/platform tag (and observed nullable SOABI
-and machine detail), invoked interpreter bytes,
+and machine detail), invoked interpreter bytes and the absolute dedicated-environment
+launcher locator (without resolving it to a base interpreter),
 wheel and `uv.lock` hashes, source commit, installed DevFabric version and module
 origin, normalized installed distributions, and their installed RECORD inventory.
 Verification uses isolated Python (`-I`), rejects ambient `PYTHONPATH`, user-site and
@@ -120,7 +135,9 @@ After a final context exists, `qualify_devhub_runtime.py` emits the context-boun
 receipt and re-inspected runtime:
 
 ```text
-<absolute-reviewed-interpreter> -I -m devhub.delegate_server --config <trusted-config>
+<absolute-reviewed-interpreter> -I -m devhub.delegate_server \
+  --config <trusted-config> \
+  --ollama-bridge-authority <trusted-host-derived-authority>
 ```
 
 An ambient `sys.executable`, editable checkout, arbitrary `sys.path`, or unrelated
@@ -150,13 +167,14 @@ Runtime config and host-process visibility remain separate gates. Host visibilit
 proves Arm A has no tools, Arm B has exactly the delegate, one `tools/list` occurred,
 zero `tools/call` occurred, and no model/provider execution began. Runtime config
 still checks frozen CLI configuration, auth tmpfs, feature state, MCP scope and egress.
-The intended-host context
+The historical intended-host context
 `5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168`
 and final manifest
 `d6d3e1f565064846af495b5d9cab6e3f54738616d383c5c6afddf02c666b5441`
-bind the complete fixed receipt set on environment
-`169a6b903825d8c88973dd592c4601d9`. Independent review accepted the chain and
-the validator derives `execution_ready=true` for that exact composition. Stage 3G-C
-is closed for this manifest; Stage 3G remains open. Qualification alone does not
-establish semantic quality, savings or Delegation Value, and cannot authorize a
-different runtime composition.
+remain immutable evidence for implementation `af5d08145a894e8feb3e62d79657f77d1dbd9bf7`.
+They do not authorize later implementation commits. The first rehearsal review found
+that their no-route Ollama process was unreachable from the default-namespace
+coordinator, so new execution requires a freshly built immutable runtime and a new
+same-environment context/manifest containing the bridge-bound receipt. Qualification
+alone does not establish semantic quality, savings or Delegation Value, and cannot
+authorize a different runtime composition.

@@ -61,8 +61,17 @@ guest proxy variables are explicit. These checks do not claim service availabili
 Host MCP scope and one-call/replay/accounting remain accepted 3F/3G-B contracts.
 Neither benchmark runtime nor evaluator mounts the ledger. Preflight opens the
 existing ledger read-only, checks integrity/schema and never creates/resets it.
-Ollama qualification invokes the existing metadata-only inspect contract. A mismatch
-does not choose a new model, update or pull. The accepted protocol remains unchanged.
+Ollama qualification invokes the existing metadata-only inspect contract through a
+strict AF_UNIX bridge that runs beside Ollama in the reviewed no-route namespace. The
+bridge has a compiled-in `127.0.0.1:11434` destination and a private `0600` socket in
+an owned `0700` directory; it is not a general proxy. The coordinator and immutable
+B-arm runtime revalidate the exact process start identities, namespace, interpreter
+and running executable, Ollama LISTEN inode, bridge socket inode and peer credentials
+before use. The bridge-bearing Ollama receipt is V2; historical V1 remains read-only
+audit evidence and is non-authorizing. The operator still owns creation
+of the isolated namespace; bridge code runs unprivileged as the same UID as Ollama.
+A mismatch does not choose a new model, update or pull. The accepted protocol remains
+unchanged.
 
 ## Evaluator sandbox
 
