@@ -8,6 +8,7 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -551,6 +552,99 @@ def test_pip_download_uses_verified_interpreter_in_isolated_mode(tmp_path: Path)
 
     assert command[:5] == [str(interpreter), "-I", "-m", "pip", "download"]
     assert "--require-hashes" in command
+
+
+def test_uv_target_lock_cleanup_removes_only_empty_root_file(tmp_path: Path) -> None:
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    target = site / ".lock"
+    target.write_bytes(b"")
+
+    BUNDLE._remove_uv_target_lock(site)
+
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("mutation", ["directory", "symlink", "reparse", "nonempty"])
+def test_uv_target_lock_cleanup_rejects_non_plain_variants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    target = site / ".lock"
+    if mutation == "directory":
+        target.mkdir()
+    else:
+        target.write_bytes(b"x" if mutation == "nonempty" else b"")
+    if mutation == "symlink":
+        original_is_symlink = Path.is_symlink
+        monkeypatch.setattr(
+            Path,
+            "is_symlink",
+            lambda path: path == target or original_is_symlink(path),
+        )
+    elif mutation == "reparse":
+        original_lstat = Path.lstat
+
+        def reparse_lstat(path: Path):
+            if path != target:
+                return original_lstat(path)
+            result = original_lstat(path)
+            return SimpleNamespace(
+                st_mode=result.st_mode,
+                st_size=result.st_size,
+                st_file_attributes=BUNDLE.FILE_ATTRIBUTE_REPARSE_POINT,
+            )
+
+        monkeypatch.setattr(Path, "lstat", reparse_lstat)
+
+    with pytest.raises(ValueError, match="plain regular|non-empty"):
+        BUNDLE._remove_uv_target_lock(site)
+
+
+def test_nested_uv_lock_remains_unowned_and_fails_closed(tmp_path: Path) -> None:
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    files = _write_demo_wheel(wheel)
+    site = tmp_path / "site-packages"
+    for name, raw in files.items():
+        target = site.joinpath(*Path(name).parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    nested = site / "nested/.lock"
+    nested.parent.mkdir()
+    nested.write_bytes(b"")
+
+    BUNDLE._remove_uv_target_lock(site)
+    with pytest.raises(ValueError, match="unowned file: nested/.lock"):
+        BUNDLE.sanitize_installed_wheel_tree(site, (wheel,))
+
+
+def test_uv_lock_cleanup_failure_never_publishes_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "release"
+
+    def assemble(_repo, bundle, _manifest, *_args):
+        site = bundle / "site-packages"
+        site.mkdir(parents=True)
+        (site / ".lock").mkdir()
+        BUNDLE._remove_uv_target_lock(site)
+
+    monkeypatch.setattr(BUNDLE, "_assemble_bundle", assemble)
+    monkeypatch.setattr(BUNDLE, "_verified_pip_interpreter", lambda *_args: tmp_path)
+
+    with pytest.raises(ValueError, match="plain regular"):
+        BUNDLE.build(
+            tmp_path,
+            output,
+            "d" * 40,
+            tmp_path / "python.zip",
+            tmp_path / "python.spdx.json",
+            tmp_path / "codex",
+            BUNDLE.WINDOWS_BUILD_ARTIFACT_RUN_ID,
+        )
+
+    assert not output.exists()
 
 
 def test_pip_authority_failure_precedes_staging(
