@@ -92,7 +92,7 @@ not start a second MCP server for the same active authority scope.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PENDING — `windows-build-001` workflow added | PENDING — native profile/build required; OCI binary does not qualify it |
+| Exact native Codex | PENDING — run `38065330820` stopped before compilation with `PREBUILD_WINDOWS_PATH_LENGTH_FAILURE`; short-root retry pending | PENDING — native profile/build required; OCI binary does not qualify it |
 | Same-binary host authority | PENDING Default/A/B and security negatives | PENDING; historical OCI proof is profile-limited |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |

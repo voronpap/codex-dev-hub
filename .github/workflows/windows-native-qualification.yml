@@ -55,8 +55,8 @@ jobs:
       - name: Build and prove native Windows Codex
         shell: pwsh
         run: |
-          $workspace = Join-Path $env:RUNNER_TEMP 'devfabric-windows-build-001-source'
-          $output = Join-Path $env:RUNNER_TEMP 'devfabric-windows-build-001-evidence'
+          $workspace = 'C:\dfw001\s'
+          $output = 'C:\dfw001\e'
           uv run --locked python scripts/build_windows_native_codex.py `
             --workspace $workspace `
             --output $output `
@@ -67,6 +67,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: devfabric-windows-build-001
-          path: ${{ runner.temp }}/devfabric-windows-build-001-evidence
+          path: C:\dfw001\e
           if-no-files-found: error
           retention-days: 14

@@ -162,6 +162,7 @@ def record_build_failure(
     output: Path, receipt: dict[str, object], phase: str, error: BaseException
 ) -> None:
     receipt["status"] = "FAIL"
+    receipt["phase"] = phase
     receipt["failure"] = {
         "phase": phase,
         "type": type(error).__name__,

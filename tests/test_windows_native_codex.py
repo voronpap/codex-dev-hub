@@ -204,6 +204,7 @@ def test_pre_cargo_failure_receipt_keeps_compilation_not_started(tmp_path) -> No
     observed = json.loads((tmp_path / "windows-build-result.json").read_bytes())
 
     assert observed["status"] == "FAIL"
+    assert observed["phase"] == observed["failure"]["phase"] == "locked_resolution"
     assert observed["rust_compilation_started"] is False
     assert observed["compilation"] == "NOT_RUN"
     assert observed["process_proof"] is None
@@ -234,3 +235,6 @@ def test_workflow_binds_pull_request_head_and_never_cancels_build() -> None:
     assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
     assert "--expected-implementation-commit" in workflow
     assert "cancel-in-progress: false" in workflow
+    assert "$workspace = 'C:\\dfw001\\s'" in workflow
+    assert "$output = 'C:\\dfw001\\e'" in workflow
+    assert "path: C:\\dfw001\\e" in workflow
