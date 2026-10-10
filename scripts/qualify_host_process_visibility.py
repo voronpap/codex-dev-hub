@@ -32,7 +32,18 @@ def _require_reviewed_stop(
         and PRE_SAMPLING_STOP_MARKER in result.stdout + result.stderr
     )
     if not stopped_before_sampling:
-        raise ValueError(f"{arm} pre-sampling observer did not stop at the reviewed boundary")
+        diagnostics = {
+            "arm": arm,
+            "returncode": result.returncode,
+            "observer_exists": observer.is_file(),
+            "stop_marker_observed": PRE_SAMPLING_STOP_MARKER in result.stdout + result.stderr,
+            "stdout_sha256": digest(result.stdout),
+            "stderr_sha256": digest(result.stderr),
+        }
+        raise ValueError(
+            f"{arm} pre-sampling observer did not stop at the reviewed boundary: "
+            f"{json.dumps(diagnostics, sort_keys=True)}"
+        )
 
 
 class CatalogOnly:
