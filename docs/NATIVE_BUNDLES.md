@@ -45,6 +45,32 @@ not start a second MCP server for the same active authority scope.
   only for properties it actually proved; native Linux requires a versioned
   execution profile and native isolation receipts.
 
+### Windows embedded-runtime authority
+
+The first internal Windows directory bundle uses the official CPython
+`python-3.12.10-embed-amd64.zip` release asset and its adjacent SPDX document.
+Their exact reviewed SHA-256 values, the canonical archive-member identity, the
+exact DevFabric wheel, `uv.lock`, every selected dependency wheel allowed by that
+lock, installed distribution `RECORD` identities and the complete final file
+inventory are separate authority inputs. Equal source does not imply equal wheel
+bytes; the exact wheel hashes are authoritative.
+
+`python312._pth` contains only the reviewed relative stdlib, bundle and
+site-packages paths. It contains no `import site`, and the installed tree contains
+no other `.pth`, editable/direct-URL metadata, generated console entrypoints or
+bytecode caches. The delegate command is exactly the bundle-relative
+`python.exe -I -B -m devhub.delegate_server`; hostile ambient `PYTHONPATH`,
+`PYTHONHOME`, user-site and `PATH` values are excluded from runtime authority.
+
+The bundle contains immutable application files only. Config, ledger, projects,
+logs, retained evidence, credentials and Ollama remain external. Its canonical
+manifest is external too: a future trusted coordinator must rehash and verify the
+directory before launching it. The bundled interpreter cannot attest to itself,
+so this packaging slice keeps `package_readiness=false` and
+`native_executor_isolation_qualified=false` until those separate gates exist.
+Public distribution remains blocked by the repository license decision; this
+does not block an internal exact-hash directory artifact.
+
 ## Delivery order
 
 1. **Windows native Codex identity and host proof.** Build `windows-build-001` for
