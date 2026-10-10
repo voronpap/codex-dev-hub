@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import socket
+import subprocess
 import threading
 from pathlib import Path
 
@@ -59,3 +60,22 @@ def test_default_argument_path_removes_only_stage3g_authority() -> None:
         "features.apps=false",
         "-",
     ]
+
+
+def test_observer_file_without_reviewed_stop_marker_is_rejected(tmp_path) -> None:
+    observer = tmp_path / "observer.json"
+    observer.write_text("{}")
+    result = subprocess.CompletedProcess([], 1, stdout=b"different failure", stderr=b"")
+    try:
+        MODULE._require_reviewed_stop(result, observer, "A")
+    except ValueError as error:
+        assert "reviewed boundary" in str(error)
+    else:
+        raise AssertionError("wrong observer stop diagnostic was accepted")
+
+
+def test_reviewed_stop_requires_exact_exit_marker_and_observer(tmp_path) -> None:
+    observer = tmp_path / "observer.json"
+    observer.write_text("{}")
+    result = subprocess.CompletedProcess([], 1, stdout=MODULE.PRE_SAMPLING_STOP_MARKER, stderr=b"")
+    MODULE._require_reviewed_stop(result, observer, "B")

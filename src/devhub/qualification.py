@@ -259,6 +259,7 @@ class CodexBuildArtifactObservationV1(Contract):
     artifact_id: Literal[11659714382]
     artifact_name: Literal["stage3g-build020-production-host-proof"]
     artifact_zip_sha256: Literal["c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979"]
+    build_evidence_sha256: Digest
 
 
 class CodexExecutableReceiptV1(QualificationReceiptHeaderV1):
@@ -303,14 +304,25 @@ class HostProcessVisibilityReceiptV1(QualificationReceiptHeaderV1):
     @model_validator(mode="after")
     def exact_surfaces(self) -> HostProcessVisibilityReceiptV1:
         default = self.default_observation
+        default_surface_values = (
+            *default.allowed_tools,
+            *default.visible_model_tools,
+            *default.nested_code_mode_map,
+            *default.hosted_tools,
+        )
         if (
             default.allowed_tools_ceiling_present
             or default.approved_delegate_policy_present
             or default.approved_identity is not None
             or default.expected_schema_sha256 is not None
             or default.host_manifest_sha256 is not None
+            or any(
+                STAGE3G_DELEGATE_TOOL in value or "mcp__devhub_delegate" in value
+                for value in default_surface_values
+            )
+            or default.dynamic_tool_count
         ):
-            raise ValueError("Default Codex observation contains Stage 3G authority")
+            raise ValueError("Default Codex observation contains Stage 3G delegate leakage")
         arm_a = self.arm_a_observation
         if (
             not arm_a.allowed_tools_ceiling_present

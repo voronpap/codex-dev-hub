@@ -143,6 +143,9 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
                     "artifact_zip_sha256": (
                         "c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979"
                     ),
+                    "build_evidence_sha256": (
+                        "6f4fdb1aacdeef2e3446e7f2760d4f84e2832df833034befb4ce0a81997a32f0"
+                    ),
                 },
                 "real_codex_task_executions": 0,
                 "model_requests": 0,
@@ -402,7 +405,7 @@ def test_context_and_manifest_ids_are_stable_golden(tmp_path):
         == "81dc09d6460651f9459114455447e6a8440dae0bb919c78594404641fce76c79"
     )
     assert manifest.qualification_manifest_id == (
-        "8659df288de74e393158213f6815a26f403d4abd95c3be4702758d59ecf49407"
+        "aebc42dafa4ba406f5ff906dc6082643eea603e63a9170c68d61ac206c8e5822"
     )
 
 
@@ -536,6 +539,27 @@ def test_host_visibility_rejects_surface_widening(tmp_path):
 
     changed, path = rewrite_receipt(tmp_path, manifest, "host_process_visibility", widen)
     with pytest.raises(ValueError, match="Arm A finalized router surface"):
+        verify_manifest_tree(path, changed.qualification_manifest_id)
+
+
+@pytest.mark.parametrize(
+    ("surface", "value"),
+    [
+        ("allowed_tools", ["mcp__devhub_delegate.devhub_delegate"]),
+        ("visible_model_tools", ["mcp__devhub_delegate.devhub_delegate"]),
+        ("nested_code_mode_map", ["mcp__devhub_delegate=devhub_delegate"]),
+        ("hosted_tools", ["mcp__devhub_delegate.devhub_delegate"]),
+        ("dynamic_tool_count", 1),
+    ],
+)
+def test_default_visibility_rejects_delegate_leakage(tmp_path, surface, value):
+    _, manifest, _ = materialize(tmp_path)
+
+    def widen(receipt):
+        receipt["default_observation"][surface] = value
+
+    changed, path = rewrite_receipt(tmp_path, manifest, "host_process_visibility", widen)
+    with pytest.raises(ValueError, match="Default Codex observation"):
         verify_manifest_tree(path, changed.qualification_manifest_id)
 
 

@@ -34,9 +34,13 @@ def load_qualified_binary(
             "artifact_id": qualified.get("artifact_id"),
             "artifact_name": qualified.get("artifact_name"),
             "artifact_zip_sha256": qualified.get("artifact_zip_sha256"),
+            "build_evidence_sha256": qualified.get("build_evidence_sha256"),
         }
     )
-    evidence = json.loads(evidence_path.read_bytes())
+    evidence_raw = evidence_path.read_bytes()
+    if hashlib.sha256(evidence_raw).hexdigest() != qualified.get("build_evidence_sha256"):
+        raise ValueError("Build-020 raw evidence integrity failure")
+    evidence = json.loads(evidence_raw)
     binary = binary_path.read_bytes()
     expected = {
         "source_commit": evidence.get("source_commit"),
@@ -136,6 +140,7 @@ def main():
                     "artifact_id": qualified["artifact_id"],
                     "artifact_name": qualified["artifact_name"],
                     "artifact_zip_sha256": qualified["artifact_zip_sha256"],
+                    "build_evidence_sha256": qualified["build_evidence_sha256"],
                 },
                 "base_image": lock["base_image"],
                 "real_codex_executions": 0,

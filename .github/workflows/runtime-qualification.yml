@@ -54,7 +54,17 @@ jobs:
           curl --fail --location --retry 3 \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/11659714382/zip" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/11659714382" \
+            --output "$RUNNER_TEMP/build020-metadata.json"
+          uv run --locked python scripts/verify_build_artifact_metadata.py \
+            --metadata "$RUNNER_TEMP/build020-metadata.json" \
+            --lock benchmarks/runtime-lock.json \
+            --output "$RUNNER_TEMP/build020-verified.json"
+          archive_url=$(python -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/build020-verified.json"))["archive_download_url"])')
+          curl --fail --location --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$archive_url" \
             --output "$RUNNER_TEMP/build020.zip"
           echo "c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979  $RUNNER_TEMP/build020.zip" | sha256sum --check --strict
           unzip -q "$RUNNER_TEMP/build020.zip" -d "$RUNNER_TEMP/build020"

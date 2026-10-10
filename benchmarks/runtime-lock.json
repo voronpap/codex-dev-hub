@@ -9,6 +9,7 @@
     "artifact_id": 11659714382,
     "artifact_name": "stage3g-build020-production-host-proof",
     "artifact_zip_sha256": "c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979",
+    "build_evidence_sha256": "6f4fdb1aacdeef2e3446e7f2760d4f84e2832df833034befb4ce0a81997a32f0",
     "binary_relative_path": "binary/codex",
     "binary_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
     "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",

@@ -51,6 +51,7 @@ def qualified_inputs(root: Path):
     }
     evidence_path = root / "evidence.json"
     evidence_path.write_text(json.dumps(evidence))
+    qualified["build_evidence_sha256"] = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
     return binary_path, evidence_path, {"qualified_codex_build": qualified}, binary
 
 
@@ -73,4 +74,12 @@ def test_runtime_image_rejects_identity_substitution(tmp_path, mutation):
     else:
         lock["qualified_codex_build"]["artifact_id"] = 0
     with pytest.raises(ValueError):
+        MODULE.load_qualified_binary(binary_path, evidence_path, lock)
+
+
+def test_runtime_image_rejects_altered_raw_evidence_with_same_selected_fields(tmp_path):
+    binary_path, evidence_path, lock, _ = qualified_inputs(tmp_path)
+    evidence = json.loads(evidence_path.read_text())
+    evidence_path.write_text(json.dumps(evidence, indent=2))
+    with pytest.raises(ValueError, match="raw evidence integrity"):
         MODULE.load_qualified_binary(binary_path, evidence_path, lock)

@@ -20,6 +20,20 @@ from devhub.qualification import (
 )
 from devhub.stage3g_host import read_stage3g_host_manifest
 
+PRE_SAMPLING_STOP_MARKER = b"DevFabric proof observer stopped before model sampling"
+
+
+def _require_reviewed_stop(
+    result: subprocess.CompletedProcess[bytes], observer: Path, arm: str
+) -> None:
+    stopped_before_sampling = (
+        result.returncode == 1
+        and observer.is_file()
+        and PRE_SAMPLING_STOP_MARKER in result.stdout + result.stderr
+    )
+    if not stopped_before_sampling:
+        raise ValueError(f"{arm} pre-sampling observer did not stop at the reviewed boundary")
+
 
 class CatalogOnly:
     """Out-of-band catalog evidence; it can never execute a tool or provider."""
@@ -161,8 +175,7 @@ def _run_observer(
         if server is not None:
             server.close()
     safe_artifacts((result.stdout, result.stderr))
-    if result.returncode != 1 or not observer.is_file():
-        raise ValueError(f"{arm} pre-sampling observer did not stop at the reviewed boundary")
+    _require_reviewed_stop(result, observer, arm)
     value = json.loads(observer.read_bytes())
     if not isinstance(value, dict):
         raise ValueError("Router observer must emit an object")
