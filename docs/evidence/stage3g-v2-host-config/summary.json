@@ -1,0 +1,24 @@
+{
+  "canonical_revision_file_sha256": "d4c055b204c53236397d198b0cf26f4c6dab176c02001a0ba4f3e204b1666113",
+  "corrected_config_sha256": "b8fdd8ca11f582b04b217afc4da6f718eb1bb3b443749324faa4eff13f4207fa",
+  "corrected_plan_file_sha256": "019ca3051345850454f0e88a4bc3d16d2fc6f41412634cb8eb003bbb3cd863c0",
+  "corrected_plan_sha256": "939871c0cc1f81c1fe4a8df2146bd5144c4f94d40ffbc9a1aba56b4cdd895fe3",
+  "corrected_sessions_canonical_sha256": "9be49bb5208eeb2c56944365cb07d5e4457fba5ae94d9187ab0540fe6d8b23b3",
+  "differing_paths": [
+    "hashes.codex_config",
+    "implementation_commit"
+  ],
+  "execution_ready": false,
+  "historical_config_sha256": "da291cc0265727ba6f86dac58725f891b41fb837cad8529a91a480732c3477d7",
+  "historical_plan_file_sha256": "ef28c5e3d17cad16d220449270952eb14eb1b8e2c0e88b2507a8b3625498f130",
+  "historical_sessions_canonical_sha256": "9be49bb5208eeb2c56944365cb07d5e4457fba5ae94d9187ab0540fe6d8b23b3",
+  "implementation_commit": "c07e512c144e6bd0b4046559760879b4263ff74f",
+  "kind": "stage3g_v2_host_config_binding_correction",
+  "protocol_sha256": "fd6d696a20e70aab4eff59343ef8527ee121efca2707ef08b3d748e1b549a2e6",
+  "provider_sends": 0,
+  "real_codex_executions": 0,
+  "schema_version": 1,
+  "sessions_canonical_byte_equivalent": true,
+  "verified_fixtures": 12,
+  "verified_oracles": 12
+}

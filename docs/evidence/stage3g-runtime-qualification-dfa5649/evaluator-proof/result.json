@@ -1,0 +1,62 @@
+{
+  "acceptance_pass": null,
+  "buggy_result": {
+    "artifact_withheld": false,
+    "container_id": "0a85d0f110e5fd5674a764fc876fe83892c21ee82d03ca6417dcc2c4339bf973",
+    "exit_status": 1,
+    "input_error": null,
+    "output_limit_exceeded": false,
+    "reference_hash": "c206e79ea5f4acfc9a35d98bc0b43e7604ec4154b6f6376773eaaefa659f90cb",
+    "stderr": {
+      "limit_reason": null,
+      "observed_bytes": 0,
+      "retained_bytes": 0,
+      "retained_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "schema_version": 1,
+      "secret_detected": false,
+      "truncated": false
+    },
+    "stdout": {
+      "limit_reason": null,
+      "observed_bytes": 547,
+      "retained_bytes": 547,
+      "retained_sha256": "fab756ffafa1a5f723c6fc4e46060350723221a232468151ded8a7aab5203a4d",
+      "schema_version": 1,
+      "secret_detected": false,
+      "truncated": false
+    },
+    "timeout": false
+  },
+  "corrected_result": {
+    "artifact_withheld": false,
+    "container_id": "82e98218a3fa1566cb28beaccefaa5b538bbee625dbf3d098b0ccd55ff7c1834",
+    "exit_status": 0,
+    "input_error": null,
+    "output_limit_exceeded": false,
+    "reference_hash": "4fd6a7977fc2ed0a50031ea6f20d922c91fea8903a823a043aa4d76530a731cf",
+    "stderr": {
+      "limit_reason": null,
+      "observed_bytes": 0,
+      "retained_bytes": 0,
+      "retained_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "schema_version": 1,
+      "secret_detected": false,
+      "truncated": false
+    },
+    "stdout": {
+      "limit_reason": null,
+      "observed_bytes": 98,
+      "retained_bytes": 98,
+      "retained_sha256": "bea5a77cc68582c0c66ca0fc860c9b8f449e679bec8d6a9178605ee7b7dc69a3",
+      "schema_version": 1,
+      "secret_detected": false,
+      "truncated": false
+    },
+    "timeout": false
+  },
+  "generated_test_hash": "a67237445133a0cc025420ca80081ec87b4341b29c94ea0acffc1c70366c32e2",
+  "image_id": "sha256:a5ac73b39c4166e15522d6cf628542cf6ebc85d374bbe9c13df9d57929206654",
+  "runner_sha256": "e142cfeb6d960817aca77ce7f7c6332023c7175bc469efea55d7ffdf16e650d6",
+  "schema_version": 1,
+  "tests_pass": true
+}

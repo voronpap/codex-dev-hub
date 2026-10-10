@@ -44,7 +44,7 @@ def main() -> None:
     evaluator_raw = args.evaluator_build.read_bytes()
     evaluator = json.loads(evaluator_raw)
     protocol = ExperimentProtocol.model_validate_json(args.protocol.read_bytes())
-    synthetic = digest(b"synthetic-ci-mechanics-only-not-build-009")
+    synthetic = digest(b"synthetic-ci-mechanics-only-not-stage3g-execution")
     ledger = LedgerIdentityCoreV1(
         instance_id=environment,
         authority_scope_kind="qualification",
@@ -57,13 +57,13 @@ def main() -> None:
             python_runtime=python_runtime_expected(artifact),
         ),
         codex=CodexExpectedV1(
-            source_commit="0" * 40,
-            source_archive_sha256=runtime["codex_archive_sha256"],
+            source_commit=runtime["codex_source_commit"],
+            source_archive_sha256=runtime["codex_source_archive_sha256"],
             executable_version=runtime["codex_version"],
             executable_sha256=runtime["codex_binary_sha256"],
-            candidate_b_base_patch_sha256=synthetic,
-            host_integration_patch_sha256=synthetic,
-            combined_patchset_sha256=synthetic,
+            candidate_b_base_patch_sha256=runtime["candidate_b_base_patch_sha256"],
+            host_integration_patch_sha256=runtime["host_integration_patch_sha256"],
+            combined_patchset_sha256=runtime["combined_patchset_sha256"],
         ),
         benchmark=BenchmarkExpectedV1(
             protocol_sha256=protocol.hashes()["protocol"],

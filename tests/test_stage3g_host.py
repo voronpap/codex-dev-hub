@@ -9,6 +9,8 @@ from pydantic import ValidationError
 from devhub.stage3g_host import (
     DELEGATE_SCHEMA_SHA256,
     DELEGATE_TOOL,
+    PRODUCTION_DELEGATE_MCP_CONFIG,
+    PRODUCTION_DELEGATE_MCP_CONFIG_SHA256,
     Stage3gHostManifestV2,
     read_stage3g_host_manifest,
 )
@@ -16,7 +18,10 @@ from devhub.stage3g_host import (
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "benchmarks/stage3g-host-manifest-v2.json"
 SCHEMA = ROOT / "benchmarks/stage3g-host-manifest-v2.schema.json"
-MANIFEST_SHA256 = "d31edc7cb0604ea7d2c526521adb1c59ae21a35a902a8c2a9a7c2807bc29957e"
+MANIFEST_SHA256 = "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b"
+BUILD020_MANIFEST = ROOT / "benchmarks/stage3g-host-manifest-build020-v2.json"
+BUILD020_SCHEMA = ROOT / "benchmarks/stage3g-host-manifest-build020-v2.schema.json"
+BUILD020_MANIFEST_SHA256 = "d31edc7cb0604ea7d2c526521adb1c59ae21a35a902a8c2a9a7c2807bc29957e"
 
 
 def test_reviewed_host_manifest_has_exact_a_b_surfaces() -> None:
@@ -31,8 +36,25 @@ def test_reviewed_host_manifest_has_exact_a_b_surfaces() -> None:
     assert delegate.server_key == delegate.raw_tool == "devhub_delegate"
     assert delegate.canonical_namespace == "mcp__devhub_delegate"
     assert delegate.canonical_function == "devhub_delegate"
+    assert delegate.expected_mcp_server_config_sha256 == PRODUCTION_DELEGATE_MCP_CONFIG_SHA256
+    assert PRODUCTION_DELEGATE_MCP_CONFIG_SHA256 == (
+        "ff866e1aea6710de0373474e6671dbd412173a11cf0284c321e20c5b47ce199b"
+    )
+    assert "env_vars" not in PRODUCTION_DELEGATE_MCP_CONFIG
     assert delegate.expected_input_schema_sha256 == DELEGATE_SCHEMA_SHA256
     assert hashlib.sha256(raw).hexdigest() == MANIFEST_SHA256
+
+
+def test_historical_build020_manifest_remains_byte_identical() -> None:
+    raw = BUILD020_MANIFEST.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == BUILD020_MANIFEST_SHA256
+    Draft202012Validator(json.loads(BUILD020_SCHEMA.read_bytes())).validate(json.loads(raw))
+    historical = Stage3gHostManifestV2.model_validate_json(raw)
+    delegate = historical.arms.arm_b.approved_delegate
+    assert delegate is not None
+    assert delegate.expected_mcp_server_config_sha256 == (
+        "9f22ac491ea2fc2e158e4a779c504e959bdc56cd983eedd18866c2567e59c014"
+    )
 
 
 @pytest.mark.parametrize(

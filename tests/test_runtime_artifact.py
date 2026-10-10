@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import zipfile
 from pathlib import Path
@@ -14,6 +15,14 @@ from devhub.runtime_artifact import (
     python_runtime_expected,
     verify_runtime_against_expected,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location(
+    "build_devhub_runtime_artifact", ROOT / "scripts/build_devhub_runtime_artifact.py"
+)
+assert SPEC is not None and SPEC.loader is not None
+BUILDER = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(BUILDER)
 
 
 def runtime_files(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
@@ -212,3 +221,32 @@ def test_python_runtime_receipt_rejects_wrong_kind():
             module_origin="site-packages/devhub/__init__.py",
             runtime_environment_id="4" * 64,
         )
+
+
+def test_runtime_builder_requires_exact_reviewed_head(monkeypatch, tmp_path):
+    expected = "a" * 40
+    responses = iter(["", expected])
+    monkeypatch.setattr(BUILDER, "_output", lambda argv, cwd=None: next(responses))
+    assert BUILDER.reviewed_commit(tmp_path, expected) == expected
+
+
+@pytest.mark.parametrize("expected", ["A" * 40, "a" * 39, "merge-ref"])
+def test_runtime_builder_rejects_invalid_expected_commit(expected, tmp_path):
+    with pytest.raises(ValueError, match="lowercase 40-hex"):
+        BUILDER.reviewed_commit(tmp_path, expected)
+
+
+def test_runtime_builder_rejects_synthetic_merge_head(monkeypatch, tmp_path):
+    responses = iter(["", "b" * 40])
+    monkeypatch.setattr(BUILDER, "_output", lambda argv, cwd=None: next(responses))
+    with pytest.raises(ValueError, match="differs from expected implementation commit"):
+        BUILDER.reviewed_commit(tmp_path, "a" * 40)
+
+
+def test_runtime_qualification_checks_out_pr_head_with_dispatch_fallback():
+    workflow = (ROOT / ".github/workflows/runtime-qualification.yml").read_text()
+    expression = "${{ github.event.pull_request.head.sha || github.sha }}"
+    assert workflow.count(expression) == 2
+    assert "EXPECTED_IMPLEMENTATION_COMMIT: " + expression in workflow
+    assert "ref: " + expression in workflow
+    assert '--expected-commit "$EXPECTED_IMPLEMENTATION_COMMIT"' in workflow

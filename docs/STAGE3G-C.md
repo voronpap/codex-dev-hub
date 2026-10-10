@@ -14,13 +14,16 @@ This Windows hash does not establish Linux identity.
 The [official CLI documentation](https://learn.chatgpt.com/docs/codex/cli) describes
 distribution through standalone binaries/npm. The exact Linux musl release exists
 at [OpenAI's release](https://github.com/openai/codex/releases/tag/rust-v0.155.0-alpha.9.2).
-`benchmarks/runtime-lock.json` records its archive SHA-256 from release metadata and
-the immutable linux/amd64 Python base manifest. No latest/alpha tag installation,
+`benchmarks/runtime-lock.json` retains that historical release provenance and now
+also records the accepted Build-020 workflow/artifact/ZIP, pinned source archive,
+patchset and production executable identities. No latest/alpha tag installation,
 CLI update, model replacement, pull or protocol model change is performed.
 
-`scripts/build_benchmark_runtime.py` verifies the archive before reading its single
-binary, builds from a two-file temporary context and checks CLI --version with
-network disabled. The image contains Python, CA certificates/base runtime and Codex;
+`scripts/build_benchmark_runtime.py` re-reads the retained Build-020 executable,
+checks it against repository evidence and the runtime lock, builds from a two-file
+temporary context and checks CLI --version with network disabled. It has no fallback
+to the official unpatched release or an ambient executable. The image contains
+Python, CA certificates/base runtime and Codex;
 no Dev Hub source, fixtures, oracle, evaluator, git history or credentials. The
 bootstrap remains an explicit read-only mount. Output records content-addressed
 image ID, base digest, recipe/lock/archive/binary hashes. OCI images remain local;
@@ -120,13 +123,18 @@ tools; Arm B used `Some([mcp__devhub_delegate.devhub_delegate])` and exposed onl
 that delegate. The production-host activation/process-visibility sub-gate is
 `PRODUCTION_HOST_QUALIFIED`.
 
-The existing benchmark runtime image still contains the official unpatched release,
-not the retained Build-020 executable. Its isolation/effects/config receipts therefore
-cannot authorize the patched host, and the exact-image configuration gate still
-reports `cli_config=false` with unresolved `apply_patch`/`write_file` mapping. A new
-acyclic qualification context must bind the Build-020 binary into the exact runtime
-image and collect the complete fixed receipt set on one intended environment. Stage
-3G-C and Stage 3G remain open and `execution_ready=false`.
+The exact-image workflow now builds from the retained Build-020 executable. It keeps
+the proof-only Build-020 host manifest immutable and separately binds a shipping host
+manifest whose resolved MCP config matches the actual launcher (no proof receipt
+environment variable). A fresh read-only observer checks Default host authority,
+Arm A empty visibility, Arm B exact delegate visibility, exact A/B difference, one
+catalog `tools/list`, zero `tools/call`, and zero model/provider executions.
+
+This does not make CI the intended execution host or make `execution_ready=true`.
+The exact-image configuration gate retains its separately recorded frozen CLI config
+failure, and CI has no accepted intended-host auth, ledger or Ollama receipts. The
+complete fixed receipt set must still be collected on one intended environment.
+Stage 3G-C and Stage 3G remain open and `execution_ready=false`.
 
 Local Docker Desktop Linux daemon remains unavailable after startup attempts; its
 named pipe is absent. Therefore no local runtime image/environment can yet be
@@ -146,25 +154,27 @@ full authoritative accounting chain, complete usage, and qualification-bound loc
 provider identity. This gate does not change the frozen task protocol or close this
 stage.
 
-## Frozen configuration blocker: review required
+## Historical configuration blocker and current binding
 
-Metadata-only qualification found that the exact CLI rejects the frozen
+Historical metadata-only qualification found that the exact CLI rejected the frozen
 `model_providers.openai.request_max_retries=0` and
 `model_providers.openai.stream_max_retries=0` overrides: built-in `openai` is reserved
-and cannot be overridden. This occurs before any task. The initial probe additionally
+and cannot be overridden. This occurred before any task. The initial probe additionally
 found that --strict-config is supported for exec, not features/mcp metadata commands;
-only the probe invocation was corrected. Actual frozen exec configuration is unchanged.
+only the probe invocation was corrected. Protocol v2 subsequently removed those two
+unsupported retry overrides while retaining null internal-retry observability.
 
-The config qualification step deliberately reports failure and stores cli_config=false;
-CI continues collecting the independent evaluator evidence. A green report workflow
-therefore does NOT mean runtime readiness. Linux full/Windows smoke remain required.
+The current production-host binding also requires
+`features.tool_registry.error_on_tool_collisions=true`, matching the host manifest
+and accepted Build-020 Default/A/B proof. This fail-closed launcher correction changes
+the Codex config hash and requires fresh plan, context and receipt bindings. It does
+not change protocol v2 task semantics, fixtures, prompts, ordering, timing or provider
+policy. A green CI mechanics workflow still does not make CI the intended execution
+host or set `execution_ready=true`. Linux full/Windows smoke remain required.
 
-Proposed next review: version the Codex configuration hash to remove the two rejected
-built-in provider overrides, retaining zero launcher retries/reruns and null unknown
-internal Codex retries, or first establish a supported zero-internal-retry mechanism.
-No replacement/custom provider, auth mode, model or endpoint is selected here. Neither
-proposal has been applied. The existing frozen config remains blocked. Review is
-required before any revised protocol, and again before rehearsal. No silent fallback.
+No replacement/custom provider, auth mode, model or endpoint is selected. Historical
+receipts and plans remain immutable and cannot satisfy the corrected bindings. Review
+is still required before rehearsal. No silent fallback.
 
 Evidence is stored in [the machine-readable summary](evidence/stage3g-c/summary.json).
 At implementation f74e665 Linux full passed 318 tests (1 skip), Windows smoke 14;

@@ -21,8 +21,10 @@ from devhub.qualification import (
 CI_RECEIPTS = {
     "isolation": "isolation.json",
     "effects_boundary": "effects.json",
+    "codex_executable": "codex-executable.json",
     "evaluator": "evaluator-proof/qualification-receipt.json",
     "python_runtime": "python-runtime.json",
+    "host_process_visibility": "host-process-visibility.json",
     "runtime_config_probe": "runtime-checks.json",
 }
 

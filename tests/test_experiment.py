@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_protocol_v2_removes_only_rejected_overrides(protocol):
-    from devhub.experiment import CODEX_OVERRIDES
+    from devhub.experiment import CODEX_OVERRIDES, V2_CODEX_OVERRIDES
 
     revised = ExperimentProtocol.model_validate_json(
         (ROOT / "benchmarks/real-protocol-v2.json").read_bytes()
@@ -46,7 +46,11 @@ def test_protocol_v2_removes_only_rejected_overrides(protocol):
         exclude={"protocol_id"}
     )
     assert protocol.codex_overrides() == CODEX_OVERRIDES
-    assert revised.codex_overrides() == CODEX_OVERRIDES[:-2]
+    assert revised.codex_overrides() == V2_CODEX_OVERRIDES
+    assert V2_CODEX_OVERRIDES == (
+        *CODEX_OVERRIDES[:-2],
+        "features.tool_registry.error_on_tool_collisions=true",
+    )
     assert CODEX_OVERRIDES[-2:] == (
         "model_providers.openai.request_max_retries=0",
         "model_providers.openai.stream_max_retries=0",
@@ -55,11 +59,21 @@ def test_protocol_v2_removes_only_rejected_overrides(protocol):
     assert protocol.hashes() == historical["hashes"]
     assert revised.hashes()["protocol"] != protocol.hashes()["protocol"]
     assert revised.hashes()["codex_config"] != protocol.hashes()["codex_config"]
+    assert revised.hashes()["protocol"] == (
+        "fd6d696a20e70aab4eff59343ef8527ee121efca2707ef08b3d748e1b549a2e6"
+    )
+    assert revised.hashes()["codex_config"] == (
+        "b8fdd8ca11f582b04b217afc4da6f718eb1bb3b443749324faa4eff13f4207fa"
+    )
+    assert revised.hashes()["codex_config"] != (
+        "da291cc0265727ba6f86dac58725f891b41fb837cad8529a91a480732c3477d7"
+    )
     for key in ("routing_policy", "context_policy", "output_policy", "instructions"):
         assert revised.hashes()[key] == protocol.hashes()[key]
     for arm in ("A", "B"):
         argv = codex_argv(session(arm), revised)
         assert not any("model_providers.openai" in value for value in argv)
+        assert argv.count("features.tool_registry.error_on_tool_collisions=true") == 1
         assert ("mcp_servers.devhub_delegate.required=true" in argv) is (arm == "B")
 
 
@@ -190,6 +204,9 @@ def test_no_mcp_in_a_only_local_entry_point_in_b(protocol):
     assert "/stage3g-host.json" in a and "/stage3g-host.json" in b
     assert "features.shell_tool=false" in a and 'web_search="disabled"' in a
     assert 'mcp_servers.devhub_delegate.enabled_tools=["devhub_delegate"]' in b
+    direct_only = 'features.code_mode.direct_only_tool_namespaces=["mcp__devhub_delegate"]'
+    assert direct_only not in a
+    assert b.count(direct_only) == 1
     assert not any("groq" in arg or "gemini" in arg or "local_task" in arg for arg in b)
     assert "model_providers.openai.request_max_retries=0" in a
 

@@ -166,7 +166,8 @@ def test_reviewed_mcp_config_hash_matches_strict_host_manifest() -> None:
     ).hexdigest()
     manifest = json.loads(
         (
-            Path(__file__).resolve().parents[1] / "benchmarks/stage3g-host-manifest-v2.json"
+            Path(__file__).resolve().parents[1]
+            / "benchmarks/stage3g-host-manifest-build020-v2.json"
         ).read_bytes()
     )
 
@@ -367,7 +368,7 @@ def test_precompilation_failure_retains_complete_hashed_runner_assets(
     output.mkdir()
     root.mkdir()
     expected_assets = {
-        "stage3g-host-manifest-v2.json": "benchmarks/stage3g-host-manifest-v2.json",
+        "stage3g-host-manifest-v2.json": "benchmarks/stage3g-host-manifest-build020-v2.json",
         "delegation-request-schema.json": (
             "docs/evidence/stage3g-production-router/delegate-input-schema.json"
         ),

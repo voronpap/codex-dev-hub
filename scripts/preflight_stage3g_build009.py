@@ -27,8 +27,8 @@ def _sha(path: Path) -> str:
 def collect(pinned_source: Path | None = None, *, build_id: str = "build-020") -> dict[str, object]:
     candidate = ROOT / "patches/stage3g-approved-call/candidate.patch"
     host = ROOT / "patches/stage3g-approved-call/host-integration.patch"
-    manifest_path = ROOT / "benchmarks/stage3g-host-manifest-v2.json"
-    schema_path = ROOT / "benchmarks/stage3g-host-manifest-v2.schema.json"
+    manifest_path = ROOT / "benchmarks/stage3g-host-manifest-build020-v2.json"
+    schema_path = ROOT / "benchmarks/stage3g-host-manifest-build020-v2.schema.json"
     stored_schema_path = ROOT / "docs/evidence/stage3g-production-router/delegate-input-schema.json"
     allowed_tools_evidence_path = ROOT / "docs/evidence/stage3g-allowed-tools/source-bindings.json"
     candidate_bytes = candidate.read_bytes()

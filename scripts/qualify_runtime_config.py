@@ -17,8 +17,12 @@ from devhub.experiment_launch import (
     mount,
     safe_artifacts,
 )
-from devhub.experiment_tool_gate import POLICY_VERSION, policy_hash
-from devhub.qualification import load_context, receipt_header
+from devhub.qualification import (
+    HostProcessVisibilityReceiptV1,
+    RuntimeConfigProbeReceiptV1,
+    load_context,
+    receipt_header,
+)
 
 
 def main():
@@ -27,8 +31,16 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--protocol", type=Path, required=True)
     parser.add_argument("--context", type=Path, required=True)
+    parser.add_argument("--host-process-visibility", type=Path, required=True)
     args = parser.parse_args()
     context = load_context(args.context)
+    host_visibility_raw = args.host_process_visibility.read_bytes()
+    host_visibility = HostProcessVisibilityReceiptV1.model_validate_json(host_visibility_raw)
+    if (
+        host_visibility.qualification_context_id != context.qualification_context_id
+        or host_visibility.environment_instance_id != context.payload.environment_instance_id
+    ):
+        raise ValueError("Host visibility belongs to another qualification environment")
     repo = Path(__file__).resolve().parents[1]
     protocol = ExperimentProtocol.model_validate_json(args.protocol.read_bytes())
     bootstrap = repo / "scripts/benchmark_guest.py"
@@ -82,43 +94,45 @@ def main():
                 argv[len(DOCKER)] = "run"
                 argv.insert(len(DOCKER) + 1, "--rm")
                 pos = argv.index("--entrypoint")
-                argv = (
-                    argv[:pos]
-                    + mount(guest, "/probe.py")
-                    + mount(repo / "src/devhub/experiment_tool_gate.py", "/tool_gate.py")
-                    + argv[pos : pos + 3]
-                    + ["/probe.py"]
-                )
+                argv = argv[:pos] + mount(guest, "/probe.py") + argv[pos : pos + 3] + ["/probe.py"]
                 raw = subprocess.check_output(argv, timeout=60)
                 safe_artifacts((raw,), (b"synthetic-auth-canary-only",))
                 results.append(json.loads(raw.splitlines()[-1]))
             finally:
                 server.close()
-        evidence = {
+        arm_observations = [
+            {
+                "schema_version": 1,
+                "arm": arm,
+                **result["config_diagnostics"],
+                "config_error": result.get("config_error"),
+            }
+            for arm, result in zip(("A", "B"), results, strict=True)
+        ]
+        checks = {
+            "auth_tmpfs": all(result["auth_tmpfs"] for result in results),
+            "cli_config": all(result["metadata_config"] for result in results),
+            "egress_runtime": all(result["egress_runtime"] for result in results),
+        }
+        value = {
             **receipt_header(context, "runtime_config_probe"),
             "kind": "runtime_config_probe",
             "image_id": args.image_id,
-            "bootstrap_sha256": digest(bootstrap.read_bytes()),
             "protocol_sha256": protocol.hashes()["protocol"],
-            "checks": {
-                k: all(r[k] for r in results)
-                for k in ("auth_tmpfs", "cli_config", "egress_runtime")
-            },
-            "qualification_policy_version": POLICY_VERSION,
-            "qualification_policy_sha256": policy_hash(),
-            "tool_surfaces": [r["tool_surface"] for r in results],
-            "config_errors": [r.get("config_error") for r in results],
-            "config_diagnostics": [r.get("config_diagnostics") for r in results],
+            "host_process_visibility_sha256": digest(host_visibility_raw),
+            "checks": checks,
+            "arms": arm_observations,
             "auth_material": "synthetic only; real auth presence is a separate preflight gate",
             "real_codex_executions": 0,
+            "model_requests": 0,
             "provider_sends": 0,
-            "qualification_passed": all(
-                all(r[k] for r in results) for k in ("auth_tmpfs", "cli_config", "egress_runtime")
-            ),
+            "qualification_passed": all(checks.values()),
         }
-        write_new(args.output, canonical(evidence))
-        print(json.dumps(evidence))
-        if not all(evidence["checks"].values()):
+        evidence = RuntimeConfigProbeReceiptV1.model_validate_json(canonical(value))
+        raw = canonical(evidence.model_dump(mode="json"))
+        write_new(args.output, raw)
+        print(raw.decode())
+        if not evidence.qualification_passed:
             raise SystemExit(1)
 
 

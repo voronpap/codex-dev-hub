@@ -20,10 +20,27 @@ model_providers.openai.request_max_retries=0
 model_providers.openai.stream_max_retries=0
 ```
 
+The production-host qualification correction also adds exactly this fail-closed
+v2 launcher setting:
+
+```text
+features.tool_registry.error_on_tool_collisions=true
+```
+
+The host manifest and retained Build-020 binary already require this setting;
+Build-020's accepted Default/A/B process proof used it. The original v2 evidence
+predates this launcher correction and remains immutable historical evidence. New
+qualification contexts must bind the corrected Codex config hash and freshly
+generated plan/session bindings. The corrected Codex config SHA-256 is
+`b8fdd8ca11f582b04b217afc4da6f718eb1bb3b443749324faa4eff13f4207fa`;
+the protocol payload SHA-256 remains
+`fd6d696a20e70aab4eff59343ef8527ee121efca2707ef08b3d748e1b549a2e6`.
+
 The v1 code path retains both entries and its original hashes. No custom provider,
-endpoint, auth mode or model is introduced. All other overrides, policies, timeouts,
-ordering, CLI version, model/digest, instructions, reviewer rules and tolerance
-are unchanged. Fixture/oracle bytes and all historical evidence remain unchanged.
+endpoint, auth mode or model is introduced. Apart from the required fatal-collision
+setting, all other overrides, policies, timeouts, ordering, CLI version,
+model/digest, instructions, reviewer rules and tolerance are unchanged.
+Fixture/oracle bytes and all historical evidence remain unchanged.
 
 The new plan records launcher retries=0, benchmark reruns=0, Dev Hub provider
 retries=0, Dev Hub fallback after dispatch=0 and codex_internal_retries=null.
@@ -89,7 +106,7 @@ semantic_acceptance=null; quality_benchmark=null; delegation_value=null; savings
 codex_internal_retries=null. Stop for review before any rehearsal, even after a future
 all-green preflight.
 
-## Validated offline result and new gate failure
+## Historical validated result and later host correction
 
 At implementation a723094, Linux full passed 320 tests (1 skip), Windows smoke 14,
 Ruff/format/strict mypy/config/secret scans green. Canonical tooling verified the
@@ -98,14 +115,13 @@ oracle bindings, all session IDs new. See [summary](evidence/stage3g-v2/summary.
 and its hash-bound plan/semantic diff. Plan is bound to that implementation commit;
 subsequent evidence-only commits do not rewrite its identity.
 
-The exact Linux CLI accepts v2 metadata commands (both return 0); A has no MCP and
-B only devhub_delegate. Eight required feature states are false. However, the exact
-CLI reports **unified_exec=true despite features.unified_exec=false**, for both arms.
-Thus cli_config=false and the required runtime job fails. The earlier reserved
-provider error is gone, but the frozen disabled-feature gate has not passed. No
-conclusion about actual tool availability is substituted for this failed check.
-No additional override was removed, no custom provider was added, and no config
-check was weakened. Further protocol/boundary changes require review.
+The recorded exact Linux CLI metadata result reported `cli_config=false`; that
+receipt remains historical and cannot qualify the current launcher. The retained
+Build-020 process proof later established the actual finalized surfaces: Default
+ordinary behavior, Arm A empty, and Arm B exactly `devhub_delegate`. Current
+qualification must reproduce those surfaces and the corrected fatal-collision
+binding on one environment; no metadata observation is substituted for that proof.
+No custom provider was added and no config check was weakened.
 
 CI isolation (15/15), synthetic auth/negative egress and evaluator regression passed
 on the recorded exact image, but the intended WSL host still has no Docker socket

@@ -1,0 +1,92 @@
+{
+  "payload": {
+    "context": {
+      "relative_path": "context.json",
+      "schema_version": 1,
+      "sha256": "2bdf45f676b9d573b62c3f12f12b25805db27d0c4d3a4bc09312e56b77edba86"
+    },
+    "environment_instance_id": "e56fd0924abe390e62b215fab07988de",
+    "execution_ready": false,
+    "gates": {
+      "artifact_integrity": true,
+      "auth_egress": false,
+      "codex_executable": true,
+      "context_integrity": true,
+      "effects_boundary": true,
+      "evaluator": true,
+      "host_process_visibility": true,
+      "isolation": true,
+      "ledger_identity": false,
+      "ollama_metadata": false,
+      "python_runtime": true,
+      "runtime_config_probe": true,
+      "same_environment": true,
+      "schema_version": 1
+    },
+    "observed_artifacts": {
+      "codex_executable_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+      "dependency_lock_sha256": "4aeab7c781afad18ebc3844647b9e8aece889771326187280beaa3c1f3fc80ae",
+      "devhub_wheel_sha256": "e19c3db90852759e00bdc4cc6a915e08409b1bc751a95a2ef6c222a6f9af25d8",
+      "evaluator_artifact_sha256": "1ba30c22a1625e5775360d3de163cf5be2a05aa2f036f7449f7fcd679277538f",
+      "ledger_identity_sha256": "c953e76425c43ddc58c5debe70f80e3b50ef1a8c63bf814d3db5892e04f66e53",
+      "ollama_model_digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+      "python_executable_sha256": "53dab24bf9e0e9c490088a53d71770b6f027b057678b313648e75f7fc87a675e",
+      "python_runtime_environment_id": "dca0c08a21664e5e0133271c1e316db7b52976cc38fdf94d68cbe0343c129a01",
+      "qualification_context_sha256": "2bdf45f676b9d573b62c3f12f12b25805db27d0c4d3a4bc09312e56b77edba86",
+      "runtime_image_metadata_sha256": "8779e731965958fb5ec468e2faea4911e85cdbdbb25129866a7364def15e9ca1",
+      "schema_version": 1
+    },
+    "qualification_context_id": "2f5d5a1b0b6d0ef2580a7f5691ae763387beae4600a50f85e0fd07cf106f20e4",
+    "receipts": {
+      "auth_egress": null,
+      "codex_executable": {
+        "receipt_kind": "codex_executable",
+        "relative_path": "codex-executable.json",
+        "schema_version": 1,
+        "sha256": "50165bc2b021e460ebd21e6b773712da879a0bab778ec03a335e2e1b90f928fb"
+      },
+      "effects_boundary": {
+        "receipt_kind": "effects_boundary",
+        "relative_path": "effects.json",
+        "schema_version": 1,
+        "sha256": "2014b9d883d25e2ff294661439bb3452f8986978d9dd9b58e65aafeefa21c5b7"
+      },
+      "evaluator": {
+        "receipt_kind": "evaluator",
+        "relative_path": "evaluator-proof/qualification-receipt.json",
+        "schema_version": 1,
+        "sha256": "8700ea8f718f520846c5c85a9edc34c973e0343ed43493c580c334e84271b0c9"
+      },
+      "host_process_visibility": {
+        "receipt_kind": "host_process_visibility",
+        "relative_path": "host-process-visibility.json",
+        "schema_version": 1,
+        "sha256": "748c197da7bb7327473634c955abced07d716b17753eb0506263f157f6546010"
+      },
+      "isolation": {
+        "receipt_kind": "isolation",
+        "relative_path": "isolation.json",
+        "schema_version": 1,
+        "sha256": "afb6b8cffaa8984f9fe583a5d2161fb5a6b831ef16593b1b504d263a54f198c1"
+      },
+      "ledger_identity": null,
+      "ollama_metadata": null,
+      "python_runtime": {
+        "receipt_kind": "python_runtime",
+        "relative_path": "python-runtime.json",
+        "schema_version": 1,
+        "sha256": "b5ba03b734e274ea26a6601aa28c58728fb9942655c87e10ae7d0c01d853ebeb"
+      },
+      "runtime_config_probe": {
+        "receipt_kind": "runtime_config_probe",
+        "relative_path": "runtime-checks.json",
+        "schema_version": 1,
+        "sha256": "791a6775771afe00f2c5f1b7e658ab8d3fb571e6155ed45c65b661fc8d872eb6"
+      },
+      "schema_version": 1
+    },
+    "schema_version": 2
+  },
+  "qualification_manifest_id": "32ac13311ef694ea51e0e5f10fcbfa20b25107a19e22939c8d042c051c836cea",
+  "schema_version": 2
+}
