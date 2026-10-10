@@ -79,6 +79,7 @@ name = "codex-dev-hub"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "flatbuffers" },
     { name = "mcp" },
     { name = "pydantic" },
     { name = "tokenizers" },
@@ -94,6 +95,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "flatbuffers", specifier = "==25.12.19" },
     { name = "mcp", specifier = "==2.2.0" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "tokenizers", specifier = "==0.22.1" },
@@ -160,6 +162,14 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/95/31/fbad823d8dfc56e2ff694db0319959382bdb01f2fe40c382e34c6f672392/filelock-4.0.5.tar.gz", hash = "sha256:2b155f098c4f285fb41954a22c616c4e8a0635b78c184338ba3023c1c91a4b4d", size = 247758, upload-time = "2026-09-28T05:07:19.736Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/34/d90d7e7ef972900e09f45b9c0661376dd03e77fece26ee83ec93b7719bae/filelock-4.0.5-py3-none-any.whl", hash = "sha256:be9166068623636cedcad7b2ef735b04e5fb4344d978e09fd6fbd6ede06f14f0", size = 108976, upload-time = "2026-09-28T05:07:18.341Z" },
+]
+
+[[package]]
+name = "flatbuffers"
+version = "25.12.19"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/2d/d2a548598be01649e2d46231d151a6c56d10b964d94043a335ae56ea2d92/flatbuffers-25.12.19-py2.py3-none-any.whl", hash = "sha256:7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4", size = 26661, upload-time = "2025-12-19T23:16:13.622Z" },
 ]
 
 [[package]]

@@ -71,6 +71,35 @@ so this packaging slice keeps `package_readiness=false` and
 Public distribution remains blocked by the repository license decision; this
 does not block an internal exact-hash directory artifact.
 
+### Windows no-direct-network isolation baseline
+
+The first Windows isolation slice uses the Windows 11
+`Experimental_CreateProcessInSandbox` AppContainer API and the reviewed
+`SandboxSpec` 0.1.0 wire layout. It is limited to x64 Windows builds at or above
+26100 and must be qualified again on the exact supported OS build. The API is
+experimental; its presence or a version check alone is not evidence that its
+policy was enforced.
+
+The child starts suspended with no inherited handles, no AppContainer
+capabilities and no network policy. The host assigns it to a non-breakaway Job
+Object before resuming it. Exact read-only, writable and denied roots are bound
+to volume/file identities; root, working-directory and launcher reparse chains
+are rejected immediately before launch. The launcher bytes are rehashed against
+the verified native bundle. Windows still creates the process from a string path,
+so privileged filesystem replacement between final validation and process
+creation remains a documented TOCTOU limitation.
+
+Qualification retains the complete canonical profile, exact `SandboxSpec`
+bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
+handle inheritance, child-tree termination, breakaway denial and denial of
+direct loopback, LAN, DNS and public network operations without running Codex,
+MCP, a model or a provider. This proves only the **no-direct-network baseline**.
+It deliberately keeps `native_executor_isolation_qualified=false` and
+`package_readiness=false`: the fixed-destination trusted broker and the complete
+packaged executor boundary are later gates. An unsupported API, OS build,
+path/ACL semantic or cleanup observation fails closed; there is no unrestricted
+fallback.
+
 ## Delivery order
 
 1. **Windows native Codex identity and host proof.** Build `windows-build-001` for
@@ -123,7 +152,7 @@ does not block an internal exact-hash directory artifact.
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
-| Native isolation | PENDING child/files/registry/handles/network proof | PENDING process/files/permissions/network proof without Docker |
+| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline implemented; exact-host receipt and fixed-destination broker pending | PENDING process/files/permissions/network proof without Docker |
 | Ollama boundary | PENDING Windows receipt | PENDING native Linux receipt; service/model remain external |
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
