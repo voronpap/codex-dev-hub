@@ -1,0 +1,38 @@
+{
+  "label": "catalog",
+  "binary": "/home/runner/work/_temp/production-proof/binaries/codex_mcp-5c9fd2f54b4378c9",
+  "binary_sha256": "54ac6436715469c2f3eeee63be6ae8cf998c2aab50f074f30a3348d26a736dd8",
+  "exact_filter": "binding::devhub_production_admission_path_catalog",
+  "command": [
+    "sudo",
+    "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA,DEVHUB_RECEIPT_PATH,RUST_BACKTRACE,RUST_MIN_STACK",
+    "unshare",
+    "--net",
+    "--",
+    "setpriv",
+    "--reuid=1001",
+    "--regid=1001",
+    "--init-groups",
+    "/home/runner/work/_temp/production-proof/binaries/codex_mcp-5c9fd2f54b4378c9",
+    "binding::devhub_production_admission_path_catalog",
+    "--exact",
+    "--nocapture",
+    "--test-threads=1"
+  ],
+  "environment": {
+    "DEVHUB_SYNTHETIC_MCP": "/home/runner/work/_temp/production-proof/assets/synthetic_approved_mcp.py",
+    "DEVHUB_REAL_SCHEMA": "/home/runner/work/_temp/production-proof/assets/devhub_real_schema.json",
+    "DEVHUB_RECEIPT_PATH": "/home/runner/work/_temp/production-proof/runs/catalog/receipt.jsonl",
+    "RUST_BACKTRACE": "full"
+  },
+  "normal_stack": true,
+  "timeout_seconds": 120,
+  "receipt_initialized": {
+    "path": "/home/runner/work/_temp/production-proof/runs/catalog/receipt.jsonl",
+    "exists": true,
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "record_count": 0,
+    "records": []
+  }
+}

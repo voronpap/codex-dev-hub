@@ -1,0 +1,11 @@
+
+running 1 test
+test tools::spec_plan::tests::devhub_production_admission_path ... FAILED
+
+failures:
+
+failures:
+    tools::spec_plan::tests::devhub_production_admission_path
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2528 filtered out; finished in 0.17s
+

@@ -1,0 +1,8 @@
+{
+  "compile_errors": [],
+  "test_exit": 101,
+  "error": "approved binding must contain exactly one tool",
+  "last_entered_stage": "initial_router_admission",
+  "path_warning": "could not create PATH aliases: Permission denied (os error 13)",
+  "path_warning_causal_link": null
+}

@@ -103,9 +103,11 @@ execution gate.
 
 ## Current status
 
-The contracts and immutable Python artifact machinery do not create a real final
-Stage 3G context: build-009 Codex/host artifacts and intended-host receipts do not yet
-exist. The exact-image configuration gate also retains its existing unresolved
-execution-tool surface failure. Therefore Stage 3G-C and Stage 3G remain open,
-`execution_ready=false`, and no model/provider call, rehearsal, or benchmark is
-authorized.
+Build-020 produced and independently qualified the patched production Codex host
+executable and its pre-sampling Default/A/B visibility. The existing benchmark
+runtime image still uses the official unpatched release, so it cannot be combined
+with that Build-020 receipt. A real final Stage 3G context and the complete fixed
+same-environment receipt set do not yet exist, and the exact-image configuration
+gate retains its unresolved execution-tool surface failure. Therefore Stage 3G-C
+and Stage 3G remain open, `execution_ready=false`, and no rehearsal or benchmark
+is authorized by these contracts.

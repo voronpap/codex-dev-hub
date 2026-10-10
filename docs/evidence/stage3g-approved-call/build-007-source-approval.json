@@ -1,0 +1,32 @@
+{
+  "scope": "source-derived only; compiled observations pending",
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "source_hashes": {
+    "codex-rs/config/src/mcp_types.rs": "1bca40f107d1b36b2c6d2bf8b5316b29f3226c8d2f15d00bef0f56f744c5f290",
+    "codex-rs/codex-mcp/src/server.rs": "39a07961b91c86a949f1615196795f077fefa46237cbd2c84e3bcc009e2e21c8",
+    "codex-rs/codex-mcp/src/binding.rs": "9fd5f9e5d3021f7d1bd77fc1ecbd7737d1a3fb0044fe9b43cfa1cda3d5966169",
+    "codex-rs/core/src/mcp_tool_call.rs": "d9d842f8891bea7a452927c25cbee12634df9d29ec78437ae72073d8794ba788",
+    "codex-rs/core/config.schema.json": "56f3e1cfd9678c2e64319a2424a8522488becb5a1ddbaf6e910e6d2ee9ef4d83"
+  },
+  "original_mode": "Auto",
+  "original_annotations": null,
+  "original_required_by_mode": true,
+  "corrected_mode": "Approve",
+  "corrected_required_by_mode": false,
+  "corrected_policy": {
+    "enabled_tools": [
+      "devhub_delegate"
+    ],
+    "tools": {
+      "devhub_delegate": {
+        "approval_mode": "approve"
+      }
+    }
+  },
+  "pinned_config_schema_validation": true,
+  "patch_hash": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "build006_root_cause_runtime_proven": false,
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0
+}

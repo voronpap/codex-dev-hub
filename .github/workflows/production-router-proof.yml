@@ -1,0 +1,83 @@
+name: Stage 3G production host proof
+on:
+  # Explicit one-shot dispatch only. The build authorization is recorded in
+  # the PR review; this workflow has no push or pull_request trigger.
+  workflow_dispatch:
+concurrency:
+  group: stage3g-production-host-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  production-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install pinned toolchain and build prerequisites
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup component add --toolchain 1.95.0 rustfmt
+          rustup run 1.95.0 rustfmt --version
+          rustup override set 1.95.0
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev libasound2-dev bubblewrap
+      - name: Exact cheap preflight
+        run: |
+          python -m pip install --disable-pip-version-check 'pydantic==2.12.5' 'jsonschema==4.26.0' 'tokenizers==0.22.1'
+          python - <<'PY'
+          import hashlib, io, os, tarfile, urllib.request
+          from pathlib import Path
+          commit = "4607249e430dac1c961df4dc615beae88e33cec8"
+          expected = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
+          raw = urllib.request.urlopen(f"https://codeload.github.com/openai/codex/tar.gz/{commit}", timeout=60).read()
+          assert hashlib.sha256(raw).hexdigest() == expected
+          target = Path(os.environ["RUNNER_TEMP"]) / "build009-preflight-source"
+          target.mkdir()
+          with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
+              archive.extractall(target, filter="data")
+          PY
+          PYTHONPATH=src python scripts/preflight_stage3g_build009.py --build-id build-020 --pinned-source "$RUNNER_TEMP/build009-preflight-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs" > "$RUNNER_TEMP/build009-preflight.json"
+          cargo +1.95.0 fmt --all --manifest-path "$RUNNER_TEMP/build009-preflight-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs/Cargo.toml" -- --check
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          value = json.loads(Path(os.environ["RUNNER_TEMP"]).joinpath("build009-preflight.json").read_bytes())
+          assert value["result"] == "BUILD_020_READY_FOR_AUTHORIZATION"
+          assert value["candidate_b_base_patch_sha256"] == "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
+          assert value["host_integration_patch_sha256"] == "f22369f10ed45d04a740205fca0cb7111ddb56d3b1bdbee603dfcfdfdd7de9ad"
+          assert value["combined_production_patchset_sha256"] == "e63b68840ecec005703fc61fa1e26aba988c5a9e44a956efedbfbdea96d10c59"
+          assert value["host_manifest"]["sha256"] == "d31edc7cb0604ea7d2c526521adb1c59ae21a35a902a8c2a9a7c2807bc29957e"
+          assert value["delegation_request_schema_sha256"] == "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+          assert value["source_preparation"]["proof_cargo_lock_sha256"] == "9236f6c0b8703eaf337dd219c8fdfb6834c14fa430a0a83b938159016371bb88"
+          assert value["source_preparation"]["lock_strategy"] == "complete_patched_manifest_bound_derived_lock"
+          assert value["source_preparation"]["candidate_patch_applied"] is True
+          assert value["source_preparation"]["host_patch_applied"] is True
+          assert value["source_preparation"]["candidate_patch_cwd"] == "pinned_source_parent"
+          assert value["source_preparation"]["host_patch_cwd"] == "codex-rs"
+          assert value["rust_compilation_started"] is False
+          assert value["build_014_run"] is False
+          assert value["build_015_run"] is False
+          assert value["build_016_run"] is False
+          assert value["build_017_run"] is False
+          assert value["build_018_run"] is False
+          assert value["build_019_run"] is False
+          assert value["build_020_run"] is False
+          assert value["process_proof"] is None
+          PY
+      - name: Build-020 Rust compilation and same-binary process proof
+        run: python scripts/build_stage3g_build009.py --build-id build-020 --workspace "$RUNNER_TEMP/build009-source" --output "$RUNNER_TEMP/build009-evidence"
+      - name: Preserve cheap preflight with build evidence
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/build009-evidence"
+          cp "$RUNNER_TEMP/build009-preflight.json" "$RUNNER_TEMP/build009-evidence/cheap-preflight.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: stage3g-build020-production-host-proof
+          path: ${{ runner.temp }}/build009-evidence
+          if-no-files-found: error

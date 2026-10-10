@@ -62,6 +62,8 @@ def main():
     parser.add_argument("--context", required=True, type=Path)
     opts = parser.parse_args()
     context = load_context(opts.context)
+    repo = Path(__file__).resolve().parents[1]
+    host_manifest = repo / "benchmarks/stage3g-host-manifest-v2.json"
     if not re.fullmatch(r"sha256:[a-f0-9]{64}", opts.image_id):
         parser.error("Immutable image ID required")
     guest = Path(__file__).with_name("effects_guest.py").resolve()
@@ -103,6 +105,7 @@ def main():
                 root / "capture",
                 bootstrap,
                 root / "auth.json",
+                host_manifest,
             )
             position = argv.index("--entrypoint")
             argv[position:position] = ["--mount", f"type=bind,src={guest},dst=/probe.py,readonly"]

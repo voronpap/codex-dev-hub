@@ -1,0 +1,2 @@
+WARNING: proceeding, even though we could not create PATH aliases: Permission denied (os error 13)
+Error: approved binding must contain exactly one tool

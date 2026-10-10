@@ -1,0 +1,121 @@
+{
+  "build_id": "build-004",
+  "binding_classification": "BINDING_ZERO",
+  "production_classification": "UNKNOWN",
+  "failure_kind": "test_failure",
+  "implementation_commit": "f9f030ebc8f112e20634ded56edd172e36baf5e7",
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "patch_hash": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "test_hash": "77f071f091874dea756b036150956381a4c05dc2f17e291b9b176483e020ec27",
+  "proof_build_lock_hash": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+  "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37214846071",
+  "artifact_id": 11308251383,
+  "compile_exit": 0,
+  "test_exit": 101,
+  "build_duration_seconds": 664.589927447,
+  "test_duration_seconds": 0.2628123979999373,
+  "test_invocations": 1,
+  "last_entered_stage": "initial_router_admission",
+  "stage_markers": [
+    "A_assertions_completed",
+    "B_runtime_replace",
+    "initial_binding_before_first_approve",
+    "initial_router_admission"
+  ],
+  "server_diagnostics": [
+    {
+      "apps_present": false,
+      "configured_keys": [
+        "devhub_delegate"
+      ],
+      "effective_keys": [
+        "devhub_delegate"
+      ],
+      "expected_keys": [
+        "devhub_delegate"
+      ],
+      "materialized_catalog_keys": [
+        "devhub_delegate"
+      ],
+      "other_keys": [],
+      "plugin_keys": []
+    }
+  ],
+  "binding_diagnostics": [
+    {
+      "has_servers": true,
+      "target_prepare_call_present": false,
+      "target_tool_info_present": false,
+      "tools": [],
+      "tools_len": 0
+    }
+  ],
+  "actual_scenario_results": {
+    "b_visibility": null,
+    "b_lifecycle": null,
+    "origin_collision": null,
+    "wrong_origin_only": null,
+    "wrong_first": null,
+    "approved_first": null,
+    "forged_runtime": null,
+    "schema_mismatch": null,
+    "apps_rejection": null,
+    "publication_waits": null,
+    "shutdown_waits": null,
+    "republish": null,
+    "catalog_refresh_after_preparation": null,
+    "extra_mcp_ceiling": null,
+    "dynamic_hosted_adversarial": null,
+    "full_handler_dispatch": null,
+    "process_proof": null,
+    "production_candidate_compiles": true,
+    "real_schema_compiles": true,
+    "test_binary_executes": true,
+    "a_assertions_completed": true,
+    "initial_binding_snapshot_observed": true
+  },
+  "synthetic_receipt_count": null,
+  "inference_note": "Stage failure before initial synthetic call; no exported receipt file. No model/provider execution.",
+  "source_diagnosis": {
+    "classification": "harness_missing_server_permission_authority",
+    "basis": "source-derived, consistent with actual empty binding snapshot; raw client catalog not separately observed",
+    "chain": [
+      "mcp_config_for_test -> Config::to_mcp_config_with_loaded_plugins",
+      "server_permission_profiles initialized empty; harness never populates it",
+      "PreparedMcpCall::new requires permission_profile_for_server -> None",
+      "capture_binding_with_metadata skips listed ready tool when prepare_call returns None"
+    ],
+    "source_hashes": {
+      "codex-rs/core/src/config/mod.rs": "a3dced718dcc19a925e9d49095be8bbcf84a37ded53ee86334fb3a20823ee642",
+      "codex-rs/core/src/session/tests.rs": "49b93b63511bd67c281cc891d74bc839664311ab44277909a934caea8c3e5701",
+      "codex-rs/codex-mcp/src/binding.rs": "9fd5f9e5d3021f7d1bd77fc1ecbd7737d1a3fb0044fe9b43cfa1cda3d5966169",
+      "codex-rs/codex-mcp/src/connection_manager/tool_catalog.rs": "a7fc2ca068411156d0e79c0550d879031b9c5682e81bb0c707a508a5b0897ecc",
+      "codex-rs/codex-mcp/src/mcp/mod.rs": "5785fcfc629e05755ccb9bfb687deb112c3047aa64b20c4b927aa000c2a457be"
+    },
+    "raw_catalog_count": null,
+    "do_not_weaken_guard": true,
+    "no_fix_forward": true
+  },
+  "artifact_files_sha256": {
+    "result.json": "eb88aab75615acc37cc2d5265ffe7044ca1f0a1f67c76d8164185ae7d52a9988",
+    "build.jsonl": "7f95b723d1dcfb1ca9e50050bedf6caac11ddd39ca289a5db445004f9a330811",
+    "build.stderr": "62138c3dd9cd29ec3e8c429418199efc980b7d0795293db334963cc440f72966",
+    "test.stdout": "9648eb986dba5d17d64929263845f165479dd5b21e39505d2d11055e0fe530b1",
+    "test.stderr": "7082c6299fe67ff2a244821aae7936557bb3ac68a53f9a33c1719db06d99a32a"
+  },
+  "history_unchanged": true,
+  "cheap_ci": "https://github.com/voronpap/codex-dev-hub/actions/runs/37214713791",
+  "linux_passed": 376,
+  "linux_skipped": 1,
+  "windows_smoke_passed": 14,
+  "build_005_run": false,
+  "stage_3g_c": "OPEN",
+  "stage_3g": "OPEN",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null
+}

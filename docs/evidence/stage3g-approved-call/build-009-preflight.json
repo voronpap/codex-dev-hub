@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "build_id": "build-009",
+  "phase": "cheap_prebuild_gate",
+  "result": "BLOCKED_BEFORE_RUST_COMPILATION",
+  "classification": "PRODUCTION_HOST_ARM_A_CEILING_MISSING",
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "source_archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+  "candidate_b_base_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "host_integration_patch_sha256": "c8d0c24a173ea34d66a53a8b7c81f26629ab23e3c51e18f615beff50637516ac",
+  "combined_production_patchset_sha256": "a822c561bbeafa1cbb99ecb268d3e2c7fc8f17f471477fd4a2c694a9f8866113",
+  "host_integration_status": "proposed_uncompiled",
+  "manifest": {
+    "path": "benchmarks/approved-delegate-host-manifest-v1.json",
+    "sha256": "237bbc4ad78431bd72d61f8a100787198309dfb40b07a38fa1fab52abbaf36b0",
+    "schema_path": "benchmarks/approved-delegate-host-manifest-v1.schema.json",
+    "schema_sha256": "bd7dcf9f5ae6362a620c1b9800b26e5b7c07f06e5c91d139aeefae08e222271c",
+    "delegation_request_schema_sha256": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+    "status": "candidate_unqualified"
+  },
+  "cheap_gate": {
+    "requirement": {
+      "arm_a_manifest": null,
+      "arm_a_approved_delegate_policy": "absent",
+      "arm_a_allowed_tools_authority": "none specified",
+      "expected_visible_model_tools": [],
+      "expected_nested_code_mode_map": [],
+      "expected_hosted_tools": [],
+      "expected_dynamic_tools": []
+    },
+    "pinned_behavior": {
+      "allowed_tools_absent": "ordinary tool setup is preserved",
+      "experimental_request_user_input_default_enabled": true,
+      "local_environment_with_model_apply_patch_support_registers_apply_patch": true,
+      "service_default_model": "gpt-6-astra",
+      "service_default_apply_patch_tool_type": "freeform",
+      "prior_arm_a_zero_surface_mechanism": [
+        "AllowedTools([])",
+        "ApprovedDelegatePolicy::no_tools()"
+      ]
+    },
+    "contradiction": "With admission manifest and policy absent, no trusted host value installs AllowedTools([]); the pinned ordinary router therefore cannot satisfy the required empty Arm A model and nested surfaces.",
+    "why_observer_cannot_fix": "The accepted observer is read-only and may not set AllowedTools, construct ApprovedDelegatePolicy, or alter routing.",
+    "why_config_cannot_fix": "The frozen v2 overrides disable shell/unified_exec/apps/web and related features but expose no supported global AllowedTools input and do not remove every built-in tool.",
+    "compile_permitted": false
+  },
+  "source_evidence": {
+    "frozen_overrides": {
+      "path": "src/devhub/experiment.py",
+      "sha256": "2c5f4276a83f092e938e95023fceb225b08858ec83555bbe0602feeb5206355c",
+      "lines": [
+        24,
+        39
+      ]
+    },
+    "prior_arm_a_proof": {
+      "path": "scripts/production_router_test.rs",
+      "sha256": "30a0aa76778a656132a44c9f27fca1a46993e9b64ab05e973cb196d90ea15895",
+      "allowed_tools_line": 57,
+      "no_tools_policy_line": 92
+    },
+    "pinned_config_defaults": {
+      "path": "codex-rs/core/src/config/mod.rs",
+      "sha256": "a3dced718dcc19a925e9d49095be8bbcf84a37ded53ee86334fb3a20823ee642",
+      "request_user_input_lines": [
+        2644,
+        2650
+      ]
+    },
+    "candidate_router": {
+      "path": "codex-rs/core/src/tools/spec_plan.rs",
+      "sha256": "2237b08365e7fa540bfbe8df77ac085f5d95ba9c72be0f6c6fb431b9f1d6d49a",
+      "ordinary_path_registers_core_tools_when_policy_absent": true,
+      "source_state": "after Candidate B base patch"
+    },
+    "model_metadata": {
+      "path": "docs/evidence/stage3g-full-router/metadata.json",
+      "sha256": "2fa8cca691183999933c2fec3e67f353e9d3f9de831edbcb4d768de11d59a9b1"
+    }
+  },
+  "review_options": [
+    {
+      "id": "A",
+      "description": "Permit a separate trusted Arm A no-tools ceiling that inserts AllowedTools([]) while keeping ApprovedDelegatePolicy absent.",
+      "impact": "Adds a second host-owned startup authority input and requires review."
+    },
+    {
+      "id": "B",
+      "description": "Permit a versioned no-tools Arm A manifest variant.",
+      "impact": "Smallest reuse of the manifest parser, but contradicts the current no-manifest Arm A requirement."
+    },
+    {
+      "id": "C",
+      "description": "Change Arm A assertion to no delegated/MCP tools while retaining ordinary Codex core tools.",
+      "impact": "Preserves default-absent behavior but changes the accepted process-proof surface."
+    }
+  ],
+  "recommended_review_option": "A",
+  "reason": "It preserves ApprovedDelegatePolicy absence and exact A zero surface without making the observer authoritative, at the cost of one separately reviewed host ceiling input.",
+  "rust_compile_started": false,
+  "rust_compile_duration_seconds": null,
+  "actual_codex_executable_sha256": null,
+  "arm_a_result": "NOT_RUN",
+  "arm_b_result": "NOT_RUN",
+  "model_requests": 0,
+  "provider_sends": 0,
+  "real_codex_executions": 0,
+  "production_host_activation": "BLOCKED_PREBUILD",
+  "production_process_visibility": null,
+  "process_proof": null,
+  "handler_evidence_source": "build-008 production-equivalent 16 MiB stack evidence",
+  "catalog_evidence_source": "build-008 catalog refresh after preparation evidence",
+  "production_classification": "UNKNOWN",
+  "stage_3g_c": "OPEN",
+  "stage_3g": "OPEN",
+  "execution_ready": false,
+  "protocol_v3_created": false,
+  "rehearsal_run": false,
+  "benchmark_run": false,
+  "role_runtime_changed": false,
+  "build_010_run": false
+}

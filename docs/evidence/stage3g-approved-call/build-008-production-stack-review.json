@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "review_kind": "build_008_pinned_production_stack_interpretation",
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "source_archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+  "candidate_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "historical_build_008_assessment_sha256": "e93a2540e730ecb9dbb525dfb2a021b54efff3f9c35af952506a5dc3e3dd9273",
+  "historical_build_008_raw_result_sha256": "d1bd44364a77e1ad929abd1eac85ff6c72850cdb887f5d317a81725299a66228",
+  "historical_evidence_mutated": false,
+  "source_evidence": {
+    "stack_constant": {
+      "path": "codex-rs/async-utils/src/lib.rs",
+      "sha256": "5582ec7e69b8ab0493e62721620099ff0cefe391b58e58165534f8d227ea74f4",
+      "line": 5,
+      "symbol": "codex_async_utils::THREAD_STACK_SIZE_BYTES",
+      "expression": "16 * 1024 * 1024",
+      "value_bytes": 16777216
+    },
+    "main_and_tokio_stack": {
+      "path": "codex-rs/arg0/src/lib.rs",
+      "sha256": "476895d5adc6c8c897e53c8ec7a5d49556f9798d1d9a2918168c85f14c1ae5d7",
+      "codex_main_lines": [233, 246],
+      "codex_main_thread_name": "codex-main",
+      "codex_main_stack_expression": "stack_size(THREAD_STACK_SIZE_BYTES)",
+      "tokio_runtime_lines": [293, 297],
+      "tokio_worker_stack_expression": "thread_stack_size(THREAD_STACK_SIZE_BYTES)"
+    },
+    "cli_binary_manifest": {
+      "path": "codex-rs/cli/Cargo.toml",
+      "sha256": "5946ad5464cb5d74a52a1bd08e6bf7e5c207cae886933cd75f12916d556dc2ca",
+      "package": "codex-cli",
+      "default_run": "codex",
+      "binary": "codex",
+      "binary_source": "src/main.rs"
+    },
+    "cli_entrypoint": {
+      "path": "codex-rs/cli/src/main.rs",
+      "sha256": "7bab656236b553f10f74956cfaf0dc8fa567fa31581de1fd7ab71c3a5a523e0e",
+      "main_lines": [1141, 1147],
+      "entry": "main -> arg0_dispatch_or_else -> cli_main",
+      "exec_dispatch_lines": [1249, 1264],
+      "exec_dispatch": "Subcommand::Exec -> codex_exec::run_main"
+    },
+    "exec_host": {
+      "path": "codex-rs/exec/src/lib.rs",
+      "sha256": "68011a6b31e31c758a3b7a353ecf01a22937e3031152b392e350ebd551c16840",
+      "run_main_line": 259,
+      "in_process_start_lines": [972, 977],
+      "thread_start_lines": [1005, 1011],
+      "host_path": "codex exec -> codex_exec::run_main -> InProcessAppServerClient::start -> thread/start"
+    },
+    "in_process_start_args": {
+      "path": "codex-rs/app-server/src/in_process.rs",
+      "sha256": "965b9f184d1674fbdf7d690226b437ee73faa6f4b702a31032ab0e1a3a2ff700",
+      "lines": [129, 165],
+      "approved_delegate_injection_present": false
+    },
+    "thread_start_extension_construction": {
+      "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
+      "sha256": "d4be28526badd6068db21c37312be718e51cd42e0a67ffb29665f526f56fd3f1",
+      "lines": [1459, 1499],
+      "finding": "thread/start creates ExtensionDataInit internally and inserts selected capability roots only"
+    }
+  },
+  "intended_stage3g_host": {
+    "launcher_path": "src/devhub/experiment_launch.py",
+    "launcher_sha256": "f144141074c9048d5b353854920cde5f8981c363607ebe7a484b119b01f72286",
+    "argv_lines": [160, 197],
+    "argv_prefix": ["codex", "exec", "--ephemeral"],
+    "runtime_builder_path": "scripts/build_benchmark_runtime.py",
+    "runtime_builder_sha256": "5cb2428263101783e23eb43f82a829551b0ed55973b2f096caa78c21469118af",
+    "runtime_entrypoint": "codex",
+    "runtime_lock_path": "benchmarks/runtime-lock.json",
+    "runtime_lock_sha256": "7b9f6c47406763540f93e424f92edb71111a42c304fa6dc95735e7a4ce9402ba",
+    "codex_version": "codex-cli 0.155.0-alpha.9.2",
+    "entrypoint_uses_confirmed_16_mib_path": true,
+    "conclusion": "YES",
+    "scope_limit": "Only the intended codex CLI binary and its exec path; no claim for auxiliary executables"
+  },
+  "build_008_refined_interpretation": {
+    "diagnostic_stack_sensitivity": "STACK_DEPTH_OR_FRAME_SIZE_SENSITIVE",
+    "exact_overflow_root_cause": "UNKNOWN",
+    "libtest_default_stack_representative_of_pinned_production": false,
+    "production_stack_budget_bytes": 16777216,
+    "handler_dispatch_libtest_default_stack": false,
+    "handler_dispatch_production_stack_equivalent": true,
+    "same_binary_production_stack_equivalent_handler_dispatch": true,
+    "production_stack_equivalence_basis": "The same test binary and exact handler filter pass with RUST_MIN_STACK=16777216; pinned codex-main and Tokio workers use THREAD_STACK_SIZE_BYTES=16777216",
+    "candidate_b_production_defect_from_overflow": "NOT_ESTABLISHED",
+    "limitation": "The passing executable is a test binary, not an exact production Codex process proof"
+  },
+  "router_security_matrix": {
+    "status": "PASS_EXCEPT_EXACT_PROCESS_HOST_QUALIFICATION",
+    "arm_a_zero_surface": true,
+    "arm_b_exact_delegate_surface": true,
+    "origin_and_collision_matrix": true,
+    "scoped_forged_binding_runtime_rejected": true,
+    "schema_and_lifecycle_matrix": true,
+    "apps_exclusion": true,
+    "extra_mcp_dynamic_hosted_ceiling": true,
+    "handler_at_pinned_production_equivalent_stack": true,
+    "catalog_refresh_after_preparation": true,
+    "process_proof": null
+  },
+  "process_proof": {
+    "status": null,
+    "design_only": true,
+    "model_request_allowed": false,
+    "provider_send_allowed": false,
+    "requires_additional_rust_compilation": true,
+    "build_009_authorized": false,
+    "required_host_delta": "A separately reviewed, opt-in host startup injection and observation path in the actual codex exec/in-process app-server construction; default behavior unchanged",
+    "observation_only": [
+      "tool mode",
+      "model-visible specifications",
+      "nested code-mode map",
+      "hosted and dynamic surfaces",
+      "canonical and raw identity",
+      "server/origin binding",
+      "schema hash",
+      "approved generation identity",
+      "synthetic endpoint receipt"
+    ]
+  },
+  "production_classification": "UNKNOWN",
+  "stage_3g_c": "OPEN",
+  "stage_3g": "OPEN",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "build_009_run": false
+}

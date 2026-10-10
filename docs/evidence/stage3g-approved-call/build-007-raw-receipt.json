@@ -1,0 +1,292 @@
+{
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "build_id": "build-007",
+  "diagnostic_source_hashes": {
+    "core/src/tools/handlers/mcp.rs": "f9cb44c7dc2e4a1c6a18f00dc363f74d27ac2e47672582ba90af088ec0bb1075",
+    "core/src/mcp_tool_call.rs": "ef27d7ed2ba43deebcb33a88745053cdfbf48bb2b60af5c22797768487da5f5a"
+  },
+  "adversarial_sha256": "3ae54869ef3d525e0b7f2ca6c1ddc405fc6385dd933f43ac665dda86f452d829",
+  "catalog_test_sha256": "9065828b2ff4943ff8d0b252c621dbd2c933be7be704dc1d508ed241f3cc3d90",
+  "payload_sha256": "3ba09cd77fd8a980010e152a1a5c32ae1451ba527f9e07746a5134ecd66f062f",
+  "archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+  "test_sha256": "03b5fe833c7b177579e0b96961ce6be303b80928ddc532ddc3865b71b371ceff",
+  "test_file": "production_router_test.rs",
+  "metadata_sha256": "2fa8cca691183999933c2fec3e67f353e9d3f9de831edbcb4d768de11d59a9b1",
+  "implementation_commit": "ad10c8377efc84605abf37bb554584974574fc7a",
+  "build_duration_seconds": 382.178388101,
+  "production_modified": true,
+  "shipping_runtime_modified": false,
+  "patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "classification": "UNKNOWN",
+  "scope": "partial production admission implementation; full required gate unproven",
+  "original_lock_sha256": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+  "proof_build_lock_sha256": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+  "lock_strategy": "LOCK_B_derived_test_build",
+  "build_command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "codex-core",
+    "-p",
+    "codex-mcp",
+    "--lib",
+    "devhub_production_admission_path",
+    "--no-run",
+    "--message-format=json"
+  ],
+  "build_exit_code": 0,
+  "build_timed_out": false,
+  "actual_pinned_router_code": false,
+  "method_slice_only": false,
+  "inference_requests": 0,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "test_runs": [
+    {
+      "crate": "codex_core",
+      "exit_code": -6,
+      "timed_out": false,
+      "duration_seconds": 0.4780924249999998,
+      "binary_sha256": "ca1f21c1568fd08e204224be6eb4d828343d1bdb024212f32d11ebaf79cef8e0"
+    }
+  ],
+  "proof": {
+    "arms": [
+      {
+        "arm": "A",
+        "mode": "code_mode_only",
+        "nested": {},
+        "registered": [],
+        "visible": []
+      },
+      {
+        "arm": "B",
+        "mode": "code_mode_only",
+        "nested": {},
+        "registered": [
+          "mcp__devhub_delegatedevhub_delegate"
+        ],
+        "visible": [
+          {
+            "description": "Tools in the mcp__devhub_delegate namespace.",
+            "name": "mcp__devhub_delegate",
+            "tools": [
+              {
+                "description": "",
+                "name": "devhub_delegate",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "acceptance_criteria": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "allow_cloud": {
+                      "type": "boolean"
+                    },
+                    "instructions": {
+                      "type": "string"
+                    },
+                    "privacy": {
+                      "enum": [
+                        "local_only",
+                        "project_private",
+                        "public",
+                        "redacted"
+                      ],
+                      "type": "string"
+                    },
+                    "project": {
+                      "type": "string"
+                    },
+                    "query": {
+                      "type": "string"
+                    },
+                    "request_key": {
+                      "type": "string"
+                    },
+                    "require_citations": {
+                      "type": "boolean"
+                    },
+                    "schema_version": {
+                      "enum": [
+                        1
+                      ],
+                      "type": "integer"
+                    },
+                    "task_class": {
+                      "enum": [
+                        "summarize",
+                        "explain",
+                        "extract"
+                      ],
+                      "type": "string"
+                    },
+                    "task_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "task_id",
+                    "request_key",
+                    "instructions",
+                    "acceptance_criteria",
+                    "query",
+                    "project"
+                  ],
+                  "type": "object"
+                },
+                "strict": false,
+                "type": "function"
+              }
+            ],
+            "type": "namespace"
+          }
+        ]
+      }
+    ],
+    "classification": "UNKNOWN",
+    "dispatch_binding": {
+      "endpoint_identity": "approved-endpoint",
+      "generation_identity": "scenario-local G0/G1/G2, behavior checked; no runtime ID exported",
+      "handler_path": false,
+      "prepared_call_path": true,
+      "raw_tool": "devhub_delegate",
+      "server": "devhub_delegate"
+    },
+    "execution_ready": false,
+    "process_proof": null,
+    "production_modified": true,
+    "provider_sends": 0,
+    "real_codex_executions": 0,
+    "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+    "scope": "partial actual production construction and retained-call lifecycle",
+    "shipping_runtime_modified": false,
+    "synthetic_receipts": [
+      {
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        },
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+      },
+      {
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        },
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+      },
+      {
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        },
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+      },
+      {
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        },
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+      },
+      {
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        },
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+      }
+    ],
+    "tests": {
+      "absent_apps_server_rejected": true,
+      "approved_first": null,
+      "catalog_refresh_after_preparation": null,
+      "dynamic_hosted_adversarial": null,
+      "expected_schema_mismatch": true,
+      "extra_mcp": null,
+      "forged_runtime": null,
+      "fresh_binding_requires_fresh_host_admission": true,
+      "handler_dispatch": null,
+      "ordinary_no_policy_empty_ceiling": true,
+      "publication_waits_for_call": true,
+      "publication_wins_old_call_denied": true,
+      "republish_does_not_revive_old_call": true,
+      "shutdown_waits_for_call": true,
+      "shutdown_wins_old_call_denied": true,
+      "sync_marker_preserves_call": true,
+      "wrong_first": null,
+      "wrong_origin_only": null
+    }
+  }
+}

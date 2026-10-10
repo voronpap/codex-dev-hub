@@ -1,0 +1,900 @@
+{
+  "build_id": "build-008",
+  "implementation_commit": "21e2892b4f0251de15f6ac84cdeeb27c11d4bca2",
+  "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37235328411",
+  "artifact_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37235328411/artifacts/11315184163",
+  "production_patch_sha_before": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "production_patch_sha_after": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "diagnostic_harness_sha256": "c79c25fd07965c412c1be41786da76f562c4ecb7bc4b98a7b17c2d533c70bd1b",
+  "pinned_source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "proof_lock_sha256": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+  "compile_pass": true,
+  "rust_compilation_count": 1,
+  "rust_compile_seconds": 582.335862486,
+  "binaries": {
+    "codex_mcp": {
+      "crate": "codex_mcp",
+      "path": "/home/runner/work/_temp/production-proof/binaries/codex_mcp-5c9fd2f54b4378c9",
+      "original_path": "/home/runner/work/_temp/production-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs/target/debug/deps/codex_mcp-5c9fd2f54b4378c9",
+      "sha256": "54ac6436715469c2f3eeee63be6ae8cf998c2aab50f074f30a3348d26a736dd8",
+      "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+      "patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+      "diagnostic_harness_sha256": "c79c25fd07965c412c1be41786da76f562c4ecb7bc4b98a7b17c2d533c70bd1b",
+      "proof_lock_sha256": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+      "ldd": "\tlinux-vdso.so.1 (0x00007f1f09152000)\n\tlibssl.so.3 => /lib/x86_64-linux-gnu/libssl.so.3 (0x00007f1f09096000)\n\tlibcrypto.so.3 => /lib/x86_64-linux-gnu/libcrypto.so.3 (0x00007f1f01e00000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f1f09068000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007f1f02317000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f1f01a00000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f1f09154000)\n",
+      "ldd_stderr": "",
+      "ldd_exit": 0,
+      "runtime_assumptions": "Linux runner ABI; python3; sudo/unshare/setpriv; restore executable bit after download; paths in manifest require rebinding after relocation"
+    },
+    "codex_core": {
+      "crate": "codex_core",
+      "path": "/home/runner/work/_temp/production-proof/binaries/codex_core-53e740d1c6e5e203",
+      "original_path": "/home/runner/work/_temp/production-source/codex-4607249e430dac1c961df4dc615beae88e33cec8/codex-rs/target/debug/deps/codex_core-53e740d1c6e5e203",
+      "sha256": "91ec5c2ea3da2be38a628f0eb5909f051e045f79d799da18dbf67e44a1d30e61",
+      "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+      "patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+      "diagnostic_harness_sha256": "c79c25fd07965c412c1be41786da76f562c4ecb7bc4b98a7b17c2d533c70bd1b",
+      "proof_lock_sha256": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+      "ldd": "\tlinux-vdso.so.1 (0x00007f580d19d000)\n\tlibssl.so.3 => /lib/x86_64-linux-gnu/libssl.so.3 (0x00007f57f9d56000)\n\tlibcrypto.so.3 => /lib/x86_64-linux-gnu/libcrypto.so.3 (0x00007f57f9800000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f580d15d000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007f57f9717000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f57f9400000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f580d19f000)\n",
+      "ldd_stderr": "",
+      "ldd_exit": 0,
+      "runtime_assumptions": "Linux runner ABI; python3; sudo/unshare/setpriv; restore executable bit after download; paths in manifest require rebinding after relocation"
+    }
+  },
+  "artifact_files_sha256": {
+    "build.jsonl": "e164f76675570a2360f46fe3cbb69ee8d6296cb46ec819e340db6d14c0507a3e",
+    "build.stderr": "ca80cfce2f66c7b7776a14d5763a1d3d49f5f279bd022053e66bc0d30ee47d52",
+    "Cargo.lock.original": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+    "derived-lock-manifest-bindings.json": "c3a46561a4fea37ee56874a51f8d06b9bd84b5b2583560ccc22200b0eb4288c7",
+    "result.json": "d1bd44364a77e1ad929abd1eac85ff6c72850cdb887f5d317a81725299a66228",
+    "runner-manifest.json": "5734cbaef64c20010347f16da40695988fb739f09625422c79df7583fab84902",
+    "assets/build_production_router_proof.py": "57f6b242476079a8cb6bf27d85c96125494bc2ee2e7f5f65137a221c322d3208",
+    "assets/devhub_metadata.json": "2fa8cca691183999933c2fec3e67f353e9d3f9de831edbcb4d768de11d59a9b1",
+    "assets/devhub_real_schema.json": "ea0b6374181926b72658f35fde9c1ebae1386571ba0771baf524018b037d59f5",
+    "assets/devhub_synthetic_payload.json": "3ba09cd77fd8a980010e152a1a5c32ae1451ba527f9e07746a5134ecd66f062f",
+    "assets/instrument_approval_proof.py": "7566b8fff7a91e9791dfcce3ac413e6c88e14179459a325ee1989214be6c583b",
+    "assets/production_catalog_test.rs": "5fbc8424d0b37ff47d277136c6a08a8763db925bbc040ba3fb8b2604eb19d5fa",
+    "assets/production_router_adversarial_test.rs": "fe97ca8f13b3ef77d07df4442a3fd5d701253092cd3096922b2cb429fb789bfe",
+    "assets/production_router_test.rs": "c96d2ec70cbc66d33069930d3c59b3e51bce40944f47fe96b8f94d815a79d57f",
+    "assets/run_production_diagnostics.py": "de2b3ecb8c82fbd186a74bf25133eac5e88e8b9c7674014c00456df4a6234258",
+    "assets/synthetic_approved_mcp.py": "9dbfb7d7a1f3922a8b46d90f2709a4c1452cbdfe56790951431dc8246bdc619c",
+    "binaries/codex_core-53e740d1c6e5e203": "91ec5c2ea3da2be38a628f0eb5909f051e045f79d799da18dbf67e44a1d30e61",
+    "binaries/codex_mcp-5c9fd2f54b4378c9": "54ac6436715469c2f3eeee63be6ae8cf998c2aab50f074f30a3348d26a736dd8",
+    "runs/codex_core-list.stderr": "f127f2eb675d15dad52174f84a1fc14d46dbb103f6b2529ddfbed90d0fa3bb89",
+    "runs/codex_core-list.stdout": "c185a9ebdfa1ae6103bca8b716e1ad26b1ea83bc55bbf17e1e07eb1fe7885f08",
+    "runs/codex_mcp-list.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runs/codex_mcp-list.stdout": "bd5b7394c720fd9396508b313a93bb874804e93c25a41138837358ee72d36b80",
+    "runs/runs.json": "1de59907da8a61ee155b4c814bcc5372fde9dc788fd27e9be99e01cec7d5c25d",
+    "runs/test-names.json": "5de83342bbd31fe7559ed7b35d4b31f4cb137af05f4b63bfbc51d51028657dab",
+    "runs/baseline/planned.json": "5f415959b748c832e970897fc9f1eed94de1c6ead9f37309d7ba6f8214506122",
+    "runs/baseline/receipt.jsonl": "eae4ad29eb2269411a8d4799df5f3ff6bf6ea872629f11133d8eb2943c98ac12",
+    "runs/baseline/result.json": "9f54f9982f8de31269ed055d135661fe1efc98781aca688018040dd9462f5f62",
+    "runs/baseline/stderr": "f127f2eb675d15dad52174f84a1fc14d46dbb103f6b2529ddfbed90d0fa3bb89",
+    "runs/baseline/stdout": "eb814af2a2d824bc4884c25b7e3097b97d9de02e7f59efc94bc749445b82c5e3",
+    "runs/catalog/planned.json": "2f2b926a568fd6e9a62fb4b8559e22222a5cb604645a818be4352e7b446854c1",
+    "runs/catalog/receipt.jsonl": "7b2a28d43715e7ec01f891223d1459588aabf93172a7bd6b5d86f1edf2785a20",
+    "runs/catalog/result.json": "5a36bacb03a0a81235f792dc310bc1b9ae077c2405a2e4b5ce1e1ec6217c9062",
+    "runs/catalog/stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runs/catalog/stdout": "468bb59fc0b6405f5d428cea2a33a8c8270fd988e007a2e81f76c0df4168f60a",
+    "runs/handler-large-stack/planned.json": "c4d81f3df81a2aba9782655358f15e310bf7796a4f9c4c6e688d9f22abac69d2",
+    "runs/handler-large-stack/receipt.jsonl": "9c41be818a8bc51a6984c8b13e26aca41704c088c3d23a41cfa5c40cf376cbb7",
+    "runs/handler-large-stack/result.json": "550393287bc2ab77b0ce7833ffc3676ac8d29a8287992c4fe41ca80d86d1b202",
+    "runs/handler-large-stack/stderr": "f127f2eb675d15dad52174f84a1fc14d46dbb103f6b2529ddfbed90d0fa3bb89",
+    "runs/handler-large-stack/stdout": "d448df44edd2a0785ca0f106aa8eac011ddd43f6af44a7be6b469c6b5a2ec3ab",
+    "runs/handler-normal/planned.json": "64037b0022477a344ba893651656a3f25dd2e6992f9e50fb696c29c3ebfe1253",
+    "runs/handler-normal/receipt.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runs/handler-normal/result.json": "cdfa3892e03906fe35ab84f6920d948e74d88d74f285f3f45a0f80a5273e1f80",
+    "runs/handler-normal/stderr": "c385fbf754571d11712f7c1c7532acf53f7ae52c74c0f2b389aa5ade75aa4878",
+    "runs/handler-normal/stdout": "1ab40eb2c69086e34f204a3fe66686c145bc828451fbf02ed30657d4d7b78acc"
+  },
+  "diagnostic_classification": "STACK_DEPTH_OR_FRAME_SIZE_SENSITIVE",
+  "root_cause": "UNKNOWN",
+  "localized_boundary": "After prepared_execution_entered; before preparation_closure_entered. Normal-stack receipt initialized, empty. Exact overflow function/frame and recursion unproven.",
+  "normal_stack": {
+    "label": "handler-normal",
+    "binary": "/home/runner/work/_temp/production-proof/binaries/codex_core-53e740d1c6e5e203",
+    "binary_sha256": "91ec5c2ea3da2be38a628f0eb5909f051e045f79d799da18dbf67e44a1d30e61",
+    "exact_filter": "tools::spec_plan::tests::devhub_production_admission_path_adversarial",
+    "command": [
+      "sudo",
+      "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA,DEVHUB_RECEIPT_PATH,RUST_BACKTRACE,RUST_MIN_STACK",
+      "unshare",
+      "--net",
+      "--",
+      "setpriv",
+      "--reuid=1001",
+      "--regid=1001",
+      "--init-groups",
+      "/home/runner/work/_temp/production-proof/binaries/codex_core-53e740d1c6e5e203",
+      "tools::spec_plan::tests::devhub_production_admission_path_adversarial",
+      "--exact",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "environment": {
+      "DEVHUB_SYNTHETIC_MCP": "/home/runner/work/_temp/production-proof/assets/synthetic_approved_mcp.py",
+      "DEVHUB_REAL_SCHEMA": "/home/runner/work/_temp/production-proof/assets/devhub_real_schema.json",
+      "DEVHUB_RECEIPT_PATH": "/home/runner/work/_temp/production-proof/runs/handler-normal/receipt.jsonl",
+      "RUST_BACKTRACE": "full"
+    },
+    "normal_stack": true,
+    "timeout_seconds": 120,
+    "receipt_initialized": {
+      "path": "/home/runner/work/_temp/production-proof/runs/handler-normal/receipt.jsonl",
+      "exists": true,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "record_count": 0,
+      "records": []
+    },
+    "exit_code": -6,
+    "signal": 6,
+    "timed_out": false,
+    "duration_seconds": 0.4654988109999749,
+    "checkpoints": [
+      "wrong_origin_only",
+      "wrong_origin_only_passed",
+      "wrong_first",
+      "wrong_first_passed",
+      "approved_first",
+      "approved_first_passed",
+      "forged_runtime",
+      "forged_runtime_passed",
+      "extra_mcp",
+      "extra_mcp_passed",
+      "dynamic_hosted",
+      "dynamic_hosted_passed",
+      "handler_dispatch",
+      "handler_entry",
+      "prepared_approved_call_selected",
+      "notify_tool_start_completed",
+      "originating_call_completed",
+      "approval_decision_path",
+      "handle_approved_mcp_tool_call_entered",
+      "prepared_execution_entered"
+    ],
+    "last_checkpoint": "prepared_execution_entered",
+    "stack_overflow": true,
+    "backtrace_emitted": false,
+    "receipt": {
+      "path": "/home/runner/work/_temp/production-proof/runs/handler-normal/receipt.jsonl",
+      "exists": true,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "record_count": 0,
+      "records": []
+    },
+    "proofs": {},
+    "stdout_sha256": "1ab40eb2c69086e34f204a3fe66686c145bc828451fbf02ed30657d4d7b78acc",
+    "stderr_sha256": "c385fbf754571d11712f7c1c7532acf53f7ae52c74c0f2b389aa5ade75aa4878"
+  },
+  "same_binary_larger_stack": {
+    "label": "handler-large-stack",
+    "binary": "/home/runner/work/_temp/production-proof/binaries/codex_core-53e740d1c6e5e203",
+    "binary_sha256": "91ec5c2ea3da2be38a628f0eb5909f051e045f79d799da18dbf67e44a1d30e61",
+    "exact_filter": "tools::spec_plan::tests::devhub_production_admission_path_adversarial",
+    "command": [
+      "sudo",
+      "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA,DEVHUB_RECEIPT_PATH,RUST_BACKTRACE,RUST_MIN_STACK",
+      "unshare",
+      "--net",
+      "--",
+      "setpriv",
+      "--reuid=1001",
+      "--regid=1001",
+      "--init-groups",
+      "/home/runner/work/_temp/production-proof/binaries/codex_core-53e740d1c6e5e203",
+      "tools::spec_plan::tests::devhub_production_admission_path_adversarial",
+      "--exact",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "environment": {
+      "DEVHUB_SYNTHETIC_MCP": "/home/runner/work/_temp/production-proof/assets/synthetic_approved_mcp.py",
+      "DEVHUB_REAL_SCHEMA": "/home/runner/work/_temp/production-proof/assets/devhub_real_schema.json",
+      "DEVHUB_RECEIPT_PATH": "/home/runner/work/_temp/production-proof/runs/handler-large-stack/receipt.jsonl",
+      "RUST_BACKTRACE": "full",
+      "RUST_MIN_STACK": "16777216"
+    },
+    "normal_stack": false,
+    "timeout_seconds": 120,
+    "receipt_initialized": {
+      "path": "/home/runner/work/_temp/production-proof/runs/handler-large-stack/receipt.jsonl",
+      "exists": true,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "record_count": 0,
+      "records": []
+    },
+    "exit_code": 0,
+    "signal": null,
+    "timed_out": false,
+    "duration_seconds": 0.265097671000035,
+    "checkpoints": [
+      "wrong_origin_only",
+      "wrong_origin_only_passed",
+      "wrong_first",
+      "wrong_first_passed",
+      "approved_first",
+      "approved_first_passed",
+      "forged_runtime",
+      "forged_runtime_passed",
+      "extra_mcp",
+      "extra_mcp_passed",
+      "dynamic_hosted",
+      "dynamic_hosted_passed",
+      "handler_dispatch",
+      "handler_entry",
+      "prepared_approved_call_selected",
+      "notify_tool_start_completed",
+      "originating_call_completed",
+      "approval_decision_path",
+      "handle_approved_mcp_tool_call_entered",
+      "prepared_execution_entered",
+      "preparation_closure_entered",
+      "approval_application_enter",
+      "approval_application_exit",
+      "memory_pollution_enter",
+      "memory_pollution_exit",
+      "rewrite_args_enter",
+      "rewrite_args_exit",
+      "request_meta_build_enter",
+      "request_meta_build_exit",
+      "request_ids_enter",
+      "request_ids_exit",
+      "sandbox_meta_enter",
+      "sandbox_meta_exit",
+      "trace_enter",
+      "trace_exit",
+      "add_request_meta_enter",
+      "add_request_meta_exit",
+      "trusted_access_context_enter",
+      "trusted_access_context_exit",
+      "transport_call_enter",
+      "transport_call_return",
+      "prepared_execution_returned",
+      "handler_return",
+      "synthetic_receipt_seen",
+      "handler_dispatch_passed"
+    ],
+    "last_checkpoint": "handler_dispatch_passed",
+    "stack_overflow": false,
+    "backtrace_emitted": false,
+    "receipt": {
+      "path": "/home/runner/work/_temp/production-proof/runs/handler-large-stack/receipt.jsonl",
+      "exists": true,
+      "bytes": 527,
+      "sha256": "9c41be818a8bc51a6984c8b13e26aca41704c088c3d23a41cfa5c40cf376cbb7",
+      "record_count": 1,
+      "records": [
+        {
+          "endpoint_identity": "approved-adversarial-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          }
+        }
+      ]
+    },
+    "proofs": {
+      "DEVHUB_ADVERSARIAL_PROOF": {
+        "approved_first": true,
+        "catalog_refresh_after_preparation": null,
+        "collision_behavior": "wrong-first admission rejected; approved-first duplicate rejected and router finalization fatal",
+        "dynamic_hosted_adversarial": true,
+        "extra_mcp": true,
+        "forged_runtime": true,
+        "forged_runtime_scope": "public empty binding and metadata-only McpHandler substitution denied",
+        "handler_dispatch": true,
+        "process_proof": null,
+        "provider_sends": 0,
+        "real_codex_executions": 0,
+        "receipts": [
+          {
+            "arguments": {
+              "acceptance_criteria": [
+                "Synthetic proof only."
+              ],
+              "allow_cloud": false,
+              "instructions": "Synthetic production binding proof.",
+              "privacy": "local_only",
+              "project": "stage3g-proof",
+              "query": "synthetic",
+              "request_key": "synthetic-proof-1",
+              "require_citations": true,
+              "schema_version": 1,
+              "task_class": "summarize",
+              "task_id": "synthetic-proof"
+            },
+            "endpoint_identity": "approved-adversarial-endpoint",
+            "raw_tool": "devhub_delegate",
+            "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+          }
+        ],
+        "synthetic_process_dispatch": true,
+        "wrong_first": true,
+        "wrong_origin_only": true
+      }
+    },
+    "stdout_sha256": "d448df44edd2a0785ca0f106aa8eac011ddd43f6af44a7be6b469c6b5a2ec3ab",
+    "stderr_sha256": "f127f2eb675d15dad52174f84a1fc14d46dbb103f6b2529ddfbed90d0fa3bb89"
+  },
+  "baseline": {
+    "label": "baseline",
+    "binary": "/home/runner/work/_temp/production-proof/binaries/codex_core-53e740d1c6e5e203",
+    "binary_sha256": "91ec5c2ea3da2be38a628f0eb5909f051e045f79d799da18dbf67e44a1d30e61",
+    "exact_filter": "tools::spec_plan::tests::devhub_production_admission_path",
+    "command": [
+      "sudo",
+      "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA,DEVHUB_RECEIPT_PATH,RUST_BACKTRACE,RUST_MIN_STACK",
+      "unshare",
+      "--net",
+      "--",
+      "setpriv",
+      "--reuid=1001",
+      "--regid=1001",
+      "--init-groups",
+      "/home/runner/work/_temp/production-proof/binaries/codex_core-53e740d1c6e5e203",
+      "tools::spec_plan::tests::devhub_production_admission_path",
+      "--exact",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "environment": {
+      "DEVHUB_SYNTHETIC_MCP": "/home/runner/work/_temp/production-proof/assets/synthetic_approved_mcp.py",
+      "DEVHUB_REAL_SCHEMA": "/home/runner/work/_temp/production-proof/assets/devhub_real_schema.json",
+      "DEVHUB_RECEIPT_PATH": "/home/runner/work/_temp/production-proof/runs/baseline/receipt.jsonl",
+      "RUST_BACKTRACE": "full"
+    },
+    "normal_stack": true,
+    "timeout_seconds": 120,
+    "receipt_initialized": {
+      "path": "/home/runner/work/_temp/production-proof/runs/baseline/receipt.jsonl",
+      "exists": true,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "record_count": 0,
+      "records": []
+    },
+    "exit_code": 0,
+    "signal": null,
+    "timed_out": false,
+    "duration_seconds": 0.3152245460000813,
+    "checkpoints": [
+      "trusted_access_context_enter",
+      "trusted_access_context_exit",
+      "transport_call_enter",
+      "transport_call_return",
+      "trusted_access_context_enter",
+      "trusted_access_context_exit",
+      "transport_call_enter",
+      "transport_call_return",
+      "trusted_access_context_enter",
+      "trusted_access_context_exit",
+      "transport_call_enter",
+      "transport_call_return",
+      "trusted_access_context_enter",
+      "trusted_access_context_exit",
+      "transport_call_enter",
+      "transport_call_return",
+      "trusted_access_context_enter",
+      "trusted_access_context_exit",
+      "transport_call_enter",
+      "transport_call_return"
+    ],
+    "last_checkpoint": "transport_call_return",
+    "stack_overflow": false,
+    "backtrace_emitted": false,
+    "receipt": {
+      "path": "/home/runner/work/_temp/production-proof/runs/baseline/receipt.jsonl",
+      "exists": true,
+      "bytes": 2575,
+      "sha256": "eae4ad29eb2269411a8d4799df5f3ff6bf6ea872629f11133d8eb2943c98ac12",
+      "record_count": 5,
+      "records": [
+        {
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          }
+        },
+        {
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          }
+        },
+        {
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          }
+        },
+        {
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          }
+        },
+        {
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          }
+        }
+      ]
+    },
+    "proofs": {
+      "DEVHUB_ROUTER_PROOF": {
+        "arms": [
+          {
+            "arm": "A",
+            "mode": "code_mode_only",
+            "nested": {},
+            "registered": [],
+            "visible": []
+          },
+          {
+            "arm": "B",
+            "mode": "code_mode_only",
+            "nested": {},
+            "registered": [
+              "mcp__devhub_delegatedevhub_delegate"
+            ],
+            "visible": [
+              {
+                "description": "Tools in the mcp__devhub_delegate namespace.",
+                "name": "mcp__devhub_delegate",
+                "tools": [
+                  {
+                    "description": "",
+                    "name": "devhub_delegate",
+                    "parameters": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "acceptance_criteria": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "type": "array"
+                        },
+                        "allow_cloud": {
+                          "type": "boolean"
+                        },
+                        "instructions": {
+                          "type": "string"
+                        },
+                        "privacy": {
+                          "enum": [
+                            "local_only",
+                            "project_private",
+                            "public",
+                            "redacted"
+                          ],
+                          "type": "string"
+                        },
+                        "project": {
+                          "type": "string"
+                        },
+                        "query": {
+                          "type": "string"
+                        },
+                        "request_key": {
+                          "type": "string"
+                        },
+                        "require_citations": {
+                          "type": "boolean"
+                        },
+                        "schema_version": {
+                          "enum": [
+                            1
+                          ],
+                          "type": "integer"
+                        },
+                        "task_class": {
+                          "enum": [
+                            "summarize",
+                            "explain",
+                            "extract"
+                          ],
+                          "type": "string"
+                        },
+                        "task_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "task_id",
+                        "request_key",
+                        "instructions",
+                        "acceptance_criteria",
+                        "query",
+                        "project"
+                      ],
+                      "type": "object"
+                    },
+                    "strict": false,
+                    "type": "function"
+                  }
+                ],
+                "type": "namespace"
+              }
+            ]
+          }
+        ],
+        "classification": "UNKNOWN",
+        "dispatch_binding": {
+          "endpoint_identity": "approved-endpoint",
+          "generation_identity": "scenario-local G0/G1/G2, behavior checked; no runtime ID exported",
+          "handler_path": false,
+          "prepared_call_path": true,
+          "raw_tool": "devhub_delegate",
+          "server": "devhub_delegate"
+        },
+        "execution_ready": false,
+        "process_proof": null,
+        "production_modified": true,
+        "provider_sends": 0,
+        "real_codex_executions": 0,
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+        "scope": "partial actual production construction and retained-call lifecycle",
+        "shipping_runtime_modified": false,
+        "synthetic_receipts": [
+          {
+            "arguments": {
+              "acceptance_criteria": [
+                "Synthetic proof only."
+              ],
+              "allow_cloud": false,
+              "instructions": "Synthetic production binding proof.",
+              "privacy": "local_only",
+              "project": "stage3g-proof",
+              "query": "synthetic",
+              "request_key": "synthetic-proof-1",
+              "require_citations": true,
+              "schema_version": 1,
+              "task_class": "summarize",
+              "task_id": "synthetic-proof"
+            },
+            "endpoint_identity": "approved-endpoint",
+            "raw_tool": "devhub_delegate",
+            "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+          },
+          {
+            "arguments": {
+              "acceptance_criteria": [
+                "Synthetic proof only."
+              ],
+              "allow_cloud": false,
+              "instructions": "Synthetic production binding proof.",
+              "privacy": "local_only",
+              "project": "stage3g-proof",
+              "query": "synthetic",
+              "request_key": "synthetic-proof-1",
+              "require_citations": true,
+              "schema_version": 1,
+              "task_class": "summarize",
+              "task_id": "synthetic-proof"
+            },
+            "endpoint_identity": "approved-endpoint",
+            "raw_tool": "devhub_delegate",
+            "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+          },
+          {
+            "arguments": {
+              "acceptance_criteria": [
+                "Synthetic proof only."
+              ],
+              "allow_cloud": false,
+              "instructions": "Synthetic production binding proof.",
+              "privacy": "local_only",
+              "project": "stage3g-proof",
+              "query": "synthetic",
+              "request_key": "synthetic-proof-1",
+              "require_citations": true,
+              "schema_version": 1,
+              "task_class": "summarize",
+              "task_id": "synthetic-proof"
+            },
+            "endpoint_identity": "approved-endpoint",
+            "raw_tool": "devhub_delegate",
+            "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+          },
+          {
+            "arguments": {
+              "acceptance_criteria": [
+                "Synthetic proof only."
+              ],
+              "allow_cloud": false,
+              "instructions": "Synthetic production binding proof.",
+              "privacy": "local_only",
+              "project": "stage3g-proof",
+              "query": "synthetic",
+              "request_key": "synthetic-proof-1",
+              "require_citations": true,
+              "schema_version": 1,
+              "task_class": "summarize",
+              "task_id": "synthetic-proof"
+            },
+            "endpoint_identity": "approved-endpoint",
+            "raw_tool": "devhub_delegate",
+            "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+          },
+          {
+            "arguments": {
+              "acceptance_criteria": [
+                "Synthetic proof only."
+              ],
+              "allow_cloud": false,
+              "instructions": "Synthetic production binding proof.",
+              "privacy": "local_only",
+              "project": "stage3g-proof",
+              "query": "synthetic",
+              "request_key": "synthetic-proof-1",
+              "require_citations": true,
+              "schema_version": 1,
+              "task_class": "summarize",
+              "task_id": "synthetic-proof"
+            },
+            "endpoint_identity": "approved-endpoint",
+            "raw_tool": "devhub_delegate",
+            "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+          }
+        ],
+        "tests": {
+          "absent_apps_server_rejected": true,
+          "approved_first": null,
+          "catalog_refresh_after_preparation": null,
+          "dynamic_hosted_adversarial": null,
+          "expected_schema_mismatch": true,
+          "extra_mcp": null,
+          "forged_runtime": null,
+          "fresh_binding_requires_fresh_host_admission": true,
+          "handler_dispatch": null,
+          "ordinary_no_policy_empty_ceiling": true,
+          "publication_waits_for_call": true,
+          "publication_wins_old_call_denied": true,
+          "republish_does_not_revive_old_call": true,
+          "shutdown_waits_for_call": true,
+          "shutdown_wins_old_call_denied": true,
+          "sync_marker_preserves_call": true,
+          "wrong_first": null,
+          "wrong_origin_only": null
+        }
+      }
+    },
+    "stdout_sha256": "eb814af2a2d824bc4884c25b7e3097b97d9de02e7f59efc94bc749445b82c5e3",
+    "stderr_sha256": "f127f2eb675d15dad52174f84a1fc14d46dbb103f6b2529ddfbed90d0fa3bb89"
+  },
+  "catalog": {
+    "label": "catalog",
+    "binary": "/home/runner/work/_temp/production-proof/binaries/codex_mcp-5c9fd2f54b4378c9",
+    "binary_sha256": "54ac6436715469c2f3eeee63be6ae8cf998c2aab50f074f30a3348d26a736dd8",
+    "exact_filter": "binding::devhub_production_admission_path_catalog",
+    "command": [
+      "sudo",
+      "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA,DEVHUB_RECEIPT_PATH,RUST_BACKTRACE,RUST_MIN_STACK",
+      "unshare",
+      "--net",
+      "--",
+      "setpriv",
+      "--reuid=1001",
+      "--regid=1001",
+      "--init-groups",
+      "/home/runner/work/_temp/production-proof/binaries/codex_mcp-5c9fd2f54b4378c9",
+      "binding::devhub_production_admission_path_catalog",
+      "--exact",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "environment": {
+      "DEVHUB_SYNTHETIC_MCP": "/home/runner/work/_temp/production-proof/assets/synthetic_approved_mcp.py",
+      "DEVHUB_REAL_SCHEMA": "/home/runner/work/_temp/production-proof/assets/devhub_real_schema.json",
+      "DEVHUB_RECEIPT_PATH": "/home/runner/work/_temp/production-proof/runs/catalog/receipt.jsonl",
+      "RUST_BACKTRACE": "full"
+    },
+    "normal_stack": true,
+    "timeout_seconds": 120,
+    "receipt_initialized": {
+      "path": "/home/runner/work/_temp/production-proof/runs/catalog/receipt.jsonl",
+      "exists": true,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "record_count": 0,
+      "records": []
+    },
+    "exit_code": 0,
+    "signal": null,
+    "timed_out": false,
+    "duration_seconds": 0.06441499999993994,
+    "checkpoints": [
+      "trusted_access_context_enter",
+      "trusted_access_context_exit",
+      "transport_call_enter",
+      "transport_call_return"
+    ],
+    "last_checkpoint": "transport_call_return",
+    "stack_overflow": false,
+    "backtrace_emitted": false,
+    "receipt": {
+      "path": "/home/runner/work/_temp/production-proof/runs/catalog/receipt.jsonl",
+      "exists": true,
+      "bytes": 514,
+      "sha256": "7b2a28d43715e7ec01f891223d1459588aabf93172a7bd6b5d86f1edf2785a20",
+      "record_count": 1,
+      "records": [
+        {
+          "endpoint_identity": "catalog-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          }
+        }
+      ]
+    },
+    "proofs": {
+      "DEVHUB_CATALOG_PROOF": {
+        "catalog_refresh_after_preparation": true,
+        "provider_sends": 0,
+        "real_codex_executions": 0,
+        "receipt_count": 1,
+        "stale_error": "tool call rejected because the catalog changed after `devhub_delegate/devhub_delegate` was prepared"
+      }
+    },
+    "stdout_sha256": "468bb59fc0b6405f5d428cea2a33a8c8270fd988e007a2e81f76c0df4168f60a",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "handler_dispatch": false,
+  "handler_dispatch_scope": "normal-stack reviewed gate; false due to stack overflow",
+  "diagnostic_large_stack_handler_dispatch": true,
+  "catalog_refresh_after_preparation": true,
+  "process_proof": null,
+  "production_classification": "UNKNOWN",
+  "actual_matrix": {
+    "absent_apps_server_rejected": true,
+    "approved_first": true,
+    "catalog_refresh_after_preparation": true,
+    "dynamic_hosted_adversarial": true,
+    "expected_schema_mismatch": true,
+    "extra_mcp": true,
+    "forged_runtime": true,
+    "fresh_binding_requires_fresh_host_admission": true,
+    "handler_dispatch": false,
+    "ordinary_no_policy_empty_ceiling": true,
+    "publication_waits_for_call": true,
+    "publication_wins_old_call_denied": true,
+    "republish_does_not_revive_old_call": true,
+    "shutdown_waits_for_call": true,
+    "shutdown_wins_old_call_denied": true,
+    "sync_marker_preserves_call": true,
+    "wrong_first": true,
+    "wrong_origin_only": true,
+    "process_proof": null
+  },
+  "matrix_limits": "Adversarial pre-handler assertions passed under normal stack before abort and complete test passed at diagnostic larger stack. Forged-runtime scope remains public empty binding and metadata-only substitution; no broader claim.",
+  "build_007_unchanged": true,
+  "build_007_root_cause": "UNKNOWN",
+  "instrumentation_changes_stack_layout": true,
+  "production_fix_applied": false,
+  "shipping_runtime_modified": false,
+  "next_review": "No production defect localized yet. Review stack/frame investigation using retained binary before authorizing any production change or additional compilation. Increasing production stack is not proposed.",
+  "ci": {
+    "url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37235222427",
+    "linux_passed": 403,
+    "linux_skipped": 1,
+    "windows_smoke_passed": 14,
+    "windows_full_passed": 403,
+    "windows_full_skipped": 1,
+    "ruff": true,
+    "format": true,
+    "strict_mypy": true,
+    "secret_history_evidence": true
+  },
+  "stage_3g_c": "OPEN",
+  "stage_3g": "OPEN",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "build_009_run": false,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null
+}

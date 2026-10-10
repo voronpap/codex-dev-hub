@@ -90,6 +90,8 @@ def main():
     parser.add_argument("--context", type=Path, required=True)
     opts = parser.parse_args()
     context = load_context(opts.context)
+    repo = Path(__file__).resolve().parents[1]
+    host_manifest = repo / "benchmarks/stage3g-host-manifest-v2.json"
     if opts.image_id and not re.fullmatch(r"sha256:[a-f0-9]{64}", opts.image_id):
         parser.error("Only an immutable local image ID is allowed")
     with tempfile.TemporaryDirectory(prefix="devhub-isolation-") as temporary:
@@ -138,7 +140,9 @@ def main():
             packet_path="synthetic",
             available_mcp_tools=(),
         )
-        args = container_command(session, runtime, packet, bridge, capture, bootstrap, auth)
+        args = container_command(
+            session, runtime, packet, bridge, capture, bootstrap, auth, host_manifest
+        )
         args[len(DOCKER)] = "run"
         args.insert(len(DOCKER) + 1, "--rm")
         pos = args.index("--entrypoint")

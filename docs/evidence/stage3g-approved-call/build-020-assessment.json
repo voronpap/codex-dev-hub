@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "build_id": "build-020",
+  "classification": "PRODUCTION_HOST_QUALIFIED",
+  "workflow": {
+    "run_id": 38024891950,
+    "conclusion": "success",
+    "implementation_commit": "c482e30cb9fabb7d678deb75a632c173ca34c4dd",
+    "artifact_id": 11659714382,
+    "artifact_name": "stage3g-build020-production-host-proof",
+    "artifact_bytes": 2356882956,
+    "artifact_sha256": "c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979",
+    "artifact_expires_on": "2027-01-08",
+    "full_artifact_download_verified": true
+  },
+  "production_identities": {
+    "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+    "candidate_b_base_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+    "host_integration_patch_sha256": "f22369f10ed45d04a740205fca0cb7111ddb56d3b1bdbee603dfcfdfdd7de9ad",
+    "combined_production_patchset_sha256": "e63b68840ecec005703fc61fa1e26aba988c5a9e44a956efedbfbdea96d10c59",
+    "host_manifest_sha256": "d31edc7cb0604ea7d2c526521adb1c59ae21a35a902a8c2a9a7c2807bc29957e",
+    "delegation_request_schema_sha256": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+    "original_cargo_lock_sha256": "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146",
+    "proof_cargo_lock_sha256": "9236f6c0b8703eaf337dd219c8fdfb6834c14fa430a0a83b938159016371bb88"
+  },
+  "compilation": {
+    "started": true,
+    "result": "PASS",
+    "duration_seconds": 502.196625543,
+    "exit_code": 0,
+    "timed_out": false,
+    "toolchain": "1.95.0",
+    "target": "x86_64-unknown-linux-gnu",
+    "locked_resolution_unchanged": true
+  },
+  "executable": {
+    "artifact_path": "binary/codex",
+    "sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+    "bytes": 577819656,
+    "version": "codex-cli 0.155.0-alpha.9.2",
+    "independent_post_download_sha256_match": true,
+    "same_binary_all_process_checks": true
+  },
+  "process_proof": {
+    "result": "PASS",
+    "scope": "actual codex exec host construction and finalized pre-sampling router visibility",
+    "default": {
+      "allowed_tools_ceiling_present": false,
+      "allowed_tools": null,
+      "approved_delegate_policy_present": false,
+      "ordinary_surface_preserved": true
+    },
+    "arm_a": {
+      "allowed_tools": [],
+      "approved_delegate_policy_present": false,
+      "visible_model_tools": [],
+      "nested_code_mode_map": [],
+      "hosted_tools": [],
+      "dynamic_tool_count": 0
+    },
+    "arm_b": {
+      "allowed_tools": [
+        "mcp__devhub_delegate.devhub_delegate"
+      ],
+      "approved_delegate_policy_present": true,
+      "server_key": "devhub_delegate",
+      "raw_tool": "devhub_delegate",
+      "canonical_namespace": "mcp__devhub_delegate",
+      "canonical_function": "devhub_delegate",
+      "schema_sha256": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+      "visible_model_tools": [
+        "mcp__devhub_delegate.devhub_delegate"
+      ],
+      "nested_code_mode_map": [],
+      "hosted_tools": [],
+      "dynamic_tool_count": 0
+    },
+    "b_minus_a": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ],
+    "a_minus_b": [],
+    "catalog_receipt": {
+      "sha256": "89de51c5288ab0f51f770b5de04e75c0894f0e660f1608c45c68647ced3a063c",
+      "records": 1,
+      "event": "tools_list",
+      "tool_call_count": 0,
+      "provider_send": false
+    },
+    "security_negatives": {
+      "arm_a_with_mcp": true,
+      "arm_b_missing_config": true,
+      "resume_fail_closed": true,
+      "fork_fail_closed": true,
+      "task_lookalike_cannot_authorize": true,
+      "wrong_host_manifest_hash": true,
+      "wrong_mcp_config_hash": true,
+      "wrong_namespace_identity": true,
+      "wrong_schema_hash": true
+    }
+  },
+  "counters": {
+    "model_requests": 0,
+    "provider_sends": 0,
+    "mcp_tool_executions": 0,
+    "real_codex_executions": 0
+  },
+  "evidence_files": {
+    "build-020-raw-result.json": "6f4fdb1aacdeef2e3446e7f2760d4f84e2832df833034befb4ce0a81997a32f0",
+    "build-020-runner-manifest.json": "a4096ed3b41a40de48b2efa14f034bbb98cc2e92b59cd02b0f060878b6661e58",
+    "build-020-preflight.json": "2f26b1682ec57a27a9b96e7d3388ae11efa6800338bba273e4f5ef0848f262e6",
+    "build-020-mcp-receipt.jsonl": "89de51c5288ab0f51f770b5de04e75c0894f0e660f1608c45c68647ced3a063c"
+  },
+  "review_state": {
+    "independent_review": "ACCEPTED",
+    "production_host_activation": "PROVEN",
+    "process_proof": "PASS",
+    "stage_3g_c": "OPEN",
+    "stage_3g": "OPEN",
+    "execution_ready": false,
+    "semantic_acceptance": null,
+    "quality_benchmark": null,
+    "delegation_value": null,
+    "savings": null
+  },
+  "limitations": [
+    "Build-020 does not execute an MCP tool, model request, provider request, rehearsal, or benchmark.",
+    "Handler execution evidence remains the accepted Build-008 production-equivalent 16 MiB proof.",
+    "Catalog refresh-after-preparation evidence remains the accepted Build-008 proof.",
+    "Independent review accepted the production-host qualification composition; exact runtime-image and same-environment qualification still keep Stage 3G-C open."
+  ]
+}

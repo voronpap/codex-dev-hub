@@ -131,6 +131,8 @@ def boundary(tmp_path, protocol):
     bootstrap.write_bytes(b"# synthetic bootstrap")
     auth = tmp_path / "auth.json"
     auth.write_bytes(b"{}")
+    host_manifest = tmp_path / "stage3g-host.json"
+    host_manifest.write_bytes((ROOT / "benchmarks/stage3g-host-manifest-v2.json").read_bytes())
     runtime = ContainerRuntimeSpec(
         image_id="sha256:" + "d" * 64,
         bootstrap_sha256=digest(bootstrap.read_bytes()),
@@ -138,7 +140,7 @@ def boundary(tmp_path, protocol):
         reviewed_plan_sha256="c" * 64,
         codex_cli_version=protocol.codex_cli_version,
     )
-    return runtime, packet, bridge, capture, bootstrap, auth
+    return runtime, packet, bridge, capture, bootstrap, auth, host_manifest
 
 
 def events(usage=True):
@@ -183,6 +185,9 @@ def test_no_mcp_in_a_only_local_entry_point_in_b(protocol):
     assert not any("devhub_delegate" in arg for arg in a)
     assert "--ephemeral" in a and "resume" not in a and "fork" not in a
     assert "--ignore-user-config" in a and "--ignore-rules" in a
+    assert a[a.index("--devhub-stage3g-arm") + 1] == "a"
+    assert b[b.index("--devhub-stage3g-arm") + 1] == "b"
+    assert "/stage3g-host.json" in a and "/stage3g-host.json" in b
     assert "features.shell_tool=false" in a and 'web_search="disabled"' in a
     assert 'mcp_servers.devhub_delegate.enabled_tools=["devhub_delegate"]' in b
     assert not any("groq" in arg or "gemini" in arg or "local_task" in arg for arg in b)
@@ -190,13 +195,16 @@ def test_no_mcp_in_a_only_local_entry_point_in_b(protocol):
 
 
 def test_oci_mount_and_network_scope(boundary):
-    bindings, packet, bridge, capture, bootstrap, auth = boundary
-    args = container_command(session(), bindings, packet, bridge, capture, bootstrap, auth)
+    bindings, packet, bridge, capture, bootstrap, auth, host_manifest = boundary
+    args = container_command(
+        session(), bindings, packet, bridge, capture, bootstrap, auth, host_manifest
+    )
     assert "--network=none" in args and "--read-only" in args and "--pull=never" in args
     assert "--cap-drop=ALL" in args and "--security-opt=no-new-privileges" in args
     mounts = [args[i + 1] for i, v in enumerate(args) if v == "--mount"]
-    assert len(mounts) == 5
+    assert len(mounts) == 6
     assert any("dst=/control" in mount for mount in mounts)
+    assert any("dst=/stage3g-host.json" in mount and "readonly" in mount for mount in mounts)
     assert not any("dst=/packet" in mount for mount in mounts)
     assert any(value.startswith("/packet:rw,noexec,nosuid,size=16m") for value in args)
     assert all(str(ROOT) not in m and "docker.sock" not in m for m in mounts)
@@ -204,27 +212,37 @@ def test_oci_mount_and_network_scope(boundary):
     assert not any("GROQ_API_KEY" in a or "GEMINI_API_KEY" in a for a in args)
     (bridge / "mcp.sock").touch()
     with pytest.raises(ValueError, match="bridge"):
-        container_command(session(), bindings, packet, bridge, capture, bootstrap, auth)
-    assert container_command(session("B"), bindings, packet, bridge, capture, bootstrap, auth)
+        container_command(
+            session(), bindings, packet, bridge, capture, bootstrap, auth, host_manifest
+        )
+    assert container_command(
+        session("B"), bindings, packet, bridge, capture, bootstrap, auth, host_manifest
+    )
 
 
 @pytest.mark.parametrize("extra", ["oracle.json", "task.txt", "previous-output.txt"])
 def test_contaminated_guest_control_rejected(boundary, extra):
-    bindings, packet, bridge, capture, bootstrap, auth = boundary
+    bindings, packet, bridge, capture, bootstrap, auth, host_manifest = boundary
     (packet / extra).write_text("canary")
     with pytest.raises(ValueError, match="control"):
-        container_command(session(), bindings, packet, bridge, capture, bootstrap, auth)
+        container_command(
+            session(), bindings, packet, bridge, capture, bootstrap, auth, host_manifest
+        )
 
 
 def test_output_reuse_and_bootstrap_change_rejected(boundary):
-    bindings, packet, bridge, capture, bootstrap, auth = boundary
+    bindings, packet, bridge, capture, bootstrap, auth, host_manifest = boundary
     (capture / "final.txt").write_bytes(b"old")
     with pytest.raises(ValueError, match="reused"):
-        container_command(session(), bindings, packet, bridge, capture, bootstrap, auth)
+        container_command(
+            session(), bindings, packet, bridge, capture, bootstrap, auth, host_manifest
+        )
     (capture / "final.txt").unlink()
     bootstrap.write_bytes(b"changed")
     with pytest.raises(ValueError, match="Bootstrap"):
-        container_command(session(), bindings, packet, bridge, capture, bootstrap, auth)
+        container_command(
+            session(), bindings, packet, bridge, capture, bootstrap, auth, host_manifest
+        )
 
 
 def test_usage_documented_jsonl_not_ui_or_proxy(protocol):
@@ -429,7 +447,7 @@ def test_reviewer_requirements_from_frozen_oracles_only(repo):
 def test_synthetic_engine_freezes_unmodified_output_and_failure(
     boundary, protocol, tmp_path, monkeypatch, exit_code, timed_out
 ):
-    bindings, packet, bridge, capture, bootstrap, auth = boundary
+    bindings, packet, bridge, capture, bootstrap, auth, host_manifest = boundary
     import devhub.experiment_launch as mod
 
     monkeypatch.setattr(mod.platform, "system", lambda: "Linux")
@@ -531,6 +549,7 @@ def test_synthetic_engine_freezes_unmodified_output_and_failure(
         capture,
         bootstrap,
         auth,
+        host_manifest,
         dest,
         b"SYNTHETIC ONLY",
         reviewed_plan_sha256="c" * 64,

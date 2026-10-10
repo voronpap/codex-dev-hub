@@ -1,0 +1,14 @@
+{
+  "devhub_production_admission_path_catalog": [
+    "codex_mcp",
+    "binding::devhub_production_admission_path_catalog"
+  ],
+  "devhub_production_admission_path": [
+    "codex_core",
+    "tools::spec_plan::tests::devhub_production_admission_path"
+  ],
+  "devhub_production_admission_path_adversarial": [
+    "codex_core",
+    "tools::spec_plan::tests::devhub_production_admission_path_adversarial"
+  ]
+}

@@ -153,3 +153,148 @@ proof remains bound to its exact implementation and inputs.
 Final state: Stage 3G-C OPEN, Stage 3G OPEN, execution_ready=false,
 real_codex_executions=0, provider_sends=0. Semantic acceptance, quality benchmark,
 Delegation Value, savings and internal Codex retries remain null.
+
+## Build-009 full executable lock result
+
+Build-009 run `37976011705` passed source preparation and its cheap gates, then
+started the first actual `codex-cli` compilation. Cargo 1.95.0 rejected the build
+under `--locked` because the earlier `LOCK_B` covered the 152 stale local package
+versions but not the dependency edges added by the separately reviewed shipping
+host-integration patch. No executable was produced and process proof remained null.
+The classification is `BUILD_009_CARGO_LOCK_INCOMPLETE`; Build-009 is immutable
+failed evidence and is not rerun.
+
+The minimal successor lock starts from `LOCK_B` and adds only these reviewed local
+manifest edges:
+
+- `codex-app-server-client` → `codex-extension-api`;
+- `codex-exec` → `codex-extension-api`, `codex-tools`, `sha2 0.10.9`;
+- `codex-tui` → `codex-extension-api`.
+
+It adds or removes no package and changes no external version, source, checksum,
+or Git revision. Its proposed SHA-256 is
+`9236f6c0b8703eaf337dd219c8fdfb6834c14fa430a0a83b938159016371bb88`.
+Before any successor compilation, the fresh patched source must pass Cargo 1.95.0
+`metadata --locked` for `x86_64-unknown-linux-gnu`, `fetch --locked` for that
+target, and byte-for-byte lock equality after both commands. A successful check
+authorizes only a separately identified Build-010; it does not rewrite Build-009.
+
+Build-010 run `38010156389` stopped in cheap preflight before Cargo. The lock
+helper incorrectly compared the pinned workspace semver requirement `sha2 =
+"0.10"` with the resolved lock-package identity `sha2 0.10.9`. The lock bytes
+and five reviewed dependency edges were not rejected; their two different Cargo
+representations were conflated. Build-010 is immutable
+`PREBUILD_WORKSPACE_REQUIREMENT_REPRESENTATION_FAILURE` evidence with
+`rust_compilation_started=false`. Build-011 verifies the exact workspace
+requirement `0.10` and separately retains the exact lock edge `sha2 0.10.9`.
+
+Build-011 run `38010540892` passed cheap preflight, Cargo 1.95.0 locked
+metadata/fetch, and byte-for-byte lock verification. Its compilation then failed
+after 380.350 seconds because the proof observer returned `anyhow::Error` through
+a session function whose error type is `CodexErr`; no conversion existed at the
+call boundary. No executable or process proof exists. Build-011 is immutable
+`BUILD_011_OBSERVER_ERROR_CONVERSION_COMPILE_FAILURE` evidence. Build-012 adds
+only the explicit observer-error conversion already used by Candidate B at the
+same `CodexErrorDetails::InvalidRequest` boundary; lock identities are unchanged.
+
+Build-012 run `38011524953` passed source preparation and every identity check,
+then stopped before Cargo because pinned `cargo +1.95.0 fmt --check` required the
+new observer method chain to use rustfmt's multiline indentation. It is immutable
+`PREBUILD_RUSTFMT_OBSERVER_CHAIN_FAILURE` evidence with
+`rust_compilation_started=false`. Build-013 changes only those patch bytes to the
+exact formatter output; the error conversion, authority boundaries, lock,
+manifest, schema, and proof behavior are unchanged.
+
+Build-013 run `38012265371` passed cheap preflight and immutable locked
+metadata/fetch, then started Cargo and failed after 457.573 seconds. The static
+`thread_start_task` incorrectly accessed `self.thread_extension_init`; no
+executable or process proof exists. The classification is
+`BUILD_013_THREAD_EXTENSION_PROPAGATION_COMPILE_FAILURE`. Build-014 clones the
+trusted template before the existing `async move` boundary and passes that owned
+value explicitly into the static task. Client request types and authority remain
+unchanged.
+
+Build-014 run `38013790722` passed cheap preflight and immutable locked
+metadata/fetch, then started Cargo and failed after 411.169 seconds on two exact
+pinned API-shape mismatches. The host patch added an in-process-only extension
+field to `RemoteAppServerConnectArgs`, and it treated the constrained resolved
+MCP map as the map itself. No executable or process proof exists. The immutable
+classification is `BUILD_014_PINNED_API_SHAPE_COMPILE_FAILURE`. Build-015 removes
+only the remote-client field and reads the already-resolved map through
+`config.mcp_servers.get().get(...)`; the reviewed lock remains byte-identical.
+
+Build-015 run `38015223933` stopped before Cargo when pinned rustfmt parsed the
+generated host file. Its new-file patch hunk still declared 253 added lines after
+the resolved-map correction made the file 254 lines, so the final closing brace
+was outside the applied hunk. The immutable classification is
+`PREBUILD_HOST_PATCH_HUNK_COUNT_FAILURE` with `rust_compilation_started=false`.
+Build-016 corrects only that hunk count; lock contents and dependency edges are
+unchanged.
+
+Build-016 run `38015712940` applied the complete host file and passed the source
+and lock identity checks, then stopped before Cargo because pinned rustfmt
+required the resolved config lookup to use its compact multiline chain. It is
+immutable `PREBUILD_RUSTFMT_RESOLVED_CONFIG_CHAIN_FAILURE` evidence with
+`rust_compilation_started=false`. Build-017 carries exactly rustfmt's emitted
+representation; resolved-config authority, lock bytes, and dependency edges are
+unchanged.
+
+Build-017 run `38016240008` passed every cheap and locked dependency gate and
+completed the Rust compilation in `529.002760457` seconds. The retained
+production executable has SHA-256
+`2adc72002a033fefd3ef05d3b4bb6085eb922d1df325a3aa0240cc93d43d06c5`.
+Arm A reached the read-only observer, while Arm B stopped during required MCP
+initialization because the pinned MCP client clears the child environment and
+the reviewed server config had not allowlisted the synthetic receipt locator.
+The endpoint therefore closed at its first `tools/list` receipt write; no model,
+provider, real task, or MCP tool call occurred. Build-017 is immutable
+`BUILD_017_COMPILATION_PASS_MCP_CHILD_ENV_PROPAGATION_PROCESS_FAILURE`
+evidence. Build-018 adds only the host-owned non-secret
+`DEVHUB_BUILD009_MCP_RECEIPT` name to the synthetic Arm B MCP `env_vars`
+allowlist and binds that exact resolved config in a newly hashed strict host
+manifest. Production patches, source, lock, schema, stack, and authority remain
+byte-identical.
+
+Build-018 run `38019621552` passed cheap preflight and compiled the retained
+production executable in 522.253 seconds (SHA-256
+`12ebba9f534f50053921b56c0633f14b4bfe67fa885bc422771e51c40ae00707`).
+Arm A passed and Arm B reached the read-only pre-sampling observer with the exact
+delegate surface and approved authority. The observer then serialized the
+structural `ToolName` through its delimiter-free `Display` implementation, so
+the exact dotted `AllowedTools` evidence comparison failed. Build-018 is
+immutable `COMPILATION_PASS / OBSERVER_ALLOWED_TOOLS_REPRESENTATION_FAILURE`;
+default and security-negative process checks were not reached. Build-019 changes
+only observer evidence serialization to derive `namespace.name` from the
+structural fields; production `AllowedTools` construction and enforcement are
+unchanged.
+
+Build-019 run `38022134537` passed cheap preflight and compiled the retained
+production executable in 370.676 seconds (SHA-256
+`831fe5c6141e42559d3f6173751eb93180daa260d0d7244d4677919ab42cb6a4`).
+The same binary proved Default, Arm A, Arm B, the exact singleton delegate
+difference, and every security negative except `fork_fail_closed`. That harness
+invoked the pinned `fork` subcommand with unsupported `--last`, so Clap rejected
+the command before the production fresh-thread admission guard. Build-019 is
+immutable `COMPILATION_PASS / FORK_NEGATIVE_CLI_SHAPE_FAILURE`; this is not
+evidence of a production authority defect. Build-020 supplies a fixed dummy
+session ID required by the pinned `fork` CLI while retaining the exact expected
+fresh-thread-only rejection. Patches, manifest, schema, source, and lock
+identities remain unchanged.
+
+Build-020 run `38024891950` passed cheap preflight and the complete locked
+resolution checks, then compiled the production executable in `502.196625543`
+seconds. The retained binary is 577,819,656 bytes with SHA-256
+`a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d`.
+The proof lock remained byte-identical at
+`9236f6c0b8703eaf337dd219c8fdfb6834c14fa430a0a83b938159016371bb88`
+after both `cargo metadata --locked` and `cargo fetch --locked`. The same binary
+passed Default, Arm A, Arm B, the exact singleton delegate surface difference,
+and every security negative, including the production fresh-thread guard for
+both resume and fork. The full retained artifact is GitHub artifact
+`11659714382`; its ZIP SHA-256 is
+`c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979`.
+Independent review accepted this evidence as `PRODUCTION_HOST_QUALIFIED` when
+composed with the accepted Build-008 handler and catalog proofs. It contains no
+model request, provider send, MCP tool execution, real task, rehearsal, or
+benchmark. Exact runtime-image and same-environment qualification remain open,
+so this result does not by itself close Stage 3G-C.

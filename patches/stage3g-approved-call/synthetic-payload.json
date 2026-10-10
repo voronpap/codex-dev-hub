@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "project": "stage3g-proof",
+  "task_id": "synthetic-proof",
+  "request_key": "synthetic-proof-1",
+  "instructions": "Synthetic production binding proof.",
+  "acceptance_criteria": ["Synthetic proof only."],
+  "query": "synthetic",
+  "task_class": "summarize",
+  "privacy": "local_only",
+  "allow_cloud": false,
+  "require_citations": true
+}

@@ -1,0 +1,418 @@
+{
+  "label": "baseline",
+  "binary": "/home/runner/work/_temp/production-proof/binaries/codex_core-53e740d1c6e5e203",
+  "binary_sha256": "91ec5c2ea3da2be38a628f0eb5909f051e045f79d799da18dbf67e44a1d30e61",
+  "exact_filter": "tools::spec_plan::tests::devhub_production_admission_path",
+  "command": [
+    "sudo",
+    "--preserve-env=DEVHUB_SYNTHETIC_MCP,DEVHUB_REAL_SCHEMA,DEVHUB_RECEIPT_PATH,RUST_BACKTRACE,RUST_MIN_STACK",
+    "unshare",
+    "--net",
+    "--",
+    "setpriv",
+    "--reuid=1001",
+    "--regid=1001",
+    "--init-groups",
+    "/home/runner/work/_temp/production-proof/binaries/codex_core-53e740d1c6e5e203",
+    "tools::spec_plan::tests::devhub_production_admission_path",
+    "--exact",
+    "--nocapture",
+    "--test-threads=1"
+  ],
+  "environment": {
+    "DEVHUB_SYNTHETIC_MCP": "/home/runner/work/_temp/production-proof/assets/synthetic_approved_mcp.py",
+    "DEVHUB_REAL_SCHEMA": "/home/runner/work/_temp/production-proof/assets/devhub_real_schema.json",
+    "DEVHUB_RECEIPT_PATH": "/home/runner/work/_temp/production-proof/runs/baseline/receipt.jsonl",
+    "RUST_BACKTRACE": "full"
+  },
+  "normal_stack": true,
+  "timeout_seconds": 120,
+  "receipt_initialized": {
+    "path": "/home/runner/work/_temp/production-proof/runs/baseline/receipt.jsonl",
+    "exists": true,
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "record_count": 0,
+    "records": []
+  },
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_seconds": 0.3152245460000813,
+  "checkpoints": [
+    "trusted_access_context_enter",
+    "trusted_access_context_exit",
+    "transport_call_enter",
+    "transport_call_return",
+    "trusted_access_context_enter",
+    "trusted_access_context_exit",
+    "transport_call_enter",
+    "transport_call_return",
+    "trusted_access_context_enter",
+    "trusted_access_context_exit",
+    "transport_call_enter",
+    "transport_call_return",
+    "trusted_access_context_enter",
+    "trusted_access_context_exit",
+    "transport_call_enter",
+    "transport_call_return",
+    "trusted_access_context_enter",
+    "trusted_access_context_exit",
+    "transport_call_enter",
+    "transport_call_return"
+  ],
+  "last_checkpoint": "transport_call_return",
+  "stack_overflow": false,
+  "backtrace_emitted": false,
+  "receipt": {
+    "path": "/home/runner/work/_temp/production-proof/runs/baseline/receipt.jsonl",
+    "exists": true,
+    "bytes": 2575,
+    "sha256": "eae4ad29eb2269411a8d4799df5f3ff6bf6ea872629f11133d8eb2943c98ac12",
+    "record_count": 5,
+    "records": [
+      {
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        }
+      },
+      {
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        }
+      },
+      {
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        }
+      },
+      {
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        }
+      },
+      {
+        "endpoint_identity": "approved-endpoint",
+        "raw_tool": "devhub_delegate",
+        "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+        "arguments": {
+          "acceptance_criteria": [
+            "Synthetic proof only."
+          ],
+          "allow_cloud": false,
+          "instructions": "Synthetic production binding proof.",
+          "privacy": "local_only",
+          "project": "stage3g-proof",
+          "query": "synthetic",
+          "request_key": "synthetic-proof-1",
+          "require_citations": true,
+          "schema_version": 1,
+          "task_class": "summarize",
+          "task_id": "synthetic-proof"
+        }
+      }
+    ]
+  },
+  "proofs": {
+    "DEVHUB_ROUTER_PROOF": {
+      "arms": [
+        {
+          "arm": "A",
+          "mode": "code_mode_only",
+          "nested": {},
+          "registered": [],
+          "visible": []
+        },
+        {
+          "arm": "B",
+          "mode": "code_mode_only",
+          "nested": {},
+          "registered": [
+            "mcp__devhub_delegatedevhub_delegate"
+          ],
+          "visible": [
+            {
+              "description": "Tools in the mcp__devhub_delegate namespace.",
+              "name": "mcp__devhub_delegate",
+              "tools": [
+                {
+                  "description": "",
+                  "name": "devhub_delegate",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "acceptance_criteria": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "allow_cloud": {
+                        "type": "boolean"
+                      },
+                      "instructions": {
+                        "type": "string"
+                      },
+                      "privacy": {
+                        "enum": [
+                          "local_only",
+                          "project_private",
+                          "public",
+                          "redacted"
+                        ],
+                        "type": "string"
+                      },
+                      "project": {
+                        "type": "string"
+                      },
+                      "query": {
+                        "type": "string"
+                      },
+                      "request_key": {
+                        "type": "string"
+                      },
+                      "require_citations": {
+                        "type": "boolean"
+                      },
+                      "schema_version": {
+                        "enum": [
+                          1
+                        ],
+                        "type": "integer"
+                      },
+                      "task_class": {
+                        "enum": [
+                          "summarize",
+                          "explain",
+                          "extract"
+                        ],
+                        "type": "string"
+                      },
+                      "task_id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "task_id",
+                      "request_key",
+                      "instructions",
+                      "acceptance_criteria",
+                      "query",
+                      "project"
+                    ],
+                    "type": "object"
+                  },
+                  "strict": false,
+                  "type": "function"
+                }
+              ],
+              "type": "namespace"
+            }
+          ]
+        }
+      ],
+      "classification": "UNKNOWN",
+      "dispatch_binding": {
+        "endpoint_identity": "approved-endpoint",
+        "generation_identity": "scenario-local G0/G1/G2, behavior checked; no runtime ID exported",
+        "handler_path": false,
+        "prepared_call_path": true,
+        "raw_tool": "devhub_delegate",
+        "server": "devhub_delegate"
+      },
+      "execution_ready": false,
+      "process_proof": null,
+      "production_modified": true,
+      "provider_sends": 0,
+      "real_codex_executions": 0,
+      "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+      "scope": "partial actual production construction and retained-call lifecycle",
+      "shipping_runtime_modified": false,
+      "synthetic_receipts": [
+        {
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          },
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+        },
+        {
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          },
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+        },
+        {
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          },
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+        },
+        {
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          },
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+        },
+        {
+          "arguments": {
+            "acceptance_criteria": [
+              "Synthetic proof only."
+            ],
+            "allow_cloud": false,
+            "instructions": "Synthetic production binding proof.",
+            "privacy": "local_only",
+            "project": "stage3g-proof",
+            "query": "synthetic",
+            "request_key": "synthetic-proof-1",
+            "require_citations": true,
+            "schema_version": 1,
+            "task_class": "summarize",
+            "task_id": "synthetic-proof"
+          },
+          "endpoint_identity": "approved-endpoint",
+          "raw_tool": "devhub_delegate",
+          "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+        }
+      ],
+      "tests": {
+        "absent_apps_server_rejected": true,
+        "approved_first": null,
+        "catalog_refresh_after_preparation": null,
+        "dynamic_hosted_adversarial": null,
+        "expected_schema_mismatch": true,
+        "extra_mcp": null,
+        "forged_runtime": null,
+        "fresh_binding_requires_fresh_host_admission": true,
+        "handler_dispatch": null,
+        "ordinary_no_policy_empty_ceiling": true,
+        "publication_waits_for_call": true,
+        "publication_wins_old_call_denied": true,
+        "republish_does_not_revive_old_call": true,
+        "shutdown_waits_for_call": true,
+        "shutdown_wins_old_call_denied": true,
+        "sync_marker_preserves_call": true,
+        "wrong_first": null,
+        "wrong_origin_only": null
+      }
+    }
+  },
+  "stdout_sha256": "eb814af2a2d824bc4884c25b7e3097b97d9de02e7f59efc94bc749445b82c5e3",
+  "stderr_sha256": "f127f2eb675d15dad52174f84a1fc14d46dbb103f6b2529ddfbed90d0fa3bb89"
+}

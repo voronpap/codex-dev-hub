@@ -69,7 +69,16 @@ def main():
             )
             server = UnixBridge(bridge / "proxy.sock", proxy)
             try:
-                argv = container_command(session, runtime, packet, bridge, capture, bootstrap, auth)
+                argv = container_command(
+                    session,
+                    runtime,
+                    packet,
+                    bridge,
+                    capture,
+                    bootstrap,
+                    auth,
+                    repo / "benchmarks/stage3g-host-manifest-v2.json",
+                )
                 argv[len(DOCKER)] = "run"
                 argv.insert(len(DOCKER) + 1, "--rm")
                 pos = argv.index("--entrypoint")

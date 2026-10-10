@@ -1,0 +1,16 @@
+{
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "source_hashes": {
+    "codex-rs/core/src/session/mcp_runtime.rs": "15e50aee8d9ea0611dbcddcd8fa01620cdbf5470e0b600644285aad5ebe60759",
+    "codex-rs/core/src/session/turn_context.rs": "6c889212a683db0904e0dd3c5b7daa666134dec22008879dbafe572fe1c01419",
+    "codex-rs/core/src/environment_selection.rs": "086d62b39ea0e523a9eb93719f0ec8ebfa93c826d68baac3c521c355ea2ba72a",
+    "codex-rs/config/src/mcp_types.rs": "1bca40f107d1b36b2c6d2bf8b5316b29f3226c8d2f15d00bef0f56f744c5f290",
+    "codex-rs/codex-mcp/src/mcp/mod.rs": "5785fcfc629e05755ccb9bfb687deb112c3047aa64b20c4b927aa000c2a457be"
+  },
+  "production_patch_unchanged": true,
+  "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+  "production_api": "McpConfig::set_server_permission_profiles",
+  "environment_profile_origin": "turn.environments.turn_environments -> permission_profile_with_workspace_roots",
+  "synthetic_server_sha256": "8e0ee12e1a46618e3ab042a03d0af3984861de79289effec6681ddd1355ca169",
+  "runtime_selected_branch": null
+}

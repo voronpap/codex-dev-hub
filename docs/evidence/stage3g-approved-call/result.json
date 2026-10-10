@@ -1,0 +1,82 @@
+{
+  "classification": "UNKNOWN",
+  "gap": "admission_to_dispatch_binding_not_proven",
+  "confirmed_exploit": false,
+  "stage_3g_c": "OPEN",
+  "stage_3g": "OPEN",
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "proof_implementation_commit": "22c518e5d99672b67d0461ac9635f8110d00fccc",
+  "codex_version": "0.155.0-alpha.9.2",
+  "patch_sha256": "3d10c099a9c9d5fda442edd06e43a6e2f91215caa7cfd5c3086f13d565fee322",
+  "production_files_changed": [
+    "codex-rs/codex-mcp/src/approved_call.rs",
+    "codex-rs/codex-mcp/src/lib.rs",
+    "codex-rs/codex-mcp/src/binding.rs",
+    "codex-rs/codex-mcp/src/runtime.rs",
+    "codex-rs/core/src/session/handlers.rs",
+    "codex-rs/core/src/tools/handlers/mcp.rs",
+    "codex-rs/core/src/approved_delegate.rs",
+    "codex-rs/core/src/lib.rs",
+    "codex-rs/core/src/tools/spec_plan.rs"
+  ],
+  "production_modified_in_disposable_tree": true,
+  "shipping_runtime_modified": false,
+  "schema_hash": "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be",
+  "schema_observation": "independently derived offline from DelegationRequest; no compiled process observation",
+  "trusted_binding_hash": null,
+  "direct_model_only_config": [
+    "mcp__devhub_delegate"
+  ],
+  "config_representation": "candidate internal Config field; CLI load and process proof not established",
+  "allowed_tools_ceiling": {
+    "representation": "opt-in Rust host startup data",
+    "A": [],
+    "B": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ]
+  },
+  "A_visible_surfaces": null,
+  "B_visible_surfaces": null,
+  "tests": {
+    "wrong_origin_only": null,
+    "wrong_first": null,
+    "approved_first": null,
+    "forged_runtime": null,
+    "schema_drift": null,
+    "refresh_before_prepare": null,
+    "refresh_after_prepare": null,
+    "dispatch_binding": null,
+    "extra_mcp": null,
+    "dynamic_tools": null,
+    "hosted_tools": null
+  },
+  "synthetic_mcp_receipt": null,
+  "process_proof": null,
+  "actual_compiled_proof": false,
+  "rust_build_count": 1,
+  "rust_build_seconds": 642.1814258400001,
+  "build_exit_code": 101,
+  "failure": "E0728: synchronous refresh_mcp_servers contains await",
+  "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37191902202",
+  "artifact_id": 11299755845,
+  "raw_artifact_hashes": {
+    "result.json": "6f24766dba786ec1f71938f2367fffa90f239e37aab260ccd3d2efb6595839c3",
+    "build.jsonl": "03d19efc784cf8696da0beeaef7cfaeef02310a110f76cf5276335e25851b237",
+    "build.stderr": "3e1215e40dbf7f24e19c6c653dd0d1a4a406c58c5df9b77d6e39680de1b44e9a"
+  },
+  "remaining": [
+    "finish synchronous refresh caller integration",
+    "complete launch/config/project/state-root attestation and path normalization",
+    "complete adversarial matrix",
+    "use actual handler dispatch and prove no second synthetic send, not just an error result",
+    "exact host process/config metadata observation"
+  ],
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "codex_internal_retries": null
+}

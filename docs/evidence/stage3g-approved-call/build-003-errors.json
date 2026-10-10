@@ -1,0 +1,11 @@
+{
+  "phase": "test",
+  "compile_errors": [],
+  "test_exit_code": 101,
+  "error": "approved binding must contain exactly one tool",
+  "warning": "proceeding, even though we could not create PATH aliases: Permission denied (os error 13)",
+  "root_cause": null,
+  "observed_binding_tool_count": null,
+  "exact_failing_call_site": null,
+  "note": "Error text locates approve_call cardinality guard. Multiple call sites exist; stdout has no per-scenario progress, so do not assert an exact B lifecycle point or causal relationship to PATH warning."
+}

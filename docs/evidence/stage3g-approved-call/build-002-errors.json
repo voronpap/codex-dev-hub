@@ -1,0 +1,432 @@
+[
+  {
+    "rendered": "error[E0599]: no function or associated item named `default` found for struct `ExtensionData` in the current scope\n    --> core/src/tools/spec_plan_tests.rs:3466:33\n     |\n3466 |                 &ExtensionData::default(),\n     |                                 ^^^^^^^ function or associated item not found in `ExtensionData`\n     |\nnote: if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\n      ExtensionData::new\n      ExtensionData::new_with_init\n    --> ext/extension-api/src/state.rs:56:5\n     |\n  56 |     pub fn new(level_id: impl Into<String>) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n  61 |     pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n",
+    "$message_type": "diagnostic",
+    "children": [
+      {
+        "children": [],
+        "code": null,
+        "level": "note",
+        "message": "if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\nExtensionData::new\nExtensionData::new_with_init",
+        "rendered": null,
+        "spans": [
+          {
+            "byte_end": 1669,
+            "byte_start": 1622,
+            "column_end": 52,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 56,
+            "line_start": 56,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 52,
+                "highlight_start": 5,
+                "text": "    pub fn new(level_id: impl Into<String>) -> Self {"
+              }
+            ]
+          },
+          {
+            "byte_end": 1907,
+            "byte_start": 1825,
+            "column_end": 87,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 61,
+            "line_start": 61,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 87,
+                "highlight_start": 5,
+                "text": "    pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "level": "error",
+    "message": "no function or associated item named `default` found for struct `ExtensionData` in the current scope",
+    "spans": [
+      {
+        "byte_end": 123632,
+        "byte_start": 123625,
+        "column_end": 40,
+        "column_start": 33,
+        "expansion": null,
+        "file_name": "core/src/tools/spec_plan_tests.rs",
+        "is_primary": true,
+        "label": "function or associated item not found in `ExtensionData`",
+        "line_end": 3466,
+        "line_start": 3466,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 40,
+            "highlight_start": 33,
+            "text": "                &ExtensionData::default(),"
+          }
+        ]
+      }
+    ],
+    "code": {
+      "code": "E0599",
+      "explanation": "This error occurs when a method is used on a type which doesn't implement it:\n\nErroneous code example:\n\n```compile_fail,E0599\nstruct Mouth;\n\nlet x = Mouth;\nx.chocolate(); // error: no method named `chocolate` found for type `Mouth`\n               //        in the current scope\n```\n\nIn this case, you need to implement the `chocolate` method to fix the error:\n\n```\nstruct Mouth;\n\nimpl Mouth {\n    fn chocolate(&self) { // We implement the `chocolate` method here.\n        println!(\"Hmmm! I love chocolate!\");\n    }\n}\n\nlet x = Mouth;\nx.chocolate(); // ok!\n```\n"
+    }
+  },
+  {
+    "rendered": "error[E0599]: no function or associated item named `default` found for struct `ExtensionData` in the current scope\n    --> core/src/tools/spec_plan_tests.rs:3486:33\n     |\n3486 |                 &ExtensionData::default(),\n     |                                 ^^^^^^^ function or associated item not found in `ExtensionData`\n     |\nnote: if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\n      ExtensionData::new\n      ExtensionData::new_with_init\n    --> ext/extension-api/src/state.rs:56:5\n     |\n  56 |     pub fn new(level_id: impl Into<String>) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n  61 |     pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n",
+    "$message_type": "diagnostic",
+    "children": [
+      {
+        "children": [],
+        "code": null,
+        "level": "note",
+        "message": "if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\nExtensionData::new\nExtensionData::new_with_init",
+        "rendered": null,
+        "spans": [
+          {
+            "byte_end": 1669,
+            "byte_start": 1622,
+            "column_end": 52,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 56,
+            "line_start": 56,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 52,
+                "highlight_start": 5,
+                "text": "    pub fn new(level_id: impl Into<String>) -> Self {"
+              }
+            ]
+          },
+          {
+            "byte_end": 1907,
+            "byte_start": 1825,
+            "column_end": 87,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 61,
+            "line_start": 61,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 87,
+                "highlight_start": 5,
+                "text": "    pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "level": "error",
+    "message": "no function or associated item named `default` found for struct `ExtensionData` in the current scope",
+    "spans": [
+      {
+        "byte_end": 124280,
+        "byte_start": 124273,
+        "column_end": 40,
+        "column_start": 33,
+        "expansion": null,
+        "file_name": "core/src/tools/spec_plan_tests.rs",
+        "is_primary": true,
+        "label": "function or associated item not found in `ExtensionData`",
+        "line_end": 3486,
+        "line_start": 3486,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 40,
+            "highlight_start": 33,
+            "text": "                &ExtensionData::default(),"
+          }
+        ]
+      }
+    ],
+    "code": {
+      "code": "E0599",
+      "explanation": "This error occurs when a method is used on a type which doesn't implement it:\n\nErroneous code example:\n\n```compile_fail,E0599\nstruct Mouth;\n\nlet x = Mouth;\nx.chocolate(); // error: no method named `chocolate` found for type `Mouth`\n               //        in the current scope\n```\n\nIn this case, you need to implement the `chocolate` method to fix the error:\n\n```\nstruct Mouth;\n\nimpl Mouth {\n    fn chocolate(&self) { // We implement the `chocolate` method here.\n        println!(\"Hmmm! I love chocolate!\");\n    }\n}\n\nlet x = Mouth;\nx.chocolate(); // ok!\n```\n"
+    }
+  },
+  {
+    "rendered": "error[E0599]: no function or associated item named `default` found for struct `ExtensionData` in the current scope\n    --> core/src/tools/spec_plan_tests.rs:3552:29\n     |\n3552 |             &ExtensionData::default(),\n     |                             ^^^^^^^ function or associated item not found in `ExtensionData`\n     |\nnote: if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\n      ExtensionData::new\n      ExtensionData::new_with_init\n    --> ext/extension-api/src/state.rs:56:5\n     |\n  56 |     pub fn new(level_id: impl Into<String>) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n  61 |     pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n",
+    "$message_type": "diagnostic",
+    "children": [
+      {
+        "children": [],
+        "code": null,
+        "level": "note",
+        "message": "if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\nExtensionData::new\nExtensionData::new_with_init",
+        "rendered": null,
+        "spans": [
+          {
+            "byte_end": 1669,
+            "byte_start": 1622,
+            "column_end": 52,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 56,
+            "line_start": 56,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 52,
+                "highlight_start": 5,
+                "text": "    pub fn new(level_id: impl Into<String>) -> Self {"
+              }
+            ]
+          },
+          {
+            "byte_end": 1907,
+            "byte_start": 1825,
+            "column_end": 87,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 61,
+            "line_start": 61,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 87,
+                "highlight_start": 5,
+                "text": "    pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "level": "error",
+    "message": "no function or associated item named `default` found for struct `ExtensionData` in the current scope",
+    "spans": [
+      {
+        "byte_end": 127164,
+        "byte_start": 127157,
+        "column_end": 36,
+        "column_start": 29,
+        "expansion": null,
+        "file_name": "core/src/tools/spec_plan_tests.rs",
+        "is_primary": true,
+        "label": "function or associated item not found in `ExtensionData`",
+        "line_end": 3552,
+        "line_start": 3552,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 36,
+            "highlight_start": 29,
+            "text": "            &ExtensionData::default(),"
+          }
+        ]
+      }
+    ],
+    "code": {
+      "code": "E0599",
+      "explanation": "This error occurs when a method is used on a type which doesn't implement it:\n\nErroneous code example:\n\n```compile_fail,E0599\nstruct Mouth;\n\nlet x = Mouth;\nx.chocolate(); // error: no method named `chocolate` found for type `Mouth`\n               //        in the current scope\n```\n\nIn this case, you need to implement the `chocolate` method to fix the error:\n\n```\nstruct Mouth;\n\nimpl Mouth {\n    fn chocolate(&self) { // We implement the `chocolate` method here.\n        println!(\"Hmmm! I love chocolate!\");\n    }\n}\n\nlet x = Mouth;\nx.chocolate(); // ok!\n```\n"
+    }
+  },
+  {
+    "rendered": "error[E0599]: no function or associated item named `default` found for struct `ExtensionData` in the current scope\n    --> core/src/tools/spec_plan_tests.rs:3650:33\n     |\n3650 |                 &ExtensionData::default(),\n     |                                 ^^^^^^^ function or associated item not found in `ExtensionData`\n     |\nnote: if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\n      ExtensionData::new\n      ExtensionData::new_with_init\n    --> ext/extension-api/src/state.rs:56:5\n     |\n  56 |     pub fn new(level_id: impl Into<String>) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n  61 |     pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n",
+    "$message_type": "diagnostic",
+    "children": [
+      {
+        "children": [],
+        "code": null,
+        "level": "note",
+        "message": "if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\nExtensionData::new\nExtensionData::new_with_init",
+        "rendered": null,
+        "spans": [
+          {
+            "byte_end": 1669,
+            "byte_start": 1622,
+            "column_end": 52,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 56,
+            "line_start": 56,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 52,
+                "highlight_start": 5,
+                "text": "    pub fn new(level_id: impl Into<String>) -> Self {"
+              }
+            ]
+          },
+          {
+            "byte_end": 1907,
+            "byte_start": 1825,
+            "column_end": 87,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 61,
+            "line_start": 61,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 87,
+                "highlight_start": 5,
+                "text": "    pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "level": "error",
+    "message": "no function or associated item named `default` found for struct `ExtensionData` in the current scope",
+    "spans": [
+      {
+        "byte_end": 130917,
+        "byte_start": 130910,
+        "column_end": 40,
+        "column_start": 33,
+        "expansion": null,
+        "file_name": "core/src/tools/spec_plan_tests.rs",
+        "is_primary": true,
+        "label": "function or associated item not found in `ExtensionData`",
+        "line_end": 3650,
+        "line_start": 3650,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 40,
+            "highlight_start": 33,
+            "text": "                &ExtensionData::default(),"
+          }
+        ]
+      }
+    ],
+    "code": {
+      "code": "E0599",
+      "explanation": "This error occurs when a method is used on a type which doesn't implement it:\n\nErroneous code example:\n\n```compile_fail,E0599\nstruct Mouth;\n\nlet x = Mouth;\nx.chocolate(); // error: no method named `chocolate` found for type `Mouth`\n               //        in the current scope\n```\n\nIn this case, you need to implement the `chocolate` method to fix the error:\n\n```\nstruct Mouth;\n\nimpl Mouth {\n    fn chocolate(&self) { // We implement the `chocolate` method here.\n        println!(\"Hmmm! I love chocolate!\");\n    }\n}\n\nlet x = Mouth;\nx.chocolate(); // ok!\n```\n"
+    }
+  },
+  {
+    "rendered": "error[E0599]: no function or associated item named `default` found for struct `ExtensionData` in the current scope\n    --> core/src/tools/spec_plan_tests.rs:3670:29\n     |\n3670 |             &ExtensionData::default(),\n     |                             ^^^^^^^ function or associated item not found in `ExtensionData`\n     |\nnote: if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\n      ExtensionData::new\n      ExtensionData::new_with_init\n    --> ext/extension-api/src/state.rs:56:5\n     |\n  56 |     pub fn new(level_id: impl Into<String>) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n  61 |     pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {\n     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n",
+    "$message_type": "diagnostic",
+    "children": [
+      {
+        "children": [],
+        "code": null,
+        "level": "note",
+        "message": "if you're trying to build a new `ExtensionData` consider using one of the following associated functions:\nExtensionData::new\nExtensionData::new_with_init",
+        "rendered": null,
+        "spans": [
+          {
+            "byte_end": 1669,
+            "byte_start": 1622,
+            "column_end": 52,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 56,
+            "line_start": 56,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 52,
+                "highlight_start": 5,
+                "text": "    pub fn new(level_id: impl Into<String>) -> Self {"
+              }
+            ]
+          },
+          {
+            "byte_end": 1907,
+            "byte_start": 1825,
+            "column_end": 87,
+            "column_start": 5,
+            "expansion": null,
+            "file_name": "ext/extension-api/src/state.rs",
+            "is_primary": true,
+            "label": null,
+            "line_end": 61,
+            "line_start": 61,
+            "suggested_replacement": null,
+            "suggestion_applicability": null,
+            "text": [
+              {
+                "highlight_end": 87,
+                "highlight_start": 5,
+                "text": "    pub fn new_with_init(level_id: impl Into<String>, init: ExtensionDataInit) -> Self {"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "level": "error",
+    "message": "no function or associated item named `default` found for struct `ExtensionData` in the current scope",
+    "spans": [
+      {
+        "byte_end": 131450,
+        "byte_start": 131443,
+        "column_end": 36,
+        "column_start": 29,
+        "expansion": null,
+        "file_name": "core/src/tools/spec_plan_tests.rs",
+        "is_primary": true,
+        "label": "function or associated item not found in `ExtensionData`",
+        "line_end": 3670,
+        "line_start": 3670,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 36,
+            "highlight_start": 29,
+            "text": "            &ExtensionData::default(),"
+          }
+        ]
+      }
+    ],
+    "code": {
+      "code": "E0599",
+      "explanation": "This error occurs when a method is used on a type which doesn't implement it:\n\nErroneous code example:\n\n```compile_fail,E0599\nstruct Mouth;\n\nlet x = Mouth;\nx.chocolate(); // error: no method named `chocolate` found for type `Mouth`\n               //        in the current scope\n```\n\nIn this case, you need to implement the `chocolate` method to fix the error:\n\n```\nstruct Mouth;\n\nimpl Mouth {\n    fn chocolate(&self) { // We implement the `chocolate` method here.\n        println!(\"Hmmm! I love chocolate!\");\n    }\n}\n\nlet x = Mouth;\nx.chocolate(); // ok!\n```\n"
+    }
+  }
+]

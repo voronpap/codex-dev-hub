@@ -1,0 +1,293 @@
+{
+  "build_id": "build-005",
+  "binding_classification": "PERMISSION_FIX_RESOLVES_ZERO",
+  "production_classification": "UNKNOWN",
+  "implementation_commit": "1ec0c325486ae9a96467c4dfb1b43dd32328c1c5",
+  "pinned_source": "4607249e430dac1c961df4dc615beae88e33cec8",
+  "patch_hash": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "harness_hash": "03b5fe833c7b177579e0b96961ce6be303b80928ddc532ddc3865b71b371ceff",
+  "derived_lock_hash": "a5369b7f5d713d21c9f2481afdc27b7577e45d4b713fc84a4ab03c2833c4d48d",
+  "run_url": "https://github.com/voronpap/codex-dev-hub/actions/runs/37219997165",
+  "compile_exit": 0,
+  "test_exit": 0,
+  "build_duration_seconds": 817.697410516,
+  "test_duration_seconds": 0.40475303300001997,
+  "test_invocations": 1,
+  "permission_diagnostic": {
+    "authority_source": "turn_environment_profile",
+    "enabled": true,
+    "environment_id": "local",
+    "explicit_environment_match": true,
+    "is_local_environment": true,
+    "present_before_materialization": false,
+    "present_before_replace": true,
+    "server_source": "Config"
+  },
+  "server_diagnostics": [
+    {
+      "apps_present": false,
+      "configured_keys": [
+        "devhub_delegate"
+      ],
+      "effective_keys": [
+        "devhub_delegate"
+      ],
+      "expected_keys": [
+        "devhub_delegate"
+      ],
+      "materialized_catalog_keys": [
+        "devhub_delegate"
+      ],
+      "other_keys": [],
+      "plugin_keys": []
+    }
+  ],
+  "binding_diagnostics": [
+    {
+      "has_servers": true,
+      "target_prepare_call_present": true,
+      "target_tool_info_present": true,
+      "tools": [
+        {
+          "callable_name": "devhub_delegate",
+          "callable_namespace": "mcp__devhub_delegate",
+          "model_visible": true,
+          "raw_tool": "devhub_delegate",
+          "server_name": "devhub_delegate",
+          "server_origin": "stdio",
+          "ui_visibility": null
+        }
+      ],
+      "tools_len": 1
+    },
+    {
+      "has_servers": true,
+      "target_prepare_call_present": true,
+      "target_tool_info_present": true,
+      "tools": [
+        {
+          "callable_name": "devhub_delegate",
+          "callable_namespace": "mcp__devhub_delegate",
+          "model_visible": true,
+          "raw_tool": "devhub_delegate",
+          "server_name": "devhub_delegate",
+          "server_origin": "stdio",
+          "ui_visibility": null
+        }
+      ],
+      "tools_len": 1
+    },
+    {
+      "has_servers": true,
+      "target_prepare_call_present": true,
+      "target_tool_info_present": true,
+      "tools": [
+        {
+          "callable_name": "devhub_delegate",
+          "callable_namespace": "mcp__devhub_delegate",
+          "model_visible": true,
+          "raw_tool": "devhub_delegate",
+          "server_name": "devhub_delegate",
+          "server_origin": "stdio",
+          "ui_visibility": null
+        }
+      ],
+      "tools_len": 1
+    },
+    {
+      "has_servers": true,
+      "target_prepare_call_present": true,
+      "target_tool_info_present": true,
+      "tools": [
+        {
+          "callable_name": "devhub_delegate",
+          "callable_namespace": "mcp__devhub_delegate",
+          "model_visible": true,
+          "raw_tool": "devhub_delegate",
+          "server_name": "devhub_delegate",
+          "server_origin": "stdio",
+          "ui_visibility": null
+        }
+      ],
+      "tools_len": 1
+    }
+  ],
+  "last_stage": "all_subset_assertions_completed",
+  "stage_markers": [
+    "A_assertions_completed",
+    "permission_materialized",
+    "B_runtime_replace",
+    "initial_binding_before_first_approve",
+    "initial_router_admission",
+    "B_visibility_completed",
+    "initial_approve",
+    "initial_approve_completed",
+    "schema_mismatch_probe",
+    "schema_mismatch_completed",
+    "apps_rejection_probe",
+    "initial_synthetic_call",
+    "sync_marker_call",
+    "sync_marker_completed",
+    "publication_race",
+    "stale_call_after_publish",
+    "publication_completed_old_call_denied",
+    "old_host_admission_rejection",
+    "old_host_admission_rejected",
+    "fresh_router_admission",
+    "fresh_binding_approve",
+    "shutdown_race",
+    "stale_call_after_shutdown",
+    "shutdown_completed_old_call_denied",
+    "republish",
+    "newest_binding_approve",
+    "all_subset_assertions_completed"
+  ],
+  "actual_scenarios": {
+    "absent_apps_server_rejected": true,
+    "approved_first": null,
+    "catalog_refresh_after_preparation": null,
+    "dynamic_hosted_adversarial": null,
+    "expected_schema_mismatch": true,
+    "extra_mcp": null,
+    "forged_runtime": null,
+    "fresh_binding_requires_fresh_host_admission": true,
+    "handler_dispatch": null,
+    "ordinary_no_policy_empty_ceiling": true,
+    "publication_waits_for_call": true,
+    "publication_wins_old_call_denied": true,
+    "republish_does_not_revive_old_call": true,
+    "shutdown_waits_for_call": true,
+    "shutdown_wins_old_call_denied": true,
+    "sync_marker_preserves_call": true,
+    "wrong_first": null,
+    "wrong_origin_only": null
+  },
+  "arms": [
+    {
+      "arm": "A",
+      "mode": "code_mode_only",
+      "nested": {},
+      "registered": [],
+      "visible": []
+    },
+    {
+      "arm": "B",
+      "mode": "code_mode_only",
+      "nested": {},
+      "registered": [
+        "mcp__devhub_delegatedevhub_delegate"
+      ],
+      "visible": [
+        {
+          "description": "Tools in the mcp__devhub_delegate namespace.",
+          "name": "mcp__devhub_delegate",
+          "tools": [
+            {
+              "description": "",
+              "name": "devhub_delegate",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "acceptance_criteria": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "allow_cloud": {
+                    "type": "boolean"
+                  },
+                  "instructions": {
+                    "type": "string"
+                  },
+                  "privacy": {
+                    "enum": [
+                      "local_only",
+                      "project_private",
+                      "public",
+                      "redacted"
+                    ],
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "request_key": {
+                    "type": "string"
+                  },
+                  "require_citations": {
+                    "type": "boolean"
+                  },
+                  "schema_version": {
+                    "enum": [
+                      1
+                    ],
+                    "type": "integer"
+                  },
+                  "task_class": {
+                    "enum": [
+                      "summarize",
+                      "explain",
+                      "extract"
+                    ],
+                    "type": "string"
+                  },
+                  "task_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "task_id",
+                  "request_key",
+                  "instructions",
+                  "acceptance_criteria",
+                  "query",
+                  "project"
+                ],
+                "type": "object"
+              },
+              "strict": false,
+              "type": "function"
+            }
+          ],
+          "type": "namespace"
+        }
+      ]
+    }
+  ],
+  "dispatch_binding": {
+    "endpoint_identity": "approved-endpoint",
+    "generation_identity": "scenario-local G0/G1/G2, behavior checked; no runtime ID exported",
+    "handler_path": false,
+    "prepared_call_path": true,
+    "raw_tool": "devhub_delegate",
+    "server": "devhub_delegate"
+  },
+  "synthetic_receipt_count": 5,
+  "process_proof": null,
+  "artifact_files_sha256": {
+    "result.json": "9def09dcad5651d98bad5ed05b105897e85e22457ad583a074564dcb877ecd0d",
+    "build.jsonl": "64e1d95acd21574bd4fa5b6ac10f5802a42a1884ff94bffd00db7011f4d2f0e1",
+    "build.stderr": "3df2ce36526b81fc0c8afd58cf27bfdd0f56f40b3fecf1251c70230058456042",
+    "test.stdout": "95a89c2592943bda6fc97ba3062fae6a93c2a0f526e69eb6853e7c40994e1a81",
+    "test.stderr": "f127f2eb675d15dad52174f84a1fc14d46dbb103f6b2529ddfbed90d0fa3bb89"
+  },
+  "historical_evidence_unchanged": true,
+  "production_patch_unchanged": true,
+  "shipping_runtime_modified": false,
+  "stage_3g_c": "OPEN",
+  "stage_3g": "OPEN",
+  "execution_ready": false,
+  "real_codex_executions": 0,
+  "provider_sends": 0,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "build_006_run": false,
+  "cheap_ci": "https://github.com/voronpap/codex-dev-hub/actions/runs/37219861058"
+}

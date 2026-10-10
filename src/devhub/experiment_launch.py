@@ -30,6 +30,7 @@ from devhub.process_capture import CapturedStreamV1, ProcessCapture, capture_pro
 DOCKER = ("docker", "--host=unix:///var/run/docker.sock")
 TASK_PAYLOAD_BYTE_LIMIT = 1024 * 1024
 FINAL_OUTPUT_BYTE_LIMIT = 1024 * 1024
+STAGE3G_HOST_MANIFEST_CONTAINER = "/stage3g-host.json"
 
 
 class ContainerRuntimeSpec(Contract):
@@ -260,6 +261,10 @@ def codex_argv(session: PlannedSession, protocol: ExperimentProtocol) -> list[st
         "--json",
         "--color",
         "never",
+        "--devhub-stage3g-host-manifest",
+        STAGE3G_HOST_MANIFEST_CONTAINER,
+        "--devhub-stage3g-arm",
+        session.arm.lower(),
         "-o",
         "/capture/final.txt",
     ]
@@ -298,6 +303,7 @@ def container_command(
     capture: Path,
     bootstrap: Path,
     auth: Path,
+    host_manifest: Path,
 ) -> list[str]:
     expected = {"proxy.sock"} | ({"mcp.sock"} if session.arm == "B" else set())
     if {p.name for p in bridge.iterdir()} != expected:
@@ -348,6 +354,7 @@ def container_command(
         *mount(capture, "/capture", False),
         *mount(bootstrap, "/bootstrap.py"),
         *mount(auth, "/auth.json"),
+        *mount(host_manifest, STAGE3G_HOST_MANIFEST_CONTAINER),
         "--entrypoint",
         "python3",
         runtime.image_id,
@@ -472,6 +479,7 @@ def launch_container(
     capture: Path,
     bootstrap: Path,
     auth: Path,
+    host_manifest: Path,
     destination: Path,
     prompt: bytes,
     *,
@@ -494,7 +502,9 @@ def launch_container(
         raise ValueError("Reviewed environment/protocol binding changed")
     if not 0 < len(prompt) <= TASK_PAYLOAD_BYTE_LIMIT:
         raise ValueError("Task payload exceeds reviewed control-channel limit")
-    command = container_command(session, runtime, control, bridge, capture, bootstrap, auth)
+    command = container_command(
+        session, runtime, control, bridge, capture, bootstrap, auth, host_manifest
+    )
     destination.mkdir(parents=True, exist_ok=False)
     # Durable attempt claim before exposing the packet. Never resume/reuse this directory.
     durable_claim(

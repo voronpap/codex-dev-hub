@@ -1,0 +1,17 @@
+
+running 1 test
+DEVHUB_STAGE=A_assertions_completed
+DEVHUB_SERVER_DIAGNOSTIC={"apps_present":false,"configured_keys":["devhub_delegate"],"effective_keys":["devhub_delegate"],"expected_keys":["devhub_delegate"],"materialized_catalog_keys":["devhub_delegate"],"other_keys":[],"plugin_keys":[]}
+DEVHUB_STAGE=B_runtime_replace
+DEVHUB_STAGE=initial_binding_before_first_approve
+DEVHUB_BINDING_DIAGNOSTIC={"has_servers":true,"target_prepare_call_present":false,"target_tool_info_present":false,"tools":[],"tools_len":0}
+DEVHUB_STAGE=initial_router_admission
+test tools::spec_plan::tests::devhub_production_admission_path ... FAILED
+
+failures:
+
+failures:
+    tools::spec_plan::tests::devhub_production_admission_path
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2528 filtered out; finished in 0.20s
+

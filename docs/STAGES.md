@@ -39,5 +39,7 @@ Stage 3G OPEN. Real benchmark not started. real_codex_executions = 0;
 provider_sends = 0; execution_ready = false. Stage 3G-C qualifies the exact runtime
 without executing benchmark fixtures or provider inference.
 
-Stage 3G-C OPEN: exact runtime qualification implementation is under review.
-See [qualification](STAGE3G-C.md). execution_ready = false; no real benchmark started.
+Stage 3G-C OPEN: Build-020 independently qualified production host activation and
+pre-sampling Default/A/B visibility. Exact runtime-image and same-environment
+qualification remain incomplete. See [qualification](STAGE3G-C.md).
+execution_ready = false; no real benchmark started.

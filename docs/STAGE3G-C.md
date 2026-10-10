@@ -113,6 +113,21 @@ historical evidence; no attempt/permit reset, rerun, resume or fork.
 
 ## Current limits and CI
 
+Build-020 preserves the historical Candidate B patch and adds the reviewed shipping
+host integration. Independent review accepted the actual same-binary process proof:
+ordinary Codex retained `AllowedTools=None`; Arm A used `Some([])` and exposed no
+tools; Arm B used `Some([mcp__devhub_delegate.devhub_delegate])` and exposed only
+that delegate. The production-host activation/process-visibility sub-gate is
+`PRODUCTION_HOST_QUALIFIED`.
+
+The existing benchmark runtime image still contains the official unpatched release,
+not the retained Build-020 executable. Its isolation/effects/config receipts therefore
+cannot authorize the patched host, and the exact-image configuration gate still
+reports `cli_config=false` with unresolved `apply_patch`/`write_file` mapping. A new
+acyclic qualification context must bind the Build-020 binary into the exact runtime
+image and collect the complete fixed receipt set on one intended environment. Stage
+3G-C and Stage 3G remain open and `execution_ready=false`.
+
 Local Docker Desktop Linux daemon remains unavailable after startup attempts; its
 named pipe is absent. Therefore no local runtime image/environment can yet be
 qualified. The dedicated Linux qualification workflow builds exact images and uses
