@@ -262,6 +262,7 @@ def inspect_runtime_environment(
 ) -> PythonRuntimeEnvironmentV1:
     """Inspect a dedicated environment under isolated Python semantics."""
 
+    interpreter = Path(os.path.abspath(interpreter))
     if not interpreter.is_file():
         raise ValueError("Runtime interpreter must resolve to a regular file")
     for path, label in ((wheel, "wheel"), (lock_path, "lock")):
@@ -383,7 +384,10 @@ def verify_runtime_against_expected(
         receipt_kind=header.receipt_kind,
         qualification_context_id=header.qualification_context_id,
         environment_instance_id=header.environment_instance_id,
-        interpreter_path=str(interpreter.resolve(strict=True)),
+        # Preserve the absolute venv launcher locator. Resolving its symlink to the
+        # base interpreter would make `-I` discard this reviewed environment's
+        # site-packages even though executable bytes still matched.
+        interpreter_path=str(Path(os.path.abspath(interpreter))),
         wheel_path=str(wheel.resolve(strict=True)),
         lock_path=str(lock_path.resolve(strict=True)),
         interpreter_sha256=payload.python_executable_sha256,

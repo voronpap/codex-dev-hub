@@ -10,6 +10,7 @@ from devhub.controller import Denied, ResourceController
 from devhub.ledger import Ledger
 from devhub.local import LocalConfig, LocalHandoff, LocalRuntime, LocalTask, now_ms
 from devhub.models import Contract, Identifier
+from devhub.ollama_transport import OllamaBridgeAuthorityV1
 from devhub.output import OutputPolicy
 from devhub.usage import FooterMode
 
@@ -124,8 +125,11 @@ class DelegationResult(Contract):
 
 
 class DelegationRuntime:
-    def __init__(self, config: DelegationConfig) -> None:
+    def __init__(
+        self, config: DelegationConfig, *, ollama_bridge: OllamaBridgeAuthorityV1 | None = None
+    ) -> None:
         self.config = config
+        self.ollama_bridge = ollama_bridge
         self.project = config.profiles[0].config.project
         state = Path(config.profiles[0].config.state_root)
         self.ledger = Ledger(
@@ -183,15 +187,24 @@ class DelegationRuntime:
             started = now_ms()
             candidate_resource: str | None = None
             try:
-                runtime: LocalRuntime | CloudRuntime = (
-                    LocalRuntime(
+                if isinstance(profile.config, LocalConfig):
+                    if self.ollama_bridge is None:
+                        runtime: LocalRuntime | CloudRuntime = LocalRuntime(
+                            profile.config,
+                            output_policy=output_policy,
+                            recover_on_startup=False,
+                        )
+                    else:
+                        runtime = LocalRuntime(
+                            profile.config,
+                            output_policy=output_policy,
+                            recover_on_startup=False,
+                            ollama_bridge=self.ollama_bridge,
+                        )
+                else:
+                    runtime = CloudRuntime(
                         profile.config, output_policy=output_policy, recover_on_startup=False
                     )
-                    if isinstance(profile.config, LocalConfig)
-                    else CloudRuntime(
-                        profile.config, output_policy=output_policy, recover_on_startup=False
-                    )
-                )
                 candidate_resource = runtime.resource
                 handoff = runtime.run(task)
             except Denied:

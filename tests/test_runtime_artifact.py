@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import sys
 import zipfile
 from pathlib import Path
 
@@ -190,6 +191,7 @@ def test_runtime_receipt_binds_wheel_lock_interpreter_and_flat_header(tmp_path, 
     assert receipt.receipt_kind == "python_runtime"
     assert "header" not in receipt.model_dump()
     assert receipt.interpreter_sha256 == file_sha256(interpreter)
+    assert receipt.interpreter_path == str(interpreter.absolute())
     assert receipt.wheel_sha256 == file_sha256(wheel)
     assert receipt.lock_path == str(lock.resolve())
 
@@ -202,6 +204,50 @@ def test_runtime_receipt_binds_wheel_lock_interpreter_and_flat_header(tmp_path, 
         wrong = expected.model_copy(update={field: "f" * 64})
         with pytest.raises(ValueError, match="differs from qualification context"):
             verify_runtime_against_expected(interpreter, wheel, lock, wrong, header)
+
+    wrong_record = observed(module, interpreter)
+    codex = next(item for item in wrong_record["distributions"] if item["name"] == "codex-dev-hub")
+    codex["record_sha256"] = "f" * 64
+    install_inspection(monkeypatch, wrong_record)
+    with pytest.raises(ValueError, match="differs from qualification context"):
+        verify_runtime_against_expected(interpreter, wheel, lock, expected, header)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="venv launcher is not a symlink on Windows")
+def test_runtime_receipt_preserves_venv_launcher_instead_of_resolving_base_python(
+    tmp_path, monkeypatch
+):
+    _, interpreter, module, wheel, lock = runtime_files(tmp_path)
+    interpreter.unlink()
+    interpreter.symlink_to(Path(sys.executable))
+    install_inspection(monkeypatch, observed(module, interpreter))
+    environment = inspect_runtime_environment(interpreter, wheel, lock, "a" * 40)
+    evidence = PythonRuntimeArtifactEvidenceV1(
+        implementation_commit="a" * 40,
+        source_archive_sha256="0" * 64,
+        wheel_filename=wheel.name,
+        wheel_sha256=file_sha256(wheel),
+        package_version="0.1.0",
+        dependency_lock_sha256=file_sha256(lock),
+        build_python_version="3.12.11",
+        build_python_executable_sha256="1" * 64,
+        build_tool="uv 0.8.22",
+        build_tool_sha256="2" * 64,
+        runtime_environment=environment,
+    )
+    receipt = verify_runtime_against_expected(
+        interpreter,
+        wheel,
+        lock,
+        python_runtime_expected(evidence),
+        QualificationReceiptHeaderV1(
+            receipt_kind="python_runtime",
+            qualification_context_id="3" * 64,
+            environment_instance_id="4" * 32,
+        ),
+    )
+    assert receipt.interpreter_path == str(interpreter.absolute())
+    assert Path(receipt.interpreter_path).resolve() == Path(sys.executable).resolve()
 
 
 def test_python_runtime_receipt_rejects_wrong_kind():

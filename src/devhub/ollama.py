@@ -19,6 +19,7 @@ from devhub.brain_models import Digest, sha256
 from devhub.context import canonical, render_payload
 from devhub.context_models import ContextPackage
 from devhub.models import Contract
+from devhub.ollama_transport import OllamaBridgeAuthorityV1, UnixHTTPConnection
 from devhub.output import OutputPolicy, system_instruction
 
 PATTERN = (
@@ -65,15 +66,22 @@ class OllamaConfig(Contract):
 
 
 class LocalHTTP:
-    def __init__(self, config: OllamaConfig) -> None:
+    def __init__(
+        self, config: OllamaConfig, *, bridge: OllamaBridgeAuthorityV1 | None = None
+    ) -> None:
         self.config = config
+        self.bridge = bridge
 
     def request(self, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         if path not in {"/api/version", "/api/tags", "/api/show", "/api/generate"}:
             raise OllamaError("endpoint_denied")
         url = urlsplit(self.config.endpoint)
-        connection = http.client.HTTPConnection(
-            url.hostname or "", url.port, timeout=self.config.timeout_seconds
+        connection = (
+            UnixHTTPConnection(self.bridge, self.config.timeout_seconds)
+            if self.bridge is not None
+            else http.client.HTTPConnection(
+                url.hostname or "", url.port, timeout=self.config.timeout_seconds
+            )
         )
         try:
             connection.request(
@@ -164,10 +172,16 @@ class PreparedRequest(Contract):
 
 
 class OllamaAdapter:
-    def __init__(self, config: OllamaConfig, *, output_policy: OutputPolicy | None = None) -> None:
+    def __init__(
+        self,
+        config: OllamaConfig,
+        *,
+        output_policy: OutputPolicy | None = None,
+        bridge: OllamaBridgeAuthorityV1 | None = None,
+    ) -> None:
         self.output_policy = output_policy
         self.config = config
-        self.http = LocalHTTP(config)
+        self.http = LocalHTTP(config, bridge=bridge)
 
     def inspect(self) -> tuple[ModelEvidence, QwenTokenizer]:
         if self.http.request("/api/version").get("version") != self.config.version:

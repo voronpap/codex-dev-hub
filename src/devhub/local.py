@@ -18,6 +18,7 @@ from devhub.execution import dispatch_execution, reserve_execution, settle_execu
 from devhub.ledger import Ledger, LedgerIdentityCoreV1
 from devhub.models import Contract, Identifier
 from devhub.ollama import OllamaAdapter, OllamaConfig, OllamaError
+from devhub.ollama_transport import OllamaBridgeAuthorityV1
 from devhub.output import OutputPolicy, validate_output
 from devhub.registry import CapabilityRecord
 from devhub.resources import Bucket, ResourcePolicy
@@ -94,6 +95,7 @@ class LocalRuntime:
         *,
         output_policy: OutputPolicy | None = None,
         recover_on_startup: bool = True,
+        ollama_bridge: OllamaBridgeAuthorityV1 | None = None,
     ) -> None:
         self.output_policy = output_policy
         self.config = config
@@ -108,7 +110,9 @@ class LocalRuntime:
         self.scope = self.brain.scope(config.project)
         self.builder = ContextBuilder(self.brain)
         self.core = ResourceController(ledger, allow_local_execution=True)
-        self.adapter = OllamaAdapter(config.ollama, output_policy=output_policy)
+        self.adapter = OllamaAdapter(
+            config.ollama, output_policy=output_policy, bridge=ollama_bridge
+        )
         self.resource = local_resource_id(config.ollama)
         self.buckets = {}
         for unit in ("requests", "input_tokens", "output_tokens", "total_tokens"):

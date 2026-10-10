@@ -4,7 +4,7 @@ import json
 import shutil
 import stat
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +16,7 @@ from devhub.qualification import (
     OllamaNetworkIsolationObservationV1,
     QualificationContextV1,
 )
+from devhub.runtime_artifact import PythonRuntimeReceiptV1
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -309,6 +310,7 @@ def test_ledger_qualifier_rejects_symlink_before_database_read(tmp_path, monkeyp
 def test_ollama_qualifier_main_paths(tmp_path, monkeypatch):
     _, manifest, _ = qualification_tree(tmp_path / "tree")
     context_path = tmp_path / "tree" / manifest.payload.context.relative_path
+    context = QualificationContextV1.model_validate_json(context_path.read_bytes())
     executable = tmp_path / "ollama"
     executable.write_bytes(b"reviewed-ollama")
     executable_sha = hashlib.sha256(executable.read_bytes()).hexdigest()
@@ -375,6 +377,54 @@ def test_ollama_qualifier_main_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(metadata_script, "_archive_executable_sha256", lambda _: executable_sha)
     environ = tmp_path / "environ"
     environ.write_bytes(b"OLLAMA_NO_CLOUD=1\0OLLAMA_HOST=127.0.0.1:11434\0")
+    bridge_environ = tmp_path / "bridge-environ"
+    bridge_environ.write_bytes(b"PATH=/usr/bin\0")
+    interpreter = tmp_path / "python"
+    interpreter.write_bytes(b"python")
+    logical_interpreter = "/opt/devfabric-runtime/bin/python"
+    wheel = tmp_path / "devhub.whl"
+    wheel.write_bytes(b"wheel")
+    lock = tmp_path / "uv.lock"
+    lock.write_bytes(b"lock")
+    runtime_receipt = PythonRuntimeReceiptV1(
+        receipt_kind="python_runtime",
+        qualification_context_id=context.qualification_context_id,
+        environment_instance_id=context.payload.environment_instance_id,
+        interpreter_path=logical_interpreter,
+        wheel_path=str(wheel),
+        lock_path=str(lock),
+        interpreter_sha256="3" * 64,
+        python_implementation="CPython",
+        python_version="3.12.11",
+        wheel_sha256=context.payload.implementation.python_runtime.wheel_sha256,
+        dependency_lock_sha256=(
+            context.payload.implementation.python_runtime.dependency_lock_sha256
+        ),
+        module_origin="lib/python3.12/site-packages/devhub/__init__.py",
+        runtime_environment_id=context.payload.implementation.python_runtime.runtime_environment_id,
+    )
+    runtime_receipt_path = tmp_path / "python-runtime.json"
+    runtime_receipt_path.write_text(runtime_receipt.model_dump_json())
+    module = tmp_path / "ollama_transport.py"
+    module.write_bytes(b"bridge")
+    bridge_socket = tmp_path / "bridge" / "ollama.sock"
+    bridge_socket.parent.mkdir(mode=0o700)
+    logical_bridge_socket = "/run/devfabric/ollama.sock"
+    bridge_cmdline = tmp_path / "bridge-cmdline"
+    bridge_cmdline.write_bytes(
+        b"\0".join(
+            item.encode()
+            for item in (
+                logical_interpreter,
+                "-I",
+                "-m",
+                "devhub.ollama_transport",
+                "--socket",
+                logical_bridge_socket,
+                "",
+            )
+        )
+    )
     original_path = metadata_script.Path
 
     def mapped_path(value):
@@ -382,14 +432,62 @@ def test_ollama_qualifier_main_paths(tmp_path, monkeypatch):
             return executable
         if str(value) == "/proc/123/environ":
             return environ
+        if str(value) == "/proc/124/cmdline":
+            return bridge_cmdline
+        if str(value) == "/proc/124/exe":
+            return interpreter
+        if str(value) in (logical_interpreter, logical_bridge_socket):
+            return PurePosixPath(str(value))
         return original_path(value)
 
     monkeypatch.setattr(metadata_script, "Path", mapped_path)
     monkeypatch.setattr(metadata_script.os, "readlink", lambda _: "net:[123]")
+    monkeypatch.setattr(
+        metadata_script,
+        "_environment",
+        lambda pid: (
+            {"OLLAMA_NO_CLOUD": "1", "OLLAMA_HOST": "127.0.0.1:11434"}
+            if pid == 123
+            else {"PATH": "/usr/bin"}
+        ),
+    )
+    monkeypatch.setattr(metadata_script, "_start_time_ticks", lambda pid: 1000 + pid)
+    monkeypatch.setattr(metadata_script, "_process_uid", lambda _: 1000)
+    monkeypatch.setattr(
+        metadata_script,
+        "_bridge_module",
+        lambda _: ("lib/python3.12/site-packages/devhub/ollama_transport.py", module),
+    )
+    original_lstat = metadata_script.os.lstat
+    logical_socket_path = PurePosixPath(logical_bridge_socket)
+
+    def fake_lstat(path):
+        if path == logical_socket_path.parent:
+            return SimpleNamespace(st_mode=0o40700, st_uid=1000, st_dev=1, st_ino=1)
+        if path == logical_socket_path:
+            return SimpleNamespace(st_mode=0o140600, st_uid=1000, st_dev=1, st_ino=2)
+        return original_lstat(path)
+
+    monkeypatch.setattr(metadata_script.os, "lstat", fake_lstat)
+    monkeypatch.setattr(metadata_script.os.path, "abspath", lambda _: logical_bridge_socket)
+    monkeypatch.setattr(metadata_script, "validate_ollama_bridge", lambda _: None)
+    monkeypatch.setattr(metadata_script, "server_listener_inode", lambda _: 42)
+    monkeypatch.setattr(
+        metadata_script, "verify_runtime_against_expected", lambda *args: runtime_receipt
+    )
+    monkeypatch.setattr(
+        metadata_script,
+        "file_sha256",
+        lambda path: (
+            "3" * 64
+            if path == interpreter or str(path) == logical_interpreter
+            else hashlib.sha256(path.read_bytes()).hexdigest()
+        ),
+    )
     evidence = SimpleNamespace(metadata_hash="b" * 64, context_tokens=8192)
 
     class FakeAdapter:
-        def __init__(self, _):
+        def __init__(self, _, **kwargs):
             pass
 
         def inspect(self):
@@ -410,6 +508,12 @@ def test_ollama_qualifier_main_paths(tmp_path, monkeypatch):
             str(executable),
             "--server-pid",
             "123",
+            "--bridge-pid",
+            "124",
+            "--bridge-socket",
+            str(bridge_socket),
+            "--python-runtime",
+            str(runtime_receipt_path),
             "--network-isolation",
             str(network_output),
             "--output",
@@ -420,6 +524,7 @@ def test_ollama_qualifier_main_paths(tmp_path, monkeypatch):
     receipt = json.loads(metadata_output.read_bytes())
     assert receipt["network_isolation"]["network_namespace_id"] == "net:[123]"
     assert receipt["network_isolation"]["executable_sha256"] == executable_sha
+    assert receipt["bridge"]["destination_host"] == "127.0.0.1"
 
 
 def test_context_builder_and_manifest_assembler_main_paths(tmp_path, monkeypatch):

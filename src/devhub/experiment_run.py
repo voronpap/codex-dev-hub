@@ -46,6 +46,7 @@ from devhub.experiment_rehearsal import (
 from devhub.ledger import Ledger
 from devhub.local import LocalConfig, local_resource_id
 from devhub.ollama import OllamaAdapter
+from devhub.ollama_transport import OllamaBridgeAuthorityV1, validate_ollama_bridge
 from devhub.qualification import VerifiedQualificationV2, verify_manifest_tree
 from devhub.runtime_artifact import verified_delegate_command
 from devhub.stage3g_host import read_stage3g_host_manifest
@@ -154,7 +155,14 @@ def environment_guard(
         or binary != expected.codex.executable_sha256
     ):
         raise ValueError("Codex version changed")
-    OllamaAdapter(protocol.ollama).inspect()  # metadata/tokenizer only, never inference
+    bridge_receipt = qualification.receipts.get("ollama_metadata")
+    if bridge_receipt is None:
+        raise ValueError("Qualified Ollama bridge receipt is missing")
+    bridge = OllamaBridgeAuthorityV1.model_validate(bridge_receipt.get("bridge"))
+    validate_ollama_bridge(bridge)
+    OllamaAdapter(
+        protocol.ollama, bridge=bridge
+    ).inspect()  # metadata/tokenizer only, never inference
 
 
 def secret_strings(value: Any) -> tuple[bytes, ...]:
@@ -195,6 +203,11 @@ def _execute_reviewed_session(
 
     expected = qualification.context.payload
     delegate_argv = verified_delegate_command(qualification)
+    ollama_receipt = qualification.receipts.get("ollama_metadata")
+    if ollama_receipt is None:
+        raise ValueError("Qualified Ollama bridge receipt is missing")
+    ollama_bridge = OllamaBridgeAuthorityV1.model_validate(ollama_receipt.get("bridge"))
+    validate_ollama_bridge(ollama_bridge)
     volatile_capture = None
     try:
         environment_guard(repo, qualification, protocol)
@@ -210,9 +223,11 @@ def _execute_reviewed_session(
         capture = Path(volatile_capture.name) / "capture"
         capture.mkdir()
         capture.chmod(0o777)  # only this fresh container's output; private ancestors on host
-        bridge = control / "bridge"
-        bridge.mkdir()
-        bridge.chmod(0o755)
+        bridge_dir = control / "bridge"
+        bridge_dir.mkdir()
+        bridge_dir.chmod(0o755)
+        ollama_authority_path = control / "ollama-bridge-authority.json"
+        write_new(ollama_authority_path, canonical(ollama_bridge.model_dump(mode="json")))
         # Auth is a separate runtime secret, never part of packet/config/result or its hashes.
         if auth_file.is_symlink() or not auth_file.is_file():
             raise ValueError("Explicit regular credential file required")
@@ -273,12 +288,20 @@ def _execute_reviewed_session(
             )
             config_path = control / "local.json"
             write_new(config_path, canonical(config.model_dump(mode="json")))
-            server_argv = [*delegate_argv, "--config", str(config_path)]
-        bridges = [UnixBridge(bridge / "proxy.sock", proxy)]
+            server_argv = [
+                *delegate_argv,
+                "--config",
+                str(config_path),
+                "--ollama-bridge-authority",
+                str(ollama_authority_path),
+            ]
+        bridges = [UnixBridge(bridge_dir / "proxy.sock", proxy)]
         if session.arm == "B":
             bridges.append(
                 UnixBridge(
-                    bridge / "mcp.sock", lambda conn: gateway.serve(conn, server_argv), once=True
+                    bridge_dir / "mcp.sock",
+                    lambda conn: gateway.serve(conn, server_argv),
+                    once=True,
                 )
             )
 
@@ -344,7 +367,7 @@ def _execute_reviewed_session(
                 protocol,
                 runtime,
                 guest_control,
-                bridge,
+                bridge_dir,
                 capture,
                 repo / "scripts/benchmark_guest.py",
                 auth,
@@ -425,6 +448,8 @@ def execute_next(
     current = plan(repo, protocol, frozen_plan["run_id"])
     if current != frozen_plan or digest(canonical(current)) != runtime.reviewed_plan_sha256:
         raise ValueError("Plan/config/implementation changed")
+    verified_delegate_command(qualification)
+    environment_guard(repo, qualification, protocol)
     if run_root.resolve().is_relative_to(repo.resolve()) or run_root.is_symlink():
         raise ValueError("Run storage must be external")
     run_root.mkdir(parents=True, exist_ok=True)
@@ -520,6 +545,8 @@ def execute_rehearsal_pair(
     )
     if current != rehearsal:
         raise ValueError("Rehearsal plan differs from qualification authority")
+    verified_delegate_command(qualification)
+    environment_guard(repo, qualification, protocol)
     if run_root.resolve().is_relative_to(repo.resolve()) or run_root.is_symlink():
         raise ValueError("Rehearsal storage must be external")
     run_root.mkdir(parents=True, exist_ok=True)

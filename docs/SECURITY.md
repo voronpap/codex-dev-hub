@@ -25,6 +25,10 @@ DevFabric can touch source code, external providers, credentials and executable 
 - The delegated Python runtime is a reviewed wheel in a dedicated non-editable
   environment. Isolated invocation, interpreter/wheel/lock hashes, module origin and
   installed RECORD inventory are verified before future task exposure.
+- Stage 3G reaches its isolated local Ollama only through a qualification-bound AF_UNIX
+  bridge with one compiled-in loopback destination. Process start identities,
+  namespace, immutable bridge runtime, private socket identity and peer credentials
+  are revalidated; an arbitrary socket path or general proxy is not authority.
 
 ## Logging
 Telemetry must redact credentials and sensitive payloads. Store enough metadata for audit without turning logs into a copy of private project content.

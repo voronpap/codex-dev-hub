@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, m
 from devhub.benchmark import Digest, canonical, digest
 from devhub.ledger import LedgerIdentityCoreV1, ledger_identity_sha256
 from devhub.models import Contract
+from devhub.ollama_transport import OllamaBridgeAuthorityV1
 
 GitCommit = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
 EnvironmentInstanceId = Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
@@ -224,6 +225,14 @@ class QualificationReceiptHeaderV1(Contract):
     environment_instance_id: EnvironmentInstanceId
 
 
+class QualificationReceiptHeaderV2(ContractV2):
+    """Header version used only by receipts with a reviewed V2 authority contract."""
+
+    receipt_kind: ReceiptKind
+    qualification_context_id: Digest
+    environment_instance_id: EnvironmentInstanceId
+
+
 class AuthEgressReceiptV1(QualificationReceiptHeaderV1):
     """Real-auth presence and the frozen scoped-egress policy, without secret material."""
 
@@ -293,7 +302,7 @@ class OllamaNetworkIsolationObservationV1(Contract):
 
 
 class OllamaMetadataReceiptV1(QualificationReceiptHeaderV1):
-    """Metadata-only proof of the exact side-by-side local Ollama runtime."""
+    """Historical metadata-only receipt without a reachable transport binding."""
 
     receipt_kind: Literal["ollama_metadata"] = "ollama_metadata"
     kind: Literal["intended_host_ollama_metadata"] = "intended_host_ollama_metadata"
@@ -331,6 +340,55 @@ class OllamaMetadataReceiptV1(QualificationReceiptHeaderV1):
         expected_hash = digest(canonical(self.network_isolation.model_dump(mode="json")))
         if self.network_isolation_sha256 != expected_hash:
             raise ValueError("Ollama network isolation hash mismatch")
+        return self
+
+
+class OllamaMetadataReceiptV2(QualificationReceiptHeaderV2):
+    """Current metadata proof bound to the exact reachable fixed bridge."""
+
+    receipt_kind: Literal["ollama_metadata"] = "ollama_metadata"
+    kind: Literal["intended_host_ollama_metadata_v2"] = "intended_host_ollama_metadata_v2"
+    version: Literal["0.34.2"]
+    model: Literal["qwen2.5:14b-instruct"]
+    digest: Literal["7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6"]
+    endpoint: Literal["http://127.0.0.1:11434"]
+    release_asset: Literal["ollama-linux-amd64.tar.zst"]
+    release_artifact_sha256: Literal[
+        "e155b83589986d2c581fdbf1381ea3ebdb16549883679cd5a0627f7cdc05b12b"
+    ]
+    executable_sha256: Digest
+    server_executable_matches: Literal[True]
+    network_isolation: OllamaNetworkIsolationObservationV1
+    network_isolation_sha256: Digest
+    bridge: OllamaBridgeAuthorityV1
+    model_metadata_sha256: Digest
+    context_tokens: Annotated[int, Field(ge=8192)]
+    completion_capability: Literal[True]
+    remote_model: Literal[False]
+    remote_host: Literal[False]
+    metadata_endpoints: tuple[str, ...]
+    generate_requests: Literal[0]
+    proxy_environment_inherited: Literal[False]
+    outbound_network_denied: Literal[True]
+    model_requests: Literal[0]
+    provider_sends: Literal[0]
+    qualification_passed: Literal[True]
+
+    @model_validator(mode="after")
+    def metadata_and_bridge_match(self) -> OllamaMetadataReceiptV2:
+        if self.metadata_endpoints != ("/api/show", "/api/tags", "/api/version"):
+            raise ValueError("Ollama qualification must use the exact metadata-only endpoints")
+        if self.network_isolation.executable_sha256 != self.executable_sha256:
+            raise ValueError("Ollama network isolation belongs to another executable")
+        expected_hash = digest(canonical(self.network_isolation.model_dump(mode="json")))
+        if self.network_isolation_sha256 != expected_hash:
+            raise ValueError("Ollama network isolation hash mismatch")
+        if (
+            self.bridge.server_executable_sha256 != self.executable_sha256
+            or self.bridge.server_network_namespace_id
+            != self.network_isolation.network_namespace_id
+        ):
+            raise ValueError("Ollama bridge belongs to another qualified server")
         return self
 
 
@@ -740,7 +798,9 @@ def _safe_read(root: Path, reference: ArtifactReferenceV1) -> bytes:
     return raw
 
 
-def _receipt_header(data: dict[str, JsonValue]) -> QualificationReceiptHeaderV1:
+def _receipt_header(
+    data: dict[str, JsonValue],
+) -> QualificationReceiptHeaderV1 | QualificationReceiptHeaderV2:
     keys = (
         "schema_version",
         "receipt_kind",
@@ -751,6 +811,8 @@ def _receipt_header(data: dict[str, JsonValue]) -> QualificationReceiptHeaderV1:
         selected = {key: data[key] for key in keys}
     except KeyError as error:
         raise ValueError("Qualification receipt header is incomplete") from error
+    if selected["schema_version"] == 2:
+        return QualificationReceiptHeaderV2.model_validate(selected)
     return QualificationReceiptHeaderV1.model_validate(selected)
 
 
@@ -837,7 +899,18 @@ def _validate_receipt_observation(
     if kind == "auth_egress":
         AuthEgressReceiptV1.model_validate_json(canonical(data))
     elif kind == "ollama_metadata":
-        OllamaMetadataReceiptV1.model_validate_json(canonical(data))
+        if data.get("schema_version") != 2:
+            # Historical V1 remains strictly parseable for audit, but it lacks a
+            # qualified transport and cannot authorize current execution.
+            OllamaMetadataReceiptV1.model_validate_json(canonical(data))
+            raise ValueError("Historical Ollama metadata V1 is non-authorizing")
+        observation = OllamaMetadataReceiptV2.model_validate_json(canonical(data))
+        runtime = expected.implementation.python_runtime
+        if (
+            observation.bridge.bridge_python_executable_sha256 != runtime.python_executable_sha256
+            or observation.bridge.bridge_runtime_environment_id != runtime.runtime_environment_id
+        ):
+            raise ValueError("Ollama bridge differs from the immutable Python runtime")
     elif kind == "ledger_identity":
         LedgerIdentityReceiptV1.model_validate_json(canonical(data))
     elif kind == "codex_executable":
@@ -906,6 +979,21 @@ def verify_manifest_tree(
                 raise ValueError("Runtime config receipt is not bound to host visibility")
         receipts[kind] = data
 
+    if "ollama_metadata" in receipts and "python_runtime" in receipts:
+        # Import locally to keep the runtime artifact module's dependency on the
+        # qualification contracts acyclic.
+        from devhub.runtime_artifact import PythonRuntimeReceiptV1
+
+        ollama = OllamaMetadataReceiptV2.model_validate_json(canonical(receipts["ollama_metadata"]))
+        python = PythonRuntimeReceiptV1.model_validate_json(canonical(receipts["python_runtime"]))
+        if (
+            ollama.bridge.bridge_python_path != python.interpreter_path
+            or ollama.bridge.bridge_python_executable_sha256 != python.interpreter_sha256
+            or ollama.bridge.bridge_process_executable_sha256 != python.interpreter_sha256
+            or ollama.bridge.bridge_runtime_environment_id != python.runtime_environment_id
+        ):
+            raise ValueError("Ollama bridge is not the exact qualified Python runtime")
+
     if require_execution_ready and not manifest.payload.execution_ready:
         raise ValueError("Stage 3G-C execution_ready is false")
     if require_execution_ready and len(receipts) != len(RECEIPT_KINDS):
@@ -919,6 +1007,19 @@ def receipt_header(context: QualificationContextV1, kind: ReceiptKind) -> dict[s
     return cast(
         dict[str, JsonValue],
         QualificationReceiptHeaderV1(
+            receipt_kind=kind,
+            qualification_context_id=context.qualification_context_id,
+            environment_instance_id=context.payload.environment_instance_id,
+        ).model_dump(mode="json"),
+    )
+
+
+def receipt_header_v2(context: QualificationContextV1, kind: ReceiptKind) -> dict[str, JsonValue]:
+    """Return a V2 flattened header for a receipt with a V2 authority contract."""
+
+    return cast(
+        dict[str, JsonValue],
+        QualificationReceiptHeaderV2(
             receipt_kind=kind,
             qualification_context_id=context.qualification_context_id,
             environment_instance_id=context.payload.environment_instance_id,

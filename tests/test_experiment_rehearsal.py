@@ -211,6 +211,8 @@ def test_rehearsal_uses_shared_launch_path_once_per_arm_and_never_resumes(
     item = rehearsal(protocol)
     verified = qualification(protocol)
     monkeypatch.setattr(module, "verify_manifest_tree", lambda path, identifier: verified)
+    monkeypatch.setattr(module, "verified_delegate_command", lambda _: ["python"])
+    monkeypatch.setattr(module, "environment_guard", lambda *args: None)
     import devhub.experiment_rehearsal as rehearsal_module
 
     monkeypatch.setattr(rehearsal_module, "clean_commit", lambda repo: COMMIT)
@@ -278,6 +280,8 @@ def test_rehearsal_rejects_incomplete_b_authority(protocol, tmp_path, monkeypatc
     monkeypatch.setattr(
         module, "verify_manifest_tree", lambda path, identifier: qualification(protocol)
     )
+    monkeypatch.setattr(module, "verified_delegate_command", lambda _: ["python"])
+    monkeypatch.setattr(module, "environment_guard", lambda *args: None)
     import devhub.experiment_rehearsal as rehearsal_module
 
     monkeypatch.setattr(rehearsal_module, "clean_commit", lambda repo: COMMIT)
@@ -349,6 +353,8 @@ def test_rehearsal_requires_review_and_exact_manifest_binding(protocol, tmp_path
     monkeypatch.setattr(
         module, "verify_manifest_tree", lambda path, identifier: qualification(protocol)
     )
+    monkeypatch.setattr(module, "verified_delegate_command", lambda _: ["python"])
+    monkeypatch.setattr(module, "environment_guard", lambda *args: None)
     monkeypatch.setattr(rehearsal_module, "clean_commit", lambda repo: COMMIT)
     monkeypatch.setattr(
         rehearsal_module, "verify_loaded_experiment_sources", lambda repo, commit: None
@@ -358,6 +364,40 @@ def test_rehearsal_requires_review_and_exact_manifest_binding(protocol, tmp_path
     )
     with pytest.raises(ValueError, match="qualification authority"):
         execute_rehearsal_pair(*arguments[:2], wrong, *arguments[3:], operator_reviewed=True)
+
+
+def test_rehearsal_checks_transport_before_sealing_run_root(protocol, tmp_path, monkeypatch):
+    import devhub.experiment_rehearsal as rehearsal_module
+    import devhub.experiment_run as module
+
+    item = rehearsal(protocol)
+    monkeypatch.setattr(
+        module, "verify_manifest_tree", lambda path, identifier: qualification(protocol)
+    )
+    monkeypatch.setattr(module, "verified_delegate_command", lambda _: ["python"])
+
+    def invalid_transport(*args):
+        raise ValueError("Ollama bridge/server process identity changed")
+
+    monkeypatch.setattr(module, "environment_guard", invalid_transport)
+    monkeypatch.setattr(rehearsal_module, "clean_commit", lambda repo: COMMIT)
+    monkeypatch.setattr(
+        rehearsal_module, "verify_loaded_experiment_sources", lambda repo, commit: None
+    )
+    run_root = tmp_path / "run"
+    with pytest.raises(ValueError, match="bridge/server"):
+        execute_rehearsal_pair(
+            ROOT,
+            protocol,
+            item,
+            RuntimeBindings(qualification_manifest_id=MANIFEST_ID),
+            run_root,
+            tmp_path / "auth.json",
+            tmp_path / "manifest.json",
+            tmp_path / "ledger",
+            operator_reviewed=True,
+        )
+    assert not run_root.exists()
 
 
 def test_rehearsal_does_not_mutate_frozen_plan_or_protocol(protocol, repo, monkeypatch):

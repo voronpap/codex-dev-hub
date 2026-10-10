@@ -13,6 +13,8 @@ from mcp.types import INVALID_PARAMS, CallToolResult, ListToolsResult, TextConte
 from pydantic import ValidationError
 
 from devhub.delegate import DelegationConfig, DelegationRequest, DelegationResult, DelegationRuntime
+from devhub.local import LocalConfig
+from devhub.ollama_transport import OllamaBridgeAuthorityV1, validate_ollama_bridge
 from devhub.usage import derive_usage
 from devhub.usage_render import render_footer
 
@@ -131,17 +133,30 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument(
+        "--ollama-bridge-authority",
+        type=Path,
+        help="Trusted host-owned Stage 3G bridge authority; never sourced from an MCP request",
+    )
+    parser.add_argument(
         "--initialize-ledger",
         action="store_true",
         help="Initialize the configured ledger identity and exit; never starts MCP",
     )
     args = parser.parse_args()
     config = DelegationConfig.model_validate_json(args.config.read_text(encoding="utf-8-sig"))
+    bridge = None
+    if args.ollama_bridge_authority is not None:
+        bridge = OllamaBridgeAuthorityV1.model_validate_json(
+            args.ollama_bridge_authority.read_bytes()
+        )
+        if not any(isinstance(profile.config, LocalConfig) for profile in config.profiles):
+            parser.error("Ollama bridge authority requires an exact local profile")
+        validate_ollama_bridge(bridge)
     if args.initialize_ledger:
         identity_hash = DelegationRuntime.initialize_ledger(config)
         print(json.dumps({"ledger_identity_sha256": identity_hash}, sort_keys=True))
         return
-    create_delegation_server(DelegationRuntime(config)).run()
+    create_delegation_server(DelegationRuntime(config, ollama_bridge=bridge)).run()
 
 
 if __name__ == "__main__":
