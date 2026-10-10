@@ -105,6 +105,14 @@ the verified native bundle. Windows still creates the process from a string path
 so privileged filesystem replacement between final validation and process
 creation remains a documented TOCTOU limitation.
 
+Each launch must create and own a fresh exact AppContainer profile. A
+pre-existing profile name is rejected and never deleted by the launcher. The
+child `LOCALAPPDATA` is derived from the created profile SID with
+`GetAppContainerFolderPath`; callers cannot supply this authority-bearing path.
+All terminal paths close process and job handles before deleting only that
+invocation's profile, and any profile cleanup failure blocks evidence
+publication.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of

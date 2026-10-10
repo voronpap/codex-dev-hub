@@ -104,7 +104,7 @@ def test_windows_environment_block_rejects_missing_or_ambient_authority(
         isolation._windows_environment_block(environment)
 
 
-def test_missing_required_environment_fails_before_native_api_acquisition(
+def test_missing_systemroot_fails_before_native_api_acquisition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -112,17 +112,17 @@ def test_missing_required_environment_fails_before_native_api_acquisition(
         "_windows_dll",
         lambda *_: pytest.fail("native API acquired before environment validation"),
     )
-    with pytest.raises(ValueError, match="LOCALAPPDATA"):
+    with pytest.raises(ValueError, match="SYSTEMROOT"):
         isolation.launch_windows_isolated(
             WindowsIsolationProfileV1.create(profile_payload()),
             Path(r"C:\qualification\bundle\python.exe"),
             ("-c", "pass"),
             cwd=Path(r"C:\qualification\workspace"),
-            environment={"SYSTEMROOT": r"C:\Windows"},
+            environment={},
         )
 
 
-def test_relative_local_app_data_fails_before_native_api_acquisition(
+def test_caller_supplied_local_app_data_fails_before_native_api_acquisition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -130,7 +130,7 @@ def test_relative_local_app_data_fails_before_native_api_acquisition(
         "_windows_dll",
         lambda *_: pytest.fail("native API acquired before environment validation"),
     )
-    with pytest.raises(ValueError, match="LOCALAPPDATA must be an absolute path"):
+    with pytest.raises(ValueError, match="LOCALAPPDATA is host-owned"):
         isolation.launch_windows_isolated(
             WindowsIsolationProfileV1.create(profile_payload()),
             Path(r"C:\qualification\bundle\python.exe"),
@@ -138,7 +138,7 @@ def test_relative_local_app_data_fails_before_native_api_acquisition(
             cwd=Path(r"C:\qualification\workspace"),
             environment={
                 "SYSTEMROOT": r"C:\Windows",
-                "LOCALAPPDATA": "relative-profile",
+                "LOCALAPPDATA": r"C:\caller-controlled",
             },
         )
 
@@ -364,7 +364,7 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
     executable.write_bytes(b"MZ")
     writable = tmp_path / "workspace"
     writable.mkdir()
-    local_app_data = writable / "local-app-data"
+    local_app_data = tmp_path / "official-profile-local"
     local_app_data.mkdir()
     payload = profile_payload().model_copy(
         update={
@@ -384,10 +384,7 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
     )
     profile = WindowsIsolationProfileV1.create(payload)
     calls: list[str] = []
-    supplied_environment = {
-        "SYSTEMROOT": r"C:\Windows",
-        "LOCALAPPDATA": str(writable / "intermediate" / ".." / local_app_data.name),
-    }
+    supplied_environment = {"SYSTEMROOT": r"C:\Windows"}
     expected_environment = {
         "SYSTEMROOT": r"C:\Windows",
         "LOCALAPPDATA": str(local_app_data),
@@ -437,6 +434,13 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
     )
     monkeypatch.setattr(isolation, "_set_job_limits", lambda *_: calls.append("limits_set"))
     monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
+    monkeypatch.setattr(
+        isolation,
+        "_create_owned_appcontainer_profile",
+        lambda identity: isolation.OwnedAppContainerProfile(
+            identity, "S-1-15-2-123", local_app_data
+        ),
+    )
     process = isolation.launch_windows_isolated(
         profile,
         executable,
@@ -465,8 +469,6 @@ def test_launch_rechecks_exact_launcher_hash_before_creating_job(
     executable.write_bytes(b"MZ")
     writable = tmp_path / "workspace"
     writable.mkdir()
-    local_app_data = writable / "local-app-data"
-    local_app_data.mkdir()
     payload = profile_payload().model_copy(
         update={
             "launcher_executable_sha256": "f" * 64,
@@ -492,73 +494,133 @@ def test_launch_rechecks_exact_launcher_hash_before_creating_job(
             executable,
             ("-c", "pass"),
             cwd=writable,
-            environment={"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": str(local_app_data)},
+            environment={"SYSTEMROOT": r"C:\Windows"},
         )
 
 
-def test_local_app_data_outside_writable_roots_fails_before_job_acquisition(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    if os.name != "nt":
-        pytest.skip("Win32 path authority")
-    bundle = tmp_path / "bundle"
-    bundle.mkdir()
-    executable = bundle / "python.exe"
-    executable.write_bytes(b"MZ")
-    writable = tmp_path / "workspace"
-    writable.mkdir()
-    outside = tmp_path / "outside-profile"
-    outside.mkdir()
-    profile = WindowsIsolationProfileV1.create(
-        profile_payload().model_copy(
-            update={
-                "launcher_executable_sha256": digest(executable.read_bytes()),
-                "read_only_roots": (
-                    NativePathIdentityV1(
-                        locator=str(bundle), volume_serial_number=1, file_index="1" * 16
-                    ),
-                ),
-                "writable_roots": (
-                    NativePathIdentityV1(
-                        locator=str(writable), volume_serial_number=1, file_index="2" * 16
-                    ),
-                ),
-                "denied_roots": (),
-            }
-        )
-    )
-    monkeypatch.setattr(isolation, "observed_windows_platform", lambda: (26200, "x86_64"))
-    monkeypatch.setattr(isolation, "_verify_profile_paths", lambda _: None)
-    monkeypatch.setattr(isolation, "_reject_reparse_chain", lambda value, **_: Path(value))
+def test_preexisting_appcontainer_profile_is_rejected_and_never_deleted(monkeypatch) -> None:
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __call__(self, *_: object) -> int:
+            return 0x800700B7
+
+    class Dll:
+        def __getattr__(self, _: str) -> Function:
+            return Function()
+
+    monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
     monkeypatch.setattr(
         isolation,
-        "_windows_dll",
-        lambda *_: pytest.fail("job API acquired before LOCALAPPDATA authority rejection"),
+        "_delete_appcontainer_profile",
+        lambda _: pytest.fail("foreign AppContainer profile was deleted"),
     )
-    with pytest.raises(ValueError, match="LOCALAPPDATA must belong"):
-        isolation.launch_windows_isolated(
-            profile,
-            executable,
-            ("-c", "pass"),
-            cwd=writable,
-            environment={"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": str(outside)},
-        )
+    with pytest.raises(isolation.WindowsIsolationLaunchError) as failure:
+        isolation._create_owned_appcontainer_profile("devfabric_" + ENVIRONMENT)
+    assert failure.value.phase == "appcontainer_profile_create"
+    assert failure.value.error_code == 183
 
 
-def test_local_app_data_traversal_is_normalized_before_authority_check(
+def test_owned_appcontainer_profile_binds_sid_and_official_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    if os.name != "nt":
-        pytest.skip("Win32 path authority")
+    sid_text = ctypes.create_unicode_buffer("S-1-15-2-123")
+    folder = tmp_path / "official-profile-local"
+    folder.mkdir()
+    folder_text = ctypes.create_unicode_buffer(str(folder))
+    frees: list[str] = []
+
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __call__(self, *args: object) -> int | None:
+            if self.name == "CreateAppContainerProfile":
+                args[-1]._obj.value = 1234  # type: ignore[attr-defined]
+                return 0
+            if self.name == "ConvertSidToStringSidW":
+                args[-1]._obj.value = ctypes.addressof(sid_text)  # type: ignore[attr-defined]
+                return 1
+            if self.name == "GetAppContainerFolderPath":
+                args[-1]._obj.value = ctypes.addressof(folder_text)  # type: ignore[attr-defined]
+                return 0
+            if self.name in {"LocalFree", "FreeSid", "CoTaskMemFree"}:
+                frees.append(self.name)
+                return None
+            raise AssertionError(self.name)
+
+    class Dll:
+        def __getattr__(self, name: str) -> Function:
+            return Function(name)
+
+    monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
+    monkeypatch.setattr(isolation, "_reject_reparse_chain", lambda value, **_: Path(value))
+    owned = isolation._create_owned_appcontainer_profile("devfabric_" + ENVIRONMENT)
+    assert owned == isolation.OwnedAppContainerProfile(
+        "devfabric_" + ENVIRONMENT, "S-1-15-2-123", folder
+    )
+    assert frees == ["CoTaskMemFree", "LocalFree", "FreeSid"]
+
+
+def test_partial_profile_preparation_deletes_only_the_owned_profile(monkeypatch) -> None:
+    sid_text = ctypes.create_unicode_buffer("S-1-15-2-123")
+    calls: list[str] = []
+
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __call__(self, *args: object) -> int | None:
+            if self.name == "CreateAppContainerProfile":
+                args[-1]._obj.value = 1234  # type: ignore[attr-defined]
+                return 0
+            if self.name == "ConvertSidToStringSidW":
+                args[-1]._obj.value = ctypes.addressof(sid_text)  # type: ignore[attr-defined]
+                return 1
+            if self.name == "GetAppContainerFolderPath":
+                return 0x80070003
+            if self.name in {"LocalFree", "FreeSid"}:
+                calls.append(self.name)
+                return None
+            raise AssertionError(self.name)
+
+    class Dll:
+        def __getattr__(self, name: str) -> Function:
+            return Function(name)
+
+    identity = "devfabric_" + ENVIRONMENT
+    monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
+    monkeypatch.setattr(
+        isolation,
+        "_delete_appcontainer_profile",
+        lambda observed: calls.append(f"delete:{observed}") or True,
+    )
+    with pytest.raises(isolation.WindowsIsolationLaunchError) as failure:
+        isolation._create_owned_appcontainer_profile(identity)
+    assert failure.value.phase == "appcontainer_folder_path"
+    assert failure.value.error_code == 3
+    assert calls == [f"delete:{identity}", "LocalFree", "FreeSid"]
+
+
+@pytest.mark.parametrize("failure_phase", ["environment", "job", "processmodel"])
+def test_every_post_profile_preprocess_failure_cleans_owned_profile(
+    failure_phase: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bundle = tmp_path / "bundle"
     bundle.mkdir()
     executable = bundle / "python.exe"
     executable.write_bytes(b"MZ")
     writable = tmp_path / "workspace"
     writable.mkdir()
-    outside = tmp_path / "outside-profile"
-    outside.mkdir()
-    traversal = writable / ".." / outside.name
+    official = tmp_path / "official-profile-local"
+    official.mkdir()
     profile = WindowsIsolationProfileV1.create(
         profile_payload().model_copy(
             update={
@@ -577,26 +639,74 @@ def test_local_app_data_traversal_is_normalized_before_authority_check(
             }
         )
     )
+    calls: list[str] = []
+
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __call__(self, *_: object) -> int:
+            if self.name == "CreateJobObjectW":
+                return 0 if failure_phase == "job" else 100
+            if self.name == "TerminateJobObject":
+                calls.append("terminate-job")
+            if self.name == "CloseHandle":
+                calls.append("close-job")
+            return 1
+
+    class Dll:
+        def __getattr__(self, name: str) -> Function:
+            return Function(name)
+
+    real_environment_block = isolation._windows_environment_block
+    environment_calls = 0
+
+    def environment_block(values: dict[str, str], *, require_local_app_data: bool = True) -> str:
+        nonlocal environment_calls
+        environment_calls += 1
+        if failure_phase == "environment" and environment_calls == 2:
+            raise ValueError("injected child environment failure")
+        return real_environment_block(values, require_local_app_data=require_local_app_data)
+
+    def dll(name: str) -> Dll:
+        if name == "processmodel.dll" and failure_phase == "processmodel":
+            raise OSError("injected processmodel failure")
+        return Dll()
+
     monkeypatch.setattr(isolation, "observed_windows_platform", lambda: (26200, "x86_64"))
     monkeypatch.setattr(isolation, "_verify_profile_paths", lambda _: None)
     monkeypatch.setattr(
         isolation,
         "_reject_reparse_chain",
-        lambda value, **_: Path(os.path.abspath(value)),
+        lambda value, **_: Path(value).absolute(),
+    )
+    monkeypatch.setattr(isolation, "_windows_environment_block", environment_block)
+    monkeypatch.setattr(isolation, "_windows_dll", dll)
+    monkeypatch.setattr(isolation, "_set_job_limits", lambda *_: None)
+    monkeypatch.setattr(
+        isolation,
+        "_create_owned_appcontainer_profile",
+        lambda identity: isolation.OwnedAppContainerProfile(identity, "S-1-15-2-123", official),
     )
     monkeypatch.setattr(
         isolation,
-        "_windows_dll",
-        lambda *_: pytest.fail("job API acquired after LOCALAPPDATA traversal"),
+        "_delete_appcontainer_profile",
+        lambda observed: calls.append(f"delete:{observed}") or True,
     )
-    with pytest.raises(ValueError, match="LOCALAPPDATA must belong"):
+    with pytest.raises((ValueError, OSError, isolation.WindowsIsolationLaunchError)):
         isolation.launch_windows_isolated(
             profile,
             executable,
             ("-c", "pass"),
             cwd=writable,
-            environment={"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": str(traversal)},
+            environment={"SYSTEMROOT": r"C:\Windows"},
         )
+    assert calls[-1] == f"delete:{profile.payload.appcontainer_identity}"
+    if failure_phase == "processmodel":
+        assert calls == ["terminate-job", "close-job", calls[-1]]
 
 
 @pytest.mark.parametrize("failed_call", ["AssignProcessToJobObject", "ResumeThread"])
@@ -611,7 +721,7 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
     executable.write_bytes(b"MZ")
     writable = tmp_path / "workspace"
     writable.mkdir()
-    local_app_data = writable / "local-app-data"
+    local_app_data = tmp_path / "official-profile-local"
     local_app_data.mkdir()
     payload = profile_payload().model_copy(
         update={
@@ -630,7 +740,7 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
         }
     )
     profile = WindowsIsolationProfileV1.create(payload)
-    closed: list[int] = []
+    cleanup_order: list[str] = []
 
     class Function:
         argtypes: object = None
@@ -652,8 +762,11 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
                 return 0 if failed_call == self.name else 1
             if self.name == "ResumeThread":
                 return 0xFFFFFFFF if failed_call == self.name else 1
+            if self.name in {"TerminateProcess", "TerminateJobObject"}:
+                cleanup_order.append(self.name)
+                return 1
             if self.name == "CloseHandle":
-                closed.append(int(args[0]))
+                cleanup_order.append(f"close:{int(args[0])}")
             return 1
 
     class Dll:
@@ -666,19 +779,37 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
     monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
     monkeypatch.setattr(
         isolation,
+        "_create_owned_appcontainer_profile",
+        lambda identity: isolation.OwnedAppContainerProfile(
+            identity, "S-1-15-2-123", local_app_data
+        ),
+    )
+    monkeypatch.setattr(
+        isolation,
         "_reject_reparse_chain",
         lambda value, **_: Path(value).absolute(),
     )
-    monkeypatch.setattr(isolation, "_delete_appcontainer_profile", lambda _: False)
+    monkeypatch.setattr(
+        isolation,
+        "_delete_appcontainer_profile",
+        lambda _: cleanup_order.append("delete") or False,
+    )
     with pytest.raises(ExceptionGroup, match="launch and cleanup failed"):
         isolation.launch_windows_isolated(
             profile,
             executable,
             ("-c", "pass"),
             cwd=writable,
-            environment={"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": str(local_app_data)},
+            environment={"SYSTEMROOT": r"C:\Windows"},
         )
-    assert closed == [102, 101, 100]
+    assert cleanup_order == [
+        "TerminateProcess",
+        "TerminateJobObject",
+        "close:102",
+        "close:101",
+        "close:100",
+        "delete",
+    ]
 
 
 def test_local_fixed_volume_contract_rejects_network_device_and_mapped_roots(
@@ -733,6 +864,96 @@ def test_process_close_retries_profile_deletion_after_closing_handles(monkeypatc
     assert (process.thread_handle, process.process_handle, process.job_handle) == (0, 0, 0)
     assert process.close() is True
     assert calls.count("CloseHandle") == 3
+
+
+@pytest.mark.parametrize("failure", ["TerminateJobObject", "CloseHandle"])
+def test_process_close_never_deletes_profile_before_process_cleanup(
+    failure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.failed = False
+
+        def __call__(self, *_: object) -> int:
+            calls.append(self.name)
+            if self.name == failure and not self.failed:
+                self.failed = True
+                return 0
+            return 1
+
+    class Dll:
+        def __getattr__(self, name: str) -> Function:
+            return Function(name)
+
+    monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
+    monkeypatch.setattr(isolation, "_windows_last_error", lambda: 5)
+    monkeypatch.setattr(
+        isolation,
+        "_delete_appcontainer_profile",
+        lambda _: pytest.fail("profile deleted before process cleanup completed"),
+    )
+    process = isolation.WindowsSandboxProcess(101, 102, 100, 333, "devfabric_" + ENVIRONMENT, ())
+    with pytest.raises(ExceptionGroup, match="cleanup failed"):
+        process.close()
+    assert "DeleteAppContainerProfile" not in calls
+    if failure == "TerminateJobObject":
+        assert (process.thread_handle, process.process_handle, process.job_handle) == (
+            102,
+            101,
+            100,
+        )
+    else:
+        assert process.thread_handle == 102
+
+
+@pytest.mark.parametrize("failure", ["TerminateProcess", "CloseHandle"])
+def test_failed_launch_cleanup_retains_profile_when_process_cleanup_fails(
+    failure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.failed = False
+
+        def __call__(self, *_: object) -> int:
+            calls.append(self.name)
+            if self.name == failure and not self.failed:
+                self.failed = True
+                return 0
+            return 1
+
+    class Dll:
+        def __getattr__(self, name: str) -> Function:
+            return Function(name)
+
+    monkeypatch.setattr(isolation, "_windows_last_error", lambda: 5)
+    monkeypatch.setattr(
+        isolation,
+        "_delete_appcontainer_profile",
+        lambda _: pytest.fail("profile deleted after incomplete failed-launch cleanup"),
+    )
+    errors = isolation._cleanup_failed_launch(
+        Dll(),
+        process_handle=101,
+        thread_handle=102,
+        job_handle=100,
+        appcontainer_identity="devfabric_" + ENVIRONMENT,
+        appcontainer_profile_owned=True,
+    )
+    assert len(errors) == 2
+    assert "retained because process cleanup did not complete" in str(errors[-1])
+    assert "DeleteAppContainerProfile" not in calls
 
 
 def test_probe_cleanup_attempts_every_resource_after_failures(tmp_path: Path, monkeypatch) -> None:
@@ -934,7 +1155,6 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         environment = kwargs["environment"]
         assert isinstance(environment, dict)
         assert set(environment) == {
-            "LOCALAPPDATA",
             "SYSTEMROOT",
             "TEMP",
             "TMP",
@@ -942,9 +1162,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
             "PYTHONNOUSERSITE",
         }
         assert all(name.casefold() != "path" for name in environment)
-        local_app_data = Path(environment["LOCALAPPDATA"])
-        assert local_app_data == Path(kwargs["cwd"]) / "local-app-data"
-        assert local_app_data.is_dir()
+        assert all(name.casefold() != "localappdata" for name in environment)
         Path(arguments[-1]).write_bytes(canonical(child))
         return Process()
 
