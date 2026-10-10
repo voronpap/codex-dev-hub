@@ -23,8 +23,8 @@ from stage3g_schema_hash import read_schema_identity
 SOURCE_COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 SOURCE_ARCHIVE_SHA256 = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
 CANDIDATE_SHA256 = "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
-HOST_SHA256 = "9aeebc2f2a967a60803379ac53683c2b75dffa688a97dce7332e52c7609c0ceb"
-COMBINED_SHA256 = "d8f558b16383a5bd1d82bdf88073e81ef6ca24a76e024861ea85a63643043cb4"
+HOST_SHA256 = "f26230caa107a043de9ecf51a25205436d465a79a7d89dc70e8b040bd142a076"
+COMBINED_SHA256 = "f80d063805c17eb8710c4438ec42a5241aaa51fe259124ddb0960d3bf4e467cf"
 HOST_MANIFEST_SHA256 = "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b"
 SCHEMA_SHA256 = "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
 DELEGATE = "mcp__devhub_delegate.devhub_delegate"
@@ -101,7 +101,14 @@ def prepare_build_source(
         derived_lock, lock_changes = derive_build009(root)
         expected_lock = BUILD009_DERIVED
         lock_strategy = "LOCK_B_minimal_manifest_bound_derived_lock"
-    elif build_id in {"build-010", "build-011", "build-012", "build-013", "build-014"}:
+    elif build_id in {
+        "build-010",
+        "build-011",
+        "build-012",
+        "build-013",
+        "build-014",
+        "build-015",
+    }:
         derived_lock, lock_changes = derive_production_host_lock(root)
         expected_lock = PRODUCTION_HOST_LOCK_SHA256
         lock_strategy = "complete_patched_manifest_bound_derived_lock"
@@ -462,6 +469,7 @@ def main() -> None:
             "build-012",
             "build-013",
             "build-014",
+            "build-015",
         ),
         default="build-009",
     )
@@ -507,6 +515,7 @@ def main() -> None:
         "build_012_run": False,
         "build_013_run": False,
         "build_014_run": False,
+        "build_015_run": False,
         "stage_3g_c": "OPEN",
         "stage_3g": "OPEN",
         "execution_ready": False,

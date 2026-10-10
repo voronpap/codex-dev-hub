@@ -718,6 +718,7 @@ index 0000000000000000000000000000000000000000..eb9198cfd9274275fc7f52de053b0754
 +            (Stage3gHostArm::B, Some(delegate)) => {
 +                let server = config
 +                    .mcp_servers
++                    .get()
 +                    .get(SERVER_KEY)
 +                    .context("reviewed devhub_delegate MCP server missing from resolved config")?;
 +                let resolved_hash = canonical_sha256(&serde_json::to_value(server)?)?;
@@ -997,14 +998,6 @@ diff --git a/tui/src/lib.rs b/tui/src/lib.rs
 index 121a8542b9ca19d20947fa6fbfd98579f327bdd8..121cb66a5460e2f9861faa052b75b22894dfe237 100644
 --- a/tui/src/lib.rs
 +++ b/tui/src/lib.rs
-@@ -451,6 +451,7 @@ async fn connect_remote_app_server(
-         experimental_api: true,
-         mcp_server_openai_form_elicitation: false,
-         opt_out_notification_methods: Vec::new(),
-+        thread_extension_init: codex_extension_api::ExtensionDataInit::new(),
-         channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
-     })
-     .await
 @@ -631,6 +632,7 @@ where
          experimental_api: true,
          mcp_server_openai_form_elicitation: false,

@@ -381,3 +381,13 @@ keeps the existing trusted startup chain and instead clones the host-owned
 `ExtensionDataInit` before `async move`, then passes the owned template explicitly
 to the static task. `ThreadStartParams` still cannot create or widen authority;
 each fresh thread still mutates only its cloned extension data.
+
+Build-014 run `38013790722` proved the owned fresh-thread propagation progressed
+past its prior compile error, but compilation then found two pinned API-shape
+mismatches. `RemoteAppServerConnectArgs` is a remote/client boundary and must not
+carry trusted host extensions; only embedded `InProcessClientStartArgs` does.
+The resolved MCP server map is wrapped by a constraint whose zero-argument
+`get()` exposes the validated `HashMap`. Build-015 therefore removes the remote
+field addition and uses `config.mcp_servers.get().get(SERVER_KEY)` before the
+existing exact config-hash comparison. Candidate B, client payloads, host
+authority, manifest/schema identities, and proof semantics remain unchanged.

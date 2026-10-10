@@ -166,6 +166,24 @@ def test_host_patch_passes_owned_extension_template_into_static_start_task() -> 
     )
 
 
+def test_host_patch_matches_pinned_remote_and_resolved_config_api_shapes() -> None:
+    patch = (
+        Path(__file__).resolve().parents[1] / "patches/stage3g-approved-call/host-integration.patch"
+    ).read_text(encoding="utf-8")
+
+    tui_diff = patch.split("diff --git a/tui/src/lib.rs b/tui/src/lib.rs", 1)[1].split(
+        "diff --git a/tui/src/onboarding/auth.rs", 1
+    )[0]
+    assert "connect_remote_app_server" not in tui_diff
+    assert (
+        "+        thread_extension_init: codex_extension_api::ExtensionDataInit::new()," in tui_diff
+    )
+    assert (
+        "config\n+                    .mcp_servers\n+                    .get()\n"
+        "+                    .get(SERVER_KEY)"
+    ) in patch
+
+
 def test_locked_resolution_requires_byte_identical_lock(tmp_path, monkeypatch) -> None:
     root = tmp_path / "source"
     output = tmp_path / "evidence"

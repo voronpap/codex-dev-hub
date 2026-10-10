@@ -213,3 +213,12 @@ executable or process proof exists. The classification is
 trusted template before the existing `async move` boundary and passes that owned
 value explicitly into the static task. Client request types and authority remain
 unchanged.
+
+Build-014 run `38013790722` passed cheap preflight and immutable locked
+metadata/fetch, then started Cargo and failed after 411.169 seconds on two exact
+pinned API-shape mismatches. The host patch added an in-process-only extension
+field to `RemoteAppServerConnectArgs`, and it treated the constrained resolved
+MCP map as the map itself. No executable or process proof exists. The immutable
+classification is `BUILD_014_PINNED_API_SHAPE_COMPILE_FAILURE`. Build-015 removes
+only the remote-client field and reads the already-resolved map through
+`config.mcp_servers.get().get(...)`; the reviewed lock remains byte-identical.

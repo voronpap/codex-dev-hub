@@ -24,7 +24,7 @@ def _sha(path: Path) -> str:
     return digest(path.read_bytes())
 
 
-def collect(pinned_source: Path | None = None, *, build_id: str = "build-014") -> dict[str, object]:
+def collect(pinned_source: Path | None = None, *, build_id: str = "build-015") -> dict[str, object]:
     candidate = ROOT / "patches/stage3g-approved-call/candidate.patch"
     host = ROOT / "patches/stage3g-approved-call/host-integration.patch"
     manifest_path = ROOT / "benchmarks/stage3g-host-manifest-v2.json"
@@ -134,6 +134,7 @@ def collect(pinned_source: Path | None = None, *, build_id: str = "build-014") -
             "build-011": "BUILD_011_OBSERVER_ERROR_CONVERSION_COMPILE_FAILURE",
             "build-012": "PREBUILD_RUSTFMT_OBSERVER_CHAIN_FAILURE",
             "build-013": "BUILD_013_THREAD_EXTENSION_PROPAGATION_COMPILE_FAILURE",
+            "build-014": "BUILD_014_PINNED_API_SHAPE_COMPILE_FAILURE",
         },
         "source_commit": SOURCE_COMMIT,
         "implementation_commit": subprocess.check_output(
@@ -211,6 +212,7 @@ def collect(pinned_source: Path | None = None, *, build_id: str = "build-014") -
         "build_012_run": False,
         "build_013_run": False,
         "build_014_run": False,
+        "build_015_run": False,
         "model_requests": 0,
         "provider_sends": 0,
         "real_codex_executions": 0,
@@ -238,8 +240,9 @@ def main() -> None:
             "build-012",
             "build-013",
             "build-014",
+            "build-015",
         ),
-        default="build-014",
+        default="build-015",
     )
     args = parser.parse_args()
     result = collect(args.pinned_source, build_id=args.build_id)
