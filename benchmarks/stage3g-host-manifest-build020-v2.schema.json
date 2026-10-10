@@ -91,7 +91,8 @@
                   "const": "devhub_delegate"
                 },
                 "expected_mcp_server_config_sha256": {
-                  "const": "8ca3f1dadd607eb3e8cd90efa61a00244c166a18f27479e2c550029d8f51d712"
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
                 },
                 "expected_input_schema": {
                   "type": "object"

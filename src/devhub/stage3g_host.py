@@ -10,6 +10,25 @@ from devhub.benchmark import Digest, digest
 
 DELEGATE_TOOL = "mcp__devhub_delegate.devhub_delegate"
 DELEGATE_SCHEMA_SHA256 = "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+PRODUCTION_DELEGATE_MCP_CONFIG = {
+    "args": ["/bootstrap.py", "mcp"],
+    "command": "python3",
+    "enabled": True,
+    "enabled_tools": ["devhub_delegate"],
+    "environment_id": "local",
+    "env_vars": [],
+    "required": True,
+    "tool_timeout_sec": None,
+    "tools": {"devhub_delegate": {"approval_mode": "approve"}},
+}
+PRODUCTION_DELEGATE_MCP_CONFIG_SHA256 = digest(
+    json.dumps(
+        PRODUCTION_DELEGATE_MCP_CONFIG,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+)
 
 
 class HostContractV2(BaseModel):

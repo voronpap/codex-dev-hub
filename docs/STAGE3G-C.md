@@ -14,13 +14,16 @@ This Windows hash does not establish Linux identity.
 The [official CLI documentation](https://learn.chatgpt.com/docs/codex/cli) describes
 distribution through standalone binaries/npm. The exact Linux musl release exists
 at [OpenAI's release](https://github.com/openai/codex/releases/tag/rust-v0.155.0-alpha.9.2).
-`benchmarks/runtime-lock.json` records its archive SHA-256 from release metadata and
-the immutable linux/amd64 Python base manifest. No latest/alpha tag installation,
+`benchmarks/runtime-lock.json` retains that historical release provenance and now
+also records the accepted Build-020 workflow/artifact/ZIP, pinned source archive,
+patchset and production executable identities. No latest/alpha tag installation,
 CLI update, model replacement, pull or protocol model change is performed.
 
-`scripts/build_benchmark_runtime.py` verifies the archive before reading its single
-binary, builds from a two-file temporary context and checks CLI --version with
-network disabled. The image contains Python, CA certificates/base runtime and Codex;
+`scripts/build_benchmark_runtime.py` re-reads the retained Build-020 executable,
+checks it against repository evidence and the runtime lock, builds from a two-file
+temporary context and checks CLI --version with network disabled. It has no fallback
+to the official unpatched release or an ambient executable. The image contains
+Python, CA certificates/base runtime and Codex;
 no Dev Hub source, fixtures, oracle, evaluator, git history or credentials. The
 bootstrap remains an explicit read-only mount. Output records content-addressed
 image ID, base digest, recipe/lock/archive/binary hashes. OCI images remain local;
@@ -120,13 +123,18 @@ tools; Arm B used `Some([mcp__devhub_delegate.devhub_delegate])` and exposed onl
 that delegate. The production-host activation/process-visibility sub-gate is
 `PRODUCTION_HOST_QUALIFIED`.
 
-The existing benchmark runtime image still contains the official unpatched release,
-not the retained Build-020 executable. Its isolation/effects/config receipts therefore
-cannot authorize the patched host, and the exact-image configuration gate still
-reports `cli_config=false` with unresolved `apply_patch`/`write_file` mapping. A new
-acyclic qualification context must bind the Build-020 binary into the exact runtime
-image and collect the complete fixed receipt set on one intended environment. Stage
-3G-C and Stage 3G remain open and `execution_ready=false`.
+The exact-image workflow now builds from the retained Build-020 executable. It keeps
+the proof-only Build-020 host manifest immutable and separately binds a shipping host
+manifest whose resolved MCP config matches the actual launcher (no proof receipt
+environment variable). A fresh read-only observer checks Default host authority,
+Arm A empty visibility, Arm B exact delegate visibility, exact A/B difference, one
+catalog `tools/list`, zero `tools/call`, and zero model/provider executions.
+
+This does not make CI the intended execution host or make `execution_ready=true`.
+The exact-image configuration gate retains its separately recorded frozen CLI config
+failure, and CI has no accepted intended-host auth, ledger or Ollama receipts. The
+complete fixed receipt set must still be collected on one intended environment.
+Stage 3G-C and Stage 3G remain open and `execution_ready=false`.
 
 Local Docker Desktop Linux daemon remains unavailable after startup attempts; its
 named pipe is absent. Therefore no local runtime image/environment can yet be

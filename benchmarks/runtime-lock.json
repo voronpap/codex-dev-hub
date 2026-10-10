@@ -4,5 +4,18 @@
   "codex_version": "codex-cli 0.155.0-alpha.9.2",
   "codex_url": "https://github.com/openai/codex/releases/download/rust-v0.155.0-alpha.9.2/codex-x86_64-unknown-linux-musl.tar.gz",
   "codex_archive_sha256": "8e388748bcd88082272594fe75982645c55eb03f441e54954063061c766be5b0",
+  "qualified_codex_build": {
+    "workflow_run_id": 38024891950,
+    "artifact_id": 11659714382,
+    "artifact_name": "stage3g-build020-production-host-proof",
+    "artifact_zip_sha256": "c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979",
+    "binary_relative_path": "binary/codex",
+    "binary_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+    "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8",
+    "source_archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+    "candidate_b_base_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+    "host_integration_patch_sha256": "f22369f10ed45d04a740205fca0cb7111ddb56d3b1bdbee603dfcfdfdd7de9ad",
+    "combined_patchset_sha256": "e63b68840ecec005703fc61fa1e26aba988c5a9e44a956efedbfbdea96d10c59"
+  },
   "base_image": "python@sha256:1aaa65a85fda306ffb8b910824d4e93bdce61e212c7e87168123ea3073b41a1a"
 }

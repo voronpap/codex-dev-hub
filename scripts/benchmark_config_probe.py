@@ -86,10 +86,7 @@ scope = (
     else (isinstance(tools, list) and len(tools) == 1 and tools[0]["name"] == "devhub_delegate")
 )
 
-from tool_gate import tool_surface  # noqa: E402
-
 version = subprocess.run(["codex", "--version"], capture_output=True, text=True)
-surface = tool_surface(rows, version.stdout.strip())
 
 auth = pathlib.Path(os.environ["CODEX_HOME"]) / "auth.json"
 mounts = pathlib.Path("/proc/mounts").read_text()
@@ -121,11 +118,11 @@ for host in [
 print(
     json.dumps(
         {
-            "cli_config": features.returncode == 0
+            "metadata_config": features.returncode == 0
+            and mcp.returncode == 0
             and scope
-            and all(rows.get(k) == "false" for k in disabled)
-            and surface["forbidden_execution_tools_absent"],
-            "tool_surface": surface,
+            and all(rows.get(k) == "false" for k in disabled),
+            "codex_version": version.stdout.strip(),
             "auth_tmpfs": auth_ok,
             "config_error": "reserved_builtin_provider_override"
             if b"reserved built-in provider IDs" in features.stderr

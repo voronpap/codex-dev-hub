@@ -561,7 +561,9 @@ def main() -> None:
 
     candidate = (repo / "patches/stage3g-approved-call/candidate.patch").read_bytes()
     host = (repo / "patches/stage3g-approved-call/host-integration.patch").read_bytes()
-    manifest = repo / "benchmarks/stage3g-host-manifest-v2.json"
+    # Build-020 history is bound to its proof-only catalog-receipt environment.
+    # Shipping qualification uses stage3g-host-manifest-v2.json instead.
+    manifest = repo / "benchmarks/stage3g-host-manifest-build020-v2.json"
     schema = repo / "docs/evidence/stage3g-production-router/delegate-input-schema.json"
     if sha256_bytes(candidate) != CANDIDATE_SHA256:
         raise ValueError("Candidate B changed")

@@ -65,6 +65,14 @@ Paths are locators only. They never establish artifact identity. A referenced fi
 must remain a regular file beneath the manifest root (for manifest-contained
 evidence), be re-read, and match its reviewed SHA-256 before use.
 
+The Codex executable receipt additionally binds the accepted Build-020 workflow run,
+artifact ID/name/ZIP hash, pinned source/archive, Candidate B and host-integration
+patches, combined patchset, executable bytes/version, and exact runtime image. The
+workflow downloads that retained artifact with read-only Actions permission and
+verifies the ZIP and executable hashes before building. There is no official-release
+or ambient `codex` fallback. GitHub artifact retention remains an operational locator
+availability constraint; it does not change the recorded content authority.
+
 ## Immutable DevFabric Python runtime
 
 `scripts/build_devhub_runtime_artifact.py` requires a clean checkout, records exact
@@ -104,10 +112,16 @@ execution gate.
 ## Current status
 
 Build-020 produced and independently qualified the patched production Codex host
-executable and its pre-sampling Default/A/B visibility. The existing benchmark
-runtime image still uses the official unpatched release, so it cannot be combined
-with that Build-020 receipt. A real final Stage 3G context and the complete fixed
-same-environment receipt set do not yet exist, and the exact-image configuration
-gate retains its unresolved execution-tool surface failure. Therefore Stage 3G-C
-and Stage 3G remain open, `execution_ready=false`, and no rehearsal or benchmark
-is authorized by these contracts.
+executable. The exact-image workflow now builds only from that retained binary and
+collects a fresh, read-only pre-sampling Default/A/B router receipt against the
+shipping host manifest. The historical Build-020 proof manifest remains byte-for-byte
+separate because its MCP config included a proof-only receipt environment variable.
+The shipping manifest binds the actual launcher config without that variable.
+
+Runtime config and host-process visibility remain separate gates. Host visibility
+proves Arm A has no tools, Arm B has exactly the delegate, one `tools/list` occurred,
+zero `tools/call` occurred, and no model/provider execution began. Runtime config
+still checks frozen CLI configuration, auth tmpfs, feature state, MCP scope and egress.
+A real final Stage 3G context and complete fixed same-environment receipt set do not
+yet exist. Therefore Stage 3G-C and Stage 3G remain open, `execution_ready=false`,
+and no rehearsal or benchmark is authorized by these contracts.

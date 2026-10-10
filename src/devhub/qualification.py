@@ -25,6 +25,7 @@ STAGE3G_OLLAMA_VERSION = "0.34.2"
 STAGE3G_OLLAMA_MODEL = "qwen2.5:14b-instruct"
 STAGE3G_OLLAMA_DIGEST = "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6"
 STAGE3G_DELEGATE_TOOL = "mcp__devhub_delegate.devhub_delegate"
+DELEGATE_SCHEMA_SHA256 = "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
 DELEGATE_ENTRYPOINT = "devhub.delegate_server"
 ISOLATED_DELEGATE_ARGS = ("-I", "-m", DELEGATE_ENTRYPOINT)
 
@@ -218,6 +219,195 @@ class QualificationReceiptHeaderV1(Contract):
     receipt_kind: ReceiptKind
     qualification_context_id: Digest
     environment_instance_id: EnvironmentInstanceId
+
+
+class ApprovedDelegateIdentityObservationV1(Contract):
+    server_key: Literal["devhub_delegate"]
+    raw_tool: Literal["devhub_delegate"]
+    canonical_namespace: Literal["mcp__devhub_delegate"]
+    canonical_function: Literal["devhub_delegate"]
+    schema_sha256: Literal["0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"]
+    generation_identity: Annotated[str, Field(pattern=r"^generation-[a-f0-9]{16}$")]
+
+
+class RouterObservationV1(Contract):
+    observer: Literal["read_only_pre_sampling_router_v1"]
+    effective_tool_mode: Literal["CodeModeOnly"]
+    allowed_tools_ceiling_present: bool
+    allowed_tools: tuple[str, ...]
+    approved_delegate_policy_present: bool
+    approved_identity: ApprovedDelegateIdentityObservationV1 | None
+    expected_schema_sha256: Digest | None
+    host_manifest_sha256: Digest | None
+    visible_model_tools: tuple[str, ...]
+    nested_code_mode_map: tuple[str, ...]
+    hosted_tools: tuple[str, ...]
+    dynamic_tool_count: Annotated[int, Field(ge=0)]
+    model_requests: Literal[0]
+    provider_sends: Literal[0]
+    real_codex_task_executions: Literal[0]
+
+
+class CatalogObservationV1(Contract):
+    event: Literal["tools_list"]
+    schema_sha256: Literal["0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"]
+    provider_send: Literal[False]
+
+
+class CodexBuildArtifactObservationV1(Contract):
+    workflow_run_id: Literal[38024891950]
+    artifact_id: Literal[11659714382]
+    artifact_name: Literal["stage3g-build020-production-host-proof"]
+    artifact_zip_sha256: Literal["c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979"]
+
+
+class CodexExecutableReceiptV1(QualificationReceiptHeaderV1):
+    receipt_kind: Literal["codex_executable"] = "codex_executable"
+    kind: Literal["retained_build020_executable"] = "retained_build020_executable"
+    image_id: ImageId
+    source_commit: GitCommit
+    source_archive_sha256: Digest
+    executable_sha256: Digest
+    executable_version: str = Field(min_length=1, max_length=128)
+    candidate_b_base_patch_sha256: Digest
+    host_integration_patch_sha256: Digest
+    combined_patchset_sha256: Digest
+    source_artifact: CodexBuildArtifactObservationV1
+    real_codex_task_executions: Literal[0]
+    model_requests: Literal[0]
+    provider_sends: Literal[0]
+    qualification_passed: Literal[True]
+
+
+class HostProcessVisibilityReceiptV1(QualificationReceiptHeaderV1):
+    receipt_kind: Literal["host_process_visibility"] = "host_process_visibility"
+    kind: Literal["actual_codex_exec_pre_sampling_router_visibility"]
+    image_id: ImageId
+    executable_sha256: Digest
+    executable_version: str = Field(min_length=1, max_length=128)
+    approved_host_manifest_sha256: Digest
+    default_observation: RouterObservationV1
+    arm_a_observation: RouterObservationV1
+    arm_b_observation: RouterObservationV1
+    b_minus_a: tuple[Literal["mcp__devhub_delegate.devhub_delegate"], ...]
+    a_minus_b: tuple[()]
+    catalog_records: tuple[CatalogObservationV1, ...]
+    catalog_tools_list_count: Literal[1]
+    mcp_tool_call_count: Literal[0]
+    stopped_before_sampling: Literal[True]
+    model_requests: Literal[0]
+    provider_sends: Literal[0]
+    real_codex_task_executions: Literal[0]
+    qualification_passed: Literal[True]
+
+    @model_validator(mode="after")
+    def exact_surfaces(self) -> HostProcessVisibilityReceiptV1:
+        default = self.default_observation
+        if (
+            default.allowed_tools_ceiling_present
+            or default.approved_delegate_policy_present
+            or default.approved_identity is not None
+            or default.expected_schema_sha256 is not None
+            or default.host_manifest_sha256 is not None
+        ):
+            raise ValueError("Default Codex observation contains Stage 3G authority")
+        arm_a = self.arm_a_observation
+        if (
+            not arm_a.allowed_tools_ceiling_present
+            or arm_a.allowed_tools
+            or arm_a.approved_delegate_policy_present
+            or arm_a.approved_identity is not None
+            or arm_a.expected_schema_sha256 is not None
+            or arm_a.host_manifest_sha256 != self.approved_host_manifest_sha256
+            or arm_a.visible_model_tools
+            or arm_a.nested_code_mode_map
+            or arm_a.hosted_tools
+            or arm_a.dynamic_tool_count
+        ):
+            raise ValueError("Arm A finalized router surface is not empty")
+        arm_b = self.arm_b_observation
+        if (
+            not arm_b.allowed_tools_ceiling_present
+            or arm_b.allowed_tools != (STAGE3G_DELEGATE_TOOL,)
+            or not arm_b.approved_delegate_policy_present
+            or arm_b.approved_identity is None
+            or arm_b.expected_schema_sha256 != DELEGATE_SCHEMA_SHA256
+            or arm_b.host_manifest_sha256 != self.approved_host_manifest_sha256
+            or arm_b.visible_model_tools != (STAGE3G_DELEGATE_TOOL,)
+            or arm_b.nested_code_mode_map
+            or arm_b.hosted_tools
+            or arm_b.dynamic_tool_count
+        ):
+            raise ValueError("Arm B finalized router surface is not the exact delegate")
+        if self.b_minus_a != (STAGE3G_DELEGATE_TOOL,) or self.a_minus_b:
+            raise ValueError("Stage 3G A/B surface difference is not exact")
+        if len(self.catalog_records) != 1:
+            raise ValueError("Arm B must observe exactly one catalog listing")
+        return self
+
+
+class RequiredFeatureStatesV1(Contract):
+    shell_tool: Literal["true", "false"] | None
+    apps: Literal["true", "false"] | None
+    multi_agent: Literal["true", "false"] | None
+    goals: Literal["true", "false"] | None
+    hooks: Literal["true", "false"] | None
+    memories: Literal["true", "false"] | None
+    remote_plugin: Literal["true", "false"] | None
+    shell_snapshot: Literal["true", "false"] | None
+
+
+class RuntimeArmConfigObservationV1(Contract):
+    arm: Literal["A", "B"]
+    features_exit_code: int
+    mcp_list_exit_code: int
+    mcp_scope_matches: bool
+    required_feature_states: RequiredFeatureStatesV1
+    config_error: str | None = Field(default=None, max_length=256)
+
+
+class RuntimeConfigChecksV1(Contract):
+    auth_tmpfs: bool
+    cli_config: bool
+    egress_runtime: bool
+
+
+class RuntimeConfigProbeReceiptV1(QualificationReceiptHeaderV1):
+    receipt_kind: Literal["runtime_config_probe"] = "runtime_config_probe"
+    kind: Literal["runtime_config_probe"] = "runtime_config_probe"
+    image_id: ImageId
+    protocol_sha256: Digest
+    host_process_visibility_sha256: Digest
+    checks: RuntimeConfigChecksV1
+    arms: tuple[RuntimeArmConfigObservationV1, RuntimeArmConfigObservationV1]
+    auth_material: Literal["synthetic only; real auth presence is a separate preflight gate"]
+    real_codex_executions: Literal[0]
+    model_requests: Literal[0]
+    provider_sends: Literal[0]
+    qualification_passed: bool
+
+    @model_validator(mode="after")
+    def exact_arms(self) -> RuntimeConfigProbeReceiptV1:
+        if tuple(arm.arm for arm in self.arms) != ("A", "B"):
+            raise ValueError("Runtime config receipt must contain exact A/B observations")
+        passed = all((self.checks.auth_tmpfs, self.checks.cli_config, self.checks.egress_runtime))
+        if self.qualification_passed is not passed:
+            raise ValueError("Runtime config qualification result differs from checks")
+        if passed:
+            for arm in self.arms:
+                if (
+                    arm.features_exit_code != 0
+                    or arm.mcp_list_exit_code != 0
+                    or not arm.mcp_scope_matches
+                    or arm.config_error is not None
+                    or any(
+                        value != "false"
+                        for name, value in arm.required_feature_states.model_dump().items()
+                        if name != "schema_version"
+                    )
+                ):
+                    raise ValueError("Passing runtime config receipt contains failed diagnostics")
+        return self
 
 
 class ArtifactReferenceV1(Contract):
@@ -482,13 +672,21 @@ def _validate_receipt_observation(
         },
         "codex_executable": {
             "source_commit": expected.codex.source_commit,
+            "source_archive_sha256": expected.codex.source_archive_sha256,
             "executable_sha256": expected.codex.executable_sha256,
             "executable_version": expected.codex.executable_version,
+            "candidate_b_base_patch_sha256": expected.codex.candidate_b_base_patch_sha256,
+            "host_integration_patch_sha256": expected.codex.host_integration_patch_sha256,
+            "combined_patchset_sha256": expected.codex.combined_patchset_sha256,
+            "image_id": expected.runtime_expected.image_id,
         },
         "host_process_visibility": {
             "approved_host_manifest_sha256": (
                 expected.runtime_expected.approved_host_manifest_sha256
             ),
+            "image_id": expected.runtime_expected.image_id,
+            "executable_sha256": expected.codex.executable_sha256,
+            "executable_version": expected.codex.executable_version,
         },
         "evaluator": {
             "artifact_sha256": expected.evaluator_expected.artifact_sha256,
@@ -511,6 +709,12 @@ def _validate_receipt_observation(
     }
     if any(data.get(key) != value for key, value in common[kind].items()):
         raise ValueError(f"{kind} receipt artifact identity differs from context")
+    if kind == "codex_executable":
+        CodexExecutableReceiptV1.model_validate_json(canonical(data))
+    elif kind == "host_process_visibility":
+        HostProcessVisibilityReceiptV1.model_validate_json(canonical(data))
+    elif kind == "runtime_config_probe":
+        RuntimeConfigProbeReceiptV1.model_validate_json(canonical(data))
 
 
 def verify_manifest_tree(
@@ -562,6 +766,13 @@ def verify_manifest_tree(
         if gate and data.get("qualification_passed") is not True:
             raise ValueError("Qualification gate is true without a passing receipt")
         _validate_receipt_observation(kind, data, context)
+        if kind == "runtime_config_probe":
+            host_reference = manifest.payload.receipts.host_process_visibility
+            if (
+                host_reference is None
+                or data.get("host_process_visibility_sha256") != host_reference.sha256
+            ):
+                raise ValueError("Runtime config receipt is not bound to host visibility")
         receipts[kind] = data
 
     if require_execution_ready and not manifest.payload.execution_ready:

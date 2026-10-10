@@ -106,6 +106,7 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
     context_raw = canonical_context(context)
     (root / "context.json").write_bytes(context_raw)
     references = {}
+    host_visibility_sha256 = None
     for index, kind in enumerate(RECEIPT_KINDS):
         observations = {
             "isolation": {
@@ -125,14 +126,120 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
                 "domain_schema_version": expected.ledger_expected.domain_schema_version,
             },
             "codex_executable": {
+                "kind": "retained_build020_executable",
+                "image_id": expected.runtime_expected.image_id,
                 "source_commit": expected.codex.source_commit,
+                "source_archive_sha256": expected.codex.source_archive_sha256,
                 "executable_sha256": expected.codex.executable_sha256,
                 "executable_version": expected.codex.executable_version,
+                "candidate_b_base_patch_sha256": expected.codex.candidate_b_base_patch_sha256,
+                "host_integration_patch_sha256": expected.codex.host_integration_patch_sha256,
+                "combined_patchset_sha256": expected.codex.combined_patchset_sha256,
+                "source_artifact": {
+                    "schema_version": 1,
+                    "workflow_run_id": 38024891950,
+                    "artifact_id": 11659714382,
+                    "artifact_name": "stage3g-build020-production-host-proof",
+                    "artifact_zip_sha256": (
+                        "c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979"
+                    ),
+                },
+                "real_codex_task_executions": 0,
+                "model_requests": 0,
+                "provider_sends": 0,
             },
             "host_process_visibility": {
+                "kind": "actual_codex_exec_pre_sampling_router_visibility",
+                "image_id": expected.runtime_expected.image_id,
+                "executable_sha256": expected.codex.executable_sha256,
+                "executable_version": expected.codex.executable_version,
                 "approved_host_manifest_sha256": (
                     expected.runtime_expected.approved_host_manifest_sha256
-                )
+                ),
+                "default_observation": {
+                    "schema_version": 1,
+                    "observer": "read_only_pre_sampling_router_v1",
+                    "effective_tool_mode": "CodeModeOnly",
+                    "allowed_tools_ceiling_present": False,
+                    "allowed_tools": [],
+                    "approved_delegate_policy_present": False,
+                    "approved_identity": None,
+                    "expected_schema_sha256": None,
+                    "host_manifest_sha256": None,
+                    "visible_model_tools": ["ordinary.tool"],
+                    "nested_code_mode_map": ["ordinary=ordinary"],
+                    "hosted_tools": [],
+                    "dynamic_tool_count": 0,
+                    "model_requests": 0,
+                    "provider_sends": 0,
+                    "real_codex_task_executions": 0,
+                },
+                "arm_a_observation": {
+                    "schema_version": 1,
+                    "observer": "read_only_pre_sampling_router_v1",
+                    "effective_tool_mode": "CodeModeOnly",
+                    "allowed_tools_ceiling_present": True,
+                    "allowed_tools": [],
+                    "approved_delegate_policy_present": False,
+                    "approved_identity": None,
+                    "expected_schema_sha256": None,
+                    "host_manifest_sha256": expected.runtime_expected.approved_host_manifest_sha256,
+                    "visible_model_tools": [],
+                    "nested_code_mode_map": [],
+                    "hosted_tools": [],
+                    "dynamic_tool_count": 0,
+                    "model_requests": 0,
+                    "provider_sends": 0,
+                    "real_codex_task_executions": 0,
+                },
+                "arm_b_observation": {
+                    "schema_version": 1,
+                    "observer": "read_only_pre_sampling_router_v1",
+                    "effective_tool_mode": "CodeModeOnly",
+                    "allowed_tools_ceiling_present": True,
+                    "allowed_tools": ["mcp__devhub_delegate.devhub_delegate"],
+                    "approved_delegate_policy_present": True,
+                    "approved_identity": {
+                        "schema_version": 1,
+                        "server_key": "devhub_delegate",
+                        "raw_tool": "devhub_delegate",
+                        "canonical_namespace": "mcp__devhub_delegate",
+                        "canonical_function": "devhub_delegate",
+                        "schema_sha256": (
+                            "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+                        ),
+                        "generation_identity": "generation-0123456789abcdef",
+                    },
+                    "expected_schema_sha256": (
+                        "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+                    ),
+                    "host_manifest_sha256": expected.runtime_expected.approved_host_manifest_sha256,
+                    "visible_model_tools": ["mcp__devhub_delegate.devhub_delegate"],
+                    "nested_code_mode_map": [],
+                    "hosted_tools": [],
+                    "dynamic_tool_count": 0,
+                    "model_requests": 0,
+                    "provider_sends": 0,
+                    "real_codex_task_executions": 0,
+                },
+                "b_minus_a": ["mcp__devhub_delegate.devhub_delegate"],
+                "a_minus_b": [],
+                "catalog_records": [
+                    {
+                        "schema_version": 1,
+                        "event": "tools_list",
+                        "schema_sha256": (
+                            "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
+                        ),
+                        "provider_send": False,
+                    }
+                ],
+                "catalog_tools_list_count": 1,
+                "mcp_tool_call_count": 0,
+                "stopped_before_sampling": True,
+                "model_requests": 0,
+                "provider_sends": 0,
+                "real_codex_task_executions": 0,
             },
             "evaluator": {
                 "artifact_sha256": expected.evaluator_expected.artifact_sha256,
@@ -153,21 +260,56 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
             "runtime_config_probe": {
                 "image_id": expected.runtime_expected.image_id,
                 "protocol_sha256": expected.benchmark.protocol_sha256,
+                "host_process_visibility_sha256": host_visibility_sha256,
+                "checks": {
+                    "schema_version": 1,
+                    "auth_tmpfs": True,
+                    "cli_config": True,
+                    "egress_runtime": True,
+                },
+                "arms": [
+                    {
+                        "schema_version": 1,
+                        "arm": arm,
+                        "features_exit_code": 0,
+                        "mcp_list_exit_code": 0,
+                        "mcp_scope_matches": True,
+                        "required_feature_states": {
+                            "schema_version": 1,
+                            "shell_tool": "false",
+                            "apps": "false",
+                            "multi_agent": "false",
+                            "goals": "false",
+                            "hooks": "false",
+                            "memories": "false",
+                            "remote_plugin": "false",
+                            "shell_snapshot": "false",
+                        },
+                        "config_error": None,
+                    }
+                    for arm in ("A", "B")
+                ],
+                "auth_material": "synthetic only; real auth presence is a separate preflight gate",
+                "real_codex_executions": 0,
+                "model_requests": 0,
+                "provider_sends": 0,
             },
         }
-        raw = canonical(
-            {
-                "schema_version": 1,
-                "receipt_kind": kind,
-                "qualification_context_id": context.qualification_context_id,
-                "environment_instance_id": ENVIRONMENT,
-                "qualification_passed": True,
-                "synthetic_observation": index,
-                **observations[kind],
-            }
-        )
+        receipt_value = {
+            "schema_version": 1,
+            "receipt_kind": kind,
+            "qualification_context_id": context.qualification_context_id,
+            "environment_instance_id": ENVIRONMENT,
+            "qualification_passed": True,
+            **observations[kind],
+        }
+        if kind not in {"codex_executable", "host_process_visibility", "runtime_config_probe"}:
+            receipt_value["synthetic_observation"] = index
+        raw = canonical(receipt_value)
         name = f"{kind}.json"
         (root / name).write_bytes(raw)
+        if kind == "host_process_visibility":
+            host_visibility_sha256 = digest(raw)
         references[kind] = ReceiptReferenceV1(
             receipt_kind=kind, relative_path=name, sha256=digest(raw)
         )
@@ -217,6 +359,36 @@ def rewrite_manifest(path: Path, manifest: QualificationManifestV2, **changes: o
     return changed.qualification_manifest_id
 
 
+def rewrite_receipt(
+    root: Path,
+    manifest: QualificationManifestV2,
+    kind: str,
+    mutate,
+) -> tuple[QualificationManifestV2, Path]:
+    reference = getattr(manifest.payload.receipts, kind)
+    assert reference is not None
+    receipt_path = root / reference.relative_path
+    receipt = json.loads(receipt_path.read_bytes())
+    mutate(receipt)
+    raw = canonical(receipt)
+    receipt_path.write_bytes(raw)
+    receipts = manifest.payload.receipts.model_copy(
+        update={kind: reference.model_copy(update={"sha256": digest(raw)})}
+    )
+    payload = QualificationManifestPayloadV2.create(
+        qualification_context_id=manifest.payload.qualification_context_id,
+        environment_instance_id=manifest.payload.environment_instance_id,
+        context=manifest.payload.context,
+        receipts=receipts,
+        observed_artifacts=manifest.payload.observed_artifacts,
+        gates=manifest.payload.gates,
+    )
+    changed = QualificationManifestV2.create(payload)
+    path = root / "manifest.json"
+    path.write_bytes(canonical_manifest(changed))
+    return changed, path
+
+
 def test_context_and_manifest_ids_are_stable_golden(tmp_path):
     first = QualificationContextV1.create(context_payload())
     second = QualificationContextV1.create(context_payload())
@@ -230,7 +402,7 @@ def test_context_and_manifest_ids_are_stable_golden(tmp_path):
         == "81dc09d6460651f9459114455447e6a8440dae0bb919c78594404641fce76c79"
     )
     assert manifest.qualification_manifest_id == (
-        "50225f1ae172105eecba97770ec4c5f9e3c30ec1465c8075726087f4ead50dca"
+        "8659df288de74e393158213f6815a26f403d4abd95c3be4702758d59ecf49407"
     )
 
 
@@ -310,7 +482,10 @@ def test_every_missing_receipt_denies_execution(tmp_path, kind):
         gates=gates,
         execution_ready=False,
     )
-    with pytest.raises(ValueError, match="execution_ready"):
+    expected_error = (
+        "not bound to host visibility" if kind == "host_process_visibility" else "execution_ready"
+    )
+    with pytest.raises(ValueError, match=expected_error):
         verify_manifest_tree(path, identifier)
 
 
@@ -330,6 +505,50 @@ def test_mixed_context_or_host_receipt_rejected(tmp_path, header):
     identifier = rewrite_manifest(path, manifest, receipts=receipts)
     with pytest.raises(ValueError, match="another context/environment"):
         verify_manifest_tree(path, identifier)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("mcp_tool_call_count", 1),
+        ("model_requests", 1),
+        ("stopped_before_sampling", False),
+        ("approved_host_manifest_sha256", "f" * 64),
+    ],
+)
+def test_host_visibility_authority_cannot_be_forged(tmp_path, field, value):
+    _, manifest, _ = materialize(tmp_path)
+    changed, path = rewrite_receipt(
+        tmp_path,
+        manifest,
+        "host_process_visibility",
+        lambda receipt: receipt.__setitem__(field, value),
+    )
+    with pytest.raises((ValueError, ValidationError)):
+        verify_manifest_tree(path, changed.qualification_manifest_id)
+
+
+def test_host_visibility_rejects_surface_widening(tmp_path):
+    _, manifest, _ = materialize(tmp_path)
+
+    def widen(receipt):
+        receipt["arm_a_observation"]["visible_model_tools"] = ["apply_patch"]
+
+    changed, path = rewrite_receipt(tmp_path, manifest, "host_process_visibility", widen)
+    with pytest.raises(ValueError, match="Arm A finalized router surface"):
+        verify_manifest_tree(path, changed.qualification_manifest_id)
+
+
+def test_runtime_config_must_bind_exact_host_visibility_receipt(tmp_path):
+    _, manifest, _ = materialize(tmp_path)
+    changed, path = rewrite_receipt(
+        tmp_path,
+        manifest,
+        "runtime_config_probe",
+        lambda receipt: receipt.__setitem__("host_process_visibility_sha256", "f" * 64),
+    )
+    with pytest.raises(ValueError, match="not bound to host visibility"):
+        verify_manifest_tree(path, changed.qualification_manifest_id)
 
 
 def test_receipt_hash_and_kind_substitution_rejected(tmp_path):
