@@ -307,6 +307,8 @@ def qualify(
         hidden = scratch / "hidden"
         allowed.mkdir()
         hidden.mkdir()
+        local_app_data = allowed / "local-app-data"
+        local_app_data.mkdir()
         hidden_canary = hidden / "canary.txt"
         hidden_canary.write_text("private", encoding="ascii")
         child_script = allowed / "probe-child.py"
@@ -346,6 +348,7 @@ def qualify(
         )
         python = bundle_root / bundle.payload.python.executable_path
         environment = {
+            "LOCALAPPDATA": str(local_app_data),
             "SYSTEMROOT": os.environ["SYSTEMROOT"],
             "TEMP": str(allowed),
             "TMP": str(allowed),

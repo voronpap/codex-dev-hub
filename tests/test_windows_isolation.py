@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import importlib.util
 import json
 import os
@@ -39,6 +40,107 @@ def test_windows_last_error_fails_closed_when_unavailable(monkeypatch: pytest.Mo
     monkeypatch.setattr(isolation.ctypes, "get_last_error", None, raising=False)
     with pytest.raises(RuntimeError, match="get_last_error is unavailable"):
         isolation._windows_last_error()
+
+
+def test_windows_environment_block_is_explicit_deterministic_and_path_free() -> None:
+    environment = {
+        "SYSTEMROOT": r"C:\Windows",
+        "PYTHONNOUSERSITE": "1",
+        "LOCALAPPDATA": r"C:\scratch\allowed\local-app-data",
+    }
+    assert isolation._windows_environment_block(environment) == (
+        "LOCALAPPDATA=C:\\scratch\\allowed\\local-app-data\0"
+        "PYTHONNOUSERSITE=1\0SYSTEMROOT=C:\\Windows\0\0"
+    )
+
+
+@pytest.mark.parametrize(
+    ("environment", "message"),
+    [
+        ({"SYSTEMROOT": r"C:\Windows"}, "LOCALAPPDATA"),
+        ({"LOCALAPPDATA": r"C:\private"}, "SYSTEMROOT"),
+        (
+            {"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": ""},
+            "LOCALAPPDATA",
+        ),
+        (
+            {
+                "SYSTEMROOT": r"C:\Windows",
+                "LOCALAPPDATA": r"C:\private",
+                "Path": r"C:\host-bin",
+            },
+            "PATH",
+        ),
+        (
+            {
+                "SYSTEMROOT": r"C:\Windows",
+                "systemroot": r"D:\Windows",
+                "LOCALAPPDATA": r"C:\private",
+            },
+            "case-insensitively unique",
+        ),
+        (
+            {
+                "SYSTEMROOT": r"C:\Windows",
+                "LOCALAPPDATA": r"C:\private",
+                "BAD=NAME": "value",
+            },
+            "invalid name",
+        ),
+        (
+            {
+                "SYSTEMROOT": r"C:\Windows",
+                "LOCALAPPDATA": r"C:\private",
+                "BAD": "nul\0value",
+            },
+            "invalid name",
+        ),
+    ],
+)
+def test_windows_environment_block_rejects_missing_or_ambient_authority(
+    environment: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        isolation._windows_environment_block(environment)
+
+
+def test_missing_required_environment_fails_before_native_api_acquisition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        isolation,
+        "_windows_dll",
+        lambda *_: pytest.fail("native API acquired before environment validation"),
+    )
+    with pytest.raises(ValueError, match="LOCALAPPDATA"):
+        isolation.launch_windows_isolated(
+            WindowsIsolationProfileV1.create(profile_payload()),
+            Path(r"C:\qualification\bundle\python.exe"),
+            ("-c", "pass"),
+            cwd=Path(r"C:\qualification\workspace"),
+            environment={"SYSTEMROOT": r"C:\Windows"},
+        )
+
+
+def test_relative_local_app_data_fails_before_native_api_acquisition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        isolation,
+        "_windows_dll",
+        lambda *_: pytest.fail("native API acquired before environment validation"),
+    )
+    with pytest.raises(ValueError, match="LOCALAPPDATA must be an absolute path"):
+        isolation.launch_windows_isolated(
+            WindowsIsolationProfileV1.create(profile_payload()),
+            Path(r"C:\qualification\bundle\python.exe"),
+            ("-c", "pass"),
+            cwd=Path(r"C:\qualification\workspace"),
+            environment={
+                "SYSTEMROOT": r"C:\Windows",
+                "LOCALAPPDATA": "relative-profile",
+            },
+        )
 
 
 def path(name: str, index: int) -> NativePathIdentityV1:
@@ -262,6 +364,8 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
     executable.write_bytes(b"MZ")
     writable = tmp_path / "workspace"
     writable.mkdir()
+    local_app_data = writable / "local-app-data"
+    local_app_data.mkdir()
     payload = profile_payload().model_copy(
         update={
             "launcher_executable_sha256": digest(executable.read_bytes()),
@@ -280,6 +384,11 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
     )
     profile = WindowsIsolationProfileV1.create(payload)
     calls: list[str] = []
+    expected_environment = {
+        "SYSTEMROOT": r"C:\Windows",
+        "LOCALAPPDATA": str(local_app_data),
+    }
+    expected_environment_block = isolation._windows_environment_block(expected_environment)
 
     class Function:
         argtypes: object = None
@@ -300,6 +409,10 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
                 return 1
             if self.name == "Experimental_CreateProcessInSandbox":
                 calls.append("created_suspended")
+                assert int(args[5]) & 0x400
+                assert ctypes.wstring_at(args[6], len(expected_environment_block)) == (
+                    expected_environment_block
+                )
                 information = args[-1]._obj  # type: ignore[attr-defined]
                 information.process = 101
                 information.thread = 102
@@ -325,7 +438,7 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
         executable,
         ("-c", "pass"),
         cwd=writable,
-        environment={"SYSTEMROOT": r"C:\Windows"},
+        environment=expected_environment,
     )
     assert calls == [
         "job_created",
@@ -348,6 +461,8 @@ def test_launch_rechecks_exact_launcher_hash_before_creating_job(
     executable.write_bytes(b"MZ")
     writable = tmp_path / "workspace"
     writable.mkdir()
+    local_app_data = writable / "local-app-data"
+    local_app_data.mkdir()
     payload = profile_payload().model_copy(
         update={
             "launcher_executable_sha256": "f" * 64,
@@ -373,7 +488,56 @@ def test_launch_rechecks_exact_launcher_hash_before_creating_job(
             executable,
             ("-c", "pass"),
             cwd=writable,
-            environment={"SYSTEMROOT": r"C:\Windows"},
+            environment={"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": str(local_app_data)},
+        )
+
+
+def test_local_app_data_outside_writable_roots_fails_before_job_acquisition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Win32 path authority")
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    writable = tmp_path / "workspace"
+    writable.mkdir()
+    outside = tmp_path / "outside-profile"
+    outside.mkdir()
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+                "read_only_roots": (
+                    NativePathIdentityV1(
+                        locator=str(bundle), volume_serial_number=1, file_index="1" * 16
+                    ),
+                ),
+                "writable_roots": (
+                    NativePathIdentityV1(
+                        locator=str(writable), volume_serial_number=1, file_index="2" * 16
+                    ),
+                ),
+                "denied_roots": (),
+            }
+        )
+    )
+    monkeypatch.setattr(isolation, "observed_windows_platform", lambda: (26200, "x86_64"))
+    monkeypatch.setattr(isolation, "_verify_profile_paths", lambda _: None)
+    monkeypatch.setattr(isolation, "_reject_reparse_chain", lambda value, **_: Path(value))
+    monkeypatch.setattr(
+        isolation,
+        "_windows_dll",
+        lambda *_: pytest.fail("job API acquired before LOCALAPPDATA authority rejection"),
+    )
+    with pytest.raises(ValueError, match="LOCALAPPDATA must belong"):
+        isolation.launch_windows_isolated(
+            profile,
+            executable,
+            ("-c", "pass"),
+            cwd=writable,
+            environment={"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": str(outside)},
         )
 
 
@@ -389,6 +553,8 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
     executable.write_bytes(b"MZ")
     writable = tmp_path / "workspace"
     writable.mkdir()
+    local_app_data = writable / "local-app-data"
+    local_app_data.mkdir()
     payload = profile_payload().model_copy(
         update={
             "launcher_executable_sha256": digest(executable.read_bytes()),
@@ -452,7 +618,7 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
             executable,
             ("-c", "pass"),
             cwd=writable,
-            environment={"SYSTEMROOT": r"C:\Windows"},
+            environment={"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": str(local_app_data)},
         )
     assert closed == [102, 101, 100]
 
@@ -704,9 +870,23 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         def close(self) -> bool:
             return True
 
-    def launch(*args: object, **_: object) -> Process:
+    def launch(*args: object, **kwargs: object) -> Process:
         arguments = args[2]
         assert isinstance(arguments, tuple)
+        environment = kwargs["environment"]
+        assert isinstance(environment, dict)
+        assert set(environment) == {
+            "LOCALAPPDATA",
+            "SYSTEMROOT",
+            "TEMP",
+            "TMP",
+            "PYTHONDONTWRITEBYTECODE",
+            "PYTHONNOUSERSITE",
+        }
+        assert all(name.casefold() != "path" for name in environment)
+        local_app_data = Path(environment["LOCALAPPDATA"])
+        assert local_app_data == Path(kwargs["cwd"]) / "local-app-data"
+        assert local_app_data.is_dir()
         Path(arguments[-1]).write_bytes(canonical(child))
         return Process()
 
