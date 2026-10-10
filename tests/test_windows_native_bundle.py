@@ -4,6 +4,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -20,6 +21,34 @@ assert SPEC is not None and SPEC.loader is not None
 BUNDLE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = BUNDLE
 SPEC.loader.exec_module(BUNDLE)
+
+
+def _write_pip_authority(repo: Path, *, version: str = BUNDLE.PIP_BUILD_VERSION) -> None:
+    (repo / "pyproject.toml").write_text(
+        '[dependency-groups]\nwindows-bundle-build = ["pip==26.2.1"]\n',
+        encoding="utf-8",
+    )
+    (repo / "uv.lock").write_text(
+        f'[[package]]\nname = "pip"\nversion = "{version}"\n', encoding="utf-8"
+    )
+
+
+def _pip_observation(tmp_path: Path, interpreter: Path, **overrides: str) -> str:
+    prefix = tmp_path / "venv"
+    origin = prefix / "Lib/site-packages/pip/__init__.py"
+    origin.parent.mkdir(parents=True, exist_ok=True)
+    origin.write_bytes(b"")
+    base = tmp_path / "base"
+    base.mkdir(exist_ok=True)
+    values = {
+        "version": BUNDLE.PIP_BUILD_VERSION,
+        "origin": str(origin),
+        "executable": str(interpreter),
+        "prefix": str(prefix),
+        "base_prefix": str(base),
+    }
+    values.update(overrides)
+    return json.dumps(values)
 
 
 def _write_codex_artifact(root: Path) -> tuple[Path, dict[str, object]]:
@@ -458,6 +487,105 @@ def test_build_locator_scan_detects_value_split_across_chunks(tmp_path: Path) ->
         BUNDLE.reject_build_locators(bundle, (locator,))
 
 
+def test_pip_build_tool_requires_locked_isolated_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_pip_authority(tmp_path)
+    interpreter = tmp_path / "venv/python.exe"
+    interpreter.parent.mkdir()
+    interpreter.write_bytes(b"")
+    monkeypatch.setattr(BUNDLE, "_output", lambda _argv: _pip_observation(tmp_path, interpreter))
+
+    assert BUNDLE._verified_pip_interpreter(tmp_path, interpreter) == interpreter.resolve()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("missing", "unavailable"),
+        ("wrong_version", "version differs"),
+        ("ambient", "dedicated virtual environment"),
+        ("outside", "outside the verified environment"),
+    ],
+)
+def test_pip_build_tool_rejects_missing_wrong_or_ambient_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str,
+) -> None:
+    _write_pip_authority(tmp_path)
+    interpreter = tmp_path / "venv/python.exe"
+    interpreter.parent.mkdir()
+    interpreter.write_bytes(b"")
+    observation = json.loads(_pip_observation(tmp_path, interpreter))
+    if mutation == "missing":
+        monkeypatch.setattr(
+            BUNDLE,
+            "_output",
+            lambda _argv: (_ for _ in ()).throw(
+                subprocess.CalledProcessError(1, [str(interpreter)])
+            ),
+        )
+    else:
+        if mutation == "wrong_version":
+            observation["version"] = "0.0"
+        elif mutation == "ambient":
+            observation["base_prefix"] = observation["prefix"]
+        else:
+            outside = tmp_path / "outside/pip/__init__.py"
+            outside.parent.mkdir(parents=True)
+            outside.write_bytes(b"")
+            observation["origin"] = str(outside)
+        monkeypatch.setattr(BUNDLE, "_output", lambda _argv: json.dumps(observation))
+
+    with pytest.raises(ValueError, match=message):
+        BUNDLE._verified_pip_interpreter(tmp_path, interpreter)
+
+
+def test_pip_download_uses_verified_interpreter_in_isolated_mode(tmp_path: Path) -> None:
+    interpreter = tmp_path / "venv/python.exe"
+    command = BUNDLE._pip_download_command(
+        interpreter, tmp_path / "wheelhouse", tmp_path / "requirements.txt"
+    )
+
+    assert command[:5] == [str(interpreter), "-I", "-m", "pip", "download"]
+    assert "--require-hashes" in command
+
+
+def test_pip_authority_failure_precedes_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "parent/release"
+    called = False
+
+    def assemble(*_args):
+        nonlocal called
+        called = True
+        return object()
+
+    monkeypatch.setattr(BUNDLE, "_assemble_bundle", assemble)
+    monkeypatch.setattr(
+        BUNDLE,
+        "_verified_pip_interpreter",
+        lambda *_args: (_ for _ in ()).throw(ValueError("pip authority failed")),
+    )
+
+    with pytest.raises(ValueError, match="pip authority failed"):
+        BUNDLE.build(
+            tmp_path,
+            output,
+            "d" * 40,
+            tmp_path / "python.zip",
+            tmp_path / "python.spdx.json",
+            tmp_path / "codex",
+            BUNDLE.WINDOWS_BUILD_ARTIFACT_RUN_ID,
+        )
+
+    assert not called
+    assert not output.parent.exists()
+
+
 def test_publication_is_one_atomic_release_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -471,6 +599,7 @@ def test_publication_is_one_atomic_release_directory(
         return marker
 
     monkeypatch.setattr(BUNDLE, "_assemble_bundle", assemble)
+    monkeypatch.setattr(BUNDLE, "_verified_pip_interpreter", lambda *_args: tmp_path)
     result = BUNDLE.build(
         tmp_path,
         output,
@@ -497,6 +626,7 @@ def test_failed_assembly_never_publishes_partial_release(
         raise ValueError("qualification failed")
 
     monkeypatch.setattr(BUNDLE, "_assemble_bundle", assemble)
+    monkeypatch.setattr(BUNDLE, "_verified_pip_interpreter", lambda *_args: tmp_path)
     with pytest.raises(ValueError, match="qualification failed"):
         BUNDLE.build(
             tmp_path,
@@ -522,6 +652,7 @@ def test_failed_atomic_replace_never_exposes_release(
         return object()
 
     monkeypatch.setattr(BUNDLE, "_assemble_bundle", assemble)
+    monkeypatch.setattr(BUNDLE, "_verified_pip_interpreter", lambda *_args: tmp_path)
     monkeypatch.setattr(BUNDLE.os, "replace", lambda *_args: (_ for _ in ()).throw(OSError("x")))
 
     with pytest.raises(OSError, match="x"):

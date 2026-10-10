@@ -49,6 +49,7 @@ PYTHON_ARCHIVE_SHA256 = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a
 PYTHON_SBOM = "python-3.12.10-embed-amd64.zip.spdx.json"
 PYTHON_SBOM_SHA256 = "efa53ba4f26e8a06410677ec6d010e97133a7a1ab38e0485f6936da2911879fa"
 PYTHON_LICENSE = "PSF-2.0"
+PIP_BUILD_VERSION = "26.2.1"
 CODEX_SOURCE_COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 CODEX_SOURCE_ARCHIVE_SHA256 = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
 CANDIDATE_SHA256 = "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
@@ -80,6 +81,79 @@ def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 900) -> Non
 
 def _output(argv: list[str], *, cwd: Path | None = None) -> str:
     return subprocess.check_output(argv, cwd=cwd, text=True, timeout=60).strip()
+
+
+def _verified_pip_interpreter(repo: Path, interpreter: Path) -> Path:
+    """Verify the exact locked, isolated build tool before creating staging paths."""
+
+    project = tomllib.loads((repo / "pyproject.toml").read_text(encoding="utf-8"))
+    groups = _mapping(project.get("dependency-groups"), "dependency groups")
+    if groups.get("windows-bundle-build") != [f"pip=={PIP_BUILD_VERSION}"]:
+        raise ValueError("Windows bundle pip authority differs from the reviewed dependency group")
+    lock = tomllib.loads((repo / "uv.lock").read_text(encoding="utf-8"))
+    packages = lock.get("package")
+    if not isinstance(packages, list) or not any(
+        isinstance(package, dict)
+        and package.get("name") == "pip"
+        and package.get("version") == PIP_BUILD_VERSION
+        for package in packages
+    ):
+        raise ValueError("Windows bundle pip authority is absent or mismatched in uv.lock")
+
+    resolved = interpreter.resolve(strict=True)
+    probe = (
+        "import importlib.metadata,json,pathlib,pip,sys;"
+        "print(json.dumps({"
+        "'version':importlib.metadata.version('pip'),"
+        "'origin':str(pathlib.Path(pip.__file__).resolve()) if pip.__file__ else None,"
+        "'executable':str(pathlib.Path(sys.executable).resolve()),"
+        "'prefix':str(pathlib.Path(sys.prefix).resolve()),"
+        "'base_prefix':str(pathlib.Path(sys.base_prefix).resolve())"
+        "},sort_keys=True))"
+    )
+    try:
+        raw = json.loads(_output([str(resolved), "-I", "-c", probe]))
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+        raise ValueError("Pinned Windows bundle pip build tool is unavailable") from exc
+    observed = _mapping(raw, "pip build-tool observation")
+    if observed.get("version") != PIP_BUILD_VERSION:
+        raise ValueError("Windows bundle pip version differs from the reviewed authority")
+    executable = observed.get("executable")
+    prefix = observed.get("prefix")
+    base_prefix = observed.get("base_prefix")
+    origin = observed.get("origin")
+    if not all(
+        isinstance(value, str) and value for value in (executable, prefix, base_prefix, origin)
+    ):
+        raise ValueError("Windows bundle pip build-tool identity is incomplete")
+    if Path(executable).resolve(strict=True) != resolved:
+        raise ValueError("Windows bundle pip interpreter identity changed during verification")
+    prefix_path = Path(prefix).resolve(strict=True)
+    if prefix_path == Path(base_prefix).resolve(strict=True):
+        raise ValueError("Windows bundle pip must come from a dedicated virtual environment")
+    if not Path(origin).resolve(strict=True).is_relative_to(prefix_path):
+        raise ValueError("Windows bundle pip module origin is outside the verified environment")
+    return resolved
+
+
+def _pip_download_command(interpreter: Path, wheelhouse: Path, requirements: Path) -> list[str]:
+    return [
+        str(interpreter),
+        "-I",
+        "-m",
+        "pip",
+        "download",
+        "--only-binary=:all:",
+        "--platform=win_amd64",
+        "--python-version=312",
+        "--implementation=cp",
+        "--abi=cp312",
+        "--require-hashes",
+        "--dest",
+        str(wheelhouse),
+        "-r",
+        str(requirements),
+    ]
 
 
 def reviewed_commit(repo: Path, expected: str) -> str:
@@ -462,6 +536,7 @@ def _assemble_bundle(
     python_sbom: Path,
     codex_artifact: Path,
     accepted_run_id: int,
+    pip_interpreter: Path,
 ) -> NativeBundleV1:
     repo = repo.resolve(strict=True)
     commit = reviewed_commit(repo, expected_commit)
@@ -500,25 +575,7 @@ def _assemble_bundle(
             ],
             cwd=source,
         )
-        _run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "download",
-                "--only-binary=:all:",
-                "--platform=win_amd64",
-                "--python-version=312",
-                "--implementation=cp",
-                "--abi=cp312",
-                "--require-hashes",
-                "--dest",
-                str(wheelhouse),
-                "-r",
-                str(requirements),
-            ],
-            timeout=1800,
-        )
+        _run(_pip_download_command(pip_interpreter, wheelhouse, requirements), timeout=1800)
         dependencies = review_dependency_wheels(wheelhouse, source / "uv.lock")
         shutil.copy2(python_archive, authority / PYTHON_ARCHIVE)
         shutil.copy2(python_sbom, authority / PYTHON_SBOM)
@@ -624,6 +681,7 @@ def build(
 
     if release_root.exists():
         raise ValueError("Native release root must be new")
+    pip_interpreter = _verified_pip_interpreter(repo.resolve(strict=True), Path(sys.executable))
     release_root.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(
         prefix=".devfabric-native-publication-", dir=release_root.parent
@@ -641,6 +699,7 @@ def build(
             python_sbom,
             codex_artifact,
             accepted_run_id,
+            pip_interpreter,
         )
         os.replace(publication, release_root)
     return bundle
