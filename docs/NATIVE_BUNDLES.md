@@ -119,8 +119,11 @@ binds the environment, profile, probe, stdlib-only child-bootstrap hash and exac
 unsigned process exit code. Before importing the probe, that separately hashed
 bootstrap atomically writes a strict, identity-bound `bootstrap_started` frame.
 Reserved exit codes distinguish a loader/self-hash failure, inability to write
-that frame, a top-level import failure and inability to retain bounded failure
-detail. Both the bootstrap frame and child detail are independently marked as
+that frame, bounded allowlisted import boundaries and inability to retain
+bounded failure detail. Import classification is encoded only by reserved exit
+codes for `_ctypes`, `_socket`, `pydantic_core`, DevFabric or an unknown name;
+raw exception text, module paths and host paths are not retained. Both the
+bootstrap frame and child detail are independently marked as
 validated, invalid or absent; invalid and absent data are never trusted. Success
 requires the validated frame. The diagnostic is published only after exhaustive
 cleanup succeeds, never grants readiness and leaves the success output absent.
@@ -135,6 +138,12 @@ commit. After strict bundle verification and before platform observation, scratc
 creation or native resource acquisition, it compares that authority with the
 bundle's immutable implementation commit. A valid but stale bundle therefore
 fails before launch; a filesystem locator cannot select a different runtime.
+The authoritative bundle is never handed to `SandboxSpec`. The host copies it
+to a fresh non-overlapping, reparse-checked disposable directory, verifies that
+copy against the same immutable manifest and launches only from the copy. All
+terminal paths remove the disposable directory fail-closed, then reverify the
+source bytes and owner/group/DACL inventory before publishing either success or
+failure evidence.
 
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,

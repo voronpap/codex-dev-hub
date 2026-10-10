@@ -24,11 +24,33 @@ EXIT_IMPORT_FAILURE_TOO_LARGE = 195
 EXIT_INVOKE_FAILED = 196
 EXIT_INVOKE_FAILURE_WRITE_DENIED = 197
 EXIT_INVOKE_FAILURE_TOO_LARGE = 198
+EXIT_IMPORT_CTYPES = 199
+EXIT_IMPORT_SOCKET = 200
+EXIT_IMPORT_PYDANTIC_CORE = 201
+EXIT_IMPORT_DEVHUB = 202
+EXIT_IMPORT_UNKNOWN = 203
 MAX_FAILURE_BYTES = 4096
 
 
 class _FailureFrameTooLarge(Exception):
     pass
+
+
+def _classified_import_exit(error: BaseException) -> int:
+    """Classify allowlisted import boundaries without retaining error text or paths."""
+
+    if not isinstance(error, ImportError):
+        return EXIT_IMPORT_FAILED
+    name = error.name
+    if name == "_ctypes":
+        return EXIT_IMPORT_CTYPES
+    if name == "_socket":
+        return EXIT_IMPORT_SOCKET
+    if name == "pydantic_core" or (isinstance(name, str) and name.startswith("pydantic_core.")):
+        return EXIT_IMPORT_PYDANTIC_CORE
+    if name == "devhub" or (isinstance(name, str) and name.startswith("devhub.")):
+        return EXIT_IMPORT_DEVHUB
+    return EXIT_IMPORT_UNKNOWN
 
 
 def _canonical(value: object) -> bytes:
@@ -165,7 +187,7 @@ def main() -> int:
             return EXIT_IMPORT_FAILURE_TOO_LARGE
         except BaseException:
             return EXIT_IMPORT_FAILURE_WRITE_DENIED
-        return EXIT_IMPORT_FAILED
+        return _classified_import_exit(error)
 
     try:
         return int(guarded(request_path, result_path, failure_path))

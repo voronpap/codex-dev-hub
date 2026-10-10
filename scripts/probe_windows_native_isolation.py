@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import hashlib
 import json
 import os
 import shutil
@@ -495,6 +496,7 @@ def _cleanup_probe_resources(
     listener: socket.socket | None,
     registry_path: str,
     scratch: Path,
+    execution_bundle: Path | None = None,
 ) -> list[Exception]:
     errors: list[Exception] = []
     operations: list[tuple[str, Callable[[], object]]] = [
@@ -506,6 +508,12 @@ def _cleanup_probe_resources(
             lambda: _delete_registry(registry_path) if _registry_exists(registry_path) else None,
         ),
         ("scratch directory", lambda: shutil.rmtree(scratch) if scratch.exists() else None),
+        (
+            "disposable execution bundle",
+            lambda: shutil.rmtree(execution_bundle)
+            if execution_bundle is not None and execution_bundle.exists()
+            else None,
+        ),
     ]
     for name, operation in operations:
         try:
@@ -514,6 +522,89 @@ def _cleanup_probe_resources(
             error.add_note(f"cleanup operation: {name}")
             errors.append(error)
     return errors
+
+
+def _security_descriptor(path: Path) -> bytes:
+    security_information = 0x00000001 | 0x00000002 | 0x00000004
+    loader = getattr(ctypes, "WinDLL", None)
+    if not callable(loader):
+        raise RuntimeError("Windows DLL loader is unavailable")
+    advapi = loader("advapi32.dll", use_last_error=True, winmode=0x00000800)
+    get_security = advapi.GetFileSecurityW
+    get_security.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+    get_security.restype = ctypes.c_int
+    required = ctypes.c_uint32()
+    if get_security(str(path), security_information, None, 0, ctypes.byref(required)):
+        raise RuntimeError("GetFileSecurityW unexpectedly accepted an empty buffer")
+    error = ctypes.get_last_error()
+    if error != 122 or required.value == 0:
+        raise OSError(error, "GetFileSecurityW size query failed")
+    descriptor = ctypes.create_string_buffer(required.value)
+    if not get_security(
+        str(path),
+        security_information,
+        descriptor,
+        required.value,
+        ctypes.byref(required),
+    ):
+        raise OSError(ctypes.get_last_error(), "GetFileSecurityW failed")
+    return descriptor.raw[: required.value]
+
+
+def _security_descriptor_inventory_sha256(root: Path) -> str:
+    """Hash owner/group/DACL bytes for the exact source bundle tree."""
+
+    entries = [root, *sorted(root.rglob("*"), key=lambda item: item.as_posix())]
+    accumulator = hashlib.sha256()
+    for item in entries:
+        relative = "." if item == root else item.relative_to(root).as_posix()
+        descriptor = _security_descriptor(item)
+        accumulator.update(relative.encode("utf-8"))
+        accumulator.update(b"\0")
+        accumulator.update(len(descriptor).to_bytes(8, "big"))
+        accumulator.update(descriptor)
+    return accumulator.hexdigest()
+
+
+def _paths_overlap(left: Path, right: Path) -> bool:
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+
+
+def _validated_probe_paths(
+    bundle_root: Path,
+    bundle_manifest: Path,
+    scratch: Path,
+    execution_bundle: Path,
+    output: Path,
+    failure_output: Path,
+) -> tuple[Path, Path, Path, Path, Path, Path]:
+    source_root = _reject_reparse_chain(bundle_root)
+    source_manifest = _reject_reparse_chain(bundle_manifest, require_directory=False)
+    mutable = tuple(
+        Path(os.path.abspath(path)) for path in (scratch, execution_bundle, output, failure_output)
+    )
+    for parent in {path.parent for path in mutable}:
+        _reject_reparse_chain(parent)
+    for path in mutable:
+        if _paths_overlap(path, source_root) or _paths_overlap(path, source_manifest):
+            raise ValueError("Probe mutable paths cannot overlap bundle authority")
+    for index, left in enumerate(mutable):
+        if any(_paths_overlap(left, right) for right in mutable[index + 1 :]):
+            raise ValueError("Probe mutable paths cannot overlap each other")
+    return (
+        source_root,
+        source_manifest,
+        mutable[0],
+        mutable[1],
+        mutable[2],
+        mutable[3],
+    )
 
 
 def _reparse_rejected(root: Path, target: Path) -> bool:
@@ -562,9 +653,27 @@ def qualify(
     environment_instance_id: str,
     expected_implementation_commit: str,
 ) -> WindowsIsolationEvidenceV2:
+    scratch = Path(os.path.abspath(scratch))
+    output = Path(os.path.abspath(output))
     failure_output = output.with_name(output.name + ".failure.json")
-    if scratch.exists() or output.exists() or failure_output.exists():
-        raise FileExistsError("Scratch and output paths must not already exist")
+    execution_bundle = scratch.with_name(scratch.name + ".execution-bundle")
+    if scratch.exists() or execution_bundle.exists() or output.exists() or failure_output.exists():
+        raise FileExistsError("Scratch, disposable bundle and output paths must not already exist")
+    (
+        bundle_root,
+        bundle_manifest,
+        scratch,
+        execution_bundle,
+        output,
+        failure_output,
+    ) = _validated_probe_paths(
+        bundle_root,
+        bundle_manifest,
+        scratch,
+        execution_bundle,
+        output,
+        failure_output,
+    )
     bundle = NativeBundleV1.model_validate_json(bundle_manifest.read_bytes())
     verify_native_bundle(
         bundle,
@@ -580,7 +689,7 @@ def qualify(
         )
     if bundle.payload.implementation_commit != expected_implementation_commit:
         raise ValueError("Native bundle implementation commit differs from expected authority")
-    observed_build, observed_architecture = observed_windows_platform()
+    source_security_descriptor_sha256 = _security_descriptor_inventory_sha256(bundle_root)
     registry_path = rf"Software\DevFabric\IsolationProbe\{environment_instance_id}"
     listener: socket.socket | None = None
     event: int | None = None
@@ -589,6 +698,15 @@ def qualify(
     primary_error: BaseException | None = None
     failure_diagnostic: WindowsIsolationFailureDiagnosticV2 | None = None
     try:
+        shutil.copytree(bundle_root, execution_bundle)
+        verify_native_bundle(
+            bundle,
+            execution_bundle,
+            expected_platform="windows",
+            expected_architecture="x86_64",
+        )
+        _reject_reparse_chain(execution_bundle)
+        observed_build, observed_architecture = observed_windows_platform()
         scratch.mkdir(parents=True)
         allowed = scratch / "allowed"
         hidden = scratch / "hidden"
@@ -623,7 +741,7 @@ def qualify(
                 launcher_executable_sha256=bundle.payload.python.executable_sha256,
                 probe_sha256=digest(probe_bytes),
                 child_bootstrap_sha256=digest(bootstrap_bytes),
-                read_only_roots=(windows_path_identity(bundle_root),),
+                read_only_roots=(windows_path_identity(execution_bundle),),
                 writable_roots=(windows_path_identity(allowed),),
                 denied_roots=(windows_path_identity(hidden),),
             )
@@ -639,7 +757,7 @@ def qualify(
                 }
             )
         )
-        python = bundle_root / bundle.payload.python.executable_path
+        python = execution_bundle / bundle.payload.python.executable_path
         environment = {
             "SYSTEMROOT": os.environ["SYSTEMROOT"],
             "TEMP": str(allowed),
@@ -726,7 +844,33 @@ def qualify(
         evidence = WindowsIsolationEvidenceV2.create(profile, spec, receipt)
     except BaseException as error:
         primary_error = error
-    cleanup_errors = _cleanup_probe_resources(process, event, listener, registry_path, scratch)
+    cleanup_errors = _cleanup_probe_resources(
+        process,
+        event,
+        listener,
+        registry_path,
+        scratch,
+        execution_bundle,
+    )
+    try:
+        verify_native_bundle(
+            bundle,
+            bundle_root,
+            expected_platform="windows",
+            expected_architecture="x86_64",
+        )
+    except Exception as error:
+        error.add_note("post-probe source bundle byte verification")
+        cleanup_errors.append(error)
+    try:
+        observed_source_security_descriptor_sha256 = _security_descriptor_inventory_sha256(
+            bundle_root
+        )
+        if observed_source_security_descriptor_sha256 != source_security_descriptor_sha256:
+            raise RuntimeError("Source bundle security descriptor changed during qualification")
+    except Exception as error:
+        error.add_note("post-probe source bundle security descriptor verification")
+        cleanup_errors.append(error)
     if primary_error is not None:
         _raise_after_cleanup(primary_error, cleanup_errors, failure_diagnostic, failure_output)
     if cleanup_errors:
