@@ -1,0 +1,15 @@
+{
+  "artifact_sha256": "8bb366424347ac9051e25d0ee534616d27e495b92ae83b410a40ab254bafe4b5",
+  "environment_instance_id": "169a6b903825d8c88973dd592c4601d9",
+  "image_id": "sha256:7f21daf01cc93b385b7fd039059f0b5a391f0f52cb0a8181ec92d6248097f9ff",
+  "kind": "synthetic_evaluator_proof",
+  "provider_sends": 0,
+  "qualification_context_id": "5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168",
+  "qualification_passed": true,
+  "real_codex_executions": 0,
+  "receipt_kind": "evaluator",
+  "result_sha256": "339322bed64845e49f2314b75fb2a25f9a1b924ad6d3c49f4f3399fc62d917fe",
+  "runner_sha256": "e142cfeb6d960817aca77ce7f7c6332023c7175bc469efea55d7ffdf16e650d6",
+  "schema_version": 1,
+  "tests_pass": true
+}

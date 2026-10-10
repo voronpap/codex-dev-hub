@@ -1,8 +1,16 @@
 # Stage 3G-C runtime qualification
 
-Stage 3G-B CLOSED (accepted PR #23). Stage 3G-C and Stage 3G remain OPEN.
-Real Codex benchmark executions = 0; provider sends = 0; execution_ready = false.
-No fixture, paired rehearsal, benchmark evaluation or inference is authorized here.
+Stage 3G-B CLOSED (accepted PR #23). Stage 3G-C is CLOSED for the exact reviewed
+manifest below; Stage 3G remains OPEN. Real Codex benchmark executions = 0;
+provider sends = 0. No fixture, paired rehearsal or benchmark evaluation has run.
+
+The intended-host qualification manifest is
+`d6d3e1f565064846af495b5d9cab6e3f54738616d383c5c6afddf02c666b5441`,
+with context `5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168`
+and environment `169a6b903825d8c88973dd592c4601d9`. Its fixed ten-receipt set
+mechanically derives `execution_ready=true`. This authority does not transfer to a
+different image, executable, ledger, evaluator, Python runtime, Ollama instance,
+configuration or environment.
 
 ## Exact image and provenance
 
@@ -130,22 +138,20 @@ environment variable). A fresh read-only observer checks Default host authority,
 Arm A empty visibility, Arm B exact delegate visibility, exact A/B difference, one
 catalog `tools/list`, zero `tools/call`, and zero model/provider executions.
 
-This does not make CI the intended execution host or make `execution_ready=true`.
-The exact-image configuration gate retains its separately recorded frozen CLI config
-failure, and CI has no accepted intended-host auth, ledger or Ollama receipts. The
-complete fixed receipt set must still be collected on one intended environment.
-Stage 3G-C and Stage 3G remain open and `execution_ready=false`.
+CI is not the intended execution host. The accepted chain was collected on one local
+Linux/OCI environment and binds the retained Build-020 executable, exact runtime and
+evaluator images, immutable Python runtime, validated ledger identity, auth/egress,
+filesystem/isolation/config probes and exact Ollama 0.34.2 identity. Default exposure,
+Arm A empty visibility and Arm B delegate-only visibility were observed using the same
+retained executable before sampling; MCP tool calls, model requests, provider sends and
+real task executions remained zero. Independent review returned `ACCEPT`.
 
-Local Docker Desktop Linux daemon remains unavailable after startup attempts; its
-named pipe is absent. Therefore no local runtime image/environment can yet be
-qualified. The dedicated Linux qualification workflow builds exact images and uses
-only synthetic probes. It has no real auth, accepted local ledger or local Ollama:
-its successful checks cannot set local execution_ready=true. Normal CI is Linux
-full + Windows smoke. Full Windows remains a final Stage 3G closure gate.
-
-Stage 3G-C remains OPEN until all gates pass together on the intended Linux execution
-host. Stop for review before any rehearsal, even after readiness. All quality,
-semantic acceptance, Delegation Value and savings claims remain null.
+The additive machine-readable evidence is in
+[`evidence/stage3g-intended-host-af5d081/`](evidence/stage3g-intended-host-af5d081/).
+Credential bytes, the mutable ledger database, logs, executable/model blobs and
+temporary files are deliberately excluded. Stage 3G remains OPEN pending a separate
+rehearsal and the frozen paired run. All quality, semantic acceptance, Delegation
+Value and savings claims remain null.
 
 The B-arm completion gate is specified in
 [B_ARM_DELEGATION_OBSERVATION.md](B_ARM_DELEGATION_OBSERVATION.md). A tool call count
@@ -173,8 +179,9 @@ policy. A green CI mechanics workflow still does not make CI the intended execut
 host or set `execution_ready=true`. Linux full/Windows smoke remain required.
 
 No replacement/custom provider, auth mode, model or endpoint is selected. Historical
-receipts and plans remain immutable and cannot satisfy the corrected bindings. Review
-is still required before rehearsal. No silent fallback.
+receipts and plans remain immutable and cannot satisfy the accepted bindings. The
+accepted manifest is necessary but does not itself constitute a rehearsal or authorize
+substitution of any bound component. No silent fallback.
 
 Evidence is stored in [the machine-readable summary](evidence/stage3g-c/summary.json).
 At implementation f74e665 Linux full passed 318 tests (1 skip), Windows smoke 14;

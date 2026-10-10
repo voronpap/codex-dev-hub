@@ -1,0 +1,97 @@
+{
+  "payload": {
+    "arms_expected": {
+      "arm_a": {
+        "approved_delegate_policy_sha256": null,
+        "arm": "A",
+        "schema_version": 1,
+        "tool_ceiling": []
+      },
+      "arm_b": {
+        "approved_delegate_policy_sha256": "e3aa6f28641e7b9c8e73b36f5943dd4af946a4641fecc061dae8ecf122d0a8ec",
+        "arm": "B",
+        "schema_version": 1,
+        "tool_ceiling": [
+          "mcp__devhub_delegate.devhub_delegate"
+        ]
+      },
+      "schema_version": 1
+    },
+    "benchmark": {
+      "config_sha256": "b8fdd8ca11f582b04b217afc4da6f718eb1bb3b443749324faa4eff13f4207fa",
+      "fixture_oracle_manifest_sha256": "0c0eaccdb5109ff80dea115a75f0965b6948585cedb2e71351094de748ce3e5c",
+      "plan_sha256": "70d8f1ace60870aee7f822c1b337ae978888168eb5da72606f8e6e8f496fedf5",
+      "protocol_sha256": "fd6d696a20e70aab4eff59343ef8527ee121efca2707ef08b3d748e1b549a2e6",
+      "schema_version": 1,
+      "session_bindings_sha256": "e72ff320870cebf7cb4d2296fdd407849f463f3ac20d4bd6e3e88f832298f88e"
+    },
+    "codex": {
+      "candidate_b_base_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+      "combined_patchset_sha256": "e63b68840ecec005703fc61fa1e26aba988c5a9e44a956efedbfbdea96d10c59",
+      "executable_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+      "executable_version": "codex-cli 0.155.0-alpha.9.2",
+      "host_integration_patch_sha256": "f22369f10ed45d04a740205fca0cb7111ddb56d3b1bdbee603dfcfdfdd7de9ad",
+      "schema_version": 1,
+      "source_archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+      "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8"
+    },
+    "environment_instance_id": "169a6b903825d8c88973dd592c4601d9",
+    "evaluator_expected": {
+      "artifact_sha256": "8bb366424347ac9051e25d0ee534616d27e495b92ae83b410a40ab254bafe4b5",
+      "image_id": "sha256:7f21daf01cc93b385b7fd039059f0b5a391f0f52cb0a8181ec92d6248097f9ff",
+      "runner_sha256": "e142cfeb6d960817aca77ce7f7c6332023c7175bc469efea55d7ffdf16e650d6",
+      "schema_version": 1
+    },
+    "implementation": {
+      "devhub_commit": "af5d08145a894e8feb3e62d79657f77d1dbd9bf7",
+      "python_runtime": {
+        "dependency_lock_sha256": "4aeab7c781afad18ebc3844647b9e8aece889771326187280beaa3c1f3fc80ae",
+        "distribution_name": "codex-dev-hub",
+        "distribution_version": "0.1.0",
+        "entrypoint": "devhub.delegate_server",
+        "isolated_argv": [
+          "-I",
+          "-m",
+          "devhub.delegate_server"
+        ],
+        "python_executable_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+        "python_implementation": "CPython",
+        "python_version": "3.12.3",
+        "runtime_environment_id": "9781e69eb2d307c6bdc48f2b25bab02a981dcd66c0a1f1c538633be7e8a78e11",
+        "schema_version": 1,
+        "source_commit": "af5d08145a894e8feb3e62d79657f77d1dbd9bf7",
+        "wheel_sha256": "cc1e5da20fc673f6fb99d925945e8350fe151d00ac149628ff2896487e50b769"
+      },
+      "schema_version": 1
+    },
+    "ledger_expected": {
+      "domain_schema_version": 6,
+      "identity": {
+        "account_binding_hash": null,
+        "authority_scope_id": "5e5422f0a15442b89935d849dd0875f7",
+        "authority_scope_kind": "qualification",
+        "family": "devfabric_resource_ledger",
+        "format_version": 1,
+        "instance_id": "97ec853966644108b4249be8ab75b8d6"
+      },
+      "identity_sha256": "c87eb22ec1e0ea04c61534feecd1bf00ab737988baf6096a77eee044e8733df5",
+      "schema_version": 1
+    },
+    "ollama_expected": {
+      "digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+      "model": "qwen2.5:14b-instruct",
+      "schema_version": 1,
+      "version": "0.34.2"
+    },
+    "runtime_expected": {
+      "approved_host_manifest_sha256": "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b",
+      "bootstrap_sha256": "6efdf9ccc4b5f583e71f0f9fbbbd91dccaa97a11d551969015d3de28d987283a",
+      "image_id": "sha256:9001bd161de5e5b4e5e717fbeb481f6391460f0338aa5815ee4e8602592e8a84",
+      "image_metadata_sha256": "cf17bb8c79d787e1b5b67b5f30e4ed2066af7e16afe9165ec8c2801dd3af51d9",
+      "schema_version": 1
+    },
+    "schema_version": 1
+  },
+  "qualification_context_id": "5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168",
+  "schema_version": 1
+}

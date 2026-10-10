@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "kind": "stage3g_intended_host_qualification_summary",
+  "source_commit": "af5d08145a894e8feb3e62d79657f77d1dbd9bf7",
+  "qualification_context_id": "5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168",
+  "qualification_manifest_id": "d6d3e1f565064846af495b5d9cab6e3f54738616d383c5c6afddf02c666b5441",
+  "environment_instance_id": "169a6b903825d8c88973dd592c4601d9",
+  "execution_ready": true,
+  "stage3g_c": "CLOSED",
+  "stage3g": "OPEN",
+  "production_classification": "PRODUCTION_HOST_QUALIFIED",
+  "required_receipt_count": 10,
+  "required_receipts": [
+    "auth_egress",
+    "codex_executable",
+    "effects_boundary",
+    "evaluator",
+    "host_process_visibility",
+    "isolation",
+    "ledger_identity",
+    "ollama_metadata",
+    "python_runtime",
+    "runtime_config_probe"
+  ],
+  "codex_executable_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+  "runtime_image_id": "sha256:9001bd161de5e5b4e5e717fbeb481f6391460f0338aa5815ee4e8602592e8a84",
+  "evaluator_image_id": "sha256:7f21daf01cc93b385b7fd039059f0b5a391f0f52cb0a8181ec92d6248097f9ff",
+  "python_runtime_environment_id": "9781e69eb2d307c6bdc48f2b25bab02a981dcd66c0a1f1c538633be7e8a78e11",
+  "ledger_identity_sha256": "c87eb22ec1e0ea04c61534feecd1bf00ab737988baf6096a77eee044e8733df5",
+  "ollama": {
+    "version": "0.34.2",
+    "model": "qwen2.5:14b-instruct",
+    "digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6"
+  },
+  "host_visibility": {
+    "default_allowed_tools": null,
+    "arm_a_visible": [],
+    "arm_b_visible": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ],
+    "b_minus_a": [
+      "mcp__devhub_delegate.devhub_delegate"
+    ],
+    "a_minus_b": [],
+    "mcp_tools_list": 1,
+    "mcp_tools_call": 0,
+    "stopped_before_sampling": true
+  },
+  "model_requests": 0,
+  "provider_sends": 0,
+  "mcp_tool_executions": 0,
+  "real_codex_executions": 0,
+  "rehearsal_run": false,
+  "benchmark_run": false,
+  "semantic_acceptance": null,
+  "quality_benchmark": null,
+  "delegation_value": null,
+  "savings": null,
+  "review": {
+    "verdict": "ACCEPT",
+    "blockers": []
+  },
+  "excluded_sensitive_or_mutable_artifacts": [
+    "auth bytes",
+    "ledger.db",
+    "ollama-server.log",
+    "Codex executable",
+    "Ollama model blobs",
+    "wheel and dependency lock blobs"
+  ]
+}

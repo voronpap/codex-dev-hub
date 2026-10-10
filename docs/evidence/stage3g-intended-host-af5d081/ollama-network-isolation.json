@@ -1,0 +1,11 @@
+{
+  "executable_sha256": "ca9f4d3b7538196fab8bad3842bff3aa1352a80bfaaf95391ef7dda28880928b",
+  "kind": "ollama_process_network_isolation",
+  "loopback_bind_available": true,
+  "network_namespace_id": "net:[4026532296]",
+  "non_loopback_route_count": 0,
+  "outbound_probe_denied": true,
+  "proxy_environment_inherited": false,
+  "schema_version": 1,
+  "separate_network_namespace": true
+}

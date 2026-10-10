@@ -1,0 +1,27 @@
+{
+  "candidate_b_base_patch_sha256": "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36",
+  "combined_patchset_sha256": "e63b68840ecec005703fc61fa1e26aba988c5a9e44a956efedbfbdea96d10c59",
+  "environment_instance_id": "169a6b903825d8c88973dd592c4601d9",
+  "executable_sha256": "a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d",
+  "executable_version": "codex-cli 0.155.0-alpha.9.2",
+  "host_integration_patch_sha256": "f22369f10ed45d04a740205fca0cb7111ddb56d3b1bdbee603dfcfdfdd7de9ad",
+  "image_id": "sha256:9001bd161de5e5b4e5e717fbeb481f6391460f0338aa5815ee4e8602592e8a84",
+  "kind": "retained_build020_executable",
+  "model_requests": 0,
+  "provider_sends": 0,
+  "qualification_context_id": "5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168",
+  "qualification_passed": true,
+  "real_codex_task_executions": 0,
+  "receipt_kind": "codex_executable",
+  "schema_version": 1,
+  "source_archive_sha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
+  "source_artifact": {
+    "artifact_id": 11659714382,
+    "artifact_name": "stage3g-build020-production-host-proof",
+    "artifact_zip_sha256": "c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979",
+    "build_evidence_sha256": "6f4fdb1aacdeef2e3446e7f2760d4f84e2832df833034befb4ce0a81997a32f0",
+    "schema_version": 1,
+    "workflow_run_id": 38024891950
+  },
+  "source_commit": "4607249e430dac1c961df4dc615beae88e33cec8"
+}

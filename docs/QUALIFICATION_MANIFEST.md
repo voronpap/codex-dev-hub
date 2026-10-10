@@ -150,6 +150,13 @@ Runtime config and host-process visibility remain separate gates. Host visibilit
 proves Arm A has no tools, Arm B has exactly the delegate, one `tools/list` occurred,
 zero `tools/call` occurred, and no model/provider execution began. Runtime config
 still checks frozen CLI configuration, auth tmpfs, feature state, MCP scope and egress.
-A real final Stage 3G context and complete fixed same-environment receipt set do not
-yet exist. Therefore Stage 3G-C and Stage 3G remain open, `execution_ready=false`,
-and no rehearsal or benchmark is authorized by these contracts.
+The intended-host context
+`5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168`
+and final manifest
+`d6d3e1f565064846af495b5d9cab6e3f54738616d383c5c6afddf02c666b5441`
+bind the complete fixed receipt set on environment
+`169a6b903825d8c88973dd592c4601d9`. Independent review accepted the chain and
+the validator derives `execution_ready=true` for that exact composition. Stage 3G-C
+is closed for this manifest; Stage 3G remains open. Qualification alone does not
+establish semantic quality, savings or Delegation Value, and cannot authorize a
+different runtime composition.

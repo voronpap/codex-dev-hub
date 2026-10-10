@@ -1,0 +1,61 @@
+{
+  "arms": [
+    {
+      "arm": "A",
+      "config_error": null,
+      "features_exit_code": 0,
+      "mcp_list_exit_code": 0,
+      "mcp_scope_matches": true,
+      "required_feature_states": {
+        "apps": "false",
+        "goals": "false",
+        "hooks": "false",
+        "memories": "false",
+        "multi_agent": "false",
+        "remote_plugin": "false",
+        "schema_version": 1,
+        "shell_snapshot": "false",
+        "shell_tool": "false"
+      },
+      "schema_version": 1
+    },
+    {
+      "arm": "B",
+      "config_error": null,
+      "features_exit_code": 0,
+      "mcp_list_exit_code": 0,
+      "mcp_scope_matches": true,
+      "required_feature_states": {
+        "apps": "false",
+        "goals": "false",
+        "hooks": "false",
+        "memories": "false",
+        "multi_agent": "false",
+        "remote_plugin": "false",
+        "schema_version": 1,
+        "shell_snapshot": "false",
+        "shell_tool": "false"
+      },
+      "schema_version": 1
+    }
+  ],
+  "auth_material": "synthetic only; real auth presence is a separate preflight gate",
+  "checks": {
+    "auth_tmpfs": true,
+    "cli_config": true,
+    "egress_runtime": true,
+    "schema_version": 1
+  },
+  "environment_instance_id": "169a6b903825d8c88973dd592c4601d9",
+  "host_process_visibility_sha256": "7745b126e52640532ec531b18207ba0ae46327347595856a5a6c8092e5d4b9a8",
+  "image_id": "sha256:9001bd161de5e5b4e5e717fbeb481f6391460f0338aa5815ee4e8602592e8a84",
+  "kind": "runtime_config_probe",
+  "model_requests": 0,
+  "protocol_sha256": "fd6d696a20e70aab4eff59343ef8527ee121efca2707ef08b3d748e1b549a2e6",
+  "provider_sends": 0,
+  "qualification_context_id": "5d0df8d906fe1f204f916ad4e633f1cbb8a27bb91d3f99a4c9812d81761f6168",
+  "qualification_passed": true,
+  "real_codex_executions": 0,
+  "receipt_kind": "runtime_config_probe",
+  "schema_version": 1
+}

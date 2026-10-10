@@ -53,8 +53,13 @@ Classification by role:
 
 No GitHub repository rename, Python namespace/package migration, CLI rename,
 MCP alias, database migration or protocol revision is authorized by branding.
-Stage 3G remains OPEN and execution_ready=false; no new capability or benchmark
-result is established. Historical evidence must not be rewritten to the new name.
+At the time of the branding migration, Stage 3G was OPEN and
+`execution_ready=false`; that statement is historical and established no new
+capability or benchmark result. The superseding current qualification status is
+Stage 3G-C CLOSED and `execution_ready=true` only for exact manifest
+`d6d3e1f565064846af495b5d9cab6e3f54738616d383c5c6afddf02c666b5441`.
+Stage 3G remains OPEN and no rehearsal or benchmark has run. Historical evidence
+must not be rewritten to the new name.
 
 A separate future review may consider `codex-dev-hub` → `devfabric`, then a
 versioned `devhub` → `devfabric` Python/package/CLI migration with compatibility

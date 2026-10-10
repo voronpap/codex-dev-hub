@@ -13,7 +13,7 @@ DevFabric is the public project name. Some internal identifiers retain the
 historical `devhub` naming for compatibility and evidence stability.
 The repository remains `codex-dev-hub`; see the [naming policy](docs/NAMING.md).
 
-**Active development. Execution-boundary qualification is in progress.**
+**Active development. The exact Stage 3G execution boundary is qualified.**
 The paired benchmark has not run; semantic quality, savings and Delegation Value
 are not yet established. This is not a production-ready release.
 
@@ -96,7 +96,7 @@ it does not establish general task quality or full production qualification.
 | Groq and Gemini adapters | Complete вЂ” scoped execution/accounting gates |
 | Unified `devhub_delegate` | Complete вЂ” local unified delegation gate passed |
 | Frozen benchmark harness | Complete вЂ” offline harness accepted |
-| Execution boundary and isolated runtime qualification | In progress |
+| Execution boundary and isolated runtime qualification | Complete for exact Stage 3G manifest |
 | Real paired delegation benchmark | Not run |
 
 See [accepted milestones](docs/STAGES.md), [unified delegation](docs/STAGE3F.md)
@@ -233,8 +233,10 @@ Validate the real Codex в†” DevFabric execution boundary before the paired 
 - Tool identity, origin and schema remain bound to the exact admitted runtime.
 - Benchmark execution is isolated in Linux/OCI with a qualified host and preflight.
 
-**`execution_ready = false`**. Stage 3G remains open. No real paired benchmark
-has run, and passing integration tests does not establish quality or savings.
+**`execution_ready = true`** only for the reviewed manifest
+`d6d3e1f565064846af495b5d9cab6e3f54738616d383c5c6afddf02c666b5441`
+on environment `169a6b903825d8c88973dd592c4601d9`. Stage 3G remains open. No real
+paired benchmark has run, and qualification does not establish quality or savings.
 
 ## Development quick start
 

@@ -10,8 +10,11 @@ frozen protocol, Candidate B, provider behavior, accounting, or benchmark execut
 Current implementation status supersedes the original sequencing snapshot without
 rewriting its design decisions: AUD-001/002/003/005/008/009/011 are merged.
 Build-020 independently qualified the patched production host and its pre-sampling
-Default/A/B visibility. Final exact-runtime-image and same-environment manifest
-qualification remain open; Stage 3G-C/3G are open and `execution_ready=false`.
+Default/A/B visibility. The final exact-runtime-image and same-environment manifest
+`d6d3e1f565064846af495b5d9cab6e3f54738616d383c5c6afddf02c666b5441`
+was independently accepted with `execution_ready=true`. Stage 3G-C is closed for
+that exact manifest/environment; Stage 3G remains open and no rehearsal or benchmark
+has run.
 
 ## 1. Ledger identity — AUD-001 (IMPLEMENTED / MERGED)
 
@@ -485,13 +488,12 @@ legacy ledger adoption = NOT IMPLEMENTED
 production_classification = PRODUCTION_HOST_QUALIFIED
 production_host_activation = PROVEN
 process_proof = PASS
-Stage 3G-C = OPEN
+Stage 3G-C = CLOSED for exact manifest d6d3e1f565064846af495b5d9cab6e3f54738616d383c5c6afddf02c666b5441
 Stage 3G = OPEN
-execution_ready = false
+execution_ready = true for exact environment 169a6b903825d8c88973dd592c4601d9
 
-remaining gate = bind the exact Build-020 executable into the runtime image and
-  collect one complete same-environment QualificationManifestV2 receipt set;
-  cli_config remains false until the supported execution-tool configuration passes
+remaining gate = separate rehearsal, then the frozen paired run and review;
+  qualification authority cannot be transferred to another runtime composition
 
 model_requests = 0
 provider_sends = 0
