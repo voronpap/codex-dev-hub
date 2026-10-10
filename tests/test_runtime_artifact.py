@@ -3,17 +3,20 @@ import json
 import sys
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
 
-from devhub.qualification import QualificationReceiptHeaderV1
+from devhub.qualification import QualificationReceiptHeaderV1, VerifiedQualificationV2
 from devhub.runtime_artifact import (
     PythonRuntimeArtifactEvidenceV1,
     PythonRuntimeReceiptV1,
     file_sha256,
     inspect_runtime_environment,
     python_runtime_expected,
+    verified_delegate_command,
     verify_runtime_against_expected,
 )
 
@@ -267,6 +270,88 @@ def test_python_runtime_receipt_rejects_wrong_kind():
             module_origin="site-packages/devhub/__init__.py",
             runtime_environment_id="4" * 64,
         )
+
+
+def test_verified_delegate_command_accepts_canonical_json_receipt(monkeypatch):
+    receipt = PythonRuntimeReceiptV1(
+        receipt_kind="python_runtime",
+        qualification_context_id="3" * 64,
+        environment_instance_id="4" * 32,
+        interpreter_path="/runtime/python",
+        wheel_path="/runtime/devhub.whl",
+        lock_path="/runtime/uv.lock",
+        interpreter_sha256="1" * 64,
+        python_implementation="CPython",
+        python_version="3.12.11",
+        wheel_sha256="2" * 64,
+        dependency_lock_sha256="3" * 64,
+        module_origin="site-packages/devhub/__init__.py",
+        runtime_environment_id="4" * 64,
+    )
+    raw = receipt.model_dump(mode="json")
+    assert isinstance(raw["isolated_argv"], list)
+    qualification = cast(
+        VerifiedQualificationV2,
+        SimpleNamespace(
+            receipts={"python_runtime": raw},
+            context=SimpleNamespace(
+                payload=SimpleNamespace(implementation=SimpleNamespace(python_runtime=object()))
+            ),
+        ),
+    )
+    seen: list[tuple[object, ...]] = []
+
+    def fake_verify(*args: object) -> PythonRuntimeReceiptV1:
+        seen.append(args)
+        return receipt
+
+    monkeypatch.setattr("devhub.runtime_artifact.verify_runtime_against_expected", fake_verify)
+
+    assert verified_delegate_command(qualification) == [
+        "/runtime/python",
+        "-I",
+        "-m",
+        "devhub.delegate_server",
+    ]
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"isolated_argv": ["-I", "-m", "untrusted.module"]},
+        {"unexpected_authority": True},
+    ],
+)
+def test_verified_delegate_command_rejects_tampered_json_receipt(update):
+    raw = PythonRuntimeReceiptV1(
+        receipt_kind="python_runtime",
+        qualification_context_id="3" * 64,
+        environment_instance_id="4" * 32,
+        interpreter_path="/runtime/python",
+        wheel_path="/runtime/devhub.whl",
+        lock_path="/runtime/uv.lock",
+        interpreter_sha256="1" * 64,
+        python_implementation="CPython",
+        python_version="3.12.11",
+        wheel_sha256="2" * 64,
+        dependency_lock_sha256="3" * 64,
+        module_origin="site-packages/devhub/__init__.py",
+        runtime_environment_id="4" * 64,
+    ).model_dump(mode="json")
+    raw.update(update)
+    qualification = cast(
+        VerifiedQualificationV2,
+        SimpleNamespace(
+            receipts={"python_runtime": raw},
+            context=SimpleNamespace(
+                payload=SimpleNamespace(implementation=SimpleNamespace(python_runtime=object()))
+            ),
+        ),
+    )
+
+    with pytest.raises(ValidationError):
+        verified_delegate_command(qualification)
 
 
 def test_runtime_builder_requires_exact_reviewed_head(monkeypatch, tmp_path):

@@ -410,7 +410,10 @@ def verified_delegate_command(qualification: VerifiedQualificationV2) -> list[st
     raw = qualification.receipts.get("python_runtime")
     if raw is None:
         raise ValueError("Python runtime receipt is missing")
-    receipt = PythonRuntimeReceiptV1.model_validate(raw)
+    # Qualification receipts originate as canonical JSON.  Parse through
+    # Pydantic's JSON mode so JSON arrays are validated as the fixed tuple
+    # contract instead of being rejected by strict Python-mode validation.
+    receipt = PythonRuntimeReceiptV1.model_validate_json(canonical(cast(JsonValue, raw)))
     header = QualificationReceiptHeaderV1(
         receipt_kind=receipt.receipt_kind,
         qualification_context_id=receipt.qualification_context_id,
