@@ -58,6 +58,12 @@ credentials before metadata inspection and before the B-arm MCP server becomes
 available. It records zero generate/model/provider requests. A common header plus
 `qualification_passed=true` is not sufficient for any of these gates.
 
+The trusted launcher captures the host network namespace ID from
+`/proc/self/ns/net` before entering `unshare` and passes it explicitly to the
+network-isolation qualifier. The qualifier has no default or `/proc/1` fallback: it
+strictly validates the captured host ID and its independently observed child ID and
+requires them to differ, in addition to the loopback, route, outbound and proxy gates.
+
 The bridge-bearing Ollama metadata receipt is schema V2. Historical strict V1 receipts
 remain parseable for audit, but lack a reachable transport binding and cannot authorize
 current execution.

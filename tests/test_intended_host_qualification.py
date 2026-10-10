@@ -122,6 +122,29 @@ def test_ollama_route_parser_uses_interface_and_rejects_default_routes():
     assert script._non_loopback_routes_from_text(ipv4_loopback, "malformed route\n") == 1
 
 
+def test_ollama_network_namespace_comparison_is_strict():
+    script = load_script("qualify_ollama_network_isolation")
+    assert script._separate_network_namespace("net:[123]", "net:[456]") is True
+    for child, host, message in (
+        ("net:[123]", "malformed", "Host network namespace ID is malformed"),
+        ("malformed", "net:[456]", "Child network namespace ID is malformed"),
+        ("net:[123]", "net:[123]", "must use a separate network namespace"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            script._separate_network_namespace(child, host)
+
+
+def test_ollama_network_qualifier_requires_host_namespace(monkeypatch):
+    script = load_script("qualify_ollama_network_isolation")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["qualify_ollama_network_isolation.py", "--executable", "ollama", "--output", "out"],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        script.main()
+
+
 def test_ollama_metadata_rejects_network_namespace_mismatch():
     script = load_script("qualify_ollama_metadata")
     network = OllamaNetworkIsolationObservationV1(
@@ -317,11 +340,7 @@ def test_ollama_qualifier_main_paths(tmp_path, monkeypatch):
     network_script = load_script("qualify_ollama_network_isolation")
     monkeypatch.setattr(network_script.platform, "system", lambda: "Linux")
     monkeypatch.setattr(network_script, "_non_loopback_routes", lambda: 0)
-    monkeypatch.setattr(
-        network_script.os,
-        "readlink",
-        lambda path: "net:[123]" if "self" in path else "net:[1]",
-    )
+    monkeypatch.setattr(network_script.os, "readlink", lambda _path: "net:[123]")
 
     class FakeSocket:
         def __enter__(self):
@@ -353,6 +372,8 @@ def test_ollama_qualifier_main_paths(tmp_path, monkeypatch):
             "qualify_ollama_network_isolation.py",
             "--executable",
             str(executable),
+            "--host-network-namespace-id",
+            "net:[1]",
             "--output",
             str(network_output),
         ],
