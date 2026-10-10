@@ -660,8 +660,9 @@ def inventory_native_bundle(root: Path) -> tuple[NativeBundleFileV1, ...]:
 
 
 def observed_native_platform() -> tuple[NativePlatform, NativeArchitecture]:
+    system: NativePlatform
     if sys.platform == "win32":
-        system: NativePlatform = "windows"
+        system = "windows"
     elif sys.platform.startswith("linux"):
         system = "linux"
     else:
