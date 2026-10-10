@@ -1,6 +1,9 @@
 import asyncio
 import json
+import sqlite3
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from mcp import Client, StdioServerParameters
@@ -492,6 +495,46 @@ def test_delegate_real_stdio_unicode_path(tmp_path, local):
 
     asyncio.run(run())
     assert not calls
+
+
+@pytest.mark.windows_smoke
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows stdio lifecycle")
+def test_delegate_real_stdio_eof_and_truncated_input_fail_closed(tmp_path, local):
+    runtime, _, _, _ = local
+    config = tmp_path / "конфіг EOF with spaces.json"
+    config.write_text(
+        DelegationConfig(
+            profiles=(ProviderProfile(id="local", config=runtime.config),)
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    command = [sys.executable, "-m", "devhub.delegate_server", "--config", str(config)]
+
+    def accounting_counts() -> tuple[int, int, int]:
+        with sqlite3.connect(Path(runtime.config.state_root) / "ledger.db") as connection:
+            return tuple(
+                connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in ("reservations", "allocations", "events")
+            )
+
+    before = accounting_counts()
+
+    eof = subprocess.run(command, input=b"", capture_output=True, timeout=15, check=False)
+    assert eof.returncode == 0
+    assert eof.stdout == b""
+
+    malformed = subprocess.run(
+        command,
+        input=b'{"jsonrpc":"2.0","id":1',
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    assert malformed.returncode == 0
+    assert b'"result"' not in malformed.stdout
+    for line in malformed.stdout.splitlines():
+        json.loads(line)
+    assert accounting_counts() == before == (0, 0, 0)
 
 
 pytest_plugins = ["test_ollama", "test_groq", "test_gemini"]

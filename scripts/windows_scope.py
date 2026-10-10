@@ -18,6 +18,9 @@ patterns = (
     "tests/test_windows.py",
     "pyproject.toml",
     "uv.lock",
+    "scripts/*windows*.py",
+    ".github/workflows/windows-native-qualification.yml",
+    "docs/NATIVE_BUNDLES.md",
 )
 base = os.environ.get("BASE_SHA")
 changed = (

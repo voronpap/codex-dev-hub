@@ -45,7 +45,12 @@ def write_json(path: Path, value: object) -> None:
 
 
 def _preserve_runner_assets(
-    repo: Path, output: Path, *, manifest: Path, schema: Path
+    repo: Path,
+    output: Path,
+    *,
+    manifest: Path,
+    schema: Path,
+    additional_sources: tuple[tuple[Path, str], ...] = (),
 ) -> tuple[Path, dict[str, str]]:
     """Retain every local input needed to audit source preparation before Cargo starts."""
     assets = output / "assets"
@@ -71,6 +76,7 @@ def _preserve_runner_assets(
             repo / ".github/workflows/production-router-proof.yml",
             "production-router-proof.yml",
         ),
+        *additional_sources,
     )
     for source, name in sources:
         shutil.copy2(source, assets / name)
@@ -114,6 +120,7 @@ def prepare_build_source(
         "build-018",
         "build-019",
         "build-020",
+        "windows-build-001",
     }:
         derived_lock, lock_changes = derive_production_host_lock(root)
         expected_lock = PRODUCTION_HOST_LOCK_SHA256
@@ -178,7 +185,13 @@ def _run_capture(
     }
 
 
-def _verify_locked_resolution(root: Path, output: Path, expected_lock: str) -> dict[str, object]:
+def _verify_locked_resolution(
+    root: Path,
+    output: Path,
+    expected_lock: str,
+    *,
+    target: str = "x86_64-unknown-linux-gnu",
+) -> dict[str, object]:
     """Prove the corrected lock resolves and fetches without byte mutation."""
     commands = {
         "metadata": [
@@ -189,7 +202,7 @@ def _verify_locked_resolution(root: Path, output: Path, expected_lock: str) -> d
             "--format-version",
             "1",
             "--filter-platform",
-            "x86_64-unknown-linux-gnu",
+            target,
         ],
         "fetch": [
             "cargo",
@@ -197,7 +210,7 @@ def _verify_locked_resolution(root: Path, output: Path, expected_lock: str) -> d
             "fetch",
             "--locked",
             "--target",
-            "x86_64-unknown-linux-gnu",
+            target,
         ],
     }
     observed: dict[str, object] = {}
@@ -223,7 +236,9 @@ def _verify_locked_resolution(root: Path, output: Path, expected_lock: str) -> d
     return observed
 
 
-def _pinned_toolchain_identity(root: Path) -> dict[str, object]:
+def _pinned_toolchain_identity(
+    root: Path, *, expected_host: str = "x86_64-unknown-linux-gnu"
+) -> dict[str, object]:
     rustc_command = ["rustup", "run", "1.95.0", "rustc", "-vV"]
     cargo_command = ["rustup", "run", "1.95.0", "cargo", "--version", "--verbose"]
     rustc = subprocess.check_output(rustc_command, cwd=root, text=True)
@@ -234,7 +249,7 @@ def _pinned_toolchain_identity(root: Path) -> dict[str, object]:
     )
     if host is None:
         raise ValueError("pinned rustc did not report a host target")
-    if host != "x86_64-unknown-linux-gnu":
+    if host != expected_host:
         raise ValueError(f"unexpected pinned Rust host target: {host}")
     return {
         "rustc_command": rustc_command,
@@ -398,7 +413,12 @@ def _verify_mcp_catalog_records(records: list[dict[str, object]]) -> None:
         raise ValueError("process proof did not produce the exact catalog-only MCP receipt")
 
 
-def _verify_observer(path: Path, arm: str) -> dict[str, object]:
+def _verify_observer(
+    path: Path,
+    arm: str,
+    *,
+    expected_manifest_sha256: str = HOST_MANIFEST_SHA256,
+) -> dict[str, object]:
     value = json.loads(path.read_bytes())
     expected_visible = [] if arm == "a" else [DELEGATE]
     expected_allowed = expected_visible
@@ -416,7 +436,7 @@ def _verify_observer(path: Path, arm: str) -> dict[str, object]:
         raise ValueError(f"Arm {arm} AllowedTools ceiling is absent")
     if value.get("approved_delegate_policy_present") is (arm == "a"):
         raise ValueError(f"Arm {arm} approved policy presence mismatch")
-    if value.get("host_manifest_sha256") != HOST_MANIFEST_SHA256:
+    if value.get("host_manifest_sha256") != expected_manifest_sha256:
         raise ValueError(f"Arm {arm} host manifest identity mismatch")
     expected_schema = None if arm == "a" else SCHEMA_SHA256
     if value.get("expected_schema_sha256") != expected_schema:
