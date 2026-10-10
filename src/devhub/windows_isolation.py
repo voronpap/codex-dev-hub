@@ -556,6 +556,26 @@ class WindowsSandboxProcess:
     _profile_deleted: bool = False
     _terminal_cleanup_errors: tuple[Exception, ...] = ()
 
+    def poll_exit_code(self) -> int | None:
+        """Return the exact unsigned exit code when the retained process handle signals."""
+
+        kernel = _windows_dll("kernel32.dll")
+        wait_for = kernel.WaitForSingleObject
+        wait_for.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        wait_for.restype = ctypes.c_uint32
+        wait = wait_for(self.process_handle, 0)
+        if wait == 0x102:
+            return None
+        if wait != 0:
+            raise OSError(_windows_last_error(), "WaitForSingleObject failed")
+        code = ctypes.c_uint32()
+        get_exit = kernel.GetExitCodeProcess
+        get_exit.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        get_exit.restype = ctypes.c_int
+        if not get_exit(self.process_handle, ctypes.byref(code)):
+            raise OSError(_windows_last_error(), "GetExitCodeProcess failed")
+        return int(code.value)
+
     def wait(self, timeout_seconds: float) -> int:
         kernel = _windows_dll("kernel32.dll")
         wait_for = kernel.WaitForSingleObject
@@ -566,13 +586,10 @@ class WindowsSandboxProcess:
             raise TimeoutError("Isolated process did not exit before its deadline")
         if wait != 0:
             raise OSError(_windows_last_error(), "WaitForSingleObject failed")
-        code = ctypes.c_uint32()
-        get_exit = kernel.GetExitCodeProcess
-        get_exit.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
-        get_exit.restype = ctypes.c_int
-        if not get_exit(self.process_handle, ctypes.byref(code)):
-            raise OSError(_windows_last_error(), "GetExitCodeProcess failed")
-        return int(code.value)
+        code = self.poll_exit_code()
+        if code is None:
+            raise RuntimeError("Signaled isolated process has no terminal exit code")
+        return code
 
     def terminate_tree(self, exit_code: int = 1) -> None:
         if not self.job_handle:
