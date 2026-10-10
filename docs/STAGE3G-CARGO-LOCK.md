@@ -267,3 +267,16 @@ default and security-negative process checks were not reached. Build-019 changes
 only observer evidence serialization to derive `namespace.name` from the
 structural fields; production `AllowedTools` construction and enforcement are
 unchanged.
+
+Build-019 run `38022134537` passed cheap preflight and compiled the retained
+production executable in 370.676 seconds (SHA-256
+`831fe5c6141e42559d3f6173751eb93180daa260d0d7244d4677919ab42cb6a4`).
+The same binary proved Default, Arm A, Arm B, the exact singleton delegate
+difference, and every security negative except `fork_fail_closed`. That harness
+invoked the pinned `fork` subcommand with unsupported `--last`, so Clap rejected
+the command before the production fresh-thread admission guard. Build-019 is
+immutable `COMPILATION_PASS / FORK_NEGATIVE_CLI_SHAPE_FAILURE`; this is not
+evidence of a production authority defect. Build-020 supplies a fixed dummy
+session ID required by the pinned `fork` CLI while retaining the exact expected
+fresh-thread-only rejection. Patches, manifest, schema, source, and lock
+identities remain unchanged.

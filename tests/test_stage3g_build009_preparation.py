@@ -206,6 +206,23 @@ def test_catalog_receipt_requires_one_list_and_no_call() -> None:
             raise AssertionError("process proof accepted a non-catalog-only MCP receipt")
 
 
+def test_fresh_thread_negatives_use_each_pinned_subcommand_cli_shape() -> None:
+    assert RUNNER._fresh_thread_negative_args("resume") == ["resume", "--last"]
+    assert RUNNER._fresh_thread_negative_args("fork") == [
+        "fork",
+        "00000000-0000-0000-0000-000000000000",
+    ]
+
+
+def test_fresh_thread_negative_rejects_unknown_subcommand() -> None:
+    try:
+        RUNNER._fresh_thread_negative_args("other")
+    except ValueError as error:
+        assert "unsupported fresh-thread negative" in str(error)
+    else:
+        raise AssertionError("runner accepted an unreviewed fresh-thread negative")
+
+
 def test_host_patch_maps_observer_error_into_session_error_boundary() -> None:
     patch = (
         Path(__file__).resolve().parents[1] / "patches/stage3g-approved-call/host-integration.patch"

@@ -113,6 +113,7 @@ def prepare_build_source(
         "build-017",
         "build-018",
         "build-019",
+        "build-020",
     }:
         derived_lock, lock_changes = derive_production_host_lock(root)
         expected_lock = PRODUCTION_HOST_LOCK_SHA256
@@ -473,6 +474,15 @@ def _negative(
     return result
 
 
+def _fresh_thread_negative_args(command_name: str) -> list[str]:
+    """Use each pinned subcommand's valid CLI shape before testing the host guard."""
+    if command_name == "resume":
+        return ["resume", "--last"]
+    if command_name == "fork":
+        return ["fork", "00000000-0000-0000-0000-000000000000"]
+    raise ValueError(f"unsupported fresh-thread negative: {command_name}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", required=True, type=Path)
@@ -491,6 +501,7 @@ def main() -> None:
             "build-017",
             "build-018",
             "build-019",
+            "build-020",
         ),
         default="build-009",
     )
@@ -541,6 +552,7 @@ def main() -> None:
         "build_017_run": False,
         "build_018_run": False,
         "build_019_run": False,
+        "build_020_run": False,
         "stage_3g_c": "OPEN",
         "stage_3g": "OPEN",
         "execution_ready": False,
@@ -930,8 +942,7 @@ def main() -> None:
                 str(exact_manifest),
                 "--devhub-stage3g-arm",
                 "a",
-                command_name,
-                "--last",
+                *_fresh_thread_negative_args(command_name),
             ]
             negative_home = negatives_dir / f"{command_name}-home"
             negative_home.mkdir()

@@ -424,3 +424,14 @@ receipt matched. The proof failed only because the observer used `ToolName`'s
 delimiter-free `Display` for `AllowedTools` evidence. Build-019 serializes the
 same structural authority losslessly as `namespace.name`; it does not alter the
 authority, ceiling, router, manifest, schema, or MCP configuration.
+
+Build-019 run `38022134537` compiled the actual production executable and proved
+the same-binary Default, Arm A, and Arm B surfaces. Arm A was empty; Arm B exposed
+only `mcp__devhub_delegate.devhub_delegate`; the approved policy, schema,
+manifest, catalog receipt, and zero-execution counters matched. The sole failed
+negative used `codex exec fork --last`, but pinned `fork` requires a positional
+session ID and Clap rejected `--last` before host admission code ran. Build-019
+is therefore immutable `COMPILATION_PASS / FORK_NEGATIVE_CLI_SHAPE_FAILURE`.
+Build-020 changes only that proof invocation to a fixed dummy session ID so the
+existing fresh-thread guard is exercised before any session lookup. No authority,
+router, runtime, schema, manifest, patch, or lock behavior changes.

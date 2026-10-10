@@ -24,7 +24,7 @@ def _sha(path: Path) -> str:
     return digest(path.read_bytes())
 
 
-def collect(pinned_source: Path | None = None, *, build_id: str = "build-019") -> dict[str, object]:
+def collect(pinned_source: Path | None = None, *, build_id: str = "build-020") -> dict[str, object]:
     candidate = ROOT / "patches/stage3g-approved-call/candidate.patch"
     host = ROOT / "patches/stage3g-approved-call/host-integration.patch"
     manifest_path = ROOT / "benchmarks/stage3g-host-manifest-v2.json"
@@ -139,6 +139,7 @@ def collect(pinned_source: Path | None = None, *, build_id: str = "build-019") -
             "build-016": "PREBUILD_RUSTFMT_RESOLVED_CONFIG_CHAIN_FAILURE",
             "build-017": "BUILD_017_COMPILATION_PASS_MCP_CHILD_ENV_PROPAGATION_PROCESS_FAILURE",
             "build-018": "BUILD_018_COMPILATION_PASS_OBSERVER_ALLOWED_TOOLS_REPRESENTATION_FAILURE",
+            "build-019": "BUILD_019_COMPILATION_PASS_FORK_NEGATIVE_CLI_SHAPE_FAILURE",
         },
         "source_commit": SOURCE_COMMIT,
         "implementation_commit": subprocess.check_output(
@@ -221,6 +222,7 @@ def collect(pinned_source: Path | None = None, *, build_id: str = "build-019") -
         "build_017_run": False,
         "build_018_run": False,
         "build_019_run": False,
+        "build_020_run": False,
         "model_requests": 0,
         "provider_sends": 0,
         "real_codex_executions": 0,
@@ -253,8 +255,9 @@ def main() -> None:
             "build-017",
             "build-018",
             "build-019",
+            "build-020",
         ),
-        default="build-019",
+        default="build-020",
     )
     args = parser.parse_args()
     result = collect(args.pinned_source, build_id=args.build_id)
