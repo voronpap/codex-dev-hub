@@ -31,6 +31,14 @@ def connect_target(header: bytes) -> str:
     return fields[1][:-4]
 
 
+def public_resolved_addresses(addresses: list[tuple[Any, ...]]) -> bool:
+    """Return whether every resolved endpoint is globally routable."""
+
+    return bool(addresses) and all(
+        ipaddress.ip_address(entry[4][0]).is_global for entry in addresses
+    )
+
+
 def relay(left: socket.socket, right: socket.socket) -> None:
     def forward(source: socket.socket, target: socket.socket) -> None:
         try:
@@ -60,7 +68,7 @@ def proxy(connection: socket.socket) -> None:
         header += part
     host = connect_target(header)
     addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-    if not addresses or any(not ipaddress.ip_address(entry[4][0]).is_global for entry in addresses):
+    if not public_resolved_addresses(addresses):
         raise ValueError("Non-public Codex target denied")
     family, kind, proto, _, address = addresses[0]
     with socket.socket(family, kind, proto) as target:

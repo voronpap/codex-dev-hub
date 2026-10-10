@@ -15,7 +15,7 @@ from pydantic import JsonValue
 
 from devhub.benchmark import canonical, clean_commit, digest, write_new
 from devhub.experiment import EnvironmentManifest, ExperimentProtocol, plan
-from devhub.experiment_bridge import CODEX_HOSTS, connect_target
+from devhub.experiment_bridge import CODEX_HOSTS, connect_target, public_resolved_addresses
 from devhub.experiment_launch import DOCKER, safe_artifacts
 from devhub.experiment_run import secret_strings
 from devhub.experiment_tool_gate import policy_hash
@@ -77,15 +77,43 @@ def egress_policy_checks() -> dict[str, bool]:
             checks["deny_" + label] = True
         else:
             checks["deny_" + label] = False
+    public = [(2, 1, 6, "", ("8.8.8.8", 443))]
+    private = [(2, 1, 6, "", ("10.0.0.1", 443))]
+    mixed = [*public, *private]
+    checks["allow_public_resolution"] = public_resolved_addresses(public)
+    checks["deny_empty_resolution"] = not public_resolved_addresses([])
+    checks["deny_private_resolution"] = not public_resolved_addresses(private)
+    checks["deny_mixed_resolution"] = not public_resolved_addresses(mixed)
     return checks
 
 
-def check_auth(path: Path) -> tuple[bytes, ...]:
+def validate_chatgpt_auth_bytes(raw: bytes) -> dict[str, Any]:
+    """Validate one exact token-based Codex auth buffer without publishing it."""
+
+    data = json.loads(raw)
+    tokens = data.get("tokens") if isinstance(data, dict) else None
+    if (
+        not isinstance(data, dict)
+        or data.get("auth_mode") not in {None, "chatgpt"}
+        or data.get("OPENAI_API_KEY")
+        or not isinstance(tokens, dict)
+        or not isinstance(tokens.get("access_token"), str)
+        or not tokens["access_token"]
+    ):
+        raise ValueError("Existing ChatGPT auth only")
+    return data
+
+
+def validated_chatgpt_auth(path: Path) -> dict[str, Any]:
+    """Validate the frozen token-based Codex authority without publishing it."""
+
     if not path.is_file() or path.is_symlink():
         raise ValueError("Existing regular CLI auth file required")
-    data = json.loads(path.read_bytes())
-    if data.get("OPENAI_API_KEY") or not data.get("tokens", {}).get("access_token"):
-        raise ValueError("Existing ChatGPT auth only")
+    return validate_chatgpt_auth_bytes(path.read_bytes())
+
+
+def check_auth(path: Path) -> tuple[bytes, ...]:
+    data = validated_chatgpt_auth(path)
     # Used only for withholding scans, never fingerprinted/serialized.
     return secret_strings(data)
 

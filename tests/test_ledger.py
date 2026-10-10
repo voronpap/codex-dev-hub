@@ -331,3 +331,30 @@ def test_identity_hash_does_not_include_metadata():
     assert hashlib.sha256(canonical_ledger_identity(expected)).hexdigest() == (
         ledger_identity_sha256(expected)
     )
+
+
+def test_read_only_inspection_preserves_current_ledger_bytes(tmp_path):
+    path = tmp_path / "ledger.db"
+    expected = identity()
+    initialized_ledger(path, expected)
+    before = path.read_bytes()
+    observed = Ledger.inspect_read_only(path, expected)
+    assert observed.ledger_identity_sha256 == ledger_identity_sha256(expected)
+    assert observed.domain_schema_version == len(ledger.MIGRATIONS)
+    assert observed.reserved_count == observed.dispatched_count == observed.unknown_usage_count == 0
+    assert path.read_bytes() == before
+
+
+def test_read_only_inspection_refuses_migration_without_mutation(tmp_path, monkeypatch):
+    path = tmp_path / "older.db"
+    expected = identity()
+    with monkeypatch.context() as context:
+        context.setattr(ledger, "MIGRATIONS", ledger.MIGRATIONS[:5])
+        Ledger.initialize(path, expected)
+    before = database_snapshot(path)
+    before_bytes = path.read_bytes()
+    with pytest.raises(LedgerError) as raised:
+        Ledger.inspect_read_only(path, expected)
+    assert raised.value.code is LedgerErrorCode.UNSUPPORTED_LEDGER_SCHEMA_VERSION
+    assert database_snapshot(path) == before
+    assert path.read_bytes() == before_bytes
