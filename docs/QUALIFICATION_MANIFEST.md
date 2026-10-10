@@ -37,6 +37,24 @@ The final payload references a fixed receipt set by relative locator and SHA-256
 - `python_runtime`
 - `runtime_config_probe`
 
+The three intended-host-only receipts are strict contracts rather than generic JSON
+bags. `auth_egress` proves that an existing non-empty operator auth object can be
+staged privately and binds the exact two-host CONNECT allowlist without serializing
+auth bytes. `ledger_identity` reopens the exact `LedgerIdentityCoreV1`, verifies the
+SQLite application/schema/integrity state, and rejects outstanding reserved,
+dispatched, or `unknown_usage` liability. `ollama_metadata` binds the official
+`ollama-linux-amd64.tar.zst` v0.34.2 release artifact, the running executable, a
+separate no-outbound network namespace, and metadata-only version/tags/show results.
+It records zero generate/model/provider requests. A common header plus
+`qualification_passed=true` is not sufficient for any of these gates.
+
+The frozen Linux Ollama release provenance was observed on 2026-10-10 from the
+official GitHub release tag `v0.34.2`: asset `ollama-linux-amd64.tar.zst`, release
+digest `e155b83589986d2c581fdbf1381ea3ebdb16549883679cd5a0627f7cdc05b12b`.
+Qualification re-hashes the downloaded archive and streams `bin/ollama` from that
+archive to bind the running executable. The digest is reviewed input; the qualifier
+does not fetch release metadata or trust a filename.
+
 `QualificationManifestPayloadV2` does not contain its own ID. Its envelope is:
 
 ```text
@@ -60,6 +78,13 @@ isolation receipt, another host's ledger, a local Ollama observation, and a thir
 evaluator do not form one qualification even when each is independently valid.
 CI may exercise the mechanics with an explicitly synthetic, incomplete manifest;
 that manifest remains `execution_ready=false` and is not intended-host evidence.
+
+`scripts/build_intended_host_qualification_context.py` constructs the real context
+from one reviewed plan, runtime artifact, executor/evaluator image evidence, protocol,
+environment ID, and the existing ledger identity model. The plan must still be
+unbound and unexecuted. `scripts/assemble_intended_host_manifest.py` requires all ten
+receipts beneath one root and re-verifies the complete tree; it cannot assemble a
+partial manifest or accept caller-controlled readiness.
 
 Paths are locators only. They never establish artifact identity. A referenced file
 must remain a regular file beneath the manifest root (for manifest-contained

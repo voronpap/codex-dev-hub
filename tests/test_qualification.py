@@ -11,14 +11,17 @@ from devhub.qualification import (
     ArmExpectedV1,
     ArmsExpectedV1,
     ArtifactReferenceV1,
+    AuthEgressReceiptV1,
     BenchmarkExpectedV1,
     CodexExpectedV1,
     EvaluatorExpectedV1,
     HistoricalRuntimeBindingsV1,
     ImplementationExpectedV1,
     LedgerExpectedV1,
+    LedgerIdentityReceiptV1,
     ObservedArtifactHashesV2,
     OllamaExpectedV1,
+    OllamaMetadataReceiptV1,
     PythonRuntimeExpectedV1,
     QualificationContextPayloadV1,
     QualificationContextV1,
@@ -117,13 +120,88 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
                 "image_id": expected.runtime_expected.image_id,
                 "bootstrap_sha256": expected.runtime_expected.bootstrap_sha256,
             },
-            "auth_egress": {},
-            "ollama_metadata": expected.ollama_expected.model_dump(
-                mode="json", exclude={"schema_version"}
-            ),
+            "auth_egress": {
+                "kind": "intended_host_auth_egress",
+                "auth_source": "existing_operator_codex_auth",
+                "auth_regular_file": True,
+                "auth_json_object": True,
+                "auth_material_nonempty": True,
+                "auth_material_published": False,
+                "staged_copy_mode": "0600",
+                "staged_copy_matches_source": True,
+                "proxy_environment_inherited": False,
+                "allowed_connect_targets": ["api.openai.com:443", "chatgpt.com:443"],
+                "denied_connect_targets": [
+                    "10.0.0.1:443",
+                    "127.0.0.1:443",
+                    "169.254.169.254:443",
+                    "api.groq.com:443",
+                    "example.com:443",
+                    "generativelanguage.googleapis.com:443",
+                ],
+                "policy_checks_passed": True,
+                "model_requests": 0,
+                "provider_sends": 0,
+            },
+            "ollama_metadata": {
+                **expected.ollama_expected.model_dump(mode="json", exclude={"schema_version"}),
+                "kind": "intended_host_ollama_metadata",
+                "endpoint": "http://127.0.0.1:11434",
+                "release_asset": "ollama-linux-amd64.tar.zst",
+                "release_artifact_sha256": (
+                    "e155b83589986d2c581fdbf1381ea3ebdb16549883679cd5a0627f7cdc05b12b"
+                ),
+                "executable_sha256": "7" * 64,
+                "server_executable_matches": True,
+                "network_isolation": {
+                    "schema_version": 1,
+                    "kind": "ollama_process_network_isolation",
+                    "executable_sha256": "7" * 64,
+                    "network_namespace_id": "net:[123]",
+                    "separate_network_namespace": True,
+                    "loopback_bind_available": True,
+                    "non_loopback_route_count": 0,
+                    "outbound_probe_denied": True,
+                    "proxy_environment_inherited": False,
+                },
+                "network_isolation_sha256": digest(
+                    canonical(
+                        {
+                            "schema_version": 1,
+                            "kind": "ollama_process_network_isolation",
+                            "executable_sha256": "7" * 64,
+                            "network_namespace_id": "net:[123]",
+                            "separate_network_namespace": True,
+                            "loopback_bind_available": True,
+                            "non_loopback_route_count": 0,
+                            "outbound_probe_denied": True,
+                            "proxy_environment_inherited": False,
+                        }
+                    )
+                ),
+                "model_metadata_sha256": "9" * 64,
+                "context_tokens": 32768,
+                "completion_capability": True,
+                "remote_model": False,
+                "remote_host": False,
+                "metadata_endpoints": ["/api/show", "/api/tags", "/api/version"],
+                "generate_requests": 0,
+                "proxy_environment_inherited": False,
+                "outbound_network_denied": True,
+                "model_requests": 0,
+                "provider_sends": 0,
+            },
             "ledger_identity": {
+                "kind": "intended_host_ledger_identity",
                 "ledger_identity_sha256": expected.ledger_expected.identity_sha256,
                 "domain_schema_version": expected.ledger_expected.domain_schema_version,
+                "sqlite_application_id": 1145459276,
+                "identity_record_count": 1,
+                "integrity_check": "ok",
+                "path_is_locator_only": True,
+                "reserved_count": 0,
+                "dispatched_count": 0,
+                "unknown_usage_count": 0,
             },
             "codex_executable": {
                 "kind": "retained_build020_executable",
@@ -306,7 +384,14 @@ def materialize(root: Path) -> tuple[QualificationContextV1, QualificationManife
             "qualification_passed": True,
             **observations[kind],
         }
-        if kind not in {"codex_executable", "host_process_visibility", "runtime_config_probe"}:
+        if kind not in {
+            "auth_egress",
+            "ollama_metadata",
+            "ledger_identity",
+            "codex_executable",
+            "host_process_visibility",
+            "runtime_config_probe",
+        }:
             receipt_value["synthetic_observation"] = index
         raw = canonical(receipt_value)
         name = f"{kind}.json"
@@ -392,6 +477,13 @@ def rewrite_receipt(
     return changed, path
 
 
+def materialized_receipt(root: Path, kind: str) -> dict:
+    _, manifest, _ = materialize(root)
+    reference = getattr(manifest.payload.receipts, kind)
+    assert reference is not None
+    return json.loads((root / reference.relative_path).read_bytes())
+
+
 def test_context_and_manifest_ids_are_stable_golden(tmp_path):
     first = QualificationContextV1.create(context_payload())
     second = QualificationContextV1.create(context_payload())
@@ -405,7 +497,7 @@ def test_context_and_manifest_ids_are_stable_golden(tmp_path):
         == "81dc09d6460651f9459114455447e6a8440dae0bb919c78594404641fce76c79"
     )
     assert manifest.qualification_manifest_id == (
-        "aebc42dafa4ba406f5ff906dc6082643eea603e63a9170c68d61ac206c8e5822"
+        "8f40a4a6420d321ea1c8ffefd91ad3432b246e25414e66e11ad77fe68040da5c"
     )
 
 
@@ -573,6 +665,71 @@ def test_runtime_config_must_bind_exact_host_visibility_receipt(tmp_path):
     )
     with pytest.raises(ValueError, match="not bound to host visibility"):
         verify_manifest_tree(path, changed.qualification_manifest_id)
+
+
+def test_minimal_auth_receipt_cannot_forge_ready_manifest(tmp_path):
+    _, manifest, _ = materialize(tmp_path)
+    changed, path = rewrite_receipt(
+        tmp_path,
+        manifest,
+        "auth_egress",
+        lambda receipt: [
+            receipt.pop(key)
+            for key in tuple(receipt)
+            if key
+            not in {
+                "schema_version",
+                "receipt_kind",
+                "qualification_context_id",
+                "environment_instance_id",
+                "qualification_passed",
+            }
+        ],
+    )
+    with pytest.raises(ValidationError):
+        verify_manifest_tree(path, changed.qualification_manifest_id)
+
+
+def test_auth_receipt_rejects_widened_egress(tmp_path):
+    raw = materialized_receipt(tmp_path, "auth_egress")
+    raw["allowed_connect_targets"].append("example.com:443")
+    with pytest.raises(ValidationError, match="exact Codex allowlist"):
+        AuthEgressReceiptV1.model_validate_json(canonical(raw))
+
+
+def test_ledger_receipt_rejects_outstanding_liability(tmp_path):
+    raw = materialized_receipt(tmp_path, "ledger_identity")
+    raw["unknown_usage_count"] = 1
+    with pytest.raises(ValidationError):
+        LedgerIdentityReceiptV1.model_validate_json(canonical(raw))
+
+
+def test_ollama_receipt_rejects_generate_or_missing_isolation(tmp_path):
+    raw = materialized_receipt(tmp_path, "ollama_metadata")
+    raw["generate_requests"] = 1
+    with pytest.raises(ValidationError):
+        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
+    raw["generate_requests"] = 0
+    raw["outbound_network_denied"] = False
+    with pytest.raises(ValidationError):
+        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
+
+
+def test_ollama_receipt_binds_embedded_network_observation(tmp_path):
+    raw = materialized_receipt(tmp_path, "ollama_metadata")
+    isolation = raw.pop("network_isolation")
+    with pytest.raises(ValidationError):
+        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
+    raw["network_isolation"] = isolation
+    raw["network_isolation"]["network_namespace_id"] = "net:[456]"
+    with pytest.raises(ValidationError, match="hash mismatch"):
+        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
+    other = tmp_path / "other"
+    other.mkdir()
+    raw = materialized_receipt(other, "ollama_metadata")
+    raw["network_isolation"]["executable_sha256"] = "6" * 64
+    with pytest.raises(ValidationError, match="another executable"):
+        OllamaMetadataReceiptV1.model_validate_json(canonical(raw))
 
 
 def test_receipt_hash_and_kind_substitution_rejected(tmp_path):

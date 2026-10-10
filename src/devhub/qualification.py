@@ -24,6 +24,9 @@ ImageId = Annotated[str, Field(pattern=r"^sha256:[a-f0-9]{64}$")]
 STAGE3G_OLLAMA_VERSION = "0.34.2"
 STAGE3G_OLLAMA_MODEL = "qwen2.5:14b-instruct"
 STAGE3G_OLLAMA_DIGEST = "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6"
+STAGE3G_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
+STAGE3G_OLLAMA_RELEASE_ASSET = "ollama-linux-amd64.tar.zst"
+STAGE3G_OLLAMA_RELEASE_SHA256 = "e155b83589986d2c581fdbf1381ea3ebdb16549883679cd5a0627f7cdc05b12b"
 STAGE3G_DELEGATE_TOOL = "mcp__devhub_delegate.devhub_delegate"
 DELEGATE_SCHEMA_SHA256 = "0f06b9fc3d912389721413789835053eefb2db7cc14781829bd57234c7e371be"
 DELEGATE_ENTRYPOINT = "devhub.delegate_server"
@@ -219,6 +222,116 @@ class QualificationReceiptHeaderV1(Contract):
     receipt_kind: ReceiptKind
     qualification_context_id: Digest
     environment_instance_id: EnvironmentInstanceId
+
+
+class AuthEgressReceiptV1(QualificationReceiptHeaderV1):
+    """Real-auth presence and the frozen scoped-egress policy, without secret material."""
+
+    receipt_kind: Literal["auth_egress"] = "auth_egress"
+    kind: Literal["intended_host_auth_egress"] = "intended_host_auth_egress"
+    auth_source: Literal["existing_operator_codex_auth"]
+    auth_regular_file: Literal[True]
+    auth_json_object: Literal[True]
+    auth_material_nonempty: Literal[True]
+    auth_material_published: Literal[False]
+    staged_copy_mode: Literal["0600"]
+    staged_copy_matches_source: Literal[True]
+    proxy_environment_inherited: Literal[False]
+    allowed_connect_targets: tuple[str, ...]
+    denied_connect_targets: tuple[str, ...]
+    policy_checks_passed: Literal[True]
+    model_requests: Literal[0]
+    provider_sends: Literal[0]
+    qualification_passed: Literal[True]
+
+    @model_validator(mode="after")
+    def exact_policy(self) -> AuthEgressReceiptV1:
+        expected_allowed = ("api.openai.com:443", "chatgpt.com:443")
+        expected_denied = (
+            "10.0.0.1:443",
+            "127.0.0.1:443",
+            "169.254.169.254:443",
+            "api.groq.com:443",
+            "example.com:443",
+            "generativelanguage.googleapis.com:443",
+        )
+        if self.allowed_connect_targets != expected_allowed:
+            raise ValueError("Auth/egress receipt does not bind the exact Codex allowlist")
+        if self.denied_connect_targets != expected_denied:
+            raise ValueError("Auth/egress receipt does not bind the exact denied targets")
+        return self
+
+
+class LedgerIdentityReceiptV1(QualificationReceiptHeaderV1):
+    """Read-only observation of the exact qualification-bound accounting authority."""
+
+    receipt_kind: Literal["ledger_identity"] = "ledger_identity"
+    kind: Literal["intended_host_ledger_identity"] = "intended_host_ledger_identity"
+    ledger_identity_sha256: Digest
+    domain_schema_version: Annotated[int, Field(ge=1)]
+    sqlite_application_id: Literal[1145459276]
+    identity_record_count: Literal[1]
+    integrity_check: Literal["ok"]
+    path_is_locator_only: Literal[True]
+    reserved_count: Literal[0]
+    dispatched_count: Literal[0]
+    unknown_usage_count: Literal[0]
+    qualification_passed: Literal[True]
+
+
+class OllamaNetworkIsolationObservationV1(Contract):
+    """Process-scoped Linux network namespace proof used by Ollama qualification."""
+
+    kind: Literal["ollama_process_network_isolation"] = "ollama_process_network_isolation"
+    executable_sha256: Digest
+    network_namespace_id: Annotated[str, Field(pattern=r"^net:\[[0-9]+\]$")]
+    separate_network_namespace: Literal[True]
+    loopback_bind_available: Literal[True]
+    non_loopback_route_count: Literal[0]
+    outbound_probe_denied: Literal[True]
+    proxy_environment_inherited: Literal[False]
+
+
+class OllamaMetadataReceiptV1(QualificationReceiptHeaderV1):
+    """Metadata-only proof of the exact side-by-side local Ollama runtime."""
+
+    receipt_kind: Literal["ollama_metadata"] = "ollama_metadata"
+    kind: Literal["intended_host_ollama_metadata"] = "intended_host_ollama_metadata"
+    version: Literal["0.34.2"]
+    model: Literal["qwen2.5:14b-instruct"]
+    digest: Literal["7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6"]
+    endpoint: Literal["http://127.0.0.1:11434"]
+    release_asset: Literal["ollama-linux-amd64.tar.zst"]
+    release_artifact_sha256: Literal[
+        "e155b83589986d2c581fdbf1381ea3ebdb16549883679cd5a0627f7cdc05b12b"
+    ]
+    executable_sha256: Digest
+    server_executable_matches: Literal[True]
+    network_isolation: OllamaNetworkIsolationObservationV1
+    network_isolation_sha256: Digest
+    model_metadata_sha256: Digest
+    context_tokens: Annotated[int, Field(ge=8192)]
+    completion_capability: Literal[True]
+    remote_model: Literal[False]
+    remote_host: Literal[False]
+    metadata_endpoints: tuple[str, ...]
+    generate_requests: Literal[0]
+    proxy_environment_inherited: Literal[False]
+    outbound_network_denied: Literal[True]
+    model_requests: Literal[0]
+    provider_sends: Literal[0]
+    qualification_passed: Literal[True]
+
+    @model_validator(mode="after")
+    def metadata_only(self) -> OllamaMetadataReceiptV1:
+        if self.metadata_endpoints != ("/api/show", "/api/tags", "/api/version"):
+            raise ValueError("Ollama qualification must use the exact metadata-only endpoints")
+        if self.network_isolation.executable_sha256 != self.executable_sha256:
+            raise ValueError("Ollama network isolation belongs to another executable")
+        expected_hash = digest(canonical(self.network_isolation.model_dump(mode="json")))
+        if self.network_isolation_sha256 != expected_hash:
+            raise ValueError("Ollama network isolation hash mismatch")
+        return self
 
 
 class ApprovedDelegateIdentityObservationV1(Contract):
@@ -721,7 +834,13 @@ def _validate_receipt_observation(
     }
     if any(data.get(key) != value for key, value in common[kind].items()):
         raise ValueError(f"{kind} receipt artifact identity differs from context")
-    if kind == "codex_executable":
+    if kind == "auth_egress":
+        AuthEgressReceiptV1.model_validate_json(canonical(data))
+    elif kind == "ollama_metadata":
+        OllamaMetadataReceiptV1.model_validate_json(canonical(data))
+    elif kind == "ledger_identity":
+        LedgerIdentityReceiptV1.model_validate_json(canonical(data))
+    elif kind == "codex_executable":
         CodexExecutableReceiptV1.model_validate_json(canonical(data))
     elif kind == "host_process_visibility":
         HostProcessVisibilityReceiptV1.model_validate_json(canonical(data))

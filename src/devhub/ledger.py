@@ -59,6 +59,21 @@ class LedgerIdentityMetadataV1(BaseModel):
         return value
 
 
+class LedgerReadOnlyInspectionV1(BaseModel):
+    """Current immutable authority and liability state observed without migrations."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, validate_default=True)
+
+    ledger_identity_sha256: Digest
+    application_id: Literal[1145459276]
+    domain_schema_version: Annotated[int, Field(ge=1)]
+    identity_record_count: Literal[1]
+    integrity_check: Literal["ok"]
+    reserved_count: Annotated[int, Field(ge=0)]
+    dispatched_count: Annotated[int, Field(ge=0)]
+    unknown_usage_count: Annotated[int, Field(ge=0)]
+
+
 def canonical_ledger_identity(identity: LedgerIdentityCoreV1) -> bytes:
     """Return the sole canonical byte representation used for identity hashing."""
 
@@ -384,6 +399,87 @@ class Ledger:
             )
         )
         return cls(safe_path, expected_identity, state_root=root)
+
+    @classmethod
+    def inspect_read_only(
+        cls,
+        path: Path,
+        expected_identity: LedgerIdentityCoreV1,
+        *,
+        state_root: Path | None = None,
+    ) -> LedgerReadOnlyInspectionV1:
+        """Inspect a current ledger through SQLite read-only mode without migration."""
+
+        root, safe_path = _validate_state_paths(state_root or path.parent, path)
+        if not safe_path.is_file():
+            raise LedgerError(
+                LedgerErrorCode.IDENTITY_BOOTSTRAP_FAILURE,
+                "ledger is not initialized",
+            )
+        temporary = object.__new__(cls)
+        temporary.expected_identity = expected_identity
+        temporary.identity_sha256 = ledger_identity_sha256(expected_identity)
+        temporary.state_root = root
+        temporary.path = safe_path
+        before_sha256 = hashlib.sha256(safe_path.read_bytes()).hexdigest()
+        uri = safe_path.resolve(strict=True).as_uri() + "?mode=ro"
+        connection = sqlite3.connect(uri, uri=True, timeout=10, isolation_level=None)
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA query_only = ON")
+            _validate_state_paths(root, safe_path)
+            classification = temporary._classify(connection)
+            if classification is not LedgerBootstrapClassification.VALID_IDENTIFIED_DEVFABRIC:
+                temporary._raise_classification(classification)
+            temporary._require_delete_journal(connection)
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if version != len(MIGRATIONS):
+                raise LedgerError(
+                    LedgerErrorCode.UNSUPPORTED_LEDGER_SCHEMA_VERSION,
+                    "read-only qualification requires the current domain schema",
+                )
+            temporary._validate_domain_schema(connection, version)
+            integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
+            if integrity != "ok":
+                raise LedgerError(
+                    LedgerErrorCode.FOREIGN_DATABASE,
+                    "ledger integrity check failed",
+                )
+            identity_rows = int(
+                connection.execute("SELECT count(*) FROM ledger_identity").fetchone()[0]
+            )
+            if identity_rows != 1:
+                raise LedgerError(
+                    LedgerErrorCode.LEDGER_IDENTITY_MISMATCH,
+                    "ledger must contain exactly one immutable identity",
+                )
+            counts = {
+                state: int(
+                    connection.execute(
+                        "SELECT count(*) FROM reservations WHERE state = ?", (state,)
+                    ).fetchone()[0]
+                )
+                for state in ("reserved", "dispatched", "unknown_usage")
+            }
+            inspection = LedgerReadOnlyInspectionV1(
+                ledger_identity_sha256=temporary.identity_sha256,
+                application_id=1_145_459_276,
+                domain_schema_version=version,
+                identity_record_count=1,
+                integrity_check="ok",
+                reserved_count=counts["reserved"],
+                dispatched_count=counts["dispatched"],
+                unknown_usage_count=counts["unknown_usage"],
+            )
+        finally:
+            connection.close()
+        _validate_state_paths(root, safe_path)
+        if hashlib.sha256(safe_path.read_bytes()).hexdigest() != before_sha256:
+            raise LedgerError(
+                LedgerErrorCode.FOREIGN_DATABASE,
+                "read-only ledger inspection observed database byte mutation",
+            )
+        return inspection
 
     def _raw_connect(self) -> sqlite3.Connection:
         _validate_state_paths(self.state_root, self.path)
