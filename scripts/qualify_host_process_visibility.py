@@ -174,6 +174,7 @@ def _run_observer(
         "--pids-limit=128",
         "--memory=2g",
         "--cpus=2",
+        "-i",
         "--tmpfs",
         "/tmp:rw,noexec,nosuid,size=64m,mode=1777",
         "--tmpfs",

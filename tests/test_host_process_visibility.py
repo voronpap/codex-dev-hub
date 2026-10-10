@@ -79,3 +79,46 @@ def test_reviewed_stop_requires_exact_exit_marker_and_observer(tmp_path) -> None
     observer.write_text("{}")
     result = subprocess.CompletedProcess([], 1, stdout=MODULE.PRE_SAMPLING_STOP_MARKER, stderr=b"")
     MODULE._require_reviewed_stop(result, observer, "B")
+
+
+def test_stdin_eof_cannot_satisfy_observer_proof(tmp_path) -> None:
+    result = subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+    try:
+        MODULE._require_reviewed_stop(result, tmp_path / "observer.json", "default")
+    except ValueError as error:
+        assert "reviewed boundary" in str(error)
+    else:
+        raise AssertionError("stdin EOF was accepted as a pre-sampling observer proof")
+
+
+def test_observer_attaches_framed_stdin_to_container(tmp_path, monkeypatch) -> None:
+    protocol = MODULE.ExperimentProtocol.model_validate_json(
+        (ROOT / "benchmarks" / "real-protocol-v2.json").read_bytes()
+    )
+    commands: list[list[str]] = []
+
+    def fake_run(command, *, input, capture_output, timeout):
+        commands.append(command)
+        observer = tmp_path / "capture-default" / "observer.json"
+        observer.write_text("{}")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout=MODULE.PRE_SAMPLING_STOP_MARKER,
+            stderr=b"",
+        )
+
+    monkeypatch.setattr(MODULE.subprocess, "run", fake_run)
+    MODULE._run_observer(
+        image_id="sha256:" + "0" * 64,
+        protocol=protocol,
+        host_manifest=(ROOT / "benchmarks" / "stage3g-host-manifest-v2.json"),
+        bootstrap=ROOT / "scripts" / "benchmark_guest.py",
+        root=tmp_path,
+        arm="default",
+        catalog=None,
+    )
+
+    command = commands[0]
+    assert "-i" in command
+    assert command.index("-i") < command.index("--entrypoint")
