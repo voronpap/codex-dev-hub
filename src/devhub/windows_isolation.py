@@ -399,7 +399,9 @@ def _windows_dll(name: str) -> ctypes.CDLL:
     return cast(ctypes.CDLL, loader(name, use_last_error=True, winmode=0x00000800))
 
 
-def _windows_environment_block(environment: dict[str, str]) -> str:
+def _windows_environment_block(
+    environment: dict[str, str], *, require_local_app_data: bool = True
+) -> str:
     """Validate and encode the complete non-inherited sandbox environment."""
 
     normalized: dict[str, tuple[str, str]] = {}
@@ -412,7 +414,8 @@ def _windows_environment_block(environment: dict[str, str]) -> str:
         normalized[folded] = (name, value)
     if "path" in normalized:
         raise ValueError("Isolated environment cannot inherit PATH")
-    for required in ("systemroot", "localappdata"):
+    required_names = ("systemroot", "localappdata") if require_local_app_data else ("systemroot",)
+    for required in required_names:
         item = normalized.get(required)
         if item is None or not item[1]:
             raise ValueError(f"Isolated environment requires non-empty {required.upper()}")
@@ -547,6 +550,9 @@ class WindowsSandboxProcess:
     process_id: int
     appcontainer_identity: str
     launch_order: tuple[str, ...]
+    appcontainer_sid: str | None = None
+    local_app_data: Path | None = None
+    appcontainer_profile_owned: bool = True
     _profile_deleted: bool = False
     _terminal_cleanup_errors: tuple[Exception, ...] = ()
 
@@ -591,23 +597,26 @@ class WindowsSandboxProcess:
                     list(self._terminal_cleanup_errors),
                 )
             return True
-        errors: list[Exception] = []
         try:
             self.terminate_tree()
         except Exception as error:
-            errors.append(error)
-            self._terminal_cleanup_errors = (*self._terminal_cleanup_errors, error)
+            self._terminal_cleanup_errors = (error,)
+            raise ExceptionGroup("Windows sandbox cleanup failed", [error]) from error
         kernel = _windows_dll("kernel32.dll")
         close_handle = kernel.CloseHandle
         close_handle.argtypes = [ctypes.c_void_p]
         close_handle.restype = ctypes.c_int
+        errors: list[Exception] = []
         for field in ("thread_handle", "process_handle", "job_handle"):
             handle = getattr(self, field)
             if handle and close_handle(handle):
                 setattr(self, field, 0)
             elif handle:
                 errors.append(OSError(_windows_last_error(), f"CloseHandle failed for {field}"))
-        if not self._profile_deleted:
+        if errors:
+            self._terminal_cleanup_errors = tuple(errors)
+            raise ExceptionGroup("Windows sandbox cleanup failed", errors)
+        if self.appcontainer_profile_owned and not self._profile_deleted:
             try:
                 self._profile_deleted = _delete_appcontainer_profile(self.appcontainer_identity)
                 if not self._profile_deleted:
@@ -616,6 +625,7 @@ class WindowsSandboxProcess:
                 errors.append(error)
         if errors:
             raise ExceptionGroup("Windows sandbox cleanup failed", errors)
+        self._terminal_cleanup_errors = ()
         return True
 
     def __enter__(self) -> WindowsSandboxProcess:
@@ -686,6 +696,141 @@ def _verify_profile_paths(profile: WindowsIsolationProfileV1) -> None:
             raise ValueError("Isolation root identity changed")
 
 
+class WindowsIsolationLaunchError(RuntimeError):
+    """Typed fail-closed launch failure without success-evidence publication."""
+
+    def __init__(self, phase: str, error_code: int, message: str) -> None:
+        super().__init__(f"{phase} failed ({error_code}): {message}")
+        self.phase = phase
+        self.error_code = error_code
+
+
+@dataclass(frozen=True)
+class OwnedAppContainerProfile:
+    identity: str
+    sid: str
+    local_app_data: Path
+
+
+def _hresult_error_code(result: int) -> int:
+    unsigned = result & 0xFFFFFFFF
+    if unsigned & 0xFFFF0000 == 0x80070000:
+        return unsigned & 0xFFFF
+    return unsigned
+
+
+def _create_owned_appcontainer_profile(identity: str) -> OwnedAppContainerProfile:
+    """Create one new profile and return only paths derived from its exact SID."""
+
+    userenv = _windows_dll("userenv.dll")
+    advapi = _windows_dll("advapi32.dll")
+    kernel = _windows_dll("kernel32.dll")
+    ole32 = _windows_dll("ole32.dll")
+    create = userenv.CreateAppContainerProfile
+    create.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    create.restype = ctypes.c_long
+    convert = advapi.ConvertSidToStringSidW
+    convert.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    convert.restype = ctypes.c_int
+    local_free = kernel.LocalFree
+    local_free.argtypes = [ctypes.c_void_p]
+    local_free.restype = ctypes.c_void_p
+    free_sid = advapi.FreeSid
+    free_sid.argtypes = [ctypes.c_void_p]
+    free_sid.restype = ctypes.c_void_p
+    get_folder = userenv.GetAppContainerFolderPath
+    get_folder.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_void_p)]
+    get_folder.restype = ctypes.c_long
+    free_folder = ole32.CoTaskMemFree
+    free_folder.argtypes = [ctypes.c_void_p]
+    free_folder.restype = None
+    sid = ctypes.c_void_p()
+    string_sid = ctypes.c_void_p()
+    result = (
+        int(
+            create(
+                identity,
+                "DevFabric isolated runtime",
+                "Ephemeral DevFabric qualification profile",
+                None,
+                0,
+                ctypes.byref(sid),
+            )
+        )
+        & 0xFFFFFFFF
+    )
+    if result:
+        code = _hresult_error_code(result)
+        message = (
+            "AppContainer identity already exists and is not owned by this invocation"
+            if code == 183
+            else "CreateAppContainerProfile returned an HRESULT failure"
+        )
+        raise WindowsIsolationLaunchError("appcontainer_profile_create", code, message)
+    if not sid.value:
+        primary = WindowsIsolationLaunchError(
+            "appcontainer_profile_create", 0, "CreateAppContainerProfile returned no SID"
+        )
+        cleanup_error: Exception | None = None
+        try:
+            if not _delete_appcontainer_profile(identity):
+                cleanup_error = RuntimeError(
+                    "Owned AppContainer profile deletion was not confirmed"
+                )
+        except Exception as error:
+            cleanup_error = error
+        if cleanup_error is not None:
+            raise ExceptionGroup(
+                "AppContainer profile creation and cleanup failed", [primary, cleanup_error]
+            ) from primary
+        raise primary
+
+    try:
+        if not convert(sid, ctypes.byref(string_sid)) or not string_sid.value:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_sid_string", _windows_last_error(), "SID conversion failed"
+            )
+        sid_text = ctypes.wstring_at(string_sid.value)
+        folder = ctypes.c_void_p()
+        folder_result = int(get_folder(sid_text, ctypes.byref(folder))) & 0xFFFFFFFF
+        if folder_result or not folder.value:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_folder_path",
+                _hresult_error_code(folder_result),
+                "GetAppContainerFolderPath failed",
+            )
+        try:
+            local_app_data = _reject_reparse_chain(Path(ctypes.wstring_at(folder.value)))
+        finally:
+            free_folder(folder)
+        return OwnedAppContainerProfile(identity, sid_text, local_app_data)
+    except BaseException as primary:
+        cleanup_error = None
+        try:
+            if not _delete_appcontainer_profile(identity):
+                cleanup_error = RuntimeError(
+                    "Owned AppContainer profile deletion was not confirmed"
+                )
+        except Exception as error:
+            cleanup_error = error
+        if cleanup_error is not None:
+            raise BaseExceptionGroup(
+                "AppContainer profile preparation and cleanup failed", [primary, cleanup_error]
+            ) from primary
+        raise
+    finally:
+        if string_sid.value:
+            local_free(string_sid)
+        free_sid(sid)
+
+
 def _delete_appcontainer_profile(identity: str) -> bool:
     userenv = _windows_dll("userenv.dll")
     delete = userenv.DeleteAppContainerProfile
@@ -721,6 +866,7 @@ def _cleanup_failed_launch(
     thread_handle: int,
     job_handle: int,
     appcontainer_identity: str,
+    appcontainer_profile_owned: bool,
 ) -> list[Exception]:
     errors: list[Exception] = []
     terminate_process = kernel.TerminateProcess
@@ -743,11 +889,16 @@ def _cleanup_failed_launch(
     ):
         if handle and not close_handle(handle):
             errors.append(OSError(_windows_last_error(), f"CloseHandle cleanup failed: {name}"))
-    try:
-        if not _delete_appcontainer_profile(appcontainer_identity):
-            errors.append(RuntimeError("AppContainer profile cleanup was not confirmed"))
-    except Exception as error:
-        errors.append(error)
+    if appcontainer_profile_owned and not errors:
+        try:
+            if not _delete_appcontainer_profile(appcontainer_identity):
+                errors.append(RuntimeError("AppContainer profile cleanup was not confirmed"))
+        except Exception as error:
+            errors.append(error)
+    elif appcontainer_profile_owned:
+        errors.append(
+            RuntimeError("AppContainer profile retained because process cleanup did not complete")
+        )
     return errors
 
 
@@ -761,13 +912,9 @@ def launch_windows_isolated(
 ) -> WindowsSandboxProcess:
     """Create one suspended AppContainer process and bind its complete child tree."""
 
-    _windows_environment_block(environment)
-    local_app_data_value = next(
-        value for name, value in environment.items() if name.casefold() == "localappdata"
-    )
-    local_app_data = Path(local_app_data_value)
-    if not local_app_data.is_absolute():
-        raise ValueError("Isolated LOCALAPPDATA must be an absolute path")
+    if any(name.casefold() == "localappdata" for name in environment):
+        raise ValueError("Isolated LOCALAPPDATA is host-owned and cannot be supplied")
+    _windows_environment_block(environment, require_local_app_data=False)
     observed_windows_platform()
     _reject_broad_roots(profile)
     _verify_profile_paths(profile)
@@ -783,13 +930,6 @@ def launch_windows_isolated(
         raise ValueError("Isolated launcher executable hash mismatch")
     if not cwd.is_dir() or not any(cwd.is_relative_to(root) for root in writable):
         raise ValueError("Isolated cwd must belong to an exact writable root")
-    local_app_data = _reject_reparse_chain(local_app_data)
-    if not any(local_app_data.is_relative_to(root) for root in writable):
-        raise ValueError("Isolated LOCALAPPDATA must belong to an exact writable root")
-    isolated_environment = dict(environment)
-    local_app_data_name = next(name for name in environment if name.casefold() == "localappdata")
-    isolated_environment[local_app_data_name] = str(local_app_data)
-    env_text = _windows_environment_block(isolated_environment)
 
     class StartupInfo(ctypes.Structure):
         _fields_ = [
@@ -825,11 +965,20 @@ def launch_windows_isolated(
     create_job = kernel.CreateJobObjectW
     create_job.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
     create_job.restype = ctypes.c_void_p
-    job = create_job(None, None)
-    if not job:
-        raise OSError(_windows_last_error(), "CreateJobObjectW failed")
+    job = 0
     process_information = ProcessInformation()
+    owned_profile = _create_owned_appcontainer_profile(profile.payload.appcontainer_identity)
     try:
+        isolated_environment = {
+            **environment,
+            "LOCALAPPDATA": str(owned_profile.local_app_data),
+        }
+        env_text = _windows_environment_block(isolated_environment)
+        job = int(create_job(None, None) or 0)
+        if not job:
+            raise WindowsIsolationLaunchError(
+                "job_create", _windows_last_error(), "CreateJobObjectW failed"
+            )
         _set_job_limits(job, profile.payload.job_limits)
         process_model = _windows_dll("processmodel.dll")
         create = getattr(process_model, WINDOWS_SANDBOX_API, None)
@@ -875,7 +1024,11 @@ def launch_windows_isolated(
             len(spec),
             ctypes.byref(process_information),
         ):
-            raise OSError(_windows_last_error(), "Experimental_CreateProcessInSandbox failed")
+            raise WindowsIsolationLaunchError(
+                "sandbox_process_create",
+                _windows_last_error(),
+                "Experimental_CreateProcessInSandbox failed",
+            )
         assign = kernel.AssignProcessToJobObject
         assign.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         assign.restype = ctypes.c_int
@@ -889,18 +1042,22 @@ def launch_windows_isolated(
         return WindowsSandboxProcess(
             process_handle=int(process_information.process or 0),
             thread_handle=int(process_information.thread or 0),
-            job_handle=int(job),
+            job_handle=job,
             process_id=int(process_information.process_id),
-            appcontainer_identity=profile.payload.appcontainer_identity,
+            appcontainer_identity=owned_profile.identity,
             launch_order=("created_suspended", "job_assigned", "thread_resumed"),
+            appcontainer_sid=owned_profile.sid,
+            local_app_data=owned_profile.local_app_data,
+            appcontainer_profile_owned=True,
         )
     except Exception as launch_error:
         cleanup_errors = _cleanup_failed_launch(
             kernel,
             process_handle=int(process_information.process or 0),
             thread_handle=int(process_information.thread or 0),
-            job_handle=int(job),
-            appcontainer_identity=profile.payload.appcontainer_identity,
+            job_handle=job,
+            appcontainer_identity=owned_profile.identity,
+            appcontainer_profile_owned=True,
         )
         if cleanup_errors:
             raise ExceptionGroup(
