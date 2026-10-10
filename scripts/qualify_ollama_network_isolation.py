@@ -21,6 +21,8 @@ PROXY_KEYS = {
     "no_proxy",
 }
 
+IPV6_ROUTE_FLAG_REJECT = 0x0200
+
 
 def _non_loopback_routes_from_text(ipv4: str, ipv6: str) -> int:
     routes = 0
@@ -30,8 +32,18 @@ def _non_loopback_routes_from_text(ipv4: str, ipv6: str) -> int:
             routes += 1
     for line in ipv6.splitlines():
         fields = line.split()
-        if fields and (
-            fields[-1] != "lo" or (fields[0] == "0" * 32 and len(fields) > 1 and fields[1] == "00")
+        if not fields:
+            continue
+        if len(fields) < 10:
+            routes += 1
+            continue
+        try:
+            flags = int(fields[8], 16)
+        except ValueError:
+            routes += 1
+            continue
+        if (flags & IPV6_ROUTE_FLAG_REJECT) == 0 and (
+            fields[-1] != "lo" or (fields[0] == "0" * 32 and fields[1] == "00")
         ):
             routes += 1
     return routes
