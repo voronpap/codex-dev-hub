@@ -435,7 +435,7 @@ def main() -> None:
             parser.error("child mode requires request and result paths")
         raise SystemExit(_child(args.child_request, args.child_result))
     required: dict[str, Any] = {
-        "bundle": args.bundle,
+        "bundle_root": args.bundle,
         "bundle_manifest": args.bundle_manifest,
         "scratch": args.scratch,
         "output": args.output,

@@ -569,6 +569,60 @@ def test_profile_id_golden() -> None:
     )
 
 
+def test_probe_main_forwards_host_arguments_by_qualify_parameter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows probe CLI path")
+    module_spec = importlib.util.spec_from_file_location(
+        "windows_isolation_probe_main_test",
+        Path("scripts/probe_windows_native_isolation.py"),
+    )
+    assert module_spec is not None and module_spec.loader is not None
+    probe = importlib.util.module_from_spec(module_spec)
+    sys.modules[module_spec.name] = probe
+    module_spec.loader.exec_module(probe)
+    bundle_root = tmp_path / "bundle"
+    bundle_manifest = tmp_path / "bundle.json"
+    scratch = tmp_path / "scratch"
+    output = tmp_path / "evidence.json"
+    forwarded: dict[str, object] = {}
+
+    def qualify(**kwargs: object) -> object:
+        forwarded.update(kwargs)
+        return SimpleNamespace(model_dump=lambda **_: {"status": "passed"})
+
+    monkeypatch.setattr(probe, "qualify", qualify)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "probe_windows_native_isolation.py",
+            "--bundle",
+            str(bundle_root),
+            "--bundle-manifest",
+            str(bundle_manifest),
+            "--scratch",
+            str(scratch),
+            "--output",
+            str(output),
+            "--environment-instance-id",
+            ENVIRONMENT,
+        ],
+    )
+
+    probe.main()
+
+    assert forwarded == {
+        "bundle_root": bundle_root,
+        "bundle_manifest": bundle_manifest,
+        "scratch": scratch,
+        "output": output,
+        "environment_instance_id": ENVIRONMENT,
+    }
+    assert json.loads(capsys.readouterr().out) == {"status": "passed"}
+
+
 def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeypatch) -> None:
     if os.name != "nt":
         pytest.skip("Windows host qualification path")
