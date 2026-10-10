@@ -399,6 +399,27 @@ def _windows_dll(name: str) -> ctypes.CDLL:
     return cast(ctypes.CDLL, loader(name, use_last_error=True, winmode=0x00000800))
 
 
+def _windows_environment_block(environment: dict[str, str]) -> str:
+    """Validate and encode the complete non-inherited sandbox environment."""
+
+    normalized: dict[str, tuple[str, str]] = {}
+    for name, value in environment.items():
+        folded = name.casefold()
+        if not name or "=" in name or "\0" in name or "\0" in value:
+            raise ValueError("Isolated environment contains an invalid name or NUL")
+        if folded in normalized:
+            raise ValueError("Isolated environment names must be case-insensitively unique")
+        normalized[folded] = (name, value)
+    if "path" in normalized:
+        raise ValueError("Isolated environment cannot inherit PATH")
+    for required in ("systemroot", "localappdata"):
+        item = normalized.get(required)
+        if item is None or not item[1]:
+            raise ValueError(f"Isolated environment requires non-empty {required.upper()}")
+    ordered = sorted(normalized.values(), key=lambda item: (item[0].casefold(), item[0]))
+    return "\0".join(f"{name}={value}" for name, value in ordered) + "\0\0"
+
+
 def _require_local_fixed_volume(path: Path) -> None:
     raw = str(path)
     pure = PureWindowsPath(raw)
@@ -740,6 +761,13 @@ def launch_windows_isolated(
 ) -> WindowsSandboxProcess:
     """Create one suspended AppContainer process and bind its complete child tree."""
 
+    _windows_environment_block(environment)
+    local_app_data_value = next(
+        value for name, value in environment.items() if name.casefold() == "localappdata"
+    )
+    local_app_data = Path(local_app_data_value)
+    if not local_app_data.is_absolute():
+        raise ValueError("Isolated LOCALAPPDATA must be an absolute path")
     observed_windows_platform()
     _reject_broad_roots(profile)
     _verify_profile_paths(profile)
@@ -755,8 +783,13 @@ def launch_windows_isolated(
         raise ValueError("Isolated launcher executable hash mismatch")
     if not cwd.is_dir() or not any(cwd.is_relative_to(root) for root in writable):
         raise ValueError("Isolated cwd must belong to an exact writable root")
-    if "PATH" in environment or any("\0" in key + value for key, value in environment.items()):
-        raise ValueError("Isolated environment cannot inherit PATH or contain NUL")
+    local_app_data = _reject_reparse_chain(local_app_data)
+    if not any(local_app_data.is_relative_to(root) for root in writable):
+        raise ValueError("Isolated LOCALAPPDATA must belong to an exact writable root")
+    isolated_environment = dict(environment)
+    local_app_data_name = next(name for name in environment if name.casefold() == "localappdata")
+    isolated_environment[local_app_data_name] = str(local_app_data)
+    env_text = _windows_environment_block(isolated_environment)
 
     class StartupInfo(ctypes.Structure):
         _fields_ = [
@@ -821,7 +854,6 @@ def launch_windows_isolated(
         command = ctypes.create_unicode_buffer(
             subprocess.list2cmdline([str(executable), *arguments])
         )
-        env_text = "\0".join(f"{key}={environment[key]}" for key in sorted(environment)) + "\0\0"
         env_buffer = ctypes.create_unicode_buffer(env_text)
         spec = windows_sandbox_spec(profile)
         spec_buffer = ctypes.create_string_buffer(spec)
