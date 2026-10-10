@@ -1,11 +1,17 @@
 # Stage 3G audit remediation design
 
-Status: **TRACKING — AUD-001 merged; AUD-002/AUD-009 remain design only; no Rust build authorized**
+Status: **ACCEPTED DESIGN / HISTORICAL GATE SNAPSHOT; current closure status below**
 
 This document refines AUD-001, AUD-002, AUD-003, and AUD-009 after integrating main.
 PR #41 merged AUD-001 into main as merge commit
 `2a9428d2689fd05b8edef901b1caf48c3f985292`. This tracking update does not modify the
 frozen protocol, Candidate B, provider behavior, accounting, or benchmark execution.
+
+Current implementation status supersedes the original sequencing snapshot without
+rewriting its design decisions: AUD-001/002/003/005/008/009/011 are merged.
+Build-020 independently qualified the patched production host and its pre-sampling
+Default/A/B visibility. Final exact-runtime-image and same-environment manifest
+qualification remain open; Stage 3G-C/3G are open and `execution_ready=false`.
 
 ## 1. Ledger identity — AUD-001 (IMPLEMENTED / MERGED)
 
@@ -78,7 +84,8 @@ must never run implicitly.
 
 ## 2. Two-level qualification identity — AUD-002
 
-Status: **OPEN — planned for a separate focused PR together with AUD-009**.
+Status: **IMPLEMENTED / MERGED**. The historical design status was OPEN and planned
+for a separate focused PR together with AUD-009.
 
 The qualification identity uses two acyclic levels.
 
@@ -272,7 +279,8 @@ be regenerated and reviewed without creating protocol v3.
 
 ## 3. Immutable Python runtime — AUD-009
 
-Status: **OPEN — part of the same focused PR as AUD-002**.
+Status: **IMPLEMENTED / MERGED**. The historical design status was OPEN as part of
+the same focused PR as AUD-002.
 
 Build one wheel or equivalent immutable Python artifact from the reviewed integrated
 commit. Bind all of the following into `QualificationContextV1`:
@@ -415,25 +423,25 @@ build-009
   → final Stage 3G-C review
 ```
 
-## 7. Proposed PR decomposition
+## 7. Implementation decomposition (completed prerequisites)
 
 1. PR #34 stays the Candidate B and historical qualification umbrella.
 2. PR #41: AUD-001 ledger identity and explicit legacy-adoption design boundary [MERGED].
-3. Next focused PR from current main: AUD-002 qualification context/manifest plus AUD-009
-   immutable Python artifact. Proposed branch: `feat/stage3g-qualification-manifest`.
-   Proposed title: `feat: bind Stage 3G qualification to immutable runtime artifacts`.
-4. Focused PR: AUD-003 fail-closed B-arm observation.
-5. Focused PR or tightly bounded series: AUD-005 recovery ordering and AUD-008/AUD-011
-   benchmark executor hardening.
-6. Return to PR #34 for the reviewed Arm A/B ceiling, shipping host integration, cheap
-   preflight, and the single authorized build-009 compilation.
+3. PR #42 merged AUD-002 qualification context/manifest plus AUD-009 immutable
+   Python artifact.
+4. PR #43 merged AUD-003 fail-closed B-arm observation.
+5. PR #44 merged AUD-005 recovery ordering and AUD-008/AUD-011 benchmark executor
+   hardening.
+6. PR #34 returned to the reviewed Arm A/B ceiling and shipping host integration;
+   Build-020 completed the actual production-host process proof.
 
-Do not combine all findings into one Candidate B patch or start build-009 before its
-Stage 3G-C prerequisites are reviewed and integrated.
+The separation above remains part of the accepted history; no audit remediation was
+folded into the frozen Candidate B patch.
 
-## 8. Current gate state
+## 8. Historical gate snapshot and current state
 
-Remediation status:
+The following snapshot recorded the state when this design was accepted and is
+superseded by the current block below:
 
 ```text
 AUD-001 immutable ledger identity = IMPLEMENTED / MERGED
@@ -460,5 +468,35 @@ provider_sends = 0
 real_codex_executions = 0
 build_009_rust_compilation_started = false
 build_010_run = false
+```
+
+Current state after merged remediation and independently reviewed Build-020:
+
+```text
+AUD-001 immutable ledger identity = IMPLEMENTED / MERGED
+AUD-002 qualification context/manifest = IMPLEMENTED / MERGED
+AUD-003 B-arm successful-handoff/accounting observation = IMPLEMENTED / MERGED
+AUD-005 startup recovery ordering = IMPLEMENTED / MERGED
+AUD-008 bounded executor capture/container cleanup = IMPLEMENTED / MERGED
+AUD-009 immutable Python runtime artifact = IMPLEMENTED / MERGED
+AUD-011 irreversible exposure boundary = IMPLEMENTED / MERGED
+legacy ledger adoption = NOT IMPLEMENTED
+
+production_classification = PRODUCTION_HOST_QUALIFIED
+production_host_activation = PROVEN
+process_proof = PASS
+Stage 3G-C = OPEN
+Stage 3G = OPEN
+execution_ready = false
+
+remaining gate = bind the exact Build-020 executable into the runtime image and
+  collect one complete same-environment QualificationManifestV2 receipt set;
+  cli_config remains false until the supported execution-tool configuration passes
+
+model_requests = 0
+provider_sends = 0
+real_codex_executions = 0
+benchmark_run = false
+rehearsal_run = false
 ```
 

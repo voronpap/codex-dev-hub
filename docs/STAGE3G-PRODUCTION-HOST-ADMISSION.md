@@ -435,3 +435,27 @@ is therefore immutable `COMPILATION_PASS / FORK_NEGATIVE_CLI_SHAPE_FAILURE`.
 Build-020 changes only that proof invocation to a fixed dummy session ID so the
 existing fresh-thread guard is exercised before any session lookup. No authority,
 router, runtime, schema, manifest, patch, or lock behavior changes.
+
+Build-020 run `38024891950` passed all cheap gates and compiled the actual
+production executable once. The retained binary SHA-256 is
+`a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d`.
+Using that same binary, the pre-sampling observer established:
+
+- ordinary Codex retained `AllowedTools=None` and no approved delegate policy;
+- Arm A installed `AllowedTools=[]`, no policy, and exposed no visible, nested,
+  hosted, or dynamic tools;
+- Arm B installed only `mcp__devhub_delegate.devhub_delegate`, with the exact
+  reviewed policy, schema, manifest, resolved MCP configuration, and empty
+  non-delegate surfaces;
+- `B - A` was exactly the delegate and `A - B` was empty;
+- the sole MCP receipt was `tools/list`; `tools/call` count was zero;
+- resume, fork, task lookalike, missing/wrong config, wrong manifest, namespace,
+  and schema all failed closed.
+
+The artifact recorded zero model requests, provider sends, real Codex task
+executions, and MCP tool executions. Independent review accepted its composition
+with the Build-008 handler and catalog evidence as
+`PRODUCTION_HOST_QUALIFIED`. This closes the production-host activation/process-
+visibility sub-gate. Stage 3G-C remains open because the exact benchmark runtime
+image and final same-environment qualification manifest are not yet bound to the
+Build-020 executable.

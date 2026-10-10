@@ -280,3 +280,21 @@ evidence of a production authority defect. Build-020 supplies a fixed dummy
 session ID required by the pinned `fork` CLI while retaining the exact expected
 fresh-thread-only rejection. Patches, manifest, schema, source, and lock
 identities remain unchanged.
+
+Build-020 run `38024891950` passed cheap preflight and the complete locked
+resolution checks, then compiled the production executable in `502.196625543`
+seconds. The retained binary is 577,819,656 bytes with SHA-256
+`a7511a579b2f6ffc191bb340751ad3b9dd1b5462d1fa665ec0607dce7945b69d`.
+The proof lock remained byte-identical at
+`9236f6c0b8703eaf337dd219c8fdfb6834c14fa430a0a83b938159016371bb88`
+after both `cargo metadata --locked` and `cargo fetch --locked`. The same binary
+passed Default, Arm A, Arm B, the exact singleton delegate surface difference,
+and every security negative, including the production fresh-thread guard for
+both resume and fork. The full retained artifact is GitHub artifact
+`11659714382`; its ZIP SHA-256 is
+`c03fbe7596a95c2b667348db879c205c83d5cd74b3f9e1d2b4d2d5ab79546979`.
+Independent review accepted this evidence as `PRODUCTION_HOST_QUALIFIED` when
+composed with the accepted Build-008 handler and catalog proofs. It contains no
+model request, provider send, MCP tool execution, real task, rehearsal, or
+benchmark. Exact runtime-image and same-environment qualification remain open,
+so this result does not by itself close Stage 3G-C.

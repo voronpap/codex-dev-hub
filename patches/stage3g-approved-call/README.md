@@ -17,25 +17,26 @@ option. DirectModelOnly namespaces remain the existing internal config field.
 The policy demands exact AllowedTools and CodeModeOnly, and constructs only the
 approved handler. Canonical-name cache lookup is not used for admission.
 
-This is **incomplete, unvalidated implementation**, not a production gate pass.
-The first probe is intended to exercise A/B through production router construction,
-real-schema comparison, synthetic stdio dispatch and reconnect invalidation.
-It intentionally reports UNKNOWN even if this subset succeeds. It does not yet
-establish the entire required adversarial matrix or an exact CLI/host metadata
-process proof. The synthetic process is not Dev Hub or an inference provider.
+The following build-001 description is historical. At that point this was
+**incomplete, unvalidated implementation**, not a production gate pass. The first
+probe was intended to exercise A/B through production router construction,
+real-schema comparison, synthetic stdio dispatch and reconnect invalidation. It
+intentionally reported UNKNOWN even if that subset succeeded. The synthetic
+process was not Dev Hub or an inference provider.
 
 Build 001 failed before test execution with E0728: the synchronous
 `refresh_mcp_servers` caller contains an `await`. Its receipt and compiler
 diagnostics are preserved in `docs/evidence/stage3g-approved-call/`.
 Build time was 642.1814258400001 seconds. No compiled A/B, dispatch or security
 result was obtained; those fields remain null and classification remains UNKNOWN.
-This failure is implementation work remaining, not evidence against the design.
+This failure was implementation work remaining at Build-001, not evidence against
+the design.
 
-Outstanding gates include complete trusted launch/config-file/project/state-root
+The then-outstanding gates included complete trusted launch/config-file/project/state-root
 attestation and explicit path normalization, both collision orders, forged runtime,
 refresh after preparation using the existing catalog guard, process observation
 through a reviewed host entry point, and default-path regression validation.
-Do not activate this patch while those gates are unproven. No caller-supplied
+The patch was not to be activated while those gates were unproven. No caller-supplied
 identity strings alone may satisfy the missing host attestation.
 
 The admitted schema must remain the real reviewed schema whose canonical JSON
@@ -66,6 +67,14 @@ rehashes the manifest before container exposure. Client request parameters,
 task content, MCP metadata, model output, and repository content cannot populate
 the Rust host template.
 
-This refresh is still pre-build evidence. It does not replace the required
-actual `codex exec` A/B process observation, does not establish process proof,
-and does not change `execution_ready`.
+Build-020 run `38024891950` compiled the actual patched production executable and
+used that same retained binary for Default, Arm A, Arm B, catalog-only, and
+security-negative process checks. Independent review accepted the exact empty Arm
+A surface, singleton delegate Arm B surface, ordinary default behavior, fresh-
+thread guards, and zero execution counters as `PRODUCTION_HOST_QUALIFIED`.
+
+This closes the production-host activation/process-visibility sub-gate. It does
+not make the existing benchmark runtime image authoritative: that image still
+contains the official unpatched release and no final same-environment
+`QualificationManifestV2` binds the Build-020 executable with the remaining host
+receipts. Stage 3G-C and Stage 3G remain open, and `execution_ready=false`.

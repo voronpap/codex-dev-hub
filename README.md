@@ -268,9 +268,9 @@ and platform-change gate. See [CI policy](docs/CI.md).
 
 ## Next steps
 
-1. Finish execution/admission proof.
-2. Qualify the intended Linux execution host.
-3. Complete an all-green, reviewed preflight.
+1. Bind the qualified production host executable into the exact runtime image.
+2. Qualify the intended Linux execution host and fixed same-environment receipts.
+3. Complete an all-green, reviewed qualification manifest.
 4. Run one separately approved paired rehearsal.
 5. Run the 24 frozen A/B sessions under the reviewed protocol.
 6. Review raw quality, latency, resource use and correction requirements.
