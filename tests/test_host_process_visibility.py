@@ -130,3 +130,46 @@ def test_observer_attaches_framed_stdin_to_container(tmp_path, monkeypatch) -> N
     assert codex_home_tmpfs in command
     assert command.index(codex_home_tmpfs) < command.index("--entrypoint")
     assert command.count("features.tool_registry.error_on_tool_collisions=true") == 1
+    assert not any("direct_only_tool_namespaces" in value for value in command)
+
+
+def test_arm_b_has_exact_direct_only_namespace_without_proof_environment(tmp_path, monkeypatch):
+    protocol = MODULE.ExperimentProtocol.model_validate_json(
+        (ROOT / "benchmarks" / "real-protocol-v2.json").read_bytes()
+    )
+    commands: list[list[str]] = []
+
+    def fake_run(command, *, input, capture_output, timeout):
+        commands.append(command)
+        observer = tmp_path / "capture-b" / "observer.json"
+        observer.write_text("{}")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout=MODULE.PRE_SAMPLING_STOP_MARKER,
+            stderr=b"",
+        )
+
+    class FakeBridge:
+        def __init__(self, path, handler, *, once):
+            path.touch()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(MODULE.subprocess, "run", fake_run)
+    monkeypatch.setattr(MODULE, "UnixBridge", FakeBridge)
+    MODULE._run_observer(
+        image_id="sha256:" + "0" * 64,
+        protocol=protocol,
+        host_manifest=(ROOT / "benchmarks" / "stage3g-host-manifest-v2.json"),
+        bootstrap=ROOT / "scripts" / "benchmark_guest.py",
+        root=tmp_path,
+        arm="B",
+        catalog=MODULE.CatalogOnly({"type": "object"}),
+    )
+
+    command = commands[0]
+    direct_only = 'features.code_mode.direct_only_tool_namespaces=["mcp__devhub_delegate"]'
+    assert command.count(direct_only) == 1
+    assert not any("DEVHUB_BUILD009_MCP_RECEIPT" in value for value in command)

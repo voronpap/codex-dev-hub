@@ -204,6 +204,9 @@ def test_no_mcp_in_a_only_local_entry_point_in_b(protocol):
     assert "/stage3g-host.json" in a and "/stage3g-host.json" in b
     assert "features.shell_tool=false" in a and 'web_search="disabled"' in a
     assert 'mcp_servers.devhub_delegate.enabled_tools=["devhub_delegate"]' in b
+    direct_only = 'features.code_mode.direct_only_tool_namespaces=["mcp__devhub_delegate"]'
+    assert direct_only not in a
+    assert b.count(direct_only) == 1
     assert not any("groq" in arg or "gemini" in arg or "local_task" in arg for arg in b)
     assert "model_providers.openai.request_max_retries=0" in a
 

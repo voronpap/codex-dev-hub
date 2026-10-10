@@ -16,7 +16,7 @@
         "raw_tool": "devhub_delegate",
         "canonical_namespace": "mcp__devhub_delegate",
         "canonical_function": "devhub_delegate",
-        "expected_mcp_server_config_sha256": "8ca3f1dadd607eb3e8cd90efa61a00244c166a18f27479e2c550029d8f51d712",
+        "expected_mcp_server_config_sha256": "ff866e1aea6710de0373474e6671dbd412173a11cf0284c321e20c5b47ce199b",
         "expected_input_schema": {
           "additionalProperties": false,
           "properties": {

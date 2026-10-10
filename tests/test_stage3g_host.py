@@ -18,7 +18,7 @@ from devhub.stage3g_host import (
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "benchmarks/stage3g-host-manifest-v2.json"
 SCHEMA = ROOT / "benchmarks/stage3g-host-manifest-v2.schema.json"
-MANIFEST_SHA256 = "a6baa894b26be9bde398fc8e447bc49b50c74e852a13171cff513e397e4b7835"
+MANIFEST_SHA256 = "fb08f022e8d06a9183386ed67f56052ece4bcd9c6dbc3825ee6866578e188d4b"
 BUILD020_MANIFEST = ROOT / "benchmarks/stage3g-host-manifest-build020-v2.json"
 BUILD020_SCHEMA = ROOT / "benchmarks/stage3g-host-manifest-build020-v2.schema.json"
 BUILD020_MANIFEST_SHA256 = "d31edc7cb0604ea7d2c526521adb1c59ae21a35a902a8c2a9a7c2807bc29957e"
@@ -38,9 +38,9 @@ def test_reviewed_host_manifest_has_exact_a_b_surfaces() -> None:
     assert delegate.canonical_function == "devhub_delegate"
     assert delegate.expected_mcp_server_config_sha256 == PRODUCTION_DELEGATE_MCP_CONFIG_SHA256
     assert PRODUCTION_DELEGATE_MCP_CONFIG_SHA256 == (
-        "8ca3f1dadd607eb3e8cd90efa61a00244c166a18f27479e2c550029d8f51d712"
+        "ff866e1aea6710de0373474e6671dbd412173a11cf0284c321e20c5b47ce199b"
     )
-    assert PRODUCTION_DELEGATE_MCP_CONFIG["env_vars"] == []
+    assert "env_vars" not in PRODUCTION_DELEGATE_MCP_CONFIG
     assert delegate.expected_input_schema_sha256 == DELEGATE_SCHEMA_SHA256
     assert hashlib.sha256(raw).hexdigest() == MANIFEST_SHA256
 

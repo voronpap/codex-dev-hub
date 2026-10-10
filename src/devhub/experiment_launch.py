@@ -276,6 +276,8 @@ def codex_argv(session: PlannedSession, protocol: ExperimentProtocol) -> list[st
         # No host paths, secrets, diagnostic tools or arbitrary endpoints.
         args += [
             "-c",
+            'features.code_mode.direct_only_tool_namespaces=["mcp__devhub_delegate"]',
+            "-c",
             'mcp_servers.devhub_delegate.command="python3"',
             "-c",
             'mcp_servers.devhub_delegate.args=["/bootstrap.py","mcp"]',

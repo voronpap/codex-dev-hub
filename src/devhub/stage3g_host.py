@@ -16,7 +16,6 @@ PRODUCTION_DELEGATE_MCP_CONFIG = {
     "enabled": True,
     "enabled_tools": ["devhub_delegate"],
     "environment_id": "local",
-    "env_vars": [],
     "required": True,
     "tool_timeout_sec": None,
     "tools": {"devhub_delegate": {"approval_mode": "approve"}},
