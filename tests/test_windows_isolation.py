@@ -1392,6 +1392,66 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
     assert invalid_started.value.diagnostic.payload.bootstrap_started_status == "invalid"
 
 
+@pytest.mark.parametrize(
+    ("field", "foreign_value"),
+    [
+        ("environment_instance_id", "e" * 32),
+        ("windows_isolation_profile_id", "8" * 64),
+        ("child_bootstrap_sha256", "9" * 64),
+        ("probe_sha256", "a" * 64),
+    ],
+)
+def test_valid_foreign_bootstrap_marker_retains_cleanup_sealed_failure_diagnostic(
+    field: str,
+    foreign_value: str,
+    tmp_path: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module(f"windows_isolation_foreign_marker_{field}_test")
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    result = tmp_path / "child-result.json"
+    child_failure = tmp_path / "child-failure.json"
+    bootstrap = tmp_path / "bootstrap-started.json"
+    success_output = tmp_path / "success.json"
+    failure_output = success_output.with_name(success_output.name + ".failure.json")
+    values = {
+        "child_bootstrap_sha256": profile.payload.child_bootstrap_sha256,
+        "environment_instance_id": ENVIRONMENT,
+        "windows_isolation_profile_id": profile.windows_isolation_profile_id,
+        "probe_sha256": profile.payload.probe_sha256,
+    }
+    values[field] = foreign_value
+    started_payload = probe.WindowsIsolationBootstrapStartedPayloadV1(**values)
+    started = probe.WindowsIsolationBootstrapStartedV1(
+        bootstrap_started_id=digest(canonical(started_payload.model_dump(mode="json"))),
+        payload=started_payload,
+    )
+    bootstrap.write_bytes(canonical(started.model_dump(mode="json")))
+    process = SimpleNamespace(poll_exit_code=lambda: 1)
+
+    with pytest.raises(probe.WindowsIsolationChildExitError) as exited:
+        probe._raise_if_child_exited(
+            process,
+            result,
+            child_failure,
+            bootstrap,
+            profile,
+            ENVIRONMENT,
+        )
+    diagnostic = exited.value.diagnostic
+    assert diagnostic.payload.bootstrap_started_status == "invalid"
+    assert diagnostic.payload.bootstrap_started is None
+
+    with pytest.raises(probe.WindowsIsolationChildExitError):
+        probe._raise_after_cleanup(exited.value, [], diagnostic, failure_output)
+    assert not success_output.exists()
+    retained = probe.WindowsIsolationFailureDiagnosticV2.model_validate_json(
+        failure_output.read_bytes()
+    )
+    assert retained == diagnostic
+
+
 def test_child_result_precedes_exit_diagnostic_and_running_child_remains_pending(
     tmp_path: Path,
 ) -> None:

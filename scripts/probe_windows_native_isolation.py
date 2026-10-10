@@ -347,14 +347,14 @@ def _read_bootstrap_started(
         return "invalid", None
 
 
-def _require_bootstrap_started(
+def _read_bound_bootstrap_started(
     status_path: Path,
     profile: WindowsIsolationProfileV2,
     environment_instance_id: str,
-) -> WindowsIsolationBootstrapStartedV1:
+) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationBootstrapStartedV1 | None]:
     status, started = _read_bootstrap_started(status_path)
     if status != "validated" or started is None:
-        raise RuntimeError(f"Windows isolation bootstrap-started frame is {status}")
+        return status, None
     payload = started.payload
     if (
         payload.child_bootstrap_sha256 != profile.payload.child_bootstrap_sha256
@@ -362,7 +362,18 @@ def _require_bootstrap_started(
         or payload.windows_isolation_profile_id != profile.windows_isolation_profile_id
         or payload.probe_sha256 != profile.payload.probe_sha256
     ):
-        raise RuntimeError("Windows isolation bootstrap-started frame identity mismatch")
+        return "invalid", None
+    return "validated", started
+
+
+def _require_bootstrap_started(
+    status_path: Path,
+    profile: WindowsIsolationProfileV2,
+    environment_instance_id: str,
+) -> WindowsIsolationBootstrapStartedV1:
+    status, started = _read_bound_bootstrap_started(status_path, profile, environment_instance_id)
+    if status != "validated" or started is None:
+        raise RuntimeError(f"Windows isolation bootstrap-started frame is {status}")
     return started
 
 
@@ -379,8 +390,8 @@ def _raise_if_child_exited(
     exit_code = process.poll_exit_code()
     if exit_code is None:
         return
-    bootstrap_started_status, validated_bootstrap_started = _read_bootstrap_started(
-        bootstrap_status
+    bootstrap_started_status, validated_bootstrap_started = _read_bound_bootstrap_started(
+        bootstrap_status, profile, environment_instance_id
     )
     child_failure_status, validated_child_failure = _read_child_failure(child_failure)
     diagnostic = WindowsIsolationFailureDiagnosticV2.create(
