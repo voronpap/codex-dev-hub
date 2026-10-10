@@ -18,5 +18,5 @@
     "host_integration_patch_sha256": "f22369f10ed45d04a740205fca0cb7111ddb56d3b1bdbee603dfcfdfdd7de9ad",
     "combined_patchset_sha256": "e63b68840ecec005703fc61fa1e26aba988c5a9e44a956efedbfbdea96d10c59"
   },
-  "base_image": "python@sha256:1aaa65a85fda306ffb8b910824d4e93bdce61e212c7e87168123ea3073b41a1a"
+  "base_image": "python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe"
 }
