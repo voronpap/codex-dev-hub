@@ -71,6 +71,13 @@ so this packaging slice keeps `package_readiness=false` and
 Public distribution remains blocked by the repository license decision; this
 does not block an internal exact-hash directory artifact.
 
+The Windows bundle builder itself runs through
+`uv run --locked --group windows-bundle-build`. Before it creates any staging
+directory, it verifies the exact locked `pip` version and requires that both the
+interpreter and the imported `pip` module come from the same dedicated virtual
+environment. Dependency acquisition then uses that same interpreter with
+`-I -m pip download`; ambient or system `pip` is not build authority.
+
 ### Windows no-direct-network isolation baseline
 
 The first Windows isolation slice uses the Windows 11
