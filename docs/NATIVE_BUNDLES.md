@@ -77,10 +77,15 @@ directory, it verifies the exact locked `pip` version and requires that both the
 interpreter and the imported `pip` module come from the same dedicated virtual
 environment. Dependency acquisition then uses that same interpreter with
 `-I -m pip download`; ambient or system `pip` is not build authority.
-The builder removes only uv's exact empty root `site-packages/.lock`
-coordination file after installation. Any non-empty, nested, linked, reparse or
-non-file variant fails closed and the generic wheel ownership verifier remains
-strict.
+After installation, the builder removes only two reviewed classes of uv
+installer metadata. The root `site-packages/.lock` must be an exact empty plain
+file. A `.dist-info/uv_cache.json` path must be derived from a retained wheel's
+exact `RECORD` path, be a small plain file with the reviewed strict JSON schema,
+and match its hash and size in the installed `RECORD`. Wheel-owned collisions,
+unexpected or nested locations, malformed content, missing or mismatched
+`RECORD` entries, links, reparse points and cleanup failures all fail closed.
+The generic wheel ownership verifier remains strict and reconstructs each final
+`RECORD` from the retained reviewed wheels.
 
 ### Windows no-direct-network isolation baseline
 
