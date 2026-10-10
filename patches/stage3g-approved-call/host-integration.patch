@@ -594,7 +594,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..eb9198cfd9274275fc7f52de053b07541892aafb
 --- /dev/null
 +++ b/exec/src/approved_delegate_host.rs
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,254 @@
 +//! Trusted `codex exec` Stage 3G tool ceilings.
 +//!
 +//! Authority comes only from the dedicated host startup manifest and arm option.

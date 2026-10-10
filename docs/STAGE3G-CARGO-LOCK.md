@@ -222,3 +222,11 @@ MCP map as the map itself. No executable or process proof exists. The immutable
 classification is `BUILD_014_PINNED_API_SHAPE_COMPILE_FAILURE`. Build-015 removes
 only the remote-client field and reads the already-resolved map through
 `config.mcp_servers.get().get(...)`; the reviewed lock remains byte-identical.
+
+Build-015 run `38015223933` stopped before Cargo when pinned rustfmt parsed the
+generated host file. Its new-file patch hunk still declared 253 added lines after
+the resolved-map correction made the file 254 lines, so the final closing brace
+was outside the applied hunk. The immutable classification is
+`PREBUILD_HOST_PATCH_HUNK_COUNT_FAILURE` with `rust_compilation_started=false`.
+Build-016 corrects only that hunk count; lock contents and dependency edges are
+unchanged.

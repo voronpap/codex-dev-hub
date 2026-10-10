@@ -391,3 +391,9 @@ The resolved MCP server map is wrapped by a constraint whose zero-argument
 field addition and uses `config.mcp_servers.get().get(SERVER_KEY)` before the
 existing exact config-hash comparison. Candidate B, client payloads, host
 authority, manifest/schema identities, and proof semantics remain unchanged.
+
+Build-015 run `38015223933` stopped in the pre-Cargo formatting gate because the
+new `approved_delegate_host.rs` hunk declared 253 added lines while containing
+254. Git therefore applied a syntactically incomplete new file without its final
+brace. Build-016 changes only the hunk metadata to `+1,254` and verifies both the
+declared count and final brace; Rust semantics and authority remain unchanged.

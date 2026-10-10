@@ -182,6 +182,14 @@ def test_host_patch_matches_pinned_remote_and_resolved_config_api_shapes() -> No
         "config\n+                    .mcp_servers\n+                    .get()\n"
         "+                    .get(SERVER_KEY)"
     ) in patch
+    host_file_diff = patch.split(
+        "diff --git a/exec/src/approved_delegate_host.rs b/exec/src/approved_delegate_host.rs",
+        1,
+    )[1].split("diff --git ", 1)[0]
+    host_file_body = host_file_diff.split("@@ -0,0 +1,254 @@\n", 1)[1]
+    added_lines = [line for line in host_file_body.splitlines() if line.startswith("+")]
+    assert len(added_lines) == 254
+    assert added_lines[-1] == "+}"
 
 
 def test_locked_resolution_requires_byte_identical_lock(tmp_path, monkeypatch) -> None:
