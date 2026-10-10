@@ -9,6 +9,9 @@ outside the bundle so a future trusted launcher can verify it before execution.
 from __future__ import annotations
 
 import argparse
+import base64
+import csv
+import hashlib
 import io
 import json
 import os
@@ -39,6 +42,7 @@ from devhub.native_bundle import (
     embedded_archive_members_sha256,
     file_sha256,
     inspect_embedded_windows_runtime,
+    installed_wheel_plan,
     inventory_native_bundle,
     sanitize_installed_wheel_tree,
     verify_native_bundle,
@@ -52,6 +56,7 @@ PYTHON_SBOM_SHA256 = "efa53ba4f26e8a06410677ec6d010e97133a7a1ab38e0485f6936da291
 PYTHON_LICENSE = "PSF-2.0"
 PIP_BUILD_VERSION = "26.2.1"
 FILE_ATTRIBUTE_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+UV_CACHE_INFO_MAX_BYTES = 16 * 1024
 CODEX_SOURCE_COMMIT = "4607249e430dac1c961df4dc615beae88e33cec8"
 CODEX_SOURCE_ARCHIVE_SHA256 = "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2"
 CANDIDATE_SHA256 = "d2e27068ca8020f014c7cd3bea2cc73181b1b892d8e6869814680d2076eb3e36"
@@ -174,6 +179,128 @@ def _remove_uv_target_lock(site_packages: Path) -> None:
     target.unlink()
     if target.exists() or target.is_symlink():
         raise ValueError("uv target-install lock cleanup did not complete")
+
+
+def _uv_timestamp(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {"secs_since_epoch", "nanos_since_epoch"}:
+        return False
+    seconds = value["secs_since_epoch"]
+    nanos = value["nanos_since_epoch"]
+    return (
+        isinstance(seconds, int)
+        and not isinstance(seconds, bool)
+        and seconds >= 0
+        and isinstance(nanos, int)
+        and not isinstance(nanos, bool)
+        and 0 <= nanos < 1_000_000_000
+    )
+
+
+def _strict_json(raw: bytes) -> object:
+    def object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("uv cache metadata contains a duplicate JSON key")
+            result[key] = value
+        return result
+
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=object_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("uv cache metadata is not strict UTF-8 JSON") from error
+
+
+def _validate_uv_cache_info(raw: bytes) -> None:
+    value = _strict_json(raw)
+    if not isinstance(value, dict) or set(value) != {
+        "timestamp",
+        "commit",
+        "tags",
+        "env",
+        "directories",
+    }:
+        raise ValueError("uv cache metadata has an unexpected schema")
+    if not _uv_timestamp(value["timestamp"]):
+        raise ValueError("uv cache metadata has an invalid timestamp")
+    if value["commit"] is not None or value["tags"] is not None:
+        raise ValueError("uv cache metadata has unexpected source authority")
+    environment = value["env"]
+    if not isinstance(environment, dict) or any(
+        not isinstance(key, str) or not isinstance(item, str) for key, item in environment.items()
+    ):
+        raise ValueError("uv cache metadata has an invalid environment map")
+    directories = value["directories"]
+    if not isinstance(directories, dict):
+        raise ValueError("uv cache metadata has an invalid directory map")
+    for key, item in directories.items():
+        path = PurePosixPath(key) if isinstance(key, str) else PurePosixPath("/")
+        if (
+            not isinstance(key, str)
+            or not key
+            or "\\" in key
+            or path.is_absolute()
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path.as_posix() != key
+            or not _uv_timestamp(item)
+        ):
+            raise ValueError("uv cache metadata has an invalid directory entry")
+
+
+def _recorded_uv_cache_entry(record: Path, relative: str, raw: bytes) -> None:
+    try:
+        result = record.lstat()
+    except FileNotFoundError as error:
+        raise ValueError("uv cache metadata has no installed RECORD") from error
+    reparse = getattr(result, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT
+    if record.is_symlink() or reparse or not stat.S_ISREG(result.st_mode):
+        raise ValueError("uv cache metadata RECORD is not a plain regular file")
+    try:
+        rows = list(csv.reader(io.StringIO(record.read_bytes().decode("utf-8"))))
+    except (UnicodeDecodeError, csv.Error) as error:
+        raise ValueError("uv cache metadata RECORD is invalid") from error
+    matches = [row for row in rows if len(row) == 3 and row[0] == relative]
+    if len(matches) != 1:
+        raise ValueError("uv cache metadata is not recorded exactly once")
+    encoded = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
+    if matches[0][1:] != [f"sha256={encoded}", str(len(raw))]:
+        raise ValueError("uv cache metadata differs from its installed RECORD")
+
+
+def _remove_uv_cache_metadata(site_packages: Path, wheels: tuple[Path, ...]) -> None:
+    """Remove only exact uv installer metadata derived from reviewed wheel RECORD paths."""
+
+    plan = installed_wheel_plan(wheels)
+    for record_relative in sorted(plan.record_owners):
+        parent = PurePosixPath(record_relative).parent
+        relative = f"{parent.as_posix()}/uv_cache.json"
+        target = site_packages.joinpath(*PurePosixPath(relative).parts)
+        try:
+            result = target.lstat()
+        except FileNotFoundError:
+            continue
+        if relative in plan.owned:
+            raise ValueError("uv cache metadata collides with a wheel-owned file")
+        reparse = getattr(result, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT
+        if target.is_symlink() or reparse or not stat.S_ISREG(result.st_mode):
+            raise ValueError("uv cache metadata is not a plain regular file")
+        if result.st_size > UV_CACHE_INFO_MAX_BYTES:
+            raise ValueError("uv cache metadata exceeds its reviewed size bound")
+        raw = target.read_bytes()
+        if len(raw) != result.st_size:
+            raise ValueError("uv cache metadata changed while being inspected")
+        _validate_uv_cache_info(raw)
+        record = site_packages.joinpath(*PurePosixPath(record_relative).parts)
+        _recorded_uv_cache_entry(record, relative, raw)
+        try:
+            target.unlink()
+        except OSError as error:
+            raise ValueError("uv cache metadata cleanup failed") from error
+        try:
+            target.lstat()
+        except FileNotFoundError:
+            continue
+        raise ValueError("uv cache metadata cleanup did not complete")
 
 
 def reviewed_commit(repo: Path, expected: str) -> str:
@@ -643,10 +770,10 @@ def _assemble_bundle(
                 str(devhub_wheel),
             ]
         )
+        install_wheels = (*tuple(sorted(wheelhouse.glob("*.whl"))), devhub_wheel)
         _remove_uv_target_lock(site_packages)
-        sanitize_installed_wheel_tree(
-            site_packages, (*tuple(sorted(wheelhouse.glob("*.whl"))), devhub_wheel)
-        )
+        _remove_uv_cache_metadata(site_packages, install_wheels)
+        sanitize_installed_wheel_tree(site_packages, install_wheels)
         codex_dir = bundle_root / "codex"
         codex_dir.mkdir()
         shutil.copy2(codex_artifact / "binary/codex.exe", codex_dir / "codex.exe")

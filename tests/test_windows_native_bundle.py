@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import csv
 import hashlib
 import importlib.util
@@ -266,6 +267,35 @@ def _write_demo_wheel(path: Path, *, unsafe_member: str | None = None) -> dict[s
         for name, raw in files.items():
             stream.writestr(name, raw)
     return files
+
+
+def _install_demo_wheel(site: Path, wheel: Path) -> Path:
+    files = _write_demo_wheel(wheel)
+    for name, raw in files.items():
+        target = site.joinpath(*Path(name).parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    return site / "demo-1.0.dist-info/RECORD"
+
+
+def _uv_cache_bytes() -> bytes:
+    return json.dumps(
+        {
+            "timestamp": {"secs_since_epoch": 1_791_650_905, "nanos_since_epoch": 588_607_600},
+            "commit": None,
+            "tags": None,
+            "env": {},
+            "directories": {"src": {"secs_since_epoch": 1_791_650_001, "nanos_since_epoch": 1}},
+        },
+        separators=(",", ":"),
+    ).encode()
+
+
+def _record_uv_cache(record: Path, relative: str, raw: bytes, *, valid: bool = True) -> None:
+    encoded = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
+    digest = f"sha256={encoded}" if valid else "sha256=invalid"
+    with record.open("a", newline="", encoding="utf-8") as stream:
+        csv.writer(stream).writerow([relative, digest, str(len(raw))])
 
 
 def test_validate_windows_codex_artifact_binds_exact_proof(tmp_path: Path) -> None:
@@ -617,6 +647,165 @@ def test_nested_uv_lock_remains_unowned_and_fails_closed(tmp_path: Path) -> None
     BUNDLE._remove_uv_target_lock(site)
     with pytest.raises(ValueError, match="unowned file: nested/.lock"):
         BUNDLE.sanitize_installed_wheel_tree(site, (wheel,))
+
+
+def test_uv_cache_cleanup_removes_only_recorded_wheel_derived_metadata(
+    tmp_path: Path,
+) -> None:
+    site = tmp_path / "site-packages"
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    record = _install_demo_wheel(site, wheel)
+    relative = "demo-1.0.dist-info/uv_cache.json"
+    target = site / relative
+    raw = _uv_cache_bytes()
+    target.write_bytes(raw)
+    _record_uv_cache(record, relative, raw)
+
+    BUNDLE._remove_uv_cache_metadata(site, (wheel,))
+    BUNDLE.sanitize_installed_wheel_tree(site, (wheel,))
+
+    assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("malformed", "strict UTF-8 JSON"),
+        ("oversized", "size bound"),
+        ("unrecorded", "recorded exactly once"),
+        ("hash_mismatch", "installed RECORD"),
+        ("directory", "plain regular file"),
+        ("symlink", "plain regular file"),
+        ("reparse", "plain regular file"),
+    ],
+)
+def test_uv_cache_cleanup_rejects_untrusted_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str,
+) -> None:
+    site = tmp_path / "site-packages"
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    record = _install_demo_wheel(site, wheel)
+    relative = "demo-1.0.dist-info/uv_cache.json"
+    target = site / relative
+    raw = _uv_cache_bytes()
+    if mutation == "directory":
+        target.mkdir()
+    else:
+        if mutation == "malformed":
+            raw = b"{"
+        elif mutation == "oversized":
+            raw = b"x" * (BUNDLE.UV_CACHE_INFO_MAX_BYTES + 1)
+        target.write_bytes(raw)
+    if mutation != "unrecorded":
+        _record_uv_cache(record, relative, raw, valid=mutation != "hash_mismatch")
+    if mutation == "symlink":
+        original_is_symlink = Path.is_symlink
+        monkeypatch.setattr(
+            Path,
+            "is_symlink",
+            lambda path: path == target or original_is_symlink(path),
+        )
+    elif mutation == "reparse":
+        original_lstat = Path.lstat
+
+        def reparse_lstat(path: Path):
+            if path != target:
+                return original_lstat(path)
+            result = original_lstat(path)
+            return SimpleNamespace(
+                st_mode=result.st_mode,
+                st_size=result.st_size,
+                st_file_attributes=BUNDLE.FILE_ATTRIBUTE_REPARSE_POINT,
+            )
+
+        monkeypatch.setattr(Path, "lstat", reparse_lstat)
+
+    with pytest.raises(ValueError, match=message):
+        BUNDLE._remove_uv_cache_metadata(site, (wheel,))
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "demo-1.0.dist-info/nested/uv_cache.json",
+        "other-1.0.dist-info/uv_cache.json",
+    ],
+)
+def test_unexpected_uv_cache_path_remains_unowned(tmp_path: Path, relative: str) -> None:
+    site = tmp_path / "site-packages"
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    _install_demo_wheel(site, wheel)
+    target = site / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(_uv_cache_bytes())
+
+    BUNDLE._remove_uv_cache_metadata(site, (wheel,))
+    with pytest.raises(ValueError, match="unowned file"):
+        BUNDLE.sanitize_installed_wheel_tree(site, (wheel,))
+
+
+def test_uv_cache_cleanup_rejects_wheel_owned_collision(tmp_path: Path) -> None:
+    site = tmp_path / "site-packages"
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    raw = _uv_cache_bytes()
+    with zipfile.ZipFile(wheel, "w") as stream:
+        stream.writestr("demo.py", b"value = 1\n")
+        stream.writestr("demo-1.0.dist-info/METADATA", b"Name: demo\nVersion: 1.0\n")
+        stream.writestr("demo-1.0.dist-info/uv_cache.json", raw)
+        stream.writestr("demo-1.0.dist-info/RECORD", b"")
+    target = site / "demo-1.0.dist-info/uv_cache.json"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(raw)
+    record = target.parent / "RECORD"
+    record.write_bytes(b"")
+    _record_uv_cache(record, "demo-1.0.dist-info/uv_cache.json", raw)
+
+    with pytest.raises(ValueError, match="wheel-owned"):
+        BUNDLE._remove_uv_cache_metadata(site, (wheel,))
+
+
+def test_uv_cache_cleanup_failure_never_publishes_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "release"
+
+    def assemble(_repo, bundle, _manifest, *_args):
+        site = bundle / "site-packages"
+        wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+        record = _install_demo_wheel(site, wheel)
+        relative = "demo-1.0.dist-info/uv_cache.json"
+        target = site / relative
+        raw = _uv_cache_bytes()
+        target.write_bytes(raw)
+        _record_uv_cache(record, relative, raw)
+        original_unlink = Path.unlink
+
+        def fail_unlink(path: Path, *args, **kwargs):
+            if path == target:
+                raise PermissionError("blocked")
+            return original_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", fail_unlink)
+        BUNDLE._remove_uv_cache_metadata(site, (wheel,))
+
+    monkeypatch.setattr(BUNDLE, "_assemble_bundle", assemble)
+    monkeypatch.setattr(BUNDLE, "_verified_pip_interpreter", lambda *_args: tmp_path)
+
+    with pytest.raises(ValueError, match="cleanup failed"):
+        BUNDLE.build(
+            tmp_path,
+            output,
+            "d" * 40,
+            tmp_path / "python.zip",
+            tmp_path / "python.spdx.json",
+            tmp_path / "codex",
+            BUNDLE.WINDOWS_BUILD_ARTIFACT_RUN_ID,
+        )
+
+    assert not output.exists()
 
 
 def test_uv_lock_cleanup_failure_never_publishes_release(
