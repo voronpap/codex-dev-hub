@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import struct
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -1114,6 +1115,8 @@ def test_probe_cleanup_attempts_every_resource_after_failures(tmp_path: Path, mo
 
     scratch = tmp_path / "scratch"
     scratch.mkdir()
+    execution_bundle = tmp_path / "scratch.execution-bundle"
+    execution_bundle.mkdir()
 
     def fail_handle(_: int) -> None:
         calls.append("event")
@@ -1123,19 +1126,115 @@ def test_probe_cleanup_attempts_every_resource_after_failures(tmp_path: Path, mo
         calls.append("registry")
         raise OSError("registry cleanup")
 
-    def fail_scratch(_: Path) -> None:
-        calls.append("scratch")
-        raise OSError("scratch cleanup")
+    def fail_remove(path: Path) -> None:
+        calls.append("scratch" if path == scratch else "execution-bundle")
+        raise OSError("directory cleanup")
 
     monkeypatch.setattr(probe, "_close_handle", fail_handle)
     monkeypatch.setattr(probe, "_registry_exists", lambda _: True)
     monkeypatch.setattr(probe, "_delete_registry", fail_registry)
-    monkeypatch.setattr(probe.shutil, "rmtree", fail_scratch)
+    monkeypatch.setattr(probe.shutil, "rmtree", fail_remove)
     errors = probe._cleanup_probe_resources(
-        FailedProcess(), 44, FailedListener(), "Software\\probe", scratch
+        FailedProcess(),
+        44,
+        FailedListener(),
+        "Software\\probe",
+        scratch,
+        execution_bundle,
     )
-    assert len(errors) == 5
-    assert calls == ["process", "event", "listener", "registry", "scratch"]
+    assert len(errors) == 6
+    assert calls == [
+        "process",
+        "event",
+        "listener",
+        "registry",
+        "scratch",
+        "execution-bundle",
+    ]
+
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    diagnostic = probe.WindowsIsolationFailureDiagnosticV2.create(
+        probe.WindowsIsolationFailureDiagnosticPayloadV2(
+            environment_instance_id=ENVIRONMENT,
+            windows_isolation_profile_id=profile.windows_isolation_profile_id,
+            probe_sha256=profile.payload.probe_sha256,
+            child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
+            process_exit_code=203,
+            bootstrap_started_status="absent",
+            child_failure_status="absent",
+        )
+    )
+    success_output = tmp_path / "evidence.json"
+    failure_output = success_output.with_name(success_output.name + ".failure.json")
+    with pytest.raises(BaseExceptionGroup, match="probe and cleanup failed"):
+        probe._raise_after_cleanup(RuntimeError("primary"), errors, diagnostic, failure_output)
+    assert not success_output.exists()
+    assert not failure_output.exists()
+
+
+def test_probe_paths_reject_source_overlap_before_copy(tmp_path: Path) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows probe path boundary")
+    probe = load_probe_module("windows_isolation_probe_overlap_test")
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    canary = bundle / "canary.txt"
+    canary.write_bytes(b"immutable")
+    manifest = tmp_path / "native-bundle.json"
+    manifest.write_bytes(b"{}")
+    scratch = bundle / "scratch"
+    execution_bundle = bundle / "scratch.execution-bundle"
+    output = tmp_path / "evidence.json"
+    failure = tmp_path / "evidence.json.failure.json"
+
+    with pytest.raises(ValueError, match="cannot overlap bundle authority"):
+        probe._validated_probe_paths(bundle, manifest, scratch, execution_bundle, output, failure)
+
+    assert canary.read_bytes() == b"immutable"
+    assert not scratch.exists()
+    assert not execution_bundle.exists()
+    assert not output.exists()
+    assert not failure.exists()
+
+
+def test_probe_paths_reject_junction_destination_parent(tmp_path: Path) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows probe path boundary")
+    probe = load_probe_module("windows_isolation_probe_junction_parent_test")
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    manifest = tmp_path / "native-bundle.json"
+    manifest.write_bytes(b"{}")
+    real_parent = tmp_path / "real-parent"
+    real_parent.mkdir()
+    junction = tmp_path / "junction-parent"
+    created = subprocess.run(
+        [os.environ["COMSPEC"], "/d", "/c", "mklink", "/J", str(junction), str(real_parent)],
+        capture_output=True,
+        check=False,
+    )
+    if created.returncode != 0:
+        pytest.skip("Junction creation is unavailable on this Windows runner")
+    try:
+        scratch = junction / "scratch"
+        with pytest.raises(ValueError, match="reparse"):
+            probe._validated_probe_paths(
+                bundle,
+                manifest,
+                scratch,
+                junction / "scratch.execution-bundle",
+                tmp_path / "evidence.json",
+                tmp_path / "evidence.json.failure.json",
+            )
+        assert not scratch.exists()
+        assert not (junction / "scratch.execution-bundle").exists()
+    finally:
+        removed = subprocess.run(
+            [os.environ["COMSPEC"], "/d", "/c", "rmdir", str(junction)],
+            capture_output=True,
+            check=False,
+        )
+        assert removed.returncode == 0
 
 
 def _bootstrap_argv(
@@ -1222,7 +1321,7 @@ def test_stdlib_bootstrap_distinguishes_status_import_and_failure_write_denials(
         import_root, "raise ImportError('sensitive import detail')\n"
     )
     monkeypatch.setattr(sys, "argv", argv)
-    assert import_failed.main() == import_failed.EXIT_IMPORT_FAILED
+    assert import_failed.main() == import_failed.EXIT_IMPORT_UNKNOWN
     assert status.is_file()
     observed = json.loads(failure.read_bytes())
     assert observed == {
@@ -1233,6 +1332,20 @@ def test_stdlib_bootstrap_distinguishes_status_import_and_failure_write_denials(
         "winerror": None,
     }
     assert b"sensitive" not in failure.read_bytes()
+
+    classifications = {
+        "_ctypes": import_failed.EXIT_IMPORT_CTYPES,
+        "_socket": import_failed.EXIT_IMPORT_SOCKET,
+        "pydantic_core._pydantic_core": import_failed.EXIT_IMPORT_PYDANTIC_CORE,
+        "devhub.models": import_failed.EXIT_IMPORT_DEVHUB,
+        "unreviewed.module": import_failed.EXIT_IMPORT_UNKNOWN,
+    }
+    for name, expected in classifications.items():
+        error = ImportError("sensitive import detail", name=name)
+        assert import_failed._classified_import_exit(error) == expected
+    assert import_failed._classified_import_exit(RuntimeError("not import")) == (
+        import_failed.EXIT_IMPORT_FAILED
+    )
 
     write_denied = load_bootstrap_module("windows_isolation_bootstrap_failure_denied_test")
     denied_root = tmp_path / "failure-write"
@@ -1320,9 +1433,14 @@ def test_stdlib_bootstrap_bounds_failure_before_writing_and_reserves_exit_codes(
         bootstrap.EXIT_INVOKE_FAILED,
         bootstrap.EXIT_INVOKE_FAILURE_WRITE_DENIED,
         bootstrap.EXIT_INVOKE_FAILURE_TOO_LARGE,
+        bootstrap.EXIT_IMPORT_CTYPES,
+        bootstrap.EXIT_IMPORT_SOCKET,
+        bootstrap.EXIT_IMPORT_PYDANTIC_CORE,
+        bootstrap.EXIT_IMPORT_DEVHUB,
+        bootstrap.EXIT_IMPORT_UNKNOWN,
     }
-    assert len(exit_codes) == 10
-    assert exit_codes == set(range(189, 199))
+    assert len(exit_codes) == 15
+    assert exit_codes == set(range(189, 204))
 
 
 def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malformed_data(
@@ -1654,6 +1772,8 @@ def test_qualify_rejects_stale_bundle_before_platform_or_native_acquisition(
     if os.name != "nt":
         pytest.skip("Windows host qualification path")
     probe = load_probe_module("windows_isolation_stale_bundle_test")
+    bundle_root = tmp_path / "bundle"
+    bundle_root.mkdir()
     manifest = tmp_path / "bundle.json"
     manifest.write_bytes(b"{}")
     scratch = tmp_path / "scratch"
@@ -1682,7 +1802,7 @@ def test_qualify_rejects_stale_bundle_before_platform_or_native_acquisition(
 
     with pytest.raises(ValueError, match="implementation commit differs"):
         probe.qualify(
-            tmp_path / "bundle",
+            bundle_root,
             manifest,
             scratch,
             output,
@@ -1780,8 +1900,23 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
             return True
 
     marker_mode = {"value": "valid"}
+    verified_roots: list[Path] = []
+    security_hashes: list[str] = []
+
+    def verify_bundle(_: object, root: Path, **__: object) -> None:
+        verified_roots.append(root)
+
+    def security_descriptor_inventory(_: Path) -> str:
+        return security_hashes.pop(0) if security_hashes else "a" * 64
 
     def launch(*args: object, **kwargs: object) -> Process:
+        profile = args[0]
+        assert isinstance(profile, WindowsIsolationProfileV2)
+        execution_bundle = Path(profile.payload.read_only_roots[0].locator)
+        assert execution_bundle.name.endswith(".execution-bundle")
+        assert Path(args[1]).is_relative_to(execution_bundle)
+        assert not Path(args[1]).is_relative_to(bundle_root)
+        assert Path(profile.payload.read_only_roots[0].locator) == execution_bundle.absolute()
         arguments = args[2]
         assert isinstance(arguments, tuple)
         environment = kwargs["environment"]
@@ -1821,7 +1956,10 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         )
 
     monkeypatch.setattr(probe, "NativeBundleV1", BundleParser)
-    monkeypatch.setattr(probe, "verify_native_bundle", lambda *_, **__: None)
+    monkeypatch.setattr(probe, "verify_native_bundle", verify_bundle)
+    monkeypatch.setattr(
+        probe, "_security_descriptor_inventory_sha256", security_descriptor_inventory
+    )
     monkeypatch.setattr(probe, "observed_windows_platform", lambda: (26200, "x86_64"))
     monkeypatch.setattr(probe, "windows_path_identity", identity)
     monkeypatch.setattr(probe, "_reparse_rejected", lambda *_: True)
@@ -1846,6 +1984,13 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     assert retained.receipt.payload.native_executor_isolation_qualified is False
     assert retained.receipt.payload.package_readiness is False
     assert not scratch.exists()
+    assert not scratch.with_name(scratch.name + ".execution-bundle").exists()
+    assert python.read_bytes() == b"MZ-native-python"
+    assert verified_roots[:3] == [
+        bundle_root,
+        scratch.with_name(scratch.name + ".execution-bundle"),
+        bundle_root,
+    ]
     assert not output.with_name(output.name + ".tmp").exists()
 
     for mode in ("missing", "tampered"):
@@ -1866,6 +2011,23 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         assert not rejected_output.exists()
         assert not rejected_output.with_name(rejected_output.name + ".failure.json").exists()
         assert not rejected_scratch.exists()
+
+    acl_output = tmp_path / "acl-mismatch-evidence.json"
+    acl_scratch = tmp_path / "acl-mismatch-scratch"
+    marker_mode["value"] = "valid"
+    security_hashes.extend(["a" * 64, "b" * 64])
+    with pytest.raises(ExceptionGroup, match="probe cleanup failed"):
+        probe.qualify(
+            bundle_root,
+            manifest,
+            acl_scratch,
+            acl_output,
+            ENVIRONMENT,
+            IMPLEMENTATION_COMMIT,
+        )
+    assert not acl_output.exists()
+    assert not acl_scratch.exists()
+    assert not acl_scratch.with_name(acl_scratch.name + ".execution-bundle").exists()
 
     failed_output = tmp_path / "cleanup-failed-evidence.json"
     failed_scratch = tmp_path / "cleanup-failed-scratch"
