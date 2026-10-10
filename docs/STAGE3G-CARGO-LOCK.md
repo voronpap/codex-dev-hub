@@ -178,3 +178,12 @@ Before any successor compilation, the fresh patched source must pass Cargo 1.95.
 `metadata --locked` for `x86_64-unknown-linux-gnu`, `fetch --locked` for that
 target, and byte-for-byte lock equality after both commands. A successful check
 authorizes only a separately identified Build-010; it does not rewrite Build-009.
+
+Build-010 run `38010156389` stopped in cheap preflight before Cargo. The lock
+helper incorrectly compared the pinned workspace semver requirement `sha2 =
+"0.10"` with the resolved lock-package identity `sha2 0.10.9`. The lock bytes
+and five reviewed dependency edges were not rejected; their two different Cargo
+representations were conflated. Build-010 is immutable
+`PREBUILD_WORKSPACE_REQUIREMENT_REPRESENTATION_FAILURE` evidence with
+`rust_compilation_started=false`. Build-011 verifies the exact workspace
+requirement `0.10` and separately retains the exact lock edge `sha2 0.10.9`.

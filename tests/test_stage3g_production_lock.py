@@ -19,7 +19,7 @@ def _workspace(tmp_path: Path) -> Path:
     root = tmp_path / "codex-rs"
     root.mkdir()
     (root / "Cargo.toml").write_text(
-        '[workspace]\nmembers = []\n\n[workspace.dependencies]\nsha2 = "0.10.9"\n',
+        '[workspace]\nmembers = []\n\n[workspace.dependencies]\nsha2 = "0.10"\n',
         encoding="utf-8",
     )
     for directory, package, dependencies in (
@@ -134,3 +134,24 @@ def test_rejects_preexisting_unreviewed_edge() -> None:
         production_lock._add_dependency_edges(
             raw, "codex-app-server-client", ("codex-extension-api",)
         )
+
+
+def test_rejects_changed_workspace_sha2_requirement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _workspace(tmp_path)
+    workspace = root / "Cargo.toml"
+    workspace.write_text(
+        workspace.read_text(encoding="utf-8").replace('sha2 = "0.10"', 'sha2 = "0.11"'),
+        encoding="utf-8",
+    )
+    local_lock = _local_lock()
+    monkeypatch.setattr(production_lock, "derive_local_versions", lambda _: (local_lock, []))
+    monkeypatch.setattr(
+        production_lock,
+        "LOCAL_VERSION_LOCK_SHA256",
+        production_lock.hashlib.sha256(local_lock).hexdigest(),
+    )
+
+    with pytest.raises(ValueError, match="workspace requirement"):
+        production_lock.derive(root)

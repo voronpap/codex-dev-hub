@@ -9,6 +9,7 @@ from derive_router_build_lock import DERIVED as LOCAL_VERSION_LOCK_SHA256
 from derive_router_build_lock import derive as derive_local_versions
 
 PRODUCTION_HOST_LOCK_SHA256 = "9236f6c0b8703eaf337dd219c8fdfb6834c14fa430a0a83b938159016371bb88"
+EXPECTED_WORKSPACE_SHA2_REQUIREMENT = "0.10"
 
 _REQUIRED_DEPENDENCY_EDGES = {
     "codex-app-server-client": (("codex-extension-api", "codex-extension-api"),),
@@ -74,9 +75,9 @@ def derive(root: Path) -> tuple[bytes, dict[str, object]]:
     edge_changes: list[dict[str, str]] = []
     workspace = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
     sha2 = workspace["workspace"]["dependencies"]["sha2"]
-    sha2_version = sha2 if isinstance(sha2, str) else sha2.get("version")
-    if sha2_version != "0.10.9":
-        raise ValueError(f"reviewed sha2 workspace version changed: {sha2_version}")
+    sha2_requirement = sha2 if isinstance(sha2, str) else sha2.get("version")
+    if sha2_requirement != EXPECTED_WORKSPACE_SHA2_REQUIREMENT:
+        raise ValueError(f"reviewed sha2 workspace requirement changed: {sha2_requirement}")
 
     for package, dependencies in _REQUIRED_DEPENDENCY_EDGES.items():
         manifest_dependencies = _manifest_dependencies(root, package)

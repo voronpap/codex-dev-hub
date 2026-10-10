@@ -101,7 +101,7 @@ def prepare_build_source(
         derived_lock, lock_changes = derive_build009(root)
         expected_lock = BUILD009_DERIVED
         lock_strategy = "LOCK_B_minimal_manifest_bound_derived_lock"
-    elif build_id == "build-010":
+    elif build_id in {"build-010", "build-011"}:
         derived_lock, lock_changes = derive_production_host_lock(root)
         expected_lock = PRODUCTION_HOST_LOCK_SHA256
         lock_strategy = "complete_patched_manifest_bound_derived_lock"
@@ -453,7 +453,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--build-id", choices=("build-009", "build-010"), default="build-009")
+    parser.add_argument(
+        "--build-id", choices=("build-009", "build-010", "build-011"), default="build-009"
+    )
     args = parser.parse_args()
     expected_lock = (
         BUILD009_DERIVED if args.build_id == "build-009" else PRODUCTION_HOST_LOCK_SHA256
@@ -492,6 +494,7 @@ def main() -> None:
         "rust_compilation_started": False,
         "build_009_run": False,
         "build_010_run": False,
+        "build_011_run": False,
         "stage_3g_c": "OPEN",
         "stage_3g": "OPEN",
         "execution_ready": False,

@@ -24,7 +24,7 @@ def _sha(path: Path) -> str:
     return digest(path.read_bytes())
 
 
-def collect(pinned_source: Path | None = None, *, build_id: str = "build-010") -> dict[str, object]:
+def collect(pinned_source: Path | None = None, *, build_id: str = "build-011") -> dict[str, object]:
     candidate = ROOT / "patches/stage3g-approved-call/candidate.patch"
     host = ROOT / "patches/stage3g-approved-call/host-integration.patch"
     manifest_path = ROOT / "benchmarks/stage3g-host-manifest-v2.json"
@@ -126,7 +126,10 @@ def collect(pinned_source: Path | None = None, *, build_id: str = "build-010") -
         "schema_version": 2,
         "build_id": build_id,
         "phase": "corrected_full_dependency_resolution",
-        "prior_build_result": "BUILD_009_CARGO_LOCK_INCOMPLETE",
+        "prior_build_results": {
+            "build-009": "BUILD_009_CARGO_LOCK_INCOMPLETE",
+            "build-010": "PREBUILD_WORKSPACE_REQUIREMENT_REPRESENTATION_FAILURE",
+        },
         "source_commit": SOURCE_COMMIT,
         "implementation_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
@@ -199,6 +202,7 @@ def collect(pinned_source: Path | None = None, *, build_id: str = "build-010") -
         "rust_compilation_started": False,
         "build_009_run": False,
         "build_010_run": False,
+        "build_011_run": False,
         "model_requests": 0,
         "provider_sends": 0,
         "real_codex_executions": 0,
@@ -217,7 +221,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pinned-source", type=Path)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--build-id", choices=("build-009", "build-010"), default="build-010")
+    parser.add_argument(
+        "--build-id", choices=("build-009", "build-010", "build-011"), default="build-011"
+    )
     args = parser.parse_args()
     result = collect(args.pinned_source, build_id=args.build_id)
     raw = canonical(result)

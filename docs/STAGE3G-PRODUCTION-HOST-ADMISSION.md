@@ -355,3 +355,9 @@ read-only: an absent manifest still creates no `AllowedTools` ceiling and no
 `ApprovedDelegatePolicy`, while task text cannot populate either authority.
 Build-010 remains a qualification attempt until actual same-binary Default/A/B
 receipts and all negative results pass.
+
+Build-010 run `38010156389` stopped before Cargo because its lock verifier
+conflated the workspace semver requirement `sha2 = "0.10"` with the resolved
+lock identity `sha2 0.10.9`. Build-011 corrects only that representation check;
+the proposed lock, production patches, host manifest, authority model, and
+process-proof semantics remain unchanged.
