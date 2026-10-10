@@ -594,7 +594,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..eb9198cfd9274275fc7f52de053b07541892aafb
 --- /dev/null
 +++ b/exec/src/approved_delegate_host.rs
-@@ -0,0 +1,254 @@
+@@ -0,0 +1,253 @@
 +//! Trusted `codex exec` Stage 3G tool ceilings.
 +//!
 +//! Authority comes only from the dedicated host startup manifest and arm option.
@@ -716,11 +716,10 @@ index 0000000000000000000000000000000000000000..eb9198cfd9274275fc7f52de053b0754
 +                );
 +            }
 +            (Stage3gHostArm::B, Some(delegate)) => {
-+                let server = config
-+                    .mcp_servers
-+                    .get()
-+                    .get(SERVER_KEY)
-+                    .context("reviewed devhub_delegate MCP server missing from resolved config")?;
++                let server =
++                    config.mcp_servers.get().get(SERVER_KEY).context(
++                        "reviewed devhub_delegate MCP server missing from resolved config",
++                    )?;
 +                let resolved_hash = canonical_sha256(&serde_json::to_value(server)?)?;
 +                anyhow::ensure!(
 +                    resolved_hash == delegate.expected_mcp_server_config_sha256,

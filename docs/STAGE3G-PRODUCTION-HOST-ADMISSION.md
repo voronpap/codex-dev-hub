@@ -397,3 +397,9 @@ new `approved_delegate_host.rs` hunk declared 253 added lines while containing
 254. Git therefore applied a syntactically incomplete new file without its final
 brace. Build-016 changes only the hunk metadata to `+1,254` and verifies both the
 declared count and final brace; Rust semantics and authority remain unchanged.
+
+Build-016 run `38015712940` then stopped in the pre-Cargo formatting gate on the
+resolved MCP config lookup. Build-017 uses the exact pinned rustfmt layout and
+returns the new-file hunk to its actual 253-line length. The constrained-map
+`get()` followed by the exact server-key lookup, host authority, process proof,
+and all locked dependencies remain unchanged.

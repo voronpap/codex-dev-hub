@@ -230,3 +230,11 @@ was outside the applied hunk. The immutable classification is
 `PREBUILD_HOST_PATCH_HUNK_COUNT_FAILURE` with `rust_compilation_started=false`.
 Build-016 corrects only that hunk count; lock contents and dependency edges are
 unchanged.
+
+Build-016 run `38015712940` applied the complete host file and passed the source
+and lock identity checks, then stopped before Cargo because pinned rustfmt
+required the resolved config lookup to use its compact multiline chain. It is
+immutable `PREBUILD_RUSTFMT_RESOLVED_CONFIG_CHAIN_FAILURE` evidence with
+`rust_compilation_started=false`. Build-017 carries exactly rustfmt's emitted
+representation; resolved-config authority, lock bytes, and dependency edges are
+unchanged.
