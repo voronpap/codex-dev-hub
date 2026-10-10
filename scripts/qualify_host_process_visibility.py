@@ -21,6 +21,22 @@ from devhub.qualification import (
 from devhub.stage3g_host import read_stage3g_host_manifest
 
 PRE_SAMPLING_STOP_MARKER = b"DevFabric proof observer stopped before model sampling"
+SAFE_FAILURE_MARKERS = {
+    b"configuration": "configuration",
+    b"failed to": "failed_to",
+    b"invalid value": "invalid_value",
+    b"no such file or directory": "not_found",
+    b"operation not permitted": "operation_not_permitted",
+    b"permission denied": "permission_denied",
+    b"read-only file system": "read_only_filesystem",
+    b"required arguments": "required_arguments",
+    b"unexpected argument": "unexpected_argument",
+}
+
+
+def _safe_failure_categories(value: bytes) -> tuple[str, ...]:
+    lowered = value.lower()
+    return tuple(name for marker, name in SAFE_FAILURE_MARKERS.items() if marker in lowered)
 
 
 def _require_reviewed_stop(
@@ -39,6 +55,8 @@ def _require_reviewed_stop(
             "stop_marker_observed": PRE_SAMPLING_STOP_MARKER in result.stdout + result.stderr,
             "stdout_sha256": digest(result.stdout),
             "stderr_sha256": digest(result.stderr),
+            "stdout_categories": _safe_failure_categories(result.stdout),
+            "stderr_categories": _safe_failure_categories(result.stderr),
         }
         raise ValueError(
             f"{arm} pre-sampling observer did not stop at the reviewed boundary: "
