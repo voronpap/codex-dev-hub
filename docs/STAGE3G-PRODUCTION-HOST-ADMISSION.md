@@ -415,3 +415,12 @@ server config and strict host-manifest hashes. Arm A and ordinary default Codex
 configure no MCP server and no MCP-child receipt-variable allowlist; the common
 outer proof environment remains identical between arms. The process proof now
 requires exactly one catalog receipt and still rejects any `tools/call`.
+
+Build-018 run `38019621552` compiled the actual executable and proved Arm A.
+Arm B reached the exact read-only pre-sampling router state: its visible surface
+was only `mcp__devhub_delegate.devhub_delegate`, the nested, hosted, and dynamic
+surfaces were empty, and the approved identity, schema, manifest, and catalog
+receipt matched. The proof failed only because the observer used `ToolName`'s
+delimiter-free `Display` for `AllowedTools` evidence. Build-019 serializes the
+same structural authority losslessly as `namespace.name`; it does not alter the
+authority, ceiling, router, manifest, schema, or MCP configuration.

@@ -425,16 +425,26 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..c1e8a6153f3f103e8d8ae14aec28276285a63764
 --- /dev/null
 +++ b/core/src/proof_router_observer.rs
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,119 @@
 +//! Read-only, host-installed pre-sampling proof observer.
 +
 +use crate::ApprovedDelegatePolicy;
 +use crate::tools::router::ToolRouter;
 +use codex_extension_api::AllowedTools;
 +use codex_tools::ResponsesApiNamespaceTool;
++use codex_tools::ToolName;
 +use codex_tools::ToolSpec;
 +use serde_json::json;
 +use std::path::PathBuf;
++
++fn canonical_tool_name(tool: &ToolName) -> String {
++    match tool.namespace.as_deref() {
++        Some(namespace) if !tool.is_default_namespace() => {
++            format!("{namespace}.{}", tool.name)
++        }
++        _ => tool.name.clone(),
++    }
++}
 +
 +#[derive(Clone, Debug)]
 +pub struct ProofRouterObserver {
@@ -495,7 +505,7 @@ index 0000000000000000000000000000000000000000..c1e8a6153f3f103e8d8ae14aec282762
 +            .collect::<Vec<_>>();
 +        nested.sort();
 +        let mut allowed = allowed_tools
-+            .map(|tools| tools.0.iter().map(ToString::to_string).collect::<Vec<_>>())
++            .map(|tools| tools.0.iter().map(canonical_tool_name).collect::<Vec<_>>())
 +            .unwrap_or_default();
 +        allowed.sort();
 +        let identity = policy.and_then(ApprovedDelegatePolicy::proof_identity);

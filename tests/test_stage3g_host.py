@@ -76,3 +76,16 @@ def test_shipping_patch_keeps_authority_out_of_client_payloads() -> None:
     assert "ThreadStartParams" not in patch
     assert "Stage3gHostArm::A" in patch and "AllowedTools" in patch
     assert "Stage3gHostArm::B" in patch and "ApprovedDelegatePolicy::delegate" in patch
+
+
+def test_proof_observer_serializes_structural_tool_name_without_display_loss() -> None:
+    patch = (ROOT / "patches/stage3g-approved-call/host-integration.patch").read_text()
+    bindings = json.loads(
+        (ROOT / "docs/evidence/stage3g-allowed-tools/source-bindings.json").read_bytes()
+    )
+    assert 'write!(f, "{namespace}{}", self.name)' in bindings["tool_name"]["excerpt"]
+    assert "fn canonical_tool_name(tool: &ToolName) -> String" in patch
+    assert 'format!("{namespace}.{}", tool.name)' in patch
+    assert "_ => tool.name.clone()" in patch
+    assert "tools.0.iter().map(canonical_tool_name)" in patch
+    assert "map(ToString::to_string)" not in patch

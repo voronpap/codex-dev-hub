@@ -254,3 +254,16 @@ evidence. Build-018 adds only the host-owned non-secret
 allowlist and binds that exact resolved config in a newly hashed strict host
 manifest. Production patches, source, lock, schema, stack, and authority remain
 byte-identical.
+
+Build-018 run `38019621552` passed cheap preflight and compiled the retained
+production executable in 522.253 seconds (SHA-256
+`12ebba9f534f50053921b56c0633f14b4bfe67fa885bc422771e51c40ae00707`).
+Arm A passed and Arm B reached the read-only pre-sampling observer with the exact
+delegate surface and approved authority. The observer then serialized the
+structural `ToolName` through its delimiter-free `Display` implementation, so
+the exact dotted `AllowedTools` evidence comparison failed. Build-018 is
+immutable `COMPILATION_PASS / OBSERVER_ALLOWED_TOOLS_REPRESENTATION_FAILURE`;
+default and security-negative process checks were not reached. Build-019 changes
+only observer evidence serialization to derive `namespace.name` from the
+structural fields; production `AllowedTools` construction and enforcement are
+unchanged.
