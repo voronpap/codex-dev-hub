@@ -51,6 +51,8 @@ def test_default_argument_path_removes_only_stage3g_authority() -> None:
         "a",
         "-c",
         "features.apps=false",
+        "-c",
+        "features.tool_registry.error_on_tool_collisions=true",
         "-",
     ]
     assert MODULE._without_stage3g_authority(args) == [
@@ -58,6 +60,8 @@ def test_default_argument_path_removes_only_stage3g_authority() -> None:
         "exec",
         "-c",
         "features.apps=false",
+        "-c",
+        "features.tool_registry.error_on_tool_collisions=true",
         "-",
     ]
 
@@ -125,3 +129,4 @@ def test_observer_attaches_framed_stdin_to_container(tmp_path, monkeypatch) -> N
     codex_home_tmpfs = "/home/runner/.codex:rw,noexec,nosuid,size=16m,uid=1000,gid=1000,mode=0700"
     assert codex_home_tmpfs in command
     assert command.index(codex_home_tmpfs) < command.index("--entrypoint")
+    assert command.count("features.tool_registry.error_on_tool_collisions=true") == 1

@@ -26,14 +26,11 @@ def main():
     if (old.protocol_id, new.protocol_id) != ("stage3g-seed1-paired-v1", "stage3g-seed1-paired-v2"):
         raise ValueError("Unexpected revision")
     removed = old.codex_overrides()[-2:]
-    if (
-        removed
-        != (
-            "model_providers.openai.request_max_retries=0",
-            "model_providers.openai.stream_max_retries=0",
-        )
-        or new.codex_overrides() != old.codex_overrides()[:-2]
-    ):
+    added = ("features.tool_registry.error_on_tool_collisions=true",)
+    if removed != (
+        "model_providers.openai.request_max_retries=0",
+        "model_providers.openai.stream_max_retries=0",
+    ) or new.codex_overrides() != (*old.codex_overrides()[:-2], *added):
         raise ValueError("Unapproved override change: STOP for review")
     historical = json.loads((repo / "docs/evidence/stage3g-c/local-plan.json").read_bytes())
     if old.hashes() != historical["hashes"]:
@@ -47,7 +44,7 @@ def main():
         "protocol_ids": [old.protocol_id, new.protocol_id],
         "changed_protocol_fields": ["protocol_id"],
         "removed_overrides": list(removed),
-        "added_overrides": [],
+        "added_overrides": list(added),
         "v1_hashes": old.hashes(),
         "v2_hashes": new.hashes(),
         "unchanged_policy_hashes": unchanged,

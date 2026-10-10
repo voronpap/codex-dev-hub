@@ -39,6 +39,10 @@ CODEX_OVERRIDES = (
     "model_providers.openai.request_max_retries=0",
     "model_providers.openai.stream_max_retries=0",
 )
+V2_CODEX_OVERRIDES = (
+    *CODEX_OVERRIDES[:-2],
+    "features.tool_registry.error_on_tool_collisions=true",
+)
 COMMON = (
     "Complete the frozen task using only its supplied input. "
     "Return the requested answer/source/tests "
@@ -96,8 +100,9 @@ class ExperimentProtocol(Contract):
 
     def codex_overrides(self) -> tuple[str, ...]:
         # Preserve rejected v1 configuration and hashes as historical evidence.
-        # v2 changes only the two unsupported built-in provider retry overrides.
-        return CODEX_OVERRIDES if self.protocol_id.endswith("-v1") else CODEX_OVERRIDES[:-2]
+        # v2 removes the two unsupported built-in provider retry overrides and binds
+        # the fatal-collision setting required by the reviewed production host.
+        return CODEX_OVERRIDES if self.protocol_id.endswith("-v1") else V2_CODEX_OVERRIDES
 
     def hashes(self) -> dict[str, str]:
         return {
