@@ -58,6 +58,7 @@ from devhub.windows_native import (
     WindowsNativeCodexBuildV2,
     WindowsNativeCodexBuildV3,
     WindowsNativeCodexBuildV4,
+    WindowsNativeCodexBuildV5,
 )
 
 PYTHON_ARCHIVE = "python-3.12.10-embed-amd64.zip"
@@ -646,14 +647,22 @@ def validate_windows_codex_pair_artifact(
         raise ValueError("Windows Codex pair artifact run identity must be positive")
     receipt_path = artifact / "windows-native-codex-build.json"
     raw_receipt = receipt_path.read_bytes()
-    receipt: WindowsNativeCodexBuildV2 | WindowsNativeCodexBuildV3 | WindowsNativeCodexBuildV4
+    receipt: (
+        WindowsNativeCodexBuildV2
+        | WindowsNativeCodexBuildV3
+        | WindowsNativeCodexBuildV4
+        | WindowsNativeCodexBuildV5
+    )
     try:
-        receipt = WindowsNativeCodexBuildV4.model_validate_json(raw_receipt)
+        receipt = WindowsNativeCodexBuildV5.model_validate_json(raw_receipt)
     except ValueError:
         try:
-            receipt = WindowsNativeCodexBuildV3.model_validate_json(raw_receipt)
+            receipt = WindowsNativeCodexBuildV4.model_validate_json(raw_receipt)
         except ValueError:
-            receipt = WindowsNativeCodexBuildV2.model_validate_json(raw_receipt)
+            try:
+                receipt = WindowsNativeCodexBuildV3.model_validate_json(raw_receipt)
+            except ValueError:
+                receipt = WindowsNativeCodexBuildV2.model_validate_json(raw_receipt)
     payload = receipt.payload
     provenance = payload.provenance
     if (

@@ -68,7 +68,7 @@ jobs:
           uv run --locked python scripts/build_windows_native_codex.py `
             --workspace $workspace `
             --output $output `
-            --build-id windows-build-005 `
+            --build-id windows-build-006 `
             --expected-implementation-commit '${{ github.event.pull_request.head.sha || github.sha }}' `
             --workflow-run-id '${{ github.run_id }}' `
             --workflow-run-attempt '${{ github.run_attempt }}'
@@ -80,22 +80,22 @@ jobs:
           uv run --locked python scripts/inventory_native_build_artifact.py
           --platform windows
           --root C:\dfw003\e
-          --build-id windows-build-005
+          --build-id windows-build-006
+          --evidence-projection C:\dfw003\u\evidence
       - name: Upload exact Windows build evidence
         if: always() && steps.seal.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: devfabric-windows-build-005-evidence
-          path: |
-            C:/dfw003/e/**
-            !C:/dfw003/e/binary/**
+          name: devfabric-windows-build-006-evidence
+          path: C:/dfw003/u/evidence/**
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
       - name: Upload exact successful Windows executable pair
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: devfabric-windows-build-005-binaries
+          name: devfabric-windows-build-006-binaries
           path: |
             C:/dfw003/e/binary/**
             C:/dfw003/e/native-build-artifact-inventory.json

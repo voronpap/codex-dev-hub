@@ -303,8 +303,17 @@ fallback.
    content-bound inventory seals every file in the staged build output before CI
    splits the uploads, joins a PASS result to the exact binary pair, process proof
    and EOF proof, excludes `binary/**` from failure evidence, and publishes the
-   executable pair only on success. Historical receipts remain strict and
-   parseable. Default/A/B
+   executable pair only on success. Run `38139154084` at commit
+   `9deae70ab018bd6fbd1e9c2c1dbca8356b074f0a` completed compilation and the exact
+   Default/A/B proof, but the CI artifact projection omitted 252 inventory-bound
+   files beneath hidden path components because `upload-artifact` used
+   `include-hidden-files: false`. Its immutable classification is
+   `POSTPROOF_ARTIFACT_PROJECTION_INCOMPLETE`; the binary and process proof remain
+   valid but the retained evidence artifact cannot satisfy its sealed inventory.
+   Forward-only `windows-build-006` keeps the V4 proof semantics unchanged and
+   creates a bounded evidence projection from every `kind=evidence` inventory
+   member plus the inventory itself before uploading hidden members explicitly.
+   Historical receipts remain strict and parseable. Default/A/B
    proof must use the exact colocated pair without a missing-host diagnostic; the
    host must also exit cleanly on stdio EOF. No inference or MCP tool execution
    occurs in this slice.
@@ -349,8 +358,8 @@ fallback.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PENDING — `windows-build-004` compiled the pair but failed its Default receipt representation; reviewed `windows-build-005` correction pending CI | PENDING — native profile/build required; OCI binary does not qualify it |
-| Same-binary host authority | PENDING reviewed `windows-build-005` Default/A/B and security proof | PENDING; historical OCI proof is profile-limited |
+| Exact native Codex | PENDING — `windows-build-005` compiled and proved the pair but retained an incomplete evidence projection; reviewed `windows-build-006` correction pending CI | PENDING — native profile/build required; OCI binary does not qualify it |
+| Same-binary host authority | PENDING reviewed `windows-build-006` Default/A/B, security and complete artifact proof | PENDING; historical OCI proof is profile-limited |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |

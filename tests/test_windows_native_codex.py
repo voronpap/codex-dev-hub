@@ -11,15 +11,15 @@ from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 from devhub.windows_native import (
     WindowsBuildProvenanceV2,
     WindowsBuildProvenanceV3,
-    WindowsBuildProvenanceV4,
+    WindowsBuildProvenanceV5,
     WindowsHostProofSummaryV2,
     WindowsHostProofSummaryV3,
     WindowsNativeCodexBuildPayloadV2,
     WindowsNativeCodexBuildPayloadV3,
-    WindowsNativeCodexBuildPayloadV4,
+    WindowsNativeCodexBuildPayloadV5,
     WindowsNativeCodexBuildV2,
     WindowsNativeCodexBuildV3,
-    WindowsNativeCodexBuildV4,
+    WindowsNativeCodexBuildV5,
 )
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -39,7 +39,7 @@ def test_windows_build_reuses_exact_reviewed_identities() -> None:
     candidate = (repo / "patches/stage3g-approved-call/candidate.patch").read_bytes()
     host = (repo / "patches/stage3g-approved-call/host-integration.patch").read_bytes()
 
-    assert WINDOWS_BUILD.BUILD_ID == "windows-build-005"
+    assert WINDOWS_BUILD.BUILD_ID == "windows-build-006"
     assert WINDOWS_BUILD.TARGET == "x86_64-pc-windows-msvc"
     assert hashlib.sha256(candidate).hexdigest() == retained.CANDIDATE_SHA256
     assert hashlib.sha256(host).hexdigest() == retained.HOST_SHA256
@@ -253,13 +253,15 @@ def test_workflow_binds_pull_request_head_and_never_cancels_build() -> None:
     assert "cancel-in-progress: false" in workflow
     assert "$workspace = 'C:\\dfw003\\s'" in workflow
     assert "$output = 'C:\\dfw003\\e'" in workflow
-    assert "--build-id windows-build-005" in workflow
+    assert "--build-id windows-build-006" in workflow
     assert "--workflow-run-id '${{ github.run_id }}'" in workflow
     assert "--workflow-run-attempt '${{ github.run_attempt }}'" in workflow
-    assert "name: devfabric-windows-build-005-evidence" in workflow
-    assert "name: devfabric-windows-build-005-binaries" in workflow
+    assert "name: devfabric-windows-build-006-evidence" in workflow
+    assert "name: devfabric-windows-build-006-binaries" in workflow
     assert "scripts/inventory_native_build_artifact.py" in workflow
-    assert "!C:/dfw003/e/binary/**" in workflow
+    assert "--evidence-projection C:\\dfw003\\u\\evidence" in workflow
+    assert "path: C:/dfw003/u/evidence/**" in workflow
+    assert "include-hidden-files: true" in workflow
     assert "C:/dfw003/e/windows-process-proof.json" in workflow
     assert "C:/dfw003/e/code-mode-host-eof.json" in workflow
     assert "if: success()" in workflow
@@ -559,7 +561,7 @@ def test_windows_build_004_binds_official_sandbox_release() -> None:
     assert WindowsNativeCodexBuildV3.model_validate_json(receipt.model_dump_json()) == receipt
 
 
-def test_windows_build_005_binds_exact_ordinary_default_surface() -> None:
+def test_windows_build_006_binds_exact_ordinary_default_surface() -> None:
     codex = WINDOWS_BUILD.WindowsNativeBinaryV2(
         role="codex",
         relative_path="binary/codex.exe",
@@ -574,7 +576,7 @@ def test_windows_build_005_binds_exact_ordinary_default_surface() -> None:
         size=1,
         pe=WINDOWS_BUILD.WindowsPeIdentityV1(dll_characteristics=0x8160),
     )
-    provenance = WindowsBuildProvenanceV4(
+    provenance = WindowsBuildProvenanceV5(
         workflow_run_id=1,
         workflow_run_attempt=1,
         implementation_commit="a" * 40,
@@ -612,8 +614,8 @@ def test_windows_build_005_binds_exact_ordinary_default_surface() -> None:
         code_mode_host_sha256=host.sha256,
         code_mode_host_eof_receipt_sha256="4" * 64,
     )
-    receipt = WindowsNativeCodexBuildV4.create(
-        WindowsNativeCodexBuildPayloadV4(
+    receipt = WindowsNativeCodexBuildV5.create(
+        WindowsNativeCodexBuildPayloadV5(
             provenance=provenance,
             binaries=(codex, host),
             process_proof=proof,
@@ -628,7 +630,7 @@ def test_windows_build_005_binds_exact_ordinary_default_surface() -> None:
         ORDINARY_DEFAULT_VISIBLE_TOOLS_V1[:-1]
     )
     with pytest.raises(ValidationError, match="literal_error|tuple_type|Field required"):
-        WindowsNativeCodexBuildPayloadV4.model_validate(changed)
+        WindowsNativeCodexBuildPayloadV5.model_validate(changed)
 
 
 def test_download_exact_rejects_overflow_and_removes_partial_file(tmp_path, monkeypatch) -> None:
