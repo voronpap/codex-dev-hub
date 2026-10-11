@@ -667,8 +667,8 @@ class WindowsIsolationChildFailureV8(WindowsIsolationChildFailureV6):
             raise ValueError("Native-loader bootstrap stage differs from the activation failure")
         if stage == "helper_activation":
             failure = self.native_loader_failure
-            if failure is None or self.winerror != failure.winerror:
-                raise ValueError("Helper activation lacks its bounded native-loader failure")
+            if failure is not None and self.winerror != failure.winerror:
+                raise ValueError("Helper activation detail differs from the failure code")
         elif self.native_loader_failure is not None:
             raise ValueError("Pre-helper bootstrap failure cannot claim a helper stage")
         return self

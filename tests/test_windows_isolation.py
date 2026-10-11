@@ -217,9 +217,6 @@ def test_v8_loader_failure_binds_exact_stage_dependency_and_winerror(tmp_path: P
     pre_helper_claim = copy.deepcopy(frame)
     pre_helper_claim["native_loader_bootstrap_stage"] = "module_import"
     authority_tampers.append(pre_helper_claim)
-    missing_helper_failure = copy.deepcopy(frame)
-    missing_helper_failure["native_loader_failure"] = None
-    authority_tampers.append(missing_helper_failure)
     numeric_mismatch = copy.deepcopy(frame)
     numeric_mismatch["native_loader_activation"]["error_code"] = 126
     authority_tampers.append(numeric_mismatch)
@@ -237,6 +234,28 @@ def test_v8_loader_failure_binds_exact_stage_dependency_and_winerror(tmp_path: P
             )
         assert rejected.value.diagnostic.payload.child_failure_status == "invalid"
         assert rejected.value.diagnostic.payload.native_loader_failure is None
+
+    undecorated_helper_failure = copy.deepcopy(frame)
+    undecorated_helper_failure["native_loader_failure"] = None
+    failure.write_bytes(canonical(undecorated_helper_failure))
+    with pytest.raises(probe.WindowsIsolationChildExitError) as undecorated:
+        probe._raise_if_child_exited(
+            process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+    undecorated_diagnostic = undecorated.value.diagnostic
+    assert undecorated_diagnostic.payload.child_failure_status == "validated"
+    assert undecorated_diagnostic.payload.native_loader_bootstrap_stage == "helper_activation"
+    assert undecorated_diagnostic.payload.native_loader_failure is None
+    assert undecorated_diagnostic.diagnostic_id == digest(
+        canonical(undecorated_diagnostic.payload.model_dump(mode="json"))
+    )
+    assert (
+        probe.WindowsIsolationFailureDiagnosticV8.model_validate_json(
+            canonical(undecorated_diagnostic.model_dump(mode="json"))
+        )
+        == undecorated_diagnostic
+    )
+    assert not result.exists()
 
 
 @pytest.mark.parametrize(
@@ -3071,6 +3090,51 @@ def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
     assert wrong_result_failure is None
     assert calls == [(), ()]
 
+    def raise_undecorated(*args: object) -> None:
+        calls.append(args)
+        raise MemoryError
+
+    undecorated_loader = SimpleNamespace(
+        __file__=str(loader_path),
+        activate=raise_undecorated,
+    )
+    monkeypatch.setattr(
+        bootstrap.importlib,
+        "import_module",
+        lambda _name: undecorated_loader,
+    )
+    undecorated, undecorated_error, undecorated_stage, undecorated_failure = (
+        bootstrap._activate_native_loader(loader_hash)
+    )
+    assert undecorated["status"] == "failed"
+    assert isinstance(undecorated_error, MemoryError)
+    assert undecorated_stage == "helper_activation"
+    assert undecorated_failure is None
+    assert calls == [(), (), ()]
+
+    def raise_undecorated_numeric(*args: object) -> None:
+        calls.append(args)
+        raise PermissionError(13, "sensitive helper failure")
+
+    undecorated_numeric_loader = SimpleNamespace(
+        __file__=str(loader_path),
+        activate=raise_undecorated_numeric,
+    )
+    monkeypatch.setattr(
+        bootstrap.importlib,
+        "import_module",
+        lambda _name: undecorated_numeric_loader,
+    )
+    numeric, numeric_error, numeric_stage, numeric_failure = bootstrap._activate_native_loader(
+        loader_hash
+    )
+    assert numeric["status"] == "failed"
+    assert numeric["error_code"] == 13
+    assert isinstance(numeric_error, PermissionError)
+    assert numeric_stage == "helper_activation"
+    assert numeric_failure is None
+    assert calls == [(), (), (), ()]
+
     monkeypatch.setitem(sys.modules, "_ctypes", object())
     preloaded, preloaded_error, preloaded_stage, preloaded_failure = (
         bootstrap._activate_native_loader(loader_hash)
@@ -3079,7 +3143,7 @@ def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
     assert isinstance(preloaded_error, RuntimeError)
     assert preloaded_stage == "preloaded_module_guard"
     assert preloaded_failure is None
-    assert calls == [(), ()]
+    assert calls == [(), (), (), ()]
 
 
 def test_stdlib_bootstrap_fails_closed_when_native_loader_activation_fails(
