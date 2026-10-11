@@ -31,15 +31,15 @@ from stage3g_schema_hash import read_schema_identity
 
 from devhub.native_bundle import git_blob_sha256
 from devhub.windows_native import (
-    WindowsBuildProvenanceV6,
+    WindowsBuildProvenanceV7,
     WindowsHostProofSummaryV3,
     WindowsNativeBinaryV2,
-    WindowsNativeCodexBuildPayloadV6,
-    WindowsNativeCodexBuildV6,
+    WindowsNativeCodexBuildPayloadV7,
+    WindowsNativeCodexBuildV7,
     WindowsPeIdentityV1,
 )
 
-BUILD_ID = "windows-build-007"
+BUILD_ID = "windows-build-008"
 TARGET = "x86_64-pc-windows-msvc"
 V8_RELEASE_TAG = "rusty-v8-v150.4.0"
 V8_RELEASE_BASE = f"https://github.com/openai/codex/releases/download/{V8_RELEASE_TAG}"
@@ -1125,8 +1125,8 @@ def main() -> None:
         provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
         preparation = receipt["source_preparation"]
         assert isinstance(preparation, dict)
-        payload = WindowsNativeCodexBuildPayloadV6(
-            provenance=WindowsBuildProvenanceV6(
+        payload = WindowsNativeCodexBuildPayloadV7(
+            provenance=WindowsBuildProvenanceV7(
                 build_id=BUILD_ID,
                 implementation_commit=implementation_commit,
                 workflow_run_id=args.workflow_run_id,
@@ -1159,7 +1159,7 @@ def main() -> None:
             binaries=binaries,
             process_proof=summary,
         )
-        final = WindowsNativeCodexBuildV6.create(payload)
+        final = WindowsNativeCodexBuildV7.create(payload)
         (args.output / "windows-native-codex-build.json").write_text(
             final.model_dump_json(indent=2) + "\n", encoding="utf-8"
         )
