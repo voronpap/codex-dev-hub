@@ -6,6 +6,7 @@ import platform
 import secrets
 import shutil
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -522,6 +523,89 @@ def test_metadata_probe_endpoint_never_opens_ollama(monkeypatch):
     assert response.body == b""
 
 
+def test_metadata_request_connects_then_revalidates_before_sending(monkeypatch):
+    value = authority()
+    frame = decode_windows_ollama_request(
+        value, encode_windows_ollama_request(value, "GET", "/api/version")
+    )
+    calls: list[str] = []
+
+    class Response:
+        status = 200
+
+        def read(self, _limit):
+            calls.append("read")
+            return b"{}"
+
+    class Connection:
+        def connect(self):
+            calls.append("connect")
+
+        def request(self, *_args, **_kwargs):
+            calls.append("request")
+
+        def getresponse(self):
+            calls.append("response")
+            return Response()
+
+        def close(self):
+            calls.append("close")
+
+    monkeypatch.setattr(
+        BROKER.http.client, "HTTPConnection", lambda *_args, **_kwargs: Connection()
+    )
+    monkeypatch.setattr(
+        BROKER,
+        "validate_windows_ollama_listener",
+        lambda _listener: calls.append("validate"),
+    )
+    response = _fixed_ollama_request(value, frame)
+    assert response == WindowsOllamaResponseFrame(status=200, body=b"{}")
+    assert calls == ["validate", "connect", "validate", "request", "response", "read", "close"]
+
+
+@pytest.mark.parametrize("substitution_at", [1, 2])
+def test_metadata_request_rejects_listener_substitution_before_any_http_bytes(
+    monkeypatch, substitution_at
+):
+    value = authority()
+    frame = decode_windows_ollama_request(
+        value, encode_windows_ollama_request(value, "GET", "/api/version")
+    )
+    calls: list[str] = []
+
+    class Connection:
+        def connect(self):
+            calls.append("connect")
+
+        def request(self, *_args, **_kwargs):
+            pytest.fail("listener substitution must fail before HTTP bytes")
+
+        def close(self):
+            calls.append("close")
+
+    validations = 0
+
+    def validate(_listener):
+        nonlocal validations
+        validations += 1
+        calls.append("validate")
+        if validations == substitution_at:
+            raise ValueError("Windows Ollama listener identity changed")
+
+    monkeypatch.setattr(
+        BROKER.http.client, "HTTPConnection", lambda *_args, **_kwargs: Connection()
+    )
+    monkeypatch.setattr(BROKER, "validate_windows_ollama_listener", validate)
+    with pytest.raises(ValueError, match="listener identity changed"):
+        _fixed_ollama_request(value, frame)
+    assert "request" not in calls
+    if substitution_at == 1:
+        assert calls == ["validate"]
+    else:
+        assert calls == ["validate", "connect", "validate", "close"]
+
+
 def test_overlapped_timeout_waits_for_terminal_cancellation(monkeypatch):
     calls: list[tuple[str, int]] = []
 
@@ -931,6 +1015,72 @@ def test_server_process_requires_typed_exact_completion_ack(tmp_path: Path, monk
         )
         == expected
     )
+
+
+def test_contract_publication_hides_final_name_until_fsync_completes(tmp_path: Path, monkeypatch):
+    value = authority()
+    final = tmp_path / "authority.json"
+    entered = threading.Event()
+    release = threading.Event()
+    errors: list[BaseException] = []
+    original_fsync = BROKER.os.fsync
+
+    def blocked_fsync(descriptor):
+        entered.set()
+        assert release.wait(timeout=5)
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(BROKER.os, "fsync", blocked_fsync)
+
+    def write():
+        try:
+            BROKER._write_contract_exclusive(final, value)
+        except BaseException as error:
+            errors.append(error)
+
+    writer = threading.Thread(target=write)
+    writer.start()
+    assert entered.wait(timeout=5)
+    assert not final.exists()
+    assert len(tuple(tmp_path.glob(f".{final.name}.*.tmp"))) == 1
+    release.set()
+    writer.join(timeout=5)
+    assert not writer.is_alive()
+    assert errors == []
+    assert (
+        BROKER._read_contract(final, WindowsOllamaBrokerAuthorityV1, byte_limit=1024 * 1024)
+        == value
+    )
+    assert tuple(tmp_path.glob(f".{final.name}.*.tmp")) == ()
+
+
+def test_contract_publication_collision_and_write_failure_clean_temporary_files(
+    tmp_path: Path, monkeypatch
+):
+    value = authority()
+    final = tmp_path / "authority.json"
+    original_fsync = BROKER.os.fsync
+
+    def collide(descriptor):
+        original_fsync(descriptor)
+        final.write_bytes(b"foreign")
+
+    monkeypatch.setattr(BROKER.os, "fsync", collide)
+    with pytest.raises((FileExistsError, OSError)):
+        BROKER._write_contract_exclusive(final, value)
+    assert final.read_bytes() == b"foreign"
+    assert tuple(tmp_path.glob(f".{final.name}.*.tmp")) == ()
+
+    final.unlink()
+
+    def fail_write(_descriptor):
+        raise OSError(28, "disk full")
+
+    monkeypatch.setattr(BROKER.os, "fsync", fail_write)
+    with pytest.raises(OSError, match="disk full"):
+        BROKER._write_contract_exclusive(final, value)
+    assert not final.exists()
+    assert tuple(tmp_path.glob(f".{final.name}.*.tmp")) == ()
 
 
 def test_native_qualification_uses_exact_bundled_module_and_appcontainer_launcher(

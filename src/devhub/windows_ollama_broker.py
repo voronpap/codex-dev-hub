@@ -1779,6 +1779,7 @@ def _fixed_ollama_request(
     endpoint = frame.endpoint
     if endpoint.method == "PROBE":
         return WindowsOllamaResponseFrame(status=204, body=b"")
+    # The first check rejects a known-stale authority before opening a socket.
     validate_windows_ollama_listener(authority.payload.listener)
     connection = http.client.HTTPConnection(
         authority.payload.destination_host,
@@ -1786,6 +1787,10 @@ def _fixed_ollama_request(
         timeout=authority.payload.io_timeout_seconds,
     )
     try:
+        # Connect without sending HTTP bytes, then close the listener-identity race.
+        # HTTPConnection.request() reuses this retained socket and cannot retarget it.
+        connection.connect()
+        validate_windows_ollama_listener(authority.payload.listener)
         connection.request(
             endpoint.method,
             endpoint.path,
@@ -2109,10 +2114,27 @@ def _write_contract_exclusive(path: Path, value: Contract) -> None:
     if path.parent.is_symlink() or path.exists() or path.is_symlink():
         raise ValueError("Windows broker evidence path is not a new plain file")
     data = canonical(value.model_dump(mode="json"))
-    with path.open("xb") as stream:
-        stream.write(data)
-        stream.flush()
-        os.fsync(stream.fileno())
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(16)}.tmp")
+    published = False
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if os.name == "nt":
+            # os.rename maps to a non-replacing atomic move on Windows.
+            os.rename(temporary, path)
+        else:
+            # Unit tests run on Linux too: a same-directory hard-link publish is
+            # atomic and fails rather than replacing an existing final path.
+            os.link(temporary, path)
+            temporary.unlink()
+        published = True
+    finally:
+        if temporary.exists() or temporary.is_symlink():
+            temporary.unlink()
+    if not published or path.is_symlink() or not path.is_file():
+        raise ValueError("Windows broker evidence publication failed")
 
 
 def _read_contract[ContractT: Contract](
