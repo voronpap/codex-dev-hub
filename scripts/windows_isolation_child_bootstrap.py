@@ -155,6 +155,12 @@ def _native_file_observation(relative_path: str, filename: str) -> dict[str, obj
     }
 
 
+def _native_crypto_observation(relative_path: str, filename: str) -> dict[str, object]:
+    observation = _native_file_observation(relative_path, filename)
+    observation["schema_version"] = 1
+    return observation
+
+
 def _run_native_import_matrix() -> tuple[list[dict[str, object]], BaseException | None, int | None]:
     observations: list[dict[str, object]] = [
         {
@@ -282,7 +288,7 @@ def _write_failure(
             "loader_reason": loader_reason,
             "native_import_matrix": native_import_matrix,
             "native_crypto_observations": [
-                _native_file_observation(relative_path, filename)
+                _native_crypto_observation(relative_path, filename)
                 for relative_path, filename in NATIVE_CRYPTO_FILES
             ],
             "phase": phase,

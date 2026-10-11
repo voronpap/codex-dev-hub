@@ -3131,6 +3131,57 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     assert not failure.exists()
 
 
+def test_stdlib_bootstrap_v6_failure_round_trips_through_host_reader(tmp_path: Path) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_v6_round_trip_test")
+    probe = load_probe_module("windows_isolation_probe_v6_round_trip_test")
+    failure = tmp_path / "child-failure.json"
+    matrix = _successful_native_matrix()
+    matrix[2]["import_status"] = "failed"
+    for observation in matrix[3:]:
+        observation["import_status"] = "not_attempted"
+    loader = {
+        "activated_dependencies": ["libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll"],
+        "error_code": None,
+        "module_path": "python/_devfabric_native_loader.pyd",
+        "module_sha256": "7" * 64,
+        "schema_version": 2,
+        "status": "active",
+    }
+
+    bootstrap._write_failure(
+        failure,
+        "bootstrap_native_matrix",
+        ImportError("unreviewed diagnostic detail", name="_overlapped"),
+        matrix,
+        loader,
+        "_overlapped",
+    )
+
+    raw = json.loads(failure.read_bytes())
+    assert [item["schema_version"] for item in raw["native_import_matrix"]] == [3] * 6
+    assert [item["file"]["schema_version"] for item in raw["native_import_matrix"]] == [3] * 6
+    assert [item["schema_version"] for item in raw["native_crypto_observations"]] == [1] * 4
+    status, observed = probe._read_child_failure_v6(failure)
+    assert status == "validated"
+    assert observed is not None
+    assert observed.native_loader_activation.status == "active"
+    assert observed.failed_matrix_module == "_overlapped"
+    assert [item.import_status for item in observed.native_import_matrix] == [
+        "imported",
+        "imported",
+        "failed",
+        "not_attempted",
+        "not_attempted",
+        "not_attempted",
+    ]
+    assert [item.relative_path for item in observed.native_crypto_observations] == [
+        "python/_hashlib.pyd",
+        "python/_ssl.pyd",
+        "python/libcrypto-3.dll",
+        "python/libssl-3.dll",
+    ]
+
+
 def test_stdlib_bootstrap_distinguishes_invoke_failure_and_self_tampering(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
