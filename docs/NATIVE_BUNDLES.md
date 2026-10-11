@@ -198,6 +198,21 @@ establish this newer diagnostic authority. As with every failure artifact,
 publication occurs only after complete process/profile/runtime-ACL cleanup and
 source-bundle re-verification, and it does not grant readiness.
 
+Forward V5 binds Windows DLL lookup only to the resolved parent directory of
+the exact running packaged interpreter by retaining one `os.add_dll_directory`
+handle for the complete bootstrap, probe import and child execution lifetime.
+Ambient `PATH`, the working directory, registry entries and caller-supplied
+directories are not lookup authority. Bootstrap hashing uses the pinned
+interpreter's built-in `_sha2`, and preloaded `_hashlib` or `_ssl` is terminal,
+so binding occurs before either OpenSSL-backed module's first import. Binding
+failure is terminal before native imports. The ordered matrix adds `_hashlib`
+before `_ssl`; V5 diagnostics join
+both extensions and the sibling `libcrypto-3.dll`/`libssl-3.dll` files to the
+immutable bundle manifest, with fixed exit codes and bounded status only. V1-V4
+remain parseable historical diagnostics and cannot establish V5 loader-boundary
+evidence. V5 is still failure-only diagnostic evidence and does not grant
+readiness.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of
