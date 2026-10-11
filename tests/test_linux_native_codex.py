@@ -13,11 +13,14 @@ from pydantic import ValidationError
 
 from devhub.linux_native import (
     LinuxBuildProvenanceV1,
+    LinuxBuildProvenanceV2,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV1,
     LinuxNativeBinaryV1,
     LinuxNativeCodexBuildPayloadV1,
+    LinuxNativeCodexBuildPayloadV2,
     LinuxNativeCodexBuildV1,
+    LinuxNativeCodexBuildV2,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -142,6 +145,27 @@ def test_linux_build_receipt_is_canonical_strict_and_self_hashed() -> None:
         LinuxNativeCodexBuildV1.model_validate_json(json.dumps(raw))
 
 
+def test_linux_build_002_records_sandboxed_v8_source_build() -> None:
+    current = LinuxNativeCodexBuildV2.create(
+        LinuxNativeCodexBuildPayloadV2(
+            provenance=LinuxBuildProvenanceV2(
+                **{
+                    **provenance().model_dump(mode="python"),
+                    "build_id": "linux-build-002",
+                    "v8_crate_version": "150.4.0",
+                    "v8_build_mode": "from_source",
+                }
+            ),
+            binaries=(binary("codex", HASH), binary("codex-code-mode-host", OTHER_HASH)),
+            process_proof=proof(),
+        )
+    )
+
+    assert current.payload.provenance.build_id == "linux-build-002"
+    assert current.payload.provenance.v8_build_mode == "from_source"
+    assert receipt().payload.provenance.build_id == "linux-build-001"
+
+
 @pytest.mark.parametrize(
     ("roles", "message"),
     [
@@ -254,12 +278,135 @@ def test_cargo_spawn_failure_remains_precompilation(
             output=tmp_path,
             state=state,
             state_path=state_path,
+            build_environment={"V8_FROM_SOURCE": "1"},
         )
     observed = json.loads(state_path.read_bytes())
     assert observed["phase"] == "cargo_start"
     assert observed["rust_compilation_started"] is False
     assert observed["compilation"] == "NOT_RUN"
     assert observed["process_proof"] is None
+
+
+def test_v8_source_build_environment_requires_and_records_exact_prerequisites(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tools = {}
+    for name in ("python3", "curl", "pkg-config", "llvm-config-19"):
+        path = tmp_path / name
+        path.write_bytes(b"tool")
+        tools[name] = str(path)
+    llvm_lib = tmp_path / "llvm-19" / "lib"
+    llvm_lib.mkdir(parents=True)
+    (llvm_lib / "libclang.so.19").write_bytes(b"clang")
+    monkeypatch.setattr(LINUX_BUILD.shutil, "which", tools.get)
+
+    def fake_run(command, **_kwargs):
+        if command[1:] == ["--modversion", "glib-2.0"]:
+            return subprocess.CompletedProcess(command, 0, "2.80.0\n", "")
+        if command[1:] == ["--libdir"]:
+            return subprocess.CompletedProcess(command, 0, f"{llvm_lib}\n", "")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(LINUX_BUILD.subprocess, "run", fake_run)
+
+    environment, observed = LINUX_BUILD._v8_source_build_environment()
+
+    assert environment == {
+        "V8_FROM_SOURCE": "1",
+        "PYTHON": str((tmp_path / "python3").resolve()),
+        "LIBCLANG_PATH": str(llvm_lib.resolve()),
+    }
+    assert observed == {
+        "v8_crate_version": "150.4.0",
+        "v8_build_mode": "from_source",
+        "python": environment["PYTHON"],
+        "libclang_path": environment["LIBCLANG_PATH"],
+        "glib_version": "2.80.0",
+    }
+
+
+def test_missing_llvm_config_fails_before_cargo_and_preserves_prebuild_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = {
+        "rust_compilation_started": False,
+        "compilation": "NOT_RUN",
+        "process_proof": None,
+    }
+    tools = {
+        "python3": "/usr/bin/python3",
+        "curl": "/usr/bin/curl",
+        "pkg-config": "/usr/bin/pkg-config",
+        "llvm-config-19": None,
+    }
+    monkeypatch.setattr(LINUX_BUILD.shutil, "which", tools.get)
+    monkeypatch.setattr(
+        LINUX_BUILD.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("Cargo must not start without llvm-config-19"),
+    )
+
+    with pytest.raises(ValueError, match="prerequisites are incomplete"):
+        LINUX_BUILD._v8_source_build_environment()
+
+    assert state == {
+        "rust_compilation_started": False,
+        "compilation": "NOT_RUN",
+        "process_proof": None,
+    }
+
+
+def test_linux_workflow_installs_complete_v8_source_build_prerequisites() -> None:
+    workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
+
+    assert "libclang-19-dev" in workflow
+    assert "llvm-19-dev" in workflow
+    assert "libglib2.0-dev" in workflow
+    assert "devfabric-linux-build-002" in workflow
+
+
+def test_cargo_receives_reviewed_v8_source_build_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Process:
+        def wait(self) -> int:
+            return 0
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["environment"] = kwargs["env"]
+        return Process()
+
+    monkeypatch.setattr(LINUX_BUILD.subprocess, "Popen", fake_popen)
+    state: dict[str, object] = {
+        "rust_compilation_started": False,
+        "compilation": "NOT_RUN",
+        "process_proof": None,
+    }
+    state_path = tmp_path / "linux-build-result.json"
+
+    assert (
+        LINUX_BUILD._run_cargo_build(
+            ["cargo", "build"],
+            root=tmp_path,
+            output=tmp_path,
+            state=state,
+            state_path=state_path,
+            build_environment={
+                "V8_FROM_SOURCE": "1",
+                "PYTHON": "/usr/bin/python3",
+                "LIBCLANG_PATH": "/usr/lib/llvm-19/lib",
+            },
+        )
+        == 0
+    )
+    environment = captured["environment"]
+    assert isinstance(environment, dict)
+    assert environment["V8_FROM_SOURCE"] == "1"
+    assert environment["PYTHON"] == "/usr/bin/python3"
+    assert environment["LIBCLANG_PATH"] == "/usr/lib/llvm-19/lib"
 
 
 @pytest.mark.parametrize(

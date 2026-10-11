@@ -273,7 +273,9 @@ fallback.
 
 ### Native Linux Codex build authority
 
-The first Linux-native slice is `linux-build-001`. It builds the exact sibling
+The first Linux-native attempt, `linux-build-001`, is retained as failed evidence: the
+`v8_enable_sandbox` feature intentionally has no upstream prebuilt archive. The corrected
+`linux-build-002` builds V8 from source with the sandbox feature preserved. It builds the exact sibling
 `codex` and `codex-code-mode-host` executables together from the pinned Codex
 source, reviewed Candidate B and host-integration patches, complete derived lock,
 Rust 1.95.0 and target `x86_64-unknown-linux-gnu`. It reuses the reviewed source

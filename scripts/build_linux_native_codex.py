@@ -30,16 +30,16 @@ from derive_stage3g_production_lock import PRODUCTION_HOST_LOCK_SHA256
 from stage3g_schema_hash import read_schema_identity
 
 from devhub.linux_native import (
-    LinuxBuildProvenanceV1,
+    LinuxBuildProvenanceV2,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV1,
     LinuxNativeBinaryV1,
-    LinuxNativeCodexBuildPayloadV1,
-    LinuxNativeCodexBuildV1,
+    LinuxNativeCodexBuildPayloadV2,
+    LinuxNativeCodexBuildV2,
 )
 from devhub.native_bundle import git_blob_sha256
 
-BUILD_ID = "linux-build-001"
+BUILD_ID = "linux-build-002"
 TARGET = "x86_64-unknown-linux-gnu"
 SCHEMA_ENV = shared.SCHEMA_ENV
 MCP_PID_ENV = shared.MCP_PID_ENV
@@ -418,6 +418,7 @@ def _run_cargo_build(
     output: Path,
     state: dict[str, object],
     state_path: Path,
+    build_environment: dict[str, str],
 ) -> int:
     """Start Cargo before recording that a meaningful compilation began."""
 
@@ -432,7 +433,12 @@ def _run_cargo_build(
         build = subprocess.Popen(
             command,
             cwd=root,
-            env={**os.environ, "CARGO_BUILD_JOBS": "2", "CARGO_INCREMENTAL": "0"},
+            env={
+                **os.environ,
+                **build_environment,
+                "CARGO_BUILD_JOBS": "2",
+                "CARGO_INCREMENTAL": "0",
+            },
             stdout=stdout,
             stderr=stderr,
         )
@@ -446,6 +452,43 @@ def _run_cargo_build(
     state["compilation"] = "PASS" if exit_code == 0 else "FAIL"
     write_json(state_path, state)
     return exit_code
+
+
+def _v8_source_build_environment() -> tuple[dict[str, str], dict[str, str]]:
+    """Fail before Cargo unless the reviewed sandboxed V8 source build is possible."""
+
+    python = shutil.which("python3")
+    curl = shutil.which("curl")
+    pkg_config = shutil.which("pkg-config")
+    llvm_config = shutil.which("llvm-config-19")
+    if python is None or curl is None or pkg_config is None or llvm_config is None:
+        raise ValueError("sandboxed V8 source-build prerequisites are incomplete")
+    glib = subprocess.run(
+        [pkg_config, "--modversion", "glib-2.0"], capture_output=True, text=True, check=False
+    )
+    if glib.returncode != 0 or not glib.stdout.strip():
+        raise ValueError("sandboxed V8 source build requires glib-2.0 development files")
+    llvm_lib = subprocess.run(
+        [llvm_config, "--libdir"], capture_output=True, text=True, check=False
+    )
+    if llvm_lib.returncode != 0 or not llvm_lib.stdout.strip():
+        raise ValueError("sandboxed V8 source build requires libclang 19")
+    libclang = Path(llvm_lib.stdout.strip()).resolve(strict=True)
+    if not any(libclang.glob("libclang.so*")):
+        raise ValueError("sandboxed V8 source build requires libclang 19")
+    environment = {
+        "V8_FROM_SOURCE": "1",
+        "PYTHON": str(Path(python).resolve(strict=True)),
+        "LIBCLANG_PATH": str(libclang),
+    }
+    observed = {
+        "v8_crate_version": "150.4.0",
+        "v8_build_mode": "from_source",
+        "python": environment["PYTHON"],
+        "libclang_path": environment["LIBCLANG_PATH"],
+        "glib_version": glib.stdout.strip(),
+    }
+    return environment, observed
 
 
 def _seal_phase(state: dict[str, object], state_path: Path, phase: str) -> None:
@@ -472,7 +515,7 @@ def main() -> None:
     parser.add_argument("--expected-implementation-commit", required=True)
     args = parser.parse_args()
     if platform.system() != "Linux" or platform.machine().lower() != "x86_64":
-        parser.error("linux-build-001 requires native Linux x86_64")
+        parser.error(f"{BUILD_ID} requires native Linux x86_64")
     if args.workspace.exists() or args.output.exists():
         parser.error("workspace and output must not already exist")
     repo = Path(__file__).resolve().parents[1]
@@ -584,6 +627,9 @@ def main() -> None:
         if fmt.returncode != 0:
             raise ValueError("pinned patched source failed cargo fmt --check")
         state["formatting"] = "PASS"
+        state["phase"] = "v8_source_build_prerequisites"
+        build_environment, v8_source_build = _v8_source_build_environment()
+        state["v8_source_build"] = v8_source_build
         state["status"] = "READY_FOR_COMPILE"
         state["phase"] = "ready_for_cargo"
         write_json(args.output / "runner-manifest.json", state)
@@ -611,9 +657,10 @@ def main() -> None:
             output=args.output,
             state=state,
             state_path=state_path,
+            build_environment=build_environment,
         )
         if build_exit_code != 0:
-            raise ValueError("linux-build-001 Rust compilation failed")
+            raise ValueError(f"{BUILD_ID} Rust compilation failed")
         _seal_phase(state, state_path, "binary_identity")
         binary_dir = args.output / "binary"
         binary_dir.mkdir()
@@ -665,8 +712,8 @@ def main() -> None:
         rustc = _tool_path("rustc")
         cargo = _tool_path("cargo")
         provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
-        payload = LinuxNativeCodexBuildPayloadV1(
-            provenance=LinuxBuildProvenanceV1(
+        payload = LinuxNativeCodexBuildPayloadV2(
+            provenance=LinuxBuildProvenanceV2(
                 implementation_commit=implementation_commit,
                 codex_source_commit=retained.SOURCE_COMMIT,
                 source_archive_sha256=retained.SOURCE_ARCHIVE_SHA256,
@@ -686,7 +733,7 @@ def main() -> None:
             binaries=binaries,
             process_proof=summary,
         )
-        final = LinuxNativeCodexBuildV1.create(payload)
+        final = LinuxNativeCodexBuildV2.create(payload)
         (args.output / "linux-native-codex-build.json").write_text(
             final.model_dump_json(indent=2) + "\n", encoding="utf-8"
         )

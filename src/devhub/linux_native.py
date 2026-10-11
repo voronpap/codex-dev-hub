@@ -83,6 +83,33 @@ class LinuxBuildProvenanceV1(Contract):
     workflow_sha256: Digest
 
 
+class LinuxBuildProvenanceV2(Contract):
+    repository: Literal["voronpap/codex-dev-hub"] = "voronpap/codex-dev-hub"
+    build_id: Literal["linux-build-002"] = "linux-build-002"
+    implementation_commit: GitCommit
+    codex_source_commit: GitCommit
+    source_archive_sha256: Digest
+    candidate_b_base_patch_sha256: Digest
+    host_integration_patch_sha256: Digest
+    combined_patchset_sha256: Digest
+    canonical_schema_sha256: Digest
+    raw_schema_file_sha256: Digest
+    host_manifest_sha256: Digest
+    resolved_mcp_config_sha256: Digest
+    original_cargo_lock_sha256: Digest
+    derived_cargo_lock_sha256: Digest
+    target: Literal["x86_64-unknown-linux-gnu"] = "x86_64-unknown-linux-gnu"
+    rustc_version: str = Field(min_length=1, max_length=4096)
+    cargo_version: str = Field(min_length=1, max_length=4096)
+    rustc_sha256: Digest
+    cargo_sha256: Digest
+    build_script_sha256: Digest
+    shared_proof_script_sha256: Digest
+    workflow_sha256: Digest
+    v8_crate_version: Literal["150.4.0"] = "150.4.0"
+    v8_build_mode: Literal["from_source"] = "from_source"
+
+
 class LinuxHostProofSummaryV1(Contract):
     process_proof_sha256: Digest
     code_mode_host_sha256: Digest
@@ -150,6 +177,40 @@ class LinuxNativeCodexBuildPayloadV1(Contract):
         return self
 
 
+class LinuxNativeCodexBuildPayloadV2(Contract):
+    provenance: LinuxBuildProvenanceV2
+    binaries: tuple[LinuxNativeBinaryV1, LinuxNativeBinaryV1]
+    process_proof: LinuxHostProofSummaryV1
+    compilation: Literal["PASS"] = "PASS"
+    qualification: Literal["LINUX_NATIVE_CODEX_AUTHORITY_PRE_SAMPLING"] = (
+        "LINUX_NATIVE_CODEX_AUTHORITY_PRE_SAMPLING"
+    )
+    native_bundle_qualified: Literal[False] = False
+    native_executor_isolation_qualified: Literal[False] = False
+    execution_ready: Literal[False] = False
+
+    @field_validator("binaries")
+    @classmethod
+    def exact_binary_pair(
+        cls, value: tuple[LinuxNativeBinaryV1, LinuxNativeBinaryV1]
+    ) -> tuple[LinuxNativeBinaryV1, LinuxNativeBinaryV1]:
+        if tuple(item.role for item in value) != ("codex", "codex-code-mode-host"):
+            raise ValueError("Linux build must bind the ordered Codex/code-mode-host pair")
+        if value[0].sha256 == value[1].sha256:
+            raise ValueError("Linux build binaries must have distinct identities")
+        return value
+
+    @model_validator(mode="after")
+    def proof_uses_exact_sibling_host(self) -> LinuxNativeCodexBuildPayloadV2:
+        host = self.binaries[1]
+        if (
+            self.process_proof.code_mode_host_sha256 != host.sha256
+            or self.process_proof.code_mode_host_relative_path != host.relative_path
+        ):
+            raise ValueError("Linux process proof does not bind the exact sibling code-mode host")
+        return self
+
+
 class LinuxNativeCodexBuildV1(Contract):
     linux_native_codex_build_id: Digest
     payload: LinuxNativeCodexBuildPayloadV1
@@ -165,6 +226,27 @@ class LinuxNativeCodexBuildV1(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> LinuxNativeCodexBuildV1:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_codex_build_id != expected:
+            raise ValueError("Linux native Codex build ID mismatch")
+        return self
+
+
+class LinuxNativeCodexBuildV2(Contract):
+    linux_native_codex_build_id: Digest
+    payload: LinuxNativeCodexBuildPayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxNativeCodexBuildPayloadV2) -> LinuxNativeCodexBuildV2:
+        return cls(
+            linux_native_codex_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeCodexBuildV2:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_codex_build_id != expected:
             raise ValueError("Linux native Codex build ID mismatch")
