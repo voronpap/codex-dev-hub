@@ -497,10 +497,14 @@ def _child_guarded(request_path: Path, result_path: Path, failure_path: Path) ->
     try:
         return _child(request_path, result_path)
     except BaseException as error:
-        failure = WindowsIsolationChildFailureV2(
+        failure = WindowsIsolationChildFailureV3(
+            phase="child_probe",
             exception_class=type(error).__name__,
             winerror=getattr(error, "winerror", None),
             errno=getattr(error, "errno", None),
+            import_boundary=None,
+            loader_reason=None,
+            native_loader_observations=(),
         )
         encoded = canonical(failure.model_dump(mode="json"))
         if len(encoded) > MAX_CHILD_FAILURE_BYTES:

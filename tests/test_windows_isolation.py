@@ -2990,9 +2990,16 @@ def test_child_guard_writes_only_bounded_strict_failure_data(
     monkeypatch.setattr(probe, "_child", lambda *_: (_ for _ in ()).throw(error))
 
     assert probe._child_guarded(request, result, failure) == 1
-    observed = probe.WindowsIsolationChildFailureV2.model_validate_json(failure.read_bytes())
+    status, observed = probe._read_child_failure(failure)
+    assert status == "validated"
+    assert isinstance(observed, probe.WindowsIsolationChildFailureV3)
+    assert observed.phase == "child_probe"
     assert observed.exception_class == "PermissionError"
     assert observed.errno == 13
+    assert observed.winerror is None
+    assert observed.import_boundary is None
+    assert observed.loader_reason is None
+    assert observed.native_loader_observations == ()
     assert len(failure.read_bytes()) <= probe.MAX_CHILD_FAILURE_BYTES
     assert b"sensitive" not in failure.read_bytes()
     assert not result.exists()
