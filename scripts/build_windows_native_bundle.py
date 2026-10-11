@@ -641,7 +641,6 @@ def validate_windows_codex_pair_artifact(
     ):
         raise ValueError("Windows Codex pair receipt workflow identity differs")
     expected = {
-        "build_id": "windows-build-002",
         "codex_source_commit": CODEX_SOURCE_COMMIT,
         "source_archive_sha256": CODEX_SOURCE_ARCHIVE_SHA256,
         "candidate_b_base_patch_sha256": CANDIDATE_SHA256,
@@ -680,6 +679,7 @@ def validate_windows_codex_pair_artifact(
         accepted_run_id=accepted_run_id,
         accepted_run_attempt=accepted_run_attempt,
         devfabric_implementation_commit=provenance.implementation_commit,
+        build_id=provenance.build_id,
         build_receipt_sha256=file_sha256(receipt_path),
         windows_native_codex_build_id=receipt.windows_native_codex_build_id,
         executable_sha256=codex.sha256,

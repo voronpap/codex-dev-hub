@@ -38,7 +38,7 @@ from devhub.windows_native import (
     WindowsPeIdentityV1,
 )
 
-BUILD_ID = "windows-build-002"
+BUILD_ID = "windows-build-003"
 TARGET = "x86_64-pc-windows-msvc"
 SCHEMA_ENV = "DEVHUB_BUILD009_SCHEMA"
 MCP_PID_ENV = "DEVHUB_BUILD009_MCP_PID"
@@ -691,7 +691,7 @@ def main() -> None:
     parser.add_argument("--workflow-run-attempt", required=True, type=int)
     args = parser.parse_args()
     if os.name != "nt" or platform.machine().upper() not in {"AMD64", "X86_64"}:
-        parser.error("windows-build-002 requires native Windows x64")
+        parser.error(f"{BUILD_ID} requires native Windows x64")
     if args.workflow_run_id < 1 or args.workflow_run_attempt < 1:
         parser.error("workflow run ID and attempt must be positive")
     repo = Path(__file__).resolve().parents[1]
@@ -859,7 +859,7 @@ def main() -> None:
         receipt["compilation"] = "PASS" if build_exit_code == 0 else "FAIL"
         write_build_state(args.output, receipt)
         if build_exit_code != 0:
-            raise ValueError("windows-build-002 Rust compilation failed")
+            raise ValueError(f"{BUILD_ID} Rust compilation failed")
 
         phase = "binary_identity"
         binary_dir = args.output / "binary"
@@ -923,6 +923,7 @@ def main() -> None:
         assert isinstance(preparation, dict)
         payload = WindowsNativeCodexBuildPayloadV2(
             provenance=WindowsBuildProvenanceV2(
+                build_id=BUILD_ID,
                 implementation_commit=implementation_commit,
                 workflow_run_id=args.workflow_run_id,
                 workflow_run_attempt=args.workflow_run_attempt,

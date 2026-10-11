@@ -29,7 +29,7 @@ from devhub.benchmark import Digest, canonical, digest
 from devhub.models import Contract
 from devhub.qualification import GitCommit
 from devhub.runtime_artifact import DistributionIdentityV1, normalize_distribution_name
-from devhub.windows_native import WindowsNativeCodexBuildV2
+from devhub.windows_native import WindowsBuildId, WindowsNativeCodexBuildV2
 
 NativePlatform = Literal["windows", "linux"]
 NativeArchitecture = Literal["x86_64"]
@@ -823,7 +823,7 @@ class NativeCodexAuthorityV2(Contract):
     accepted_run_id: Annotated[int, Field(ge=1)]
     accepted_run_attempt: Annotated[int, Field(ge=1)]
     devfabric_implementation_commit: GitCommit
-    build_id: Literal["windows-build-002"] = "windows-build-002"
+    build_id: WindowsBuildId = "windows-build-002"
     build_receipt_path: Literal["authority/windows-native-codex-build.json"] = (
         "authority/windows-native-codex-build.json"
     )
@@ -1194,6 +1194,7 @@ def verify_native_bundle(
             != codex_authority.windows_native_codex_build_id
             or provenance.workflow_run_id != codex_authority.accepted_run_id
             or provenance.workflow_run_attempt != codex_authority.accepted_run_attempt
+            or provenance.build_id != codex_authority.build_id
             or provenance.implementation_commit != codex_authority.devfabric_implementation_commit
             or provenance.implementation_commit != bundle.payload.implementation_commit
             or provenance.codex_source_commit != codex_authority.codex_source_commit

@@ -276,8 +276,10 @@ fallback.
 1. **Windows native Codex identity and host proof.** Historical
    `windows-build-001` retained only `codex.exe`; its valid pre-sampling proof is
    preserved but cannot authorize the operational CodeModeOnly path. The
-   forward build is `windows-build-002`: it builds and binds `codex.exe` and the
-   sibling `codex-code-mode-host.exe` together for `x86_64-pc-windows-msvc`
+   first paired attempt, `windows-build-002`, is retained as historical evidence.
+   The immutable-head retry is `windows-build-003`; it builds and binds
+   `codex.exe` and the sibling `codex-code-mode-host.exe` together for
+   `x86_64-pc-windows-msvc`
    from the exact pinned source, reviewed patches and complete locked dependency
    graph. Its self-hashed receipt records both PE identities, exact toolchain and
    committed builder/workflow provenance. Default/A/B proof must use that exact

@@ -57,12 +57,12 @@ jobs:
       - name: Build and prove native Windows Codex
         shell: pwsh
         run: |
-          $workspace = 'C:\dfw002\s'
-          $output = 'C:\dfw002\e'
+          $workspace = 'C:\dfw003\s'
+          $output = 'C:\dfw003\e'
           uv run --locked python scripts/build_windows_native_codex.py `
             --workspace $workspace `
             --output $output `
-            --build-id windows-build-002 `
+            --build-id windows-build-003 `
             --expected-implementation-commit '${{ github.event.pull_request.head.sha || github.sha }}' `
             --workflow-run-id '${{ github.run_id }}' `
             --workflow-run-attempt '${{ github.run_attempt }}'
@@ -70,7 +70,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: devfabric-windows-build-002
-          path: C:\dfw002\e
+          name: devfabric-windows-build-003
+          path: C:\dfw003\e
           if-no-files-found: error
           retention-days: 14

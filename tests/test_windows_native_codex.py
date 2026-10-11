@@ -24,7 +24,7 @@ def test_windows_build_reuses_exact_reviewed_identities() -> None:
     candidate = (repo / "patches/stage3g-approved-call/candidate.patch").read_bytes()
     host = (repo / "patches/stage3g-approved-call/host-integration.patch").read_bytes()
 
-    assert WINDOWS_BUILD.BUILD_ID == "windows-build-002"
+    assert WINDOWS_BUILD.BUILD_ID == "windows-build-003"
     assert WINDOWS_BUILD.TARGET == "x86_64-pc-windows-msvc"
     assert hashlib.sha256(candidate).hexdigest() == retained.CANDIDATE_SHA256
     assert hashlib.sha256(host).hexdigest() == retained.HOST_SHA256
@@ -67,7 +67,7 @@ new file mode 100644
         root,
         candidate_patch=candidate,
         host_patch=host,
-        build_id="windows-build-002",
+        build_id="windows-build-003",
     )
 
     assert (root / "candidate.txt").read_text(encoding="utf-8") == "candidate\n"
@@ -236,13 +236,13 @@ def test_workflow_binds_pull_request_head_and_never_cancels_build() -> None:
     assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
     assert "--expected-implementation-commit" in workflow
     assert "cancel-in-progress: false" in workflow
-    assert "$workspace = 'C:\\dfw002\\s'" in workflow
-    assert "$output = 'C:\\dfw002\\e'" in workflow
-    assert "--build-id windows-build-002" in workflow
+    assert "$workspace = 'C:\\dfw003\\s'" in workflow
+    assert "$output = 'C:\\dfw003\\e'" in workflow
+    assert "--build-id windows-build-003" in workflow
     assert "--workflow-run-id '${{ github.run_id }}'" in workflow
     assert "--workflow-run-attempt '${{ github.run_attempt }}'" in workflow
-    assert "name: devfabric-windows-build-002" in workflow
-    assert "path: C:\\dfw002\\e" in workflow
+    assert "name: devfabric-windows-build-003" in workflow
+    assert "path: C:\\dfw003\\e" in workflow
 
 
 def _pe64_console() -> bytes:
@@ -298,6 +298,7 @@ def test_workflow_builds_exact_sibling_pair_with_one_locked_command() -> None:
     assert source.count('"codex-code-mode-host"') >= 3
     assert 'root / "target" / TARGET / "release"' in source
     assert "windows-native-codex-build.json" in source
+    assert "build_id=BUILD_ID" in source
 
 
 def _proof_fixture() -> dict[str, object]:
@@ -370,6 +371,7 @@ def test_code_mode_host_eof_rejects_nonzero_or_surviving_process(
             return b"", b""
 
     monkeypatch.setattr(WINDOWS_BUILD.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    monkeypatch.setattr(WINDOWS_BUILD.subprocess, "CREATE_NEW_PROCESS_GROUP", 0, raising=False)
     monkeypatch.setattr(WINDOWS_BUILD, "_pid_is_active", lambda _pid: active)
 
     with pytest.raises(ValueError, match="did not terminate cleanly"):
@@ -394,6 +396,7 @@ def test_code_mode_host_eof_rejects_timeout(tmp_path, monkeypatch) -> None:
             return b"", b""
 
     monkeypatch.setattr(WINDOWS_BUILD.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    monkeypatch.setattr(WINDOWS_BUILD.subprocess, "CREATE_NEW_PROCESS_GROUP", 0, raising=False)
     monkeypatch.setattr(WINDOWS_BUILD.subprocess, "run", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(WINDOWS_BUILD, "_pid_is_active", lambda _pid: False)
 
@@ -410,6 +413,7 @@ def test_pair_contract_rejects_reordering_and_forged_self_hash(tmp_path) -> None
     host = WINDOWS_BUILD.inspect_pe("codex-code-mode-host", host_path)
     payload = WINDOWS_BUILD.WindowsNativeCodexBuildPayloadV2(
         provenance=WINDOWS_BUILD.WindowsBuildProvenanceV2(
+            build_id=WINDOWS_BUILD.BUILD_ID,
             implementation_commit="a" * 40,
             workflow_run_id=1,
             workflow_run_attempt=1,
@@ -440,6 +444,19 @@ def test_pair_contract_rejects_reordering_and_forged_self_hash(tmp_path) -> None
         ),
     )
     receipt = WINDOWS_BUILD.WindowsNativeCodexBuildV2.create(payload)
+    assert receipt.payload.provenance.build_id == "windows-build-003"
+
+    historical_payload = payload.model_copy(
+        update={
+            "provenance": payload.provenance.model_copy(update={"build_id": "windows-build-002"})
+        }
+    )
+    historical = WINDOWS_BUILD.WindowsNativeCodexBuildV2.create(historical_payload)
+    assert (
+        WINDOWS_BUILD.WindowsNativeCodexBuildV2.model_validate_json(historical.model_dump_json())
+        == historical
+    )
+
     raw = receipt.model_dump(mode="python")
     raw["windows_native_codex_build_id"] = "0" * 64
     with pytest.raises(ValidationError, match="build ID mismatch"):

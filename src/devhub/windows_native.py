@@ -16,6 +16,7 @@ from devhub.models import Contract
 from devhub.qualification import GitCommit
 
 WindowsBinaryRole = Literal["codex", "codex-code-mode-host"]
+WindowsBuildId = Literal["windows-build-002", "windows-build-003"]
 
 
 class WindowsPeIdentityV1(Contract):
@@ -43,7 +44,7 @@ class WindowsNativeBinaryV2(Contract):
 
 class WindowsBuildProvenanceV2(Contract):
     repository: Literal["voronpap/codex-dev-hub"] = "voronpap/codex-dev-hub"
-    build_id: Literal["windows-build-002"] = "windows-build-002"
+    build_id: WindowsBuildId = "windows-build-002"
     workflow_run_id: Annotated[int, Field(ge=1)]
     workflow_run_attempt: Annotated[int, Field(ge=1)]
     implementation_commit: GitCommit
