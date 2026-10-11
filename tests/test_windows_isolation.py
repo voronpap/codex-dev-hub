@@ -26,6 +26,7 @@ from devhub.windows_isolation import (
     WindowsIsolationEvidenceV1,
     WindowsIsolationEvidenceV2,
     WindowsIsolationEvidenceV3,
+    WindowsIsolationEvidenceV4,
     WindowsIsolationProfilePayloadV1,
     WindowsIsolationProfilePayloadV2,
     WindowsIsolationProfileV1,
@@ -33,11 +34,15 @@ from devhub.windows_isolation import (
     WindowsIsolationReceiptPayloadV1,
     WindowsIsolationReceiptPayloadV2,
     WindowsIsolationReceiptPayloadV3,
+    WindowsIsolationReceiptPayloadV4,
     WindowsIsolationReceiptV1,
     WindowsIsolationReceiptV2,
     WindowsIsolationReceiptV3,
+    WindowsIsolationReceiptV4,
     WindowsRuntimeAccessGrantPayloadV1,
+    WindowsRuntimeAccessGrantPayloadV2,
     WindowsRuntimeAccessGrantV1,
+    WindowsRuntimeAccessGrantV2,
     appcontainer_identity,
     windows_isolation_bootstrap_started_id,
     windows_sandbox_spec,
@@ -269,6 +274,27 @@ def runtime_access_grant(
     )
 
 
+def runtime_access_grant_v2(
+    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2,
+    sid: str = PACKAGE_SID,
+    *,
+    repaired: bool = False,
+) -> WindowsRuntimeAccessGrantV2:
+    return WindowsRuntimeAccessGrantV2.create(
+        WindowsRuntimeAccessGrantPayloadV2(
+            appcontainer_identity=profile.payload.appcontainer_identity,
+            appcontainer_sid=sid,
+            root=profile.payload.read_only_roots[0],
+            native_bundle_id=profile.payload.native_bundle_id,
+            launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+            verified_entry_count=3,
+            pre_create_acl_inventory_sha256="7" * 64,
+            post_create_acl_inventory_sha256="7" * 64,
+            post_create_repaired=repaired,
+        )
+    )
+
+
 def runtime_acl_ownership(
     profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2,
     sid: str = PACKAGE_SID,
@@ -292,6 +318,13 @@ def receipt_payload_v3(profile: WindowsIsolationProfileV2) -> dict[str, object]:
     payload = receipt_payload_v2(profile)
     payload["schema_version"] = 3
     payload["runtime_access_grant"] = runtime_access_grant(profile)
+    return payload
+
+
+def receipt_payload_v4(profile: WindowsIsolationProfileV2) -> dict[str, object]:
+    payload = receipt_payload_v2(profile)
+    payload["schema_version"] = 4
+    payload["runtime_access_grant"] = runtime_access_grant_v2(profile)
     return payload
 
 
@@ -403,6 +436,176 @@ def test_runtime_access_grant_is_exact_strict_and_bound_to_v3_evidence() -> None
     incompatible["runtime_access_grant"] = grant
     with pytest.raises(ValidationError):
         WindowsIsolationReceiptPayloadV2.model_validate(incompatible)
+
+
+@pytest.mark.windows_smoke
+def test_v4_evidence_binds_pre_and_post_create_acl_inventories() -> None:
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    receipt = WindowsIsolationReceiptV4.create(
+        WindowsIsolationReceiptPayloadV4.model_validate(receipt_payload_v4(profile))
+    )
+    evidence = WindowsIsolationEvidenceV4.create(profile, windows_sandbox_spec(profile), receipt)
+    retained = WindowsIsolationEvidenceV4.model_validate_json(
+        canonical(evidence.model_dump(mode="json"))
+    )
+    grant = retained.receipt.payload.runtime_access_grant.payload
+    assert grant.pre_create_acl_inventory_sha256 == "7" * 64
+    assert grant.post_create_acl_inventory_sha256 == "7" * 64
+    assert grant.post_create_repaired is False
+
+    forged = evidence.model_dump(mode="json")
+    forged["receipt"]["payload"]["runtime_access_grant"]["payload"][
+        "post_create_acl_inventory_sha256"
+    ] = "8" * 64
+    with pytest.raises(ValidationError, match="inventory differs"):
+        WindowsIsolationEvidenceV4.model_validate(forged)
+
+
+@pytest.mark.parametrize("initial_state", ["exact", "missing"])
+def test_post_create_acl_gate_rechecks_bundle_and_repairs_only_missing_exact_sid_entry(
+    initial_state: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    root = NativePathIdentityV1(locator=str(bundle), volume_serial_number=11, file_index="1" * 16)
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "read_only_roots": (root,),
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+            }
+        )
+    )
+    entry = isolation._WindowsRuntimeAclOwnedEntry(
+        identity=root,
+        relative_path=".",
+        kind="directory",
+        inheritance_flags=WINDOWS_RUNTIME_ACCESS_INHERITANCE,
+    )
+    ownership = isolation._WindowsRuntimeAclOwnership(root, PACKAGE_SID, (entry,))
+    expected = isolation._expected_runtime_acl(entry, PACKAGE_SID)
+    active = {"value": initial_state == "exact"}
+    writes: list[tuple[int, int, int]] = []
+    verifies: list[Path] = []
+
+    monkeypatch.setattr(isolation, "windows_path_identity", lambda *_args, **_kwargs: root)
+    monkeypatch.setattr(
+        isolation,
+        "_windows_acl_snapshot",
+        lambda *_: isolation._WindowsAclSnapshot(False, (expected,) if active["value"] else ()),
+    )
+    active["value"] = True
+    _, pre_inventory_sha256 = isolation._verify_owned_runtime_acl(ownership)
+    active["value"] = initial_state == "exact"
+
+    def write(_path: Path, _sid: str, mask: int, inheritance: int, *, access_mode: int = 1):
+        writes.append((mask, inheritance, access_mode))
+        active["value"] = access_mode == 1
+
+    monkeypatch.setattr(isolation, "_set_windows_sid_acl_entry", write)
+    pre = WindowsRuntimeAccessGrantV1.create(
+        WindowsRuntimeAccessGrantPayloadV1(
+            appcontainer_identity=profile.payload.appcontainer_identity,
+            appcontainer_sid=PACKAGE_SID,
+            root=root,
+            native_bundle_id=profile.payload.native_bundle_id,
+            launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+            verified_entry_count=1,
+            acl_inventory_sha256=pre_inventory_sha256,
+        )
+    )
+    grant = isolation._post_create_appcontainer_runtime_access(
+        profile,
+        isolation.OwnedAppContainerProfile(
+            profile.payload.appcontainer_identity, PACKAGE_SID, tmp_path / "local"
+        ),
+        ownership,
+        executable,
+        lambda observed: verifies.append(observed) or profile.payload.native_bundle_id,
+        pre,
+    )
+    assert verifies == [bundle, bundle]
+    assert grant.payload.pre_create_acl_inventory_sha256 == pre_inventory_sha256
+    assert grant.payload.post_create_repaired is (initial_state == "missing")
+    assert grant.payload.verified_entry_count == 1
+    assert writes == (
+        [] if initial_state == "exact" else [(0, 0, 4), (WINDOWS_RUNTIME_ACCESS_MASK, 3, 1)]
+    )
+
+
+def test_post_create_acl_gate_rejects_wider_entry_with_self_hashed_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    root = NativePathIdentityV1(locator=str(bundle), volume_serial_number=11, file_index="1" * 16)
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "read_only_roots": (root,),
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+            }
+        )
+    )
+    entry = isolation._WindowsRuntimeAclOwnedEntry(
+        identity=root,
+        relative_path=".",
+        kind="directory",
+        inheritance_flags=WINDOWS_RUNTIME_ACCESS_INHERITANCE,
+    )
+    ownership = isolation._WindowsRuntimeAclOwnership(root, PACKAGE_SID, (entry,))
+    widened = isolation._WindowsAclEntry(
+        PACKAGE_SID,
+        WINDOWS_RUNTIME_ACCESS_MASK | 0x2,
+        1,
+        WINDOWS_RUNTIME_ACCESS_INHERITANCE,
+    )
+    monkeypatch.setattr(isolation, "windows_path_identity", lambda *_args, **_kwargs: root)
+    monkeypatch.setattr(
+        isolation,
+        "_windows_acl_snapshot",
+        lambda *_: isolation._WindowsAclSnapshot(False, (widened,)),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_set_windows_sid_acl_entry",
+        lambda *_args, **_kwargs: pytest.fail("wider ACL must not be repaired"),
+    )
+    pre = WindowsRuntimeAccessGrantV1.create(
+        WindowsRuntimeAccessGrantPayloadV1(
+            appcontainer_identity=profile.payload.appcontainer_identity,
+            appcontainer_sid=PACKAGE_SID,
+            root=root,
+            native_bundle_id=profile.payload.native_bundle_id,
+            launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+            verified_entry_count=1,
+            acl_inventory_sha256="7" * 64,
+        )
+    )
+    with pytest.raises(isolation.WindowsPostCreateAclGateError) as failure:
+        isolation._post_create_appcontainer_runtime_access(
+            profile,
+            isolation.OwnedAppContainerProfile(
+                profile.payload.appcontainer_identity, PACKAGE_SID, tmp_path / "local"
+            ),
+            ownership,
+            executable,
+            lambda _: profile.payload.native_bundle_id,
+            pre,
+        )
+    diagnostic = failure.value.diagnostic
+    assert diagnostic.payload.phase == "post_create_verify"
+    assert diagnostic.payload.success_evidence_published is False
+    assert (
+        isolation.WindowsPostCreateAclFailureV1.model_validate_json(
+            canonical(diagnostic.model_dump(mode="json"))
+        )
+        == diagnostic
+    )
 
 
 @pytest.mark.parametrize(
@@ -1346,6 +1549,14 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
             runtime_access_grant(observed),
         )[-1],
     )
+    monkeypatch.setattr(
+        isolation,
+        "_post_create_appcontainer_runtime_access",
+        lambda observed, *_: (
+            calls.append("post_create_acl_verified"),
+            runtime_access_grant_v2(observed),
+        )[-1],
+    )
     process = isolation.launch_windows_isolated(
         profile,
         executable,
@@ -1359,10 +1570,16 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
         "limits_set",
         "bundle_verified",
         "created_suspended",
+        "post_create_acl_verified",
         "job_assigned",
         "thread_resumed",
     ]
-    assert process.launch_order == ("created_suspended", "job_assigned", "thread_resumed")
+    assert process.launch_order == (
+        "created_suspended",
+        "post_create_acl_verified",
+        "job_assigned",
+        "thread_resumed",
+    )
 
 
 def test_launch_rechecks_exact_launcher_hash_before_creating_job(
@@ -1779,6 +1996,11 @@ def test_every_post_profile_preprocess_failure_cleans_owned_profile(
     )
     monkeypatch.setattr(
         isolation,
+        "_post_create_appcontainer_runtime_access",
+        lambda observed, *_: runtime_access_grant_v2(observed),
+    )
+    monkeypatch.setattr(
+        isolation,
         "_revoke_appcontainer_runtime_access",
         lambda *_: None,
     )
@@ -1801,7 +2023,9 @@ def test_every_post_profile_preprocess_failure_cleans_owned_profile(
         assert calls == ["terminate-job", "close-job", calls[-1]]
 
 
-@pytest.mark.parametrize("failed_call", ["AssignProcessToJobObject", "ResumeThread"])
+@pytest.mark.parametrize(
+    "failed_call", ["PostCreateAclGate", "AssignProcessToJobObject", "ResumeThread"]
+)
 def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
     failed_call: str, tmp_path: Path, monkeypatch
 ) -> None:
@@ -1833,6 +2057,7 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
     )
     profile = WindowsIsolationProfileV1.create(payload)
     cleanup_order: list[str] = []
+    launch_calls: list[str] = []
 
     class Function:
         argtypes: object = None
@@ -1851,8 +2076,10 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
                 information.process_id = 333
                 return 1
             if self.name == "AssignProcessToJobObject":
+                launch_calls.append(self.name)
                 return 0 if failed_call == self.name else 1
             if self.name == "ResumeThread":
+                launch_calls.append(self.name)
                 return 0xFFFFFFFF if failed_call == self.name else 1
             if self.name in {"TerminateProcess", "TerminateJobObject"}:
                 cleanup_order.append(self.name)
@@ -1883,6 +2110,15 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
         isolation,
         "_verified_appcontainer_runtime_access",
         lambda observed, *_: runtime_access_grant(observed),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_post_create_appcontainer_runtime_access",
+        lambda observed, *_: (
+            (_ for _ in ()).throw(RuntimeError("injected post-create ACL gate failure"))
+            if failed_call == "PostCreateAclGate"
+            else runtime_access_grant_v2(observed)
+        ),
     )
     monkeypatch.setattr(
         isolation,
@@ -1917,6 +2153,8 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
         "revoke",
         "delete",
     ]
+    if failed_call == "PostCreateAclGate":
+        assert launch_calls == []
 
 
 def test_local_fixed_volume_contract_rejects_network_device_and_mapped_roots(
@@ -2744,6 +2982,25 @@ def test_failure_diagnostic_publishes_only_after_clean_cleanup(
         probe._raise_after_cleanup(error, [OSError("cleanup")], diagnostic, blocked)
     assert not blocked.exists()
 
+    acl_diagnostic = isolation.WindowsPostCreateAclFailureV1.create(
+        isolation.WindowsPostCreateAclFailurePayloadV1(
+            environment_instance_id=ENVIRONMENT,
+            windows_isolation_profile_id=profile.windows_isolation_profile_id,
+            appcontainer_identity=profile.payload.appcontainer_identity,
+            appcontainer_sid=PACKAGE_SID,
+            pre_create_acl_inventory_sha256="7" * 64,
+            phase="post_create_repair",
+        )
+    )
+    acl_output = tmp_path / "acl-diagnostic.json"
+    acl_error = isolation.WindowsPostCreateAclGateError(acl_diagnostic)
+    with pytest.raises(isolation.WindowsPostCreateAclGateError):
+        probe._raise_after_cleanup(acl_error, [], acl_diagnostic, acl_output)
+    assert (
+        isolation.WindowsPostCreateAclFailureV1.model_validate_json(acl_output.read_bytes())
+        == acl_diagnostic
+    )
+
 
 def test_probe_child_cli_forwards_all_three_paths_and_rejects_missing_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2972,7 +3229,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
 
     class Process:
         process_id = 1000
-        runtime_access_grant: WindowsRuntimeAccessGrantV1 | None = None
+        runtime_access_grant: WindowsRuntimeAccessGrantV2 | None = None
 
         def poll_exit_code(self) -> None:
             return None
@@ -3034,7 +3291,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
             Path(arguments[7]).write_bytes(canonical(started_json))
         Path(arguments[5]).write_bytes(canonical(child))
         process = Process()
-        process.runtime_access_grant = runtime_access_grant(profile)
+        process.runtime_access_grant = runtime_access_grant_v2(profile)
         return process
 
     def identity(path_value: Path) -> NativePathIdentityV1:
@@ -3067,7 +3324,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     evidence = probe.qualify(
         bundle_root, manifest, scratch, output, ENVIRONMENT, IMPLEMENTATION_COMMIT
     )
-    retained = WindowsIsolationEvidenceV3.model_validate_json(output.read_bytes())
+    retained = WindowsIsolationEvidenceV4.model_validate_json(output.read_bytes())
     assert retained == evidence
     assert retained.receipt.payload.no_direct_network_baseline_qualified is True
     assert retained.receipt.payload.native_executor_isolation_qualified is False

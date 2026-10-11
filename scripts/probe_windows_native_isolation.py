@@ -25,11 +25,14 @@ from devhub.models import Contract, ContractV2
 from devhub.native_bundle import NativeBundleV1, verify_native_bundle
 from devhub.windows_isolation import (
     WindowsIsolationChildResultV1,
-    WindowsIsolationEvidenceV3,
+    WindowsIsolationEvidenceV4,
     WindowsIsolationProfilePayloadV2,
     WindowsIsolationProfileV2,
-    WindowsIsolationReceiptPayloadV3,
-    WindowsIsolationReceiptV3,
+    WindowsIsolationReceiptPayloadV4,
+    WindowsIsolationReceiptV4,
+    WindowsPostCreateAclFailureV1,
+    WindowsPostCreateAclGateError,
+    WindowsRuntimeAccessGrantV2,
     _reject_reparse_chain,
     appcontainer_identity,
     launch_windows_isolated,
@@ -414,7 +417,7 @@ def _raise_if_child_exited(
 def _raise_after_cleanup(
     primary_error: BaseException,
     cleanup_errors: list[Exception],
-    failure_diagnostic: WindowsIsolationFailureDiagnosticV2 | None,
+    failure_diagnostic: WindowsIsolationFailureDiagnosticV2 | WindowsPostCreateAclFailureV1 | None,
     failure_output: Path,
 ) -> NoReturn:
     if cleanup_errors:
@@ -652,7 +655,7 @@ def qualify(
     output: Path,
     environment_instance_id: str,
     expected_implementation_commit: str,
-) -> WindowsIsolationEvidenceV3:
+) -> WindowsIsolationEvidenceV4:
     scratch = Path(os.path.abspath(scratch))
     output = Path(os.path.abspath(output))
     failure_output = output.with_name(output.name + ".failure.json")
@@ -694,9 +697,11 @@ def qualify(
     listener: socket.socket | None = None
     event: int | None = None
     process: Any | None = None
-    evidence: WindowsIsolationEvidenceV3 | None = None
+    evidence: WindowsIsolationEvidenceV4 | None = None
     primary_error: BaseException | None = None
-    failure_diagnostic: WindowsIsolationFailureDiagnosticV2 | None = None
+    failure_diagnostic: (
+        WindowsIsolationFailureDiagnosticV2 | WindowsPostCreateAclFailureV1 | None
+    ) = None
     try:
         shutil.copytree(bundle_root, execution_bundle)
         verify_native_bundle(
@@ -798,6 +803,8 @@ def qualify(
         )
         if process.runtime_access_grant is None:
             raise RuntimeError("Windows sandbox launch did not retain its runtime access grant")
+        if not isinstance(process.runtime_access_grant, WindowsRuntimeAccessGrantV2):
+            raise RuntimeError("Windows sandbox launch retained a pre-create-only ACL grant")
         deadline = time.monotonic() + 30
         while not child_result.is_file() and time.monotonic() < deadline:
             try:
@@ -829,7 +836,7 @@ def qualify(
         profile_deleted = process.close()
         host_registry_unchanged = not _registry_exists(registry_path)
         spec = windows_sandbox_spec(profile)
-        payload = WindowsIsolationReceiptPayloadV3(
+        payload = WindowsIsolationReceiptPayloadV4(
             windows_isolation_profile_id=profile.windows_isolation_profile_id,
             environment_instance_id=environment_instance_id,
             probe_sha256=profile.payload.probe_sha256,
@@ -854,9 +861,11 @@ def qualify(
             direct_public_denied=child.public.denied,
             appcontainer_profile_deleted=profile_deleted,
         )
-        receipt = WindowsIsolationReceiptV3.create(payload)
-        evidence = WindowsIsolationEvidenceV3.create(profile, spec, receipt)
+        receipt = WindowsIsolationReceiptV4.create(payload)
+        evidence = WindowsIsolationEvidenceV4.create(profile, spec, receipt)
     except BaseException as error:
+        if isinstance(error, WindowsPostCreateAclGateError):
+            failure_diagnostic = error.diagnostic
         primary_error = error
     cleanup_errors = _cleanup_probe_resources(
         process,
