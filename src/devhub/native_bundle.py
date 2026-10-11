@@ -35,6 +35,7 @@ from devhub.windows_native import (
     WindowsNativeCodexBuildV3,
     WindowsNativeCodexBuildV4,
     WindowsNativeCodexBuildV5,
+    WindowsNativeCodexBuildV6,
 )
 
 NativePlatform = Literal["windows", "linux"]
@@ -1191,23 +1192,29 @@ def verify_native_bundle(
             | WindowsNativeCodexBuildV3
             | WindowsNativeCodexBuildV4
             | WindowsNativeCodexBuildV5
+            | WindowsNativeCodexBuildV6
         )
         try:
             raw_pair_receipt = receipt_path.read_bytes()
             try:
-                pair_receipt = WindowsNativeCodexBuildV5.model_validate_json(raw_pair_receipt)
+                pair_receipt = WindowsNativeCodexBuildV6.model_validate_json(raw_pair_receipt)
             except ValueError:
                 try:
-                    pair_receipt = WindowsNativeCodexBuildV4.model_validate_json(raw_pair_receipt)
+                    pair_receipt = WindowsNativeCodexBuildV5.model_validate_json(raw_pair_receipt)
                 except ValueError:
                     try:
-                        pair_receipt = WindowsNativeCodexBuildV3.model_validate_json(
+                        pair_receipt = WindowsNativeCodexBuildV4.model_validate_json(
                             raw_pair_receipt
                         )
                     except ValueError:
-                        pair_receipt = WindowsNativeCodexBuildV2.model_validate_json(
-                            raw_pair_receipt
-                        )
+                        try:
+                            pair_receipt = WindowsNativeCodexBuildV3.model_validate_json(
+                                raw_pair_receipt
+                            )
+                        except ValueError:
+                            pair_receipt = WindowsNativeCodexBuildV2.model_validate_json(
+                                raw_pair_receipt
+                            )
         except (OSError, ValueError) as exc:
             raise ValueError("Windows Codex pair build receipt is invalid") from exc
         provenance = pair_receipt.payload.provenance
