@@ -250,6 +250,89 @@ class WindowsRuntimeAccessGrantV1(Contract):
         return self
 
 
+class WindowsRuntimeAccessGrantPayloadV2(ContractV2):
+    """Pre/post-create proof for the exact suspended-process runtime ACL gate."""
+
+    appcontainer_identity: Annotated[str, Field(pattern=r"^devfabric_[a-f0-9]{32}$")]
+    appcontainer_sid: str
+    root: NativePathIdentityV1
+    access_mask: Literal[1179817] = 1179817
+    inheritance_flags: Literal[3] = 3
+    access_mode: Literal["grant_access"] = "grant_access"
+    native_bundle_id: Digest
+    launcher_executable_sha256: Digest
+    verified_entry_count: Annotated[int, Field(gt=0)]
+    pre_create_acl_inventory_sha256: Digest
+    post_create_acl_inventory_sha256: Digest
+    post_create_repaired: bool
+    pre_create_bundle_verified: Literal[True] = True
+    post_create_bundle_verified: Literal[True] = True
+
+    @field_validator("appcontainer_sid")
+    @classmethod
+    def exact_package_sid(cls, value: str) -> str:
+        return validate_appcontainer_package_sid(value)
+
+    @model_validator(mode="after")
+    def exact_inventory_restored(self) -> WindowsRuntimeAccessGrantPayloadV2:
+        if self.pre_create_acl_inventory_sha256 != self.post_create_acl_inventory_sha256:
+            raise ValueError("Post-create runtime ACL inventory differs from reviewed grant")
+        return self
+
+
+class WindowsRuntimeAccessGrantV2(ContractV2):
+    runtime_access_grant_id: Digest
+    payload: WindowsRuntimeAccessGrantPayloadV2
+
+    @classmethod
+    def create(cls, payload: WindowsRuntimeAccessGrantPayloadV2) -> WindowsRuntimeAccessGrantV2:
+        return cls(
+            runtime_access_grant_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsRuntimeAccessGrantV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.runtime_access_grant_id != expected:
+            raise ValueError("Windows runtime access grant hash mismatch")
+        return self
+
+
+class WindowsPostCreateAclFailurePayloadV1(Contract):
+    failure_kind: Literal["post_create_runtime_acl_gate"] = "post_create_runtime_acl_gate"
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    windows_isolation_profile_id: Digest
+    appcontainer_identity: Annotated[str, Field(pattern=r"^devfabric_[a-f0-9]{32}$")]
+    appcontainer_sid: str
+    pre_create_acl_inventory_sha256: Digest
+    phase: Literal["post_create_verify", "post_create_repair", "post_create_reverify"]
+    success_evidence_published: Literal[False] = False
+
+    @field_validator("appcontainer_sid")
+    @classmethod
+    def exact_package_sid(cls, value: str) -> str:
+        return validate_appcontainer_package_sid(value)
+
+
+class WindowsPostCreateAclFailureV1(Contract):
+    diagnostic_id: Digest
+    payload: WindowsPostCreateAclFailurePayloadV1
+
+    @classmethod
+    def create(cls, payload: WindowsPostCreateAclFailurePayloadV1) -> WindowsPostCreateAclFailureV1:
+        return cls(
+            diagnostic_id=digest(canonical(payload.model_dump(mode="json"))), payload=payload
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsPostCreateAclFailureV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.diagnostic_id != expected:
+            raise ValueError("Windows post-create ACL failure diagnostic hash mismatch")
+        return self
+
+
 def windows_isolation_bootstrap_started_id(profile: WindowsIsolationProfileV2) -> str:
     """Derive the exact marker ID that proves the reviewed child bootstrap started."""
 
@@ -382,6 +465,31 @@ class WindowsIsolationReceiptV3(Contract):
 
     @model_validator(mode="after")
     def verified_id(self) -> WindowsIsolationReceiptV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.windows_isolation_receipt_id != expected:
+            raise ValueError("Windows isolation receipt hash mismatch")
+        return self
+
+
+class WindowsIsolationReceiptPayloadV4(WindowsIsolationReceiptPayloadV2):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    runtime_access_grant: WindowsRuntimeAccessGrantV2
+
+
+class WindowsIsolationReceiptV4(Contract):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    windows_isolation_receipt_id: Digest
+    payload: WindowsIsolationReceiptPayloadV4
+
+    @classmethod
+    def create(cls, payload: WindowsIsolationReceiptPayloadV4) -> WindowsIsolationReceiptV4:
+        return cls(
+            windows_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationReceiptV4:
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.windows_isolation_receipt_id != expected:
             raise ValueError("Windows isolation receipt hash mismatch")
@@ -633,6 +741,76 @@ class WindowsIsolationEvidenceV3(Contract):
         return self
 
 
+class WindowsIsolationEvidenceV4(Contract):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    windows_isolation_evidence_id: Digest
+    profile: WindowsIsolationProfileV2
+    sandbox_spec_base64: str
+    sandbox_spec_sha256: Digest
+    receipt: WindowsIsolationReceiptV4
+
+    @classmethod
+    def create(
+        cls,
+        profile: WindowsIsolationProfileV2,
+        sandbox_spec: bytes,
+        receipt: WindowsIsolationReceiptV4,
+    ) -> WindowsIsolationEvidenceV4:
+        encoded = base64.b64encode(sandbox_spec).decode("ascii")
+        sandbox_hash = digest(sandbox_spec)
+        payload: dict[str, JsonValue] = {
+            "schema_version": 4,
+            "profile": profile.model_dump(mode="json"),
+            "sandbox_spec_base64": encoded,
+            "sandbox_spec_sha256": sandbox_hash,
+            "receipt": receipt.model_dump(mode="json"),
+        }
+        return cls(
+            windows_isolation_evidence_id=digest(canonical(payload)),
+            profile=profile,
+            sandbox_spec_base64=encoded,
+            sandbox_spec_sha256=sandbox_hash,
+            receipt=receipt,
+        )
+
+    @model_validator(mode="after")
+    def strict_joins(self) -> WindowsIsolationEvidenceV4:
+        try:
+            spec = base64.b64decode(self.sandbox_spec_base64, validate=True)
+        except ValueError as error:
+            raise ValueError("SandboxSpec is not canonical base64") from error
+        if base64.b64encode(spec).decode("ascii") != self.sandbox_spec_base64:
+            raise ValueError("SandboxSpec is not canonical base64")
+        expected_spec = windows_sandbox_spec(self.profile)
+        if spec != expected_spec or digest(spec) != self.sandbox_spec_sha256:
+            raise ValueError("Retained SandboxSpec does not match the profile")
+        receipt = self.receipt.payload
+        grant = receipt.runtime_access_grant.payload
+        if (
+            receipt.windows_isolation_profile_id != self.profile.windows_isolation_profile_id
+            or receipt.environment_instance_id != self.profile.payload.environment_instance_id
+            or receipt.probe_sha256 != self.profile.payload.probe_sha256
+            or receipt.child_bootstrap_sha256 != self.profile.payload.child_bootstrap_sha256
+            or receipt.bootstrap_started_id != windows_isolation_bootstrap_started_id(self.profile)
+            or receipt.sandbox_spec_sha256 != self.sandbox_spec_sha256
+            or grant.appcontainer_identity != self.profile.payload.appcontainer_identity
+            or grant.root != self.profile.payload.read_only_roots[0]
+            or grant.native_bundle_id != self.profile.payload.native_bundle_id
+            or grant.launcher_executable_sha256 != self.profile.payload.launcher_executable_sha256
+        ):
+            raise ValueError("Windows isolation receipt does not bind the retained profile")
+        payload: dict[str, JsonValue] = {
+            "schema_version": self.schema_version,
+            "profile": self.profile.model_dump(mode="json"),
+            "sandbox_spec_base64": self.sandbox_spec_base64,
+            "sandbox_spec_sha256": self.sandbox_spec_sha256,
+            "receipt": self.receipt.model_dump(mode="json"),
+        }
+        if digest(canonical(payload)) != self.windows_isolation_evidence_id:
+            raise ValueError("Windows isolation evidence hash mismatch")
+        return self
+
+
 WindowsIsolationProfile = WindowsIsolationProfileV1 | WindowsIsolationProfileV2
 
 
@@ -833,7 +1011,7 @@ class WindowsSandboxProcess:
     launch_order: tuple[str, ...]
     appcontainer_sid: str | None = None
     local_app_data: Path | None = None
-    runtime_access_grant: WindowsRuntimeAccessGrantV1 | None = None
+    runtime_access_grant: WindowsRuntimeAccessGrantV1 | WindowsRuntimeAccessGrantV2 | None = None
     runtime_acl_ownership: _WindowsRuntimeAclOwnership | None = None
     appcontainer_profile_owned: bool = True
     _profile_deleted: bool = False
@@ -1013,6 +1191,16 @@ class WindowsIsolationLaunchError(RuntimeError):
         super().__init__(f"{phase} failed ({error_code}): {message}")
         self.phase = phase
         self.error_code = error_code
+
+
+class WindowsPostCreateAclGateError(RuntimeError):
+    """Fail-closed suspended-process ACL diagnostic retained after clean cleanup."""
+
+    def __init__(self, diagnostic: WindowsPostCreateAclFailureV1) -> None:
+        self.diagnostic = diagnostic
+        super().__init__(
+            f"Windows post-create runtime ACL gate failed (phase={diagnostic.payload.phase})"
+        )
 
 
 @dataclass(frozen=True)
@@ -1550,6 +1738,116 @@ def _verified_appcontainer_runtime_access(
     )
 
 
+def _post_create_appcontainer_runtime_access(
+    profile: WindowsIsolationProfile,
+    owned_profile: OwnedAppContainerProfile,
+    ownership: _WindowsRuntimeAclOwnership,
+    executable: Path,
+    verify_runtime_bundle: Callable[[Path], str],
+    pre_create_grant: WindowsRuntimeAccessGrantV1,
+) -> WindowsRuntimeAccessGrantV2:
+    """Revalidate or narrowly repair the exact SID ACL before the suspended child runs."""
+
+    pre = pre_create_grant.payload
+    root = Path(ownership.root.locator)
+    phase: Literal["post_create_verify", "post_create_repair", "post_create_reverify"] = (
+        "post_create_verify"
+    )
+    repaired = False
+    try:
+        if (
+            ownership.root != pre.root
+            or ownership.sid != pre.appcontainer_sid
+            or owned_profile.identity != pre.appcontainer_identity
+            or profile.payload.environment_instance_id not in pre.appcontainer_identity
+        ):
+            raise ValueError("Post-create ACL authority does not bind the suspended launch")
+        if windows_path_identity(root) != ownership.root:
+            raise ValueError("Disposable runtime root identity changed after process creation")
+        if _file_sha256(executable) != profile.payload.launcher_executable_sha256:
+            raise ValueError("Isolated launcher executable changed after process creation")
+        if verify_runtime_bundle(root) != profile.payload.native_bundle_id:
+            raise ValueError("Native bundle identity changed after process creation")
+
+        broad_sids = {"S-1-15-2-1", "S-1-15-2-2"}
+        changed: list[_WindowsRuntimeAclOwnedEntry] = []
+        for entry in ownership.entries:
+            path = Path(entry.identity.locator)
+            if (
+                windows_path_identity(path, require_directory=entry.kind == "directory")
+                != entry.identity
+            ):
+                raise ValueError("Runtime entry identity changed after process creation")
+            snapshot = _windows_acl_snapshot(path)
+            if snapshot.protected and entry.identity != ownership.root:
+                raise ValueError("Protected runtime DACL appeared after process creation")
+            if any(observed.sid in broad_sids for observed in snapshot.entries):
+                raise ValueError("Broad application-package runtime ACL appeared")
+            owned = tuple(value for value in snapshot.entries if value.sid == ownership.sid)
+            expected = _expected_runtime_acl(entry, ownership.sid)
+            if owned == (expected,):
+                continue
+            if len(owned) > 1:
+                raise ValueError("Duplicate runtime ACL appeared")
+            if any(
+                value.access_mode != 1
+                or value.access_mask & ~WINDOWS_RUNTIME_ACCESS_MASK
+                or value.inheritance_flags & ~entry.inheritance_flags
+                for value in owned
+            ):
+                raise ValueError("Wider or unsupported runtime ACL appeared")
+            changed.append(entry)
+
+        if changed:
+            phase = "post_create_repair"
+            repaired = True
+            for entry in changed:
+                path = Path(entry.identity.locator)
+                _set_windows_sid_acl_entry(path, ownership.sid, 0, 0, access_mode=4)
+                _set_windows_sid_acl_entry(
+                    path,
+                    ownership.sid,
+                    WINDOWS_RUNTIME_ACCESS_MASK,
+                    entry.inheritance_flags,
+                )
+
+        phase = "post_create_reverify"
+        count, post_inventory_sha256 = _verify_owned_runtime_acl(ownership)
+        if count != pre.verified_entry_count:
+            raise ValueError("Post-create runtime ACL inventory entry count changed")
+        if verify_runtime_bundle(root) != profile.payload.native_bundle_id:
+            raise ValueError("Native bundle identity changed during post-create ACL gate")
+        if windows_path_identity(root) != ownership.root:
+            raise ValueError("Disposable runtime root changed during post-create ACL gate")
+        if _file_sha256(executable) != profile.payload.launcher_executable_sha256:
+            raise ValueError("Isolated launcher changed during post-create ACL gate")
+        return WindowsRuntimeAccessGrantV2.create(
+            WindowsRuntimeAccessGrantPayloadV2(
+                appcontainer_identity=owned_profile.identity,
+                appcontainer_sid=owned_profile.sid,
+                root=ownership.root,
+                native_bundle_id=profile.payload.native_bundle_id,
+                launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+                verified_entry_count=count,
+                pre_create_acl_inventory_sha256=pre.acl_inventory_sha256,
+                post_create_acl_inventory_sha256=post_inventory_sha256,
+                post_create_repaired=repaired,
+            )
+        )
+    except BaseException as error:
+        diagnostic = WindowsPostCreateAclFailureV1.create(
+            WindowsPostCreateAclFailurePayloadV1(
+                environment_instance_id=profile.payload.environment_instance_id,
+                windows_isolation_profile_id=profile.windows_isolation_profile_id,
+                appcontainer_identity=owned_profile.identity,
+                appcontainer_sid=owned_profile.sid,
+                pre_create_acl_inventory_sha256=pre.acl_inventory_sha256,
+                phase=phase,
+            )
+        )
+        raise WindowsPostCreateAclGateError(diagnostic) from error
+
+
 def _revoke_appcontainer_runtime_access(ownership: _WindowsRuntimeAclOwnership) -> None:
     """Revoke only exact entries recorded as successfully written by this invocation."""
 
@@ -1855,7 +2153,7 @@ def launch_windows_isolated(
     job = 0
     process_information = ProcessInformation()
     owned_profile = _create_owned_appcontainer_profile(profile.payload.appcontainer_identity)
-    runtime_access_grant: WindowsRuntimeAccessGrantV1 | None = None
+    runtime_access_grant: WindowsRuntimeAccessGrantV1 | WindowsRuntimeAccessGrantV2 | None = None
     runtime_acl_ownership: _WindowsRuntimeAclOwnership | None = None
     try:
         runtime_acl_ownership = _install_appcontainer_runtime_access(
@@ -1928,6 +2226,14 @@ def launch_windows_isolated(
                 _windows_last_error(),
                 "Experimental_CreateProcessInSandbox failed",
             )
+        runtime_access_grant = _post_create_appcontainer_runtime_access(
+            profile,
+            owned_profile,
+            runtime_acl_ownership,
+            executable,
+            verify_runtime_bundle,
+            runtime_access_grant,
+        )
         assign = kernel.AssignProcessToJobObject
         assign.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         assign.restype = ctypes.c_int
@@ -1944,7 +2250,12 @@ def launch_windows_isolated(
             job_handle=job,
             process_id=int(process_information.process_id),
             appcontainer_identity=owned_profile.identity,
-            launch_order=("created_suspended", "job_assigned", "thread_resumed"),
+            launch_order=(
+                "created_suspended",
+                "post_create_acl_verified",
+                "job_assigned",
+                "thread_resumed",
+            ),
             appcontainer_sid=owned_profile.sid,
             local_app_data=owned_profile.local_app_data,
             runtime_access_grant=runtime_access_grant,

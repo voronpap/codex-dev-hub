@@ -170,6 +170,19 @@ its unchanged entries, and then deletes the owned profile. Substitution,
 revocation, or later tree cleanup failure remains terminal non-success and
 retains the profile when deletion would make exact cleanup authority ambiguous.
 
+`Experimental_CreateProcessInSandbox` can alter runtime filesystem policy while
+creating the suspended process. V4 therefore treats the earlier V3 grant as
+pre-create evidence only. Before job assignment or `ResumeThread`, the host
+revalidates every identity-bound runtime entry, the full immutable bundle, the
+launcher hash and the exact package-SID ACL. It records canonical pre-create and
+post-create ACL inventory hashes. Missing or narrower exact-SID entries may be
+removed and reinstalled with only the reviewed RX mask; broad package trustees,
+protected descendants, substituted entries, duplicate/wider permissions or a
+failed repair remain terminal. The suspended child never runs before this gate.
+A self-hashed post-create failure diagnostic can be published only after clean
+process, ACL and profile cleanup; V3 remains parseable historical evidence and
+cannot satisfy the V4 post-create gate.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of
