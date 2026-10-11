@@ -8,6 +8,7 @@ and numeric OS codes.  Its exact bytes are bound into the isolation profile.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import runpy
@@ -29,11 +30,31 @@ EXIT_IMPORT_SOCKET = 200
 EXIT_IMPORT_PYDANTIC_CORE = 201
 EXIT_IMPORT_DEVHUB = 202
 EXIT_IMPORT_UNKNOWN = 203
+EXIT_MATRIX_SOCKET = 204
+EXIT_MATRIX_OVERLAPPED = 205
+EXIT_MATRIX_SELECT = 206
+EXIT_MATRIX_SSL = 207
 MAX_FAILURE_BYTES = 4096
 NATIVE_LOADER_FILES = (
     ("python/_ctypes.pyd", "_ctypes.pyd"),
     ("python/libffi-8.dll", "libffi-8.dll"),
 )
+NATIVE_IMPORT_MATRIX = (
+    ("_socket", "python/_socket.pyd", "_socket.pyd", EXIT_MATRIX_SOCKET),
+    ("_overlapped", "python/_overlapped.pyd", "_overlapped.pyd", EXIT_MATRIX_OVERLAPPED),
+    ("select", "python/select.pyd", "select.pyd", EXIT_MATRIX_SELECT),
+    ("_ssl", "python/_ssl.pyd", "_ssl.pyd", EXIT_MATRIX_SSL),
+)
+LOADER_DETAILS = {
+    "access is denied": ("access_denied", 5),
+    "the specified module could not be found": ("dependency_not_found", 126),
+    "the specified procedure could not be found": ("procedure_not_found", 127),
+    "%1 is not a valid win32 application": ("bad_image", 193),
+    "a dynamic link library (dll) initialization routine failed": (
+        "initialization_failed",
+        1114,
+    ),
+}
 
 
 class _FailureFrameTooLarge(Exception):
@@ -72,21 +93,33 @@ def _import_boundary(error: BaseException) -> str:
     return "unknown"
 
 
-def _loader_reason(error: BaseException) -> str:
-    """Map loader text to a bounded category without retaining the text or paths."""
+def _loader_diagnostic(error: BaseException) -> tuple[str, int | None]:
+    """Parse only reviewed CPython loader forms without retaining raw text or paths."""
 
     if not isinstance(error, ImportError):
-        return "unknown"
-    message = str(error).casefold()
-    if "access is denied" in message or "permission denied" in message or "winerror 5" in message:
-        return "access_denied"
-    if "specified module could not be found" in message or "no such file" in message:
-        return "dependency_not_found"
-    if "not a valid win32 application" in message or "bad image" in message:
-        return "bad_image"
-    if "specified procedure could not be found" in message:
-        return "procedure_not_found"
-    return "unknown"
+        return "unknown", None
+    message = str(error).strip()
+    prefixes = ["DLL load failed: "]
+    if isinstance(error.name, str) and error.name.isidentifier():
+        prefixes.append(f"DLL load failed while importing {error.name}: ")
+    detail: str | None = None
+    for prefix in prefixes:
+        if message.startswith(prefix):
+            detail = message.removeprefix(prefix).strip()
+            break
+    if detail is None:
+        return "unknown", None
+    normalized = detail.removesuffix(".").casefold()
+    for reviewed, (reason, code) in LOADER_DETAILS.items():
+        plain = reviewed.casefold()
+        with_code = f"[winerror {code}] {reviewed}".casefold()
+        if normalized in {plain, with_code}:
+            return reason, code
+    return "unknown", None
+
+
+def _loader_reason(error: BaseException) -> str:
+    return _loader_diagnostic(error)[0]
 
 
 def _native_loader_observations() -> list[dict[str, object]]:
@@ -116,6 +149,46 @@ def _native_loader_observations() -> list[dict[str, object]]:
     return observations
 
 
+def _native_file_observation(relative_path: str, filename: str) -> dict[str, object]:
+    target = Path(sys.executable).resolve().parent / filename
+    try:
+        observed_sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+        status = "readable"
+    except FileNotFoundError:
+        observed_sha256 = None
+        status = "missing"
+    except PermissionError:
+        observed_sha256 = None
+        status = "access_denied"
+    except OSError:
+        observed_sha256 = None
+        status = "other_error"
+    return {
+        "observed_sha256": observed_sha256,
+        "relative_path": relative_path,
+        "status": status,
+    }
+
+
+def _run_native_import_matrix() -> tuple[list[dict[str, object]], BaseException | None, int | None]:
+    observations: list[dict[str, object]] = [
+        {
+            "module": module,
+            "file": _native_file_observation(relative_path, filename),
+            "import_status": "not_attempted",
+        }
+        for module, relative_path, filename, _ in NATIVE_IMPORT_MATRIX
+    ]
+    for index, (module, _, _, exit_code) in enumerate(NATIVE_IMPORT_MATRIX):
+        try:
+            importlib.import_module(module)
+        except BaseException as error:
+            observations[index]["import_status"] = "failed"
+            return observations, error, exit_code
+        observations[index]["import_status"] = "imported"
+    return observations, None, None
+
+
 def _canonical(value: object) -> bytes:
     return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
@@ -142,7 +215,13 @@ def _numeric_code(error: BaseException, name: str) -> int | None:
     return value if isinstance(value, int) else None
 
 
-def _write_failure(path: Path, phase: str, error: BaseException) -> None:
+def _write_failure(
+    path: Path,
+    phase: str,
+    error: BaseException,
+    native_import_matrix: list[dict[str, object]],
+    failed_matrix_module: str | None = None,
+) -> None:
     exception_class = type(error).__name__
     if (
         len(exception_class) > 128
@@ -150,18 +229,22 @@ def _write_failure(path: Path, phase: str, error: BaseException) -> None:
         or not exception_class.isidentifier()
     ):
         raise _FailureFrameTooLarge
-    bootstrap_import = phase == "bootstrap_import"
+    loader_failure = phase in {"bootstrap_native_matrix", "bootstrap_import"}
+    loader_reason, loader_code = _loader_diagnostic(error) if loader_failure else (None, None)
     encoded = _canonical(
         {
             "errno": _numeric_code(error, "errno"),
             "exception_class": exception_class,
-            "import_boundary": _import_boundary(error) if bootstrap_import else None,
-            "loader_reason": _loader_reason(error) if bootstrap_import else None,
+            "failed_matrix_module": failed_matrix_module,
+            "import_boundary": _import_boundary(error) if phase == "bootstrap_import" else None,
+            "loader_code": loader_code,
+            "loader_reason": loader_reason,
+            "native_import_matrix": native_import_matrix,
             "native_loader_observations": (
-                _native_loader_observations() if bootstrap_import else []
+                _native_loader_observations() if phase == "bootstrap_import" else []
             ),
             "phase": phase,
-            "schema_version": 3,
+            "schema_version": 4,
             "winerror": _numeric_code(error, "winerror"),
         }
     )
@@ -237,6 +320,29 @@ def main() -> int:
     except BaseException:
         return EXIT_STATUS_WRITE_DENIED
 
+    native_import_matrix, matrix_error, matrix_exit = _run_native_import_matrix()
+    if (matrix_error is None) != (matrix_exit is None):
+        return EXIT_IMPORT_FAILED
+    if matrix_error is not None:
+        if matrix_exit is None:
+            return EXIT_IMPORT_FAILED
+        failed = next(
+            item["module"] for item in native_import_matrix if item["import_status"] == "failed"
+        )
+        try:
+            _write_failure(
+                failure_path,
+                "bootstrap_native_matrix",
+                matrix_error,
+                native_import_matrix,
+                str(failed),
+            )
+        except _FailureFrameTooLarge:
+            return EXIT_IMPORT_FAILURE_TOO_LARGE
+        except BaseException:
+            return EXIT_IMPORT_FAILURE_WRITE_DENIED
+        return matrix_exit
+
     sys.argv = [
         str(child_script),
         "--child",
@@ -251,7 +357,7 @@ def main() -> int:
             raise RuntimeError("reviewed child entry point is unavailable")
     except BaseException as error:
         try:
-            _write_failure(failure_path, "bootstrap_import", error)
+            _write_failure(failure_path, "bootstrap_import", error, native_import_matrix)
         except _FailureFrameTooLarge:
             return EXIT_IMPORT_FAILURE_TOO_LARGE
         except BaseException:
@@ -262,7 +368,7 @@ def main() -> int:
         return int(guarded(request_path, result_path, failure_path))
     except BaseException as error:
         try:
-            _write_failure(failure_path, "bootstrap_invoke", error)
+            _write_failure(failure_path, "bootstrap_invoke", error, native_import_matrix)
         except _FailureFrameTooLarge:
             return EXIT_INVOKE_FAILURE_TOO_LARGE
         except BaseException:

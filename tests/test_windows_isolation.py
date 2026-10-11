@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -303,8 +304,39 @@ def native_loader_bundle() -> SimpleNamespace:
             files=(
                 SimpleNamespace(path="python/_ctypes.pyd", sha256="8" * 64),
                 SimpleNamespace(path="python/libffi-8.dll", sha256="9" * 64),
+                SimpleNamespace(path="python/_socket.pyd", sha256="a" * 64),
+                SimpleNamespace(path="python/_overlapped.pyd", sha256="b" * 64),
+                SimpleNamespace(path="python/select.pyd", sha256="c" * 64),
+                SimpleNamespace(path="python/_ssl.pyd", sha256="d" * 64),
             )
         ),
+    )
+
+
+def v4_child_matrix(
+    probe: Any,
+    statuses: tuple[str, str, str, str] = ("imported", "imported", "imported", "imported"),
+) -> tuple[Any, ...]:
+    return tuple(
+        probe.WindowsNativeImportMatrixObservationV1(
+            module=module,
+            file=probe.WindowsNativeMatrixFileObservationV1(
+                relative_path=path,
+                status="readable",
+                observed_sha256=character * 64,
+            ),
+            import_status=status,
+        )
+        for (module, path, character), status in zip(
+            (
+                ("_socket", "python/_socket.pyd", "a"),
+                ("_overlapped", "python/_overlapped.pyd", "b"),
+                ("select", "python/select.pyd", "c"),
+                ("_ssl", "python/_ssl.pyd", "d"),
+            ),
+            statuses,
+            strict=True,
+        )
     )
 
 
@@ -2604,10 +2636,39 @@ def _bootstrap_argv(
     )
 
 
+def _successful_native_matrix() -> list[dict[str, object]]:
+    return [
+        {
+            "module": module,
+            "file": {
+                "observed_sha256": character * 64,
+                "relative_path": path,
+                "status": "readable",
+            },
+            "import_status": "imported",
+        }
+        for module, path, character in (
+            ("_socket", "python/_socket.pyd", "a"),
+            ("_overlapped", "python/_overlapped.pyd", "b"),
+            ("select", "python/select.pyd", "c"),
+            ("_ssl", "python/_ssl.pyd", "d"),
+        )
+    ]
+
+
+def _allow_native_matrix(module: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        module,
+        "_run_native_import_matrix",
+        lambda: (_successful_native_matrix(), None, None),
+    )
+
+
 def test_stdlib_bootstrap_writes_bound_started_frame_before_valid_child(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bootstrap = load_bootstrap_module("windows_isolation_bootstrap_success_test")
+    _allow_native_matrix(bootstrap, monkeypatch)
     argv, result, failure, status = _bootstrap_argv(
         tmp_path,
         "def _child_guarded(request, result, failure):\n"
@@ -2648,7 +2709,41 @@ def test_stdlib_bootstrap_distinguishes_status_import_and_failure_write_denials(
     assert not status.exists()
     assert not failure.exists()
 
+
+def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_detail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_matrix_failure_test")
+    argv, _, failure, status = _bootstrap_argv(tmp_path, "pass\n")
+    observations = _successful_native_matrix()
+    observations[1]["import_status"] = "failed"
+    observations[2]["import_status"] = "not_attempted"
+    observations[3]["import_status"] = "not_attempted"
+    error = ImportError(
+        "DLL load failed while importing _overlapped: C:\\private\\secret.dll",
+        name="_overlapped",
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "_run_native_import_matrix",
+        lambda: (observations, error, bootstrap.EXIT_MATRIX_OVERLAPPED),
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert bootstrap.main() == bootstrap.EXIT_MATRIX_OVERLAPPED
+    assert status.is_file()
+    observed = json.loads(failure.read_bytes())
+    assert observed["schema_version"] == 4
+    assert observed["phase"] == "bootstrap_native_matrix"
+    assert observed["failed_matrix_module"] == "_overlapped"
+    assert observed["loader_reason"] == "unknown"
+    assert observed["loader_code"] is None
+    assert observed["native_import_matrix"] == observations
+    assert b"private" not in failure.read_bytes()
+    assert b"secret.dll" not in failure.read_bytes()
+
     import_failed = load_bootstrap_module("windows_isolation_bootstrap_import_failed_test")
+    _allow_native_matrix(import_failed, monkeypatch)
     import_root = tmp_path / "import"
     import_root.mkdir()
     argv, _, failure, status = _bootstrap_argv(
@@ -2674,11 +2769,14 @@ def test_stdlib_bootstrap_distinguishes_status_import_and_failure_write_denials(
     assert observed == {
         "errno": None,
         "exception_class": "ImportError",
+        "failed_matrix_module": None,
         "import_boundary": "unknown",
+        "loader_code": None,
         "loader_reason": "unknown",
+        "native_import_matrix": _successful_native_matrix(),
         "native_loader_observations": native_observations,
         "phase": "bootstrap_import",
-        "schema_version": 3,
+        "schema_version": 4,
         "winerror": None,
     }
     assert b"sensitive" not in failure.read_bytes()
@@ -2697,17 +2795,36 @@ def test_stdlib_bootstrap_distinguishes_status_import_and_failure_write_denials(
         import_failed.EXIT_IMPORT_FAILED
     )
     loader_reasons = {
-        "DLL load failed: Access is denied": "access_denied",
-        "DLL load failed: The specified module could not be found": "dependency_not_found",
-        "%1 is not a valid Win32 application": "bad_image",
-        "DLL load failed: The specified procedure could not be found": "procedure_not_found",
+        "DLL load failed: Access is denied": ("access_denied", 5),
+        "DLL load failed: The specified module could not be found": (
+            "dependency_not_found",
+            126,
+        ),
+        "DLL load failed: %1 is not a valid Win32 application": ("bad_image", 193),
+        "DLL load failed: The specified procedure could not be found": (
+            "procedure_not_found",
+            127,
+        ),
+        (
+            "DLL load failed while importing _ctypes: "
+            "A dynamic link library (DLL) initialization routine failed."
+        ): (
+            "initialization_failed",
+            1114,
+        ),
         "unclassified": "unknown",
     }
     for message, expected in loader_reasons.items():
-        assert import_failed._loader_reason(ImportError(message, name="_ctypes")) == expected
-    assert import_failed._loader_reason(RuntimeError("not import")) == "unknown"
+        if expected == "unknown":
+            expected = ("unknown", None)
+        assert import_failed._loader_diagnostic(ImportError(message, name="_ctypes")) == expected
+    assert import_failed._loader_diagnostic(RuntimeError("not import")) == ("unknown", None)
+    assert import_failed._loader_diagnostic(
+        ImportError("DLL load failed: [WinError 9999] C:\\private\\secret.dll", name="_ctypes")
+    ) == ("unknown", None)
 
     write_denied = load_bootstrap_module("windows_isolation_bootstrap_failure_denied_test")
+    _allow_native_matrix(write_denied, monkeypatch)
     denied_root = tmp_path / "failure-write"
     denied_root.mkdir()
     argv, _, failure, status = _bootstrap_argv(denied_root, "raise ImportError('not retained')\n")
@@ -2732,6 +2849,7 @@ def test_stdlib_bootstrap_distinguishes_invoke_failure_and_self_tampering(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bootstrap = load_bootstrap_module("windows_isolation_bootstrap_invoke_test")
+    _allow_native_matrix(bootstrap, monkeypatch)
     argv, _, failure, status = _bootstrap_argv(
         tmp_path,
         "def _child_guarded(request, result, failure):\n"
@@ -2770,6 +2888,7 @@ def test_stdlib_bootstrap_bounds_failure_before_writing_and_reserves_exit_codes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bootstrap = load_bootstrap_module("windows_isolation_bootstrap_oversize_test")
+    _allow_native_matrix(bootstrap, monkeypatch)
     oversized_name = "X" * 5000
     argv, _, failure, status = _bootstrap_argv(
         tmp_path,
@@ -2798,9 +2917,13 @@ def test_stdlib_bootstrap_bounds_failure_before_writing_and_reserves_exit_codes(
         bootstrap.EXIT_IMPORT_PYDANTIC_CORE,
         bootstrap.EXIT_IMPORT_DEVHUB,
         bootstrap.EXIT_IMPORT_UNKNOWN,
+        bootstrap.EXIT_MATRIX_SOCKET,
+        bootstrap.EXIT_MATRIX_OVERLAPPED,
+        bootstrap.EXIT_MATRIX_SELECT,
+        bootstrap.EXIT_MATRIX_SSL,
     }
-    assert len(exit_codes) == 15
-    assert exit_codes == set(range(189, 204))
+    assert len(exit_codes) == 19
+    assert exit_codes == set(range(189, 208))
 
 
 def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malformed_data(
@@ -2841,13 +2964,16 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
     failure.write_bytes(
         canonical(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "phase": "child_probe",
                 "exception_class": "PermissionError",
                 "winerror": 5,
                 "errno": 13,
+                "failed_matrix_module": None,
                 "import_boundary": None,
+                "loader_code": None,
                 "loader_reason": None,
+                "native_import_matrix": [],
                 "native_loader_observations": [],
             }
         )
@@ -2946,7 +3072,7 @@ def test_valid_foreign_bootstrap_marker_retains_cleanup_sealed_failure_diagnosti
     with pytest.raises(probe.WindowsIsolationChildExitError):
         probe._raise_after_cleanup(exited.value, [], diagnostic, failure_output)
     assert not success_output.exists()
-    retained = probe.WindowsIsolationFailureDiagnosticV3.model_validate_json(
+    retained = probe.WindowsIsolationFailureDiagnosticV4.model_validate_json(
         failure_output.read_bytes()
     )
     assert retained == diagnostic
@@ -2992,13 +3118,15 @@ def test_child_guard_writes_only_bounded_strict_failure_data(
     assert probe._child_guarded(request, result, failure) == 1
     status, observed = probe._read_child_failure(failure)
     assert status == "validated"
-    assert isinstance(observed, probe.WindowsIsolationChildFailureV3)
+    assert isinstance(observed, probe.WindowsIsolationChildFailureV4)
     assert observed.phase == "child_probe"
     assert observed.exception_class == "PermissionError"
     assert observed.errno == 13
     assert observed.winerror is None
     assert observed.import_boundary is None
+    assert observed.loader_code is None
     assert observed.loader_reason is None
+    assert observed.native_import_matrix == ()
     assert observed.native_loader_observations == ()
     assert len(failure.read_bytes()) <= probe.MAX_CHILD_FAILURE_BYTES
     assert b"sensitive" not in failure.read_bytes()
@@ -3097,6 +3225,93 @@ def test_v3_failure_diagnostic_binds_grant_profile_loader_and_manifest() -> None
     changed = {**raw_payload, "unexpected": True}
     with pytest.raises(ValidationError):
         probe.WindowsIsolationFailureDiagnosticPayloadV3.model_validate(changed)
+
+
+def test_v4_failure_diagnostic_binds_ordered_matrix_codes_and_manifest(
+    tmp_path: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_failure_v4_authority_test")
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    grant = runtime_access_grant_v2(profile)
+    child_failure = probe.WindowsIsolationChildFailureV4(
+        phase="bootstrap_import",
+        exception_class="ImportError",
+        import_boundary="ctypes",
+        loader_reason="initialization_failed",
+        loader_code=1114,
+        native_import_matrix=v4_child_matrix(probe),
+        native_loader_observations=(
+            probe.WindowsNativeLoaderObservationV1(
+                relative_path="python/_ctypes.pyd",
+                status="readable",
+                observed_sha256="8" * 64,
+            ),
+            probe.WindowsNativeLoaderObservationV1(
+                relative_path="python/libffi-8.dll",
+                status="readable",
+                observed_sha256="9" * 64,
+            ),
+        ),
+    )
+    bundle = native_loader_bundle()
+    loader_files = probe._native_loader_file_evidence(bundle, child_failure)
+    matrix = probe._native_import_matrix_evidence(bundle, child_failure)
+    payload = probe.WindowsIsolationFailureDiagnosticPayloadV4(
+        environment_instance_id=ENVIRONMENT,
+        windows_isolation_profile_id=profile.windows_isolation_profile_id,
+        profile=profile,
+        native_bundle_id=H,
+        launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+        runtime_access_grant=grant,
+        probe_sha256=profile.payload.probe_sha256,
+        child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
+        process_exit_code=199,
+        bootstrap_started_status="absent",
+        child_failure_status="validated",
+        child_failure=child_failure,
+        loader_reason="initialization_failed",
+        loader_code=1114,
+        native_loader_files=loader_files,
+        native_import_matrix=matrix,
+    )
+    diagnostic = probe.WindowsIsolationFailureDiagnosticV4.create(payload)
+    encoded = canonical(diagnostic.model_dump(mode="json"))
+    assert probe.WindowsIsolationFailureDiagnosticV4.model_validate_json(encoded) == diagnostic
+    assert [item.module for item in diagnostic.payload.native_import_matrix] == [
+        "_socket",
+        "_overlapped",
+        "select",
+        "_ssl",
+    ]
+    assert b"sensitive" not in encoded
+
+    child_raw = child_failure.model_dump()
+    child_raw["loader_code"] = 126
+    with pytest.raises(ValidationError, match="bounded reason"):
+        probe.WindowsIsolationChildFailureV4.model_validate(child_raw)
+    child_raw = child_failure.model_dump()
+    child_raw["native_import_matrix"] = tuple(reversed(child_raw["native_import_matrix"]))
+    with pytest.raises(ValidationError, match="reviewed order"):
+        probe.WindowsIsolationChildFailureV4.model_validate(child_raw)
+    child_raw = child_failure.model_dump()
+    child_raw["native_import_matrix"] = child_raw["native_import_matrix"][:-1]
+    with pytest.raises(ValidationError, match="reviewed order"):
+        probe.WindowsIsolationChildFailureV4.model_validate(child_raw)
+
+    matrix_raw = [item.model_dump() for item in matrix]
+    matrix_raw[0]["child_observed_sha256"] = "f" * 64
+    raw_payload = payload.model_dump()
+    raw_payload["native_import_matrix"] = tuple(matrix_raw)
+    with pytest.raises(ValidationError, match="immutable manifest"):
+        probe.WindowsIsolationFailureDiagnosticPayloadV4.model_validate(raw_payload)
+
+    blocked = tmp_path / "must-not-exist.json"
+    error = probe.WindowsIsolationChildExitError(diagnostic)
+    with pytest.raises(BaseExceptionGroup, match="probe and cleanup failed"):
+        probe._raise_after_cleanup(error, [OSError("cleanup")], diagnostic, blocked)
+    assert not blocked.exists()
 
 
 def test_native_loader_evidence_rejects_child_hash_tampering() -> None:

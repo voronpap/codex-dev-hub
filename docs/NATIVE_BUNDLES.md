@@ -183,16 +183,20 @@ A self-hashed post-create failure diagnostic can be published only after clean
 process, ACL and profile cleanup; V3 remains parseable historical evidence and
 cannot satisfy the V4 post-create gate.
 
-If a V4 child exits after that gate but before success evidence, the forward
+If a V4 child exits after that gate but before success evidence, the forward V4
 failure diagnostic retains the exact V2 runtime-access grant, full self-hashed
-profile and their bundle/launcher/environment joins. The stdlib bootstrap records
-only an allowlisted native-loader reason and bounded hash/readability observations
-for the manifest-bound `python/_ctypes.pyd` and `python/libffi-8.dll`; raw loader
-messages and filesystem paths are never retained. Historical V1/V2 failure
-diagnostics remain strictly parseable but cannot establish this newer diagnostic
-authority. As with every failure artifact, publication occurs only after complete
-process/profile/runtime-ACL cleanup and source-bundle re-verification, and it does
-not grant readiness.
+profile and their bundle/launcher/environment joins. Before importing the full
+probe, the stdlib bootstrap imports the fixed ordered `_socket`, `_overlapped`,
+`select` and `_ssl` matrix. Each label and observed extension hash is joined to
+the immutable bundle inventory by the host. The diagnostic records only reviewed
+CPython loader forms as an allowlisted reason and optional bounded Win32 code,
+including `initialization_failed`/`1114`, plus bounded hash/readability observations
+for manifest-bound native files. Raw loader messages and filesystem paths are never
+retained. Reordered, missing, forged-code or hash-substituted observations fail
+closed. Historical V1-V3 failure diagnostics remain strictly parseable but cannot
+establish this newer diagnostic authority. As with every failure artifact,
+publication occurs only after complete process/profile/runtime-ACL cleanup and
+source-bundle re-verification, and it does not grant readiness.
 
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
