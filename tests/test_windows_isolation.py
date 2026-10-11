@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import ctypes
 import importlib.util
 import json
@@ -292,6 +293,18 @@ def runtime_access_grant_v2(
             post_create_acl_inventory_sha256="7" * 64,
             post_create_repaired=repaired,
         )
+    )
+
+
+def native_loader_bundle() -> SimpleNamespace:
+    return SimpleNamespace(
+        bundle_id=H,
+        payload=SimpleNamespace(
+            files=(
+                SimpleNamespace(path="python/_ctypes.pyd", sha256="8" * 64),
+                SimpleNamespace(path="python/libffi-8.dll", sha256="9" * 64),
+            )
+        ),
     )
 
 
@@ -2641,6 +2654,19 @@ def test_stdlib_bootstrap_distinguishes_status_import_and_failure_write_denials(
     argv, _, failure, status = _bootstrap_argv(
         import_root, "raise ImportError('sensitive import detail')\n"
     )
+    native_observations = [
+        {
+            "observed_sha256": "8" * 64,
+            "relative_path": "python/_ctypes.pyd",
+            "status": "readable",
+        },
+        {
+            "observed_sha256": "9" * 64,
+            "relative_path": "python/libffi-8.dll",
+            "status": "readable",
+        },
+    ]
+    monkeypatch.setattr(import_failed, "_native_loader_observations", lambda: native_observations)
     monkeypatch.setattr(sys, "argv", argv)
     assert import_failed.main() == import_failed.EXIT_IMPORT_UNKNOWN
     assert status.is_file()
@@ -2648,8 +2674,11 @@ def test_stdlib_bootstrap_distinguishes_status_import_and_failure_write_denials(
     assert observed == {
         "errno": None,
         "exception_class": "ImportError",
+        "import_boundary": "unknown",
+        "loader_reason": "unknown",
+        "native_loader_observations": native_observations,
         "phase": "bootstrap_import",
-        "schema_version": 2,
+        "schema_version": 3,
         "winerror": None,
     }
     assert b"sensitive" not in failure.read_bytes()
@@ -2667,6 +2696,16 @@ def test_stdlib_bootstrap_distinguishes_status_import_and_failure_write_denials(
     assert import_failed._classified_import_exit(RuntimeError("not import")) == (
         import_failed.EXIT_IMPORT_FAILED
     )
+    loader_reasons = {
+        "DLL load failed: Access is denied": "access_denied",
+        "DLL load failed: The specified module could not be found": "dependency_not_found",
+        "%1 is not a valid Win32 application": "bad_image",
+        "DLL load failed: The specified procedure could not be found": "procedure_not_found",
+        "unclassified": "unknown",
+    }
+    for message, expected in loader_reasons.items():
+        assert import_failed._loader_reason(ImportError(message, name="_ctypes")) == expected
+    assert import_failed._loader_reason(RuntimeError("not import")) == "unknown"
 
     write_denied = load_bootstrap_module("windows_isolation_bootstrap_failure_denied_test")
     denied_root = tmp_path / "failure-write"
@@ -2775,9 +2814,14 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
     failure = tmp_path / "child-failure.json"
     bootstrap = tmp_path / "bootstrap-started.json"
 
-    process = SimpleNamespace(poll_exit_code=lambda: 0xC0000135)
+    process = SimpleNamespace(
+        poll_exit_code=lambda: 0xC0000135,
+        runtime_access_grant=runtime_access_grant_v2(profile),
+    )
     with pytest.raises(probe.WindowsIsolationChildExitError) as loader_failure:
-        probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
+        probe._raise_if_child_exited(
+            process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
     assert loader_failure.value.exit_code == 0xC0000135
     assert loader_failure.value.diagnostic.payload.bootstrap_started_status == "absent"
     assert loader_failure.value.diagnostic.payload.child_failure_status == "absent"
@@ -2797,17 +2841,25 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
     failure.write_bytes(
         canonical(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "phase": "child_probe",
                 "exception_class": "PermissionError",
                 "winerror": 5,
                 "errno": 13,
+                "import_boundary": None,
+                "loader_reason": None,
+                "native_loader_observations": [],
             }
         )
     )
-    process = SimpleNamespace(poll_exit_code=lambda: 1)
+    process = SimpleNamespace(
+        poll_exit_code=lambda: 1,
+        runtime_access_grant=runtime_access_grant_v2(profile),
+    )
     with pytest.raises(probe.WindowsIsolationChildExitError) as python_failure:
-        probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
+        probe._raise_if_child_exited(
+            process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
     diagnostic = python_failure.value.diagnostic.payload
     assert diagnostic.process_exit_code == 1
     assert diagnostic.bootstrap_started_status == "validated"
@@ -2819,7 +2871,9 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
 
     failure.write_bytes(b"{" + b"x" * probe.MAX_CHILD_FAILURE_BYTES)
     with pytest.raises(probe.WindowsIsolationChildExitError) as malformed:
-        probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
+        probe._raise_if_child_exited(
+            process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
     assert malformed.value.diagnostic.payload.child_failure_status == "invalid"
     assert malformed.value.diagnostic.payload.child_failure is None
 
@@ -2828,7 +2882,9 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
     bootstrap.write_bytes(canonical(tampered))
     failure.unlink()
     with pytest.raises(probe.WindowsIsolationChildExitError) as invalid_started:
-        probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
+        probe._raise_if_child_exited(
+            process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
     assert invalid_started.value.diagnostic.payload.bootstrap_started_status == "invalid"
 
 
@@ -2868,7 +2924,10 @@ def test_valid_foreign_bootstrap_marker_retains_cleanup_sealed_failure_diagnosti
         payload=started_payload,
     )
     bootstrap.write_bytes(canonical(started.model_dump(mode="json")))
-    process = SimpleNamespace(poll_exit_code=lambda: 1)
+    process = SimpleNamespace(
+        poll_exit_code=lambda: 1,
+        runtime_access_grant=runtime_access_grant_v2(profile),
+    )
 
     with pytest.raises(probe.WindowsIsolationChildExitError) as exited:
         probe._raise_if_child_exited(
@@ -2878,6 +2937,7 @@ def test_valid_foreign_bootstrap_marker_retains_cleanup_sealed_failure_diagnosti
             bootstrap,
             profile,
             ENVIRONMENT,
+            native_loader_bundle(),
         )
     diagnostic = exited.value.diagnostic
     assert diagnostic.payload.bootstrap_started_status == "invalid"
@@ -2886,7 +2946,7 @@ def test_valid_foreign_bootstrap_marker_retains_cleanup_sealed_failure_diagnosti
     with pytest.raises(probe.WindowsIsolationChildExitError):
         probe._raise_after_cleanup(exited.value, [], diagnostic, failure_output)
     assert not success_output.exists()
-    retained = probe.WindowsIsolationFailureDiagnosticV2.model_validate_json(
+    retained = probe.WindowsIsolationFailureDiagnosticV3.model_validate_json(
         failure_output.read_bytes()
     )
     assert retained == diagnostic
@@ -2906,11 +2966,15 @@ def test_child_result_precedes_exit_diagnostic_and_running_child_remains_pending
     process = SimpleNamespace(
         poll_exit_code=lambda: pytest.fail("exit code inspected after success result existed")
     )
-    probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
+    probe._raise_if_child_exited(
+        process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+    )
 
     result.unlink()
     process = SimpleNamespace(poll_exit_code=lambda: None)
-    probe._raise_if_child_exited(process, result, failure, bootstrap, profile, ENVIRONMENT)
+    probe._raise_if_child_exited(
+        process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+    )
 
 
 def test_child_guard_writes_only_bounded_strict_failure_data(
@@ -2950,6 +3014,108 @@ def test_retained_v1_failure_diagnostic_remains_strictly_parseable() -> None:
     assert probe.WindowsIsolationFailureDiagnosticV1.model_validate_json(encoded) == retained
     with pytest.raises(ValidationError):
         probe.WindowsIsolationFailureDiagnosticV2.model_validate_json(encoded)
+
+
+def test_v3_failure_diagnostic_binds_grant_profile_loader_and_manifest() -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_failure_v3_authority_test")
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    grant = runtime_access_grant_v2(profile, repaired=True)
+    child_failure = probe.WindowsIsolationChildFailureV3(
+        phase="bootstrap_import",
+        exception_class="ImportError",
+        import_boundary="ctypes",
+        loader_reason="dependency_not_found",
+        native_loader_observations=(
+            probe.WindowsNativeLoaderObservationV1(
+                relative_path="python/_ctypes.pyd",
+                status="readable",
+                observed_sha256="8" * 64,
+            ),
+            probe.WindowsNativeLoaderObservationV1(
+                relative_path="python/libffi-8.dll",
+                status="readable",
+                observed_sha256="9" * 64,
+            ),
+        ),
+    )
+    files = probe._native_loader_file_evidence(native_loader_bundle(), child_failure)
+    payload = probe.WindowsIsolationFailureDiagnosticPayloadV3(
+        environment_instance_id=ENVIRONMENT,
+        windows_isolation_profile_id=profile.windows_isolation_profile_id,
+        profile=profile,
+        native_bundle_id=H,
+        launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+        runtime_access_grant=grant,
+        probe_sha256=profile.payload.probe_sha256,
+        child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
+        process_exit_code=199,
+        bootstrap_started_status="absent",
+        child_failure_status="validated",
+        child_failure=child_failure,
+        loader_reason="dependency_not_found",
+        native_loader_files=files,
+    )
+    diagnostic = probe.WindowsIsolationFailureDiagnosticV3.create(payload)
+    encoded = canonical(diagnostic.model_dump(mode="json"))
+    assert probe.WindowsIsolationFailureDiagnosticV3.model_validate_json(encoded) == diagnostic
+    assert diagnostic.payload.runtime_access_grant.payload.post_create_repaired is True
+    assert [item.relative_path for item in diagnostic.payload.native_loader_files] == [
+        "python/_ctypes.pyd",
+        "python/libffi-8.dll",
+    ]
+    assert b"specified module" not in encoded
+
+    raw_payload = payload.model_dump()
+    for field, value, message in (
+        ("environment_instance_id", "e" * 32, "authority differs"),
+        ("native_bundle_id", "f" * 64, "authority differs"),
+        ("launcher_executable_sha256", "f" * 64, "authority differs"),
+        ("windows_isolation_profile_id", "f" * 64, "profile identity"),
+        ("loader_reason", "bad_image", "Loader reason differs"),
+    ):
+        changed = {**raw_payload, field: value}
+        with pytest.raises(ValidationError, match=message):
+            probe.WindowsIsolationFailureDiagnosticPayloadV3.model_validate(changed)
+
+    changed = copy.deepcopy(raw_payload)
+    changed["runtime_access_grant"]["payload"]["post_create_repaired"] = False
+    with pytest.raises(ValidationError, match="grant hash mismatch"):
+        probe.WindowsIsolationFailureDiagnosticPayloadV3.model_validate(changed)
+    changed = copy.deepcopy(raw_payload)
+    changed["runtime_access_grant"]["payload"]["post_create_acl_inventory_sha256"] = "a" * 64
+    with pytest.raises(ValidationError):
+        probe.WindowsIsolationFailureDiagnosticPayloadV3.model_validate(changed)
+    changed = {**raw_payload, "unexpected": True}
+    with pytest.raises(ValidationError):
+        probe.WindowsIsolationFailureDiagnosticPayloadV3.model_validate(changed)
+
+
+def test_native_loader_evidence_rejects_child_hash_tampering() -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_native_loader_tamper_test")
+    child_failure = probe.WindowsIsolationChildFailureV3(
+        phase="bootstrap_import",
+        exception_class="ImportError",
+        import_boundary="ctypes",
+        loader_reason="unknown",
+        native_loader_observations=(
+            probe.WindowsNativeLoaderObservationV1(
+                relative_path="python/_ctypes.pyd",
+                status="readable",
+                observed_sha256="f" * 64,
+            ),
+            probe.WindowsNativeLoaderObservationV1(
+                relative_path="python/libffi-8.dll",
+                status="readable",
+                observed_sha256="9" * 64,
+            ),
+        ),
+    )
+    with pytest.raises(ValidationError, match="differs from immutable manifest"):
+        probe._native_loader_file_evidence(native_loader_bundle(), child_failure)
 
 
 def test_failure_diagnostic_publishes_only_after_clean_cleanup(
