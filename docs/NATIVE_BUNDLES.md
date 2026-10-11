@@ -282,10 +282,36 @@ handle inheritance, child-tree termination, breakaway denial and denial of
 direct loopback, LAN, DNS and public network operations without running Codex,
 MCP, a model or a provider. This proves only the **no-direct-network baseline**.
 It deliberately keeps `native_executor_isolation_qualified=false` and
-`package_readiness=false`: the fixed-destination trusted broker and the complete
-packaged executor boundary are later gates. An unsupported API, OS build,
+`package_readiness=false`: the complete packaged executor boundary remains a
+later gate. An unsupported API, OS build,
 path/ACL semantic or cleanup observation fails closed; there is no unrestricted
 fallback.
+
+The forward-only Windows Ollama broker slice is metadata-only. Each attempt
+copies and verifies the exact source `NativeBundleV1` into a fresh disposable
+runtime, derives a fresh exact-path isolation profile from one strictly joined
+`WindowsIsolationEvidenceV6` baseline, and removes that runtime only after
+AppContainer cleanup, retained-parent identity checks, and source
+re-verification. Its authority embeds the baseline profile, proves that the
+fresh profile changes only launcher/path identities, and binds one exact
+read-only runtime, writable client root, and denied host-control root. It also
+binds the baseline receipt/evidence, exact AppContainer package SID, retained
+bundled Python/module bytes, and one exact `127.0.0.1:11434` listener process
+identity. The final receipt retains the observed `WindowsRuntimeAccessGrantV2`
+and joins its SID, runtime root, bundle, launcher, and pre/post ACL inventories
+to that fresh profile. A protected message-mode named pipe grants only generic
+read/write to that package SID; the host authenticates the client SID and the
+client authenticates the exact broker process. The allowlist is limited to
+`/api/version`, `/api/tags`, and `/api/show`; `/api/generate` has no protocol
+endpoint. The metadata receipt is derived from the observed ordered responses
+and records `generation_requests=0`, `model_requests=0`, and
+`provider_sends=0`. Bounded overlapped I/O, exact framing, DACL readback, and
+cleanup failures all fail closed. Final evidence re-parses the retained response
+bodies and recomputes all authority, runtime, server/client, response, metadata,
+listener, pipe, model, SID, access-grant and baseline-isolation joins. The code
+still does not claim that a live listener or AppContainer run has passed:
+Windows readiness remains false until an exact-host receipt and final platform
+manifest exist.
 
 ### Native Linux Codex build authority
 
@@ -404,6 +430,16 @@ Build-020 and all OCI evidence remain immutable historical evidence.
    after the registration change merges, so a PR-head compilation cannot become
    stale solely because the normal merge commit changes the implementation identity.
    Ordinary PR validation remains in Offline Core and does not compile the pair.
+   Run `38169871650` at commit
+   `c886b042eb57d24a1893d16f5752ac03ef24398a` completed
+   `windows-build-007`, including the exact native pair,
+   ordinary Default/Arm A/Arm B same-binary proof, EOF and security negatives.
+   That receipt remains authority for its exact historical implementation commit.
+   The subsequently merged Windows broker and packaging changes require a new
+   exact-commit pair; forward-only `windows-build-008` preserves all build-007
+   proof semantics and keeps build-002 through build-007 receipts parseable.
+   Build-008 is likewise reserved for one explicit `workflow_dispatch` on merged
+   `main`; PR validation only registers and tests its strict contract.
 2. **Self-contained runtime directory.** Freeze one reviewed Windows CPython and
    non-editable DevFabric wheel environment, verify distribution metadata/RECORD,
    dependency lock, module origin and entrypoint, and bundle the accepted
@@ -506,19 +542,19 @@ the authority.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PARTIAL — accepted `windows-build-006` pair is bound to its historical implementation commit; forward-only `windows-build-007` is required for the current merged bundle | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required; OCI binary does not qualify it |
-| Same-binary host authority | PARTIAL — `windows-build-006` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-007` pending | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required |
+| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required; OCI binary does not qualify it |
+| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
-| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline implemented; exact-host receipt and fixed-destination broker pending | PENDING process/files/permissions/network proof without Docker |
-| Ollama boundary | PENDING Windows receipt | PENDING native Linux receipt; service/model remain external |
+| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PENDING process/files/permissions/network proof without Docker |
+| Ollama boundary | PARTIAL — closed metadata-only broker implemented; exact listener/AppContainer receipt pending | PENDING native Linux receipt; service/model remain external |
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PENDING directory/launcher/file manifest |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for the `windows-build-006` native executable-pair authority slice; later package gates remain separate | Native Linux PR-head `linux-build-005` evidence pending completion; merged-main-only `linux-build-006` registration under review |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | Native Linux PR-head `linux-build-005` evidence pending completion; merged-main-only `linux-build-006` registration under review |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

@@ -127,6 +127,7 @@ def prepare_build_source(
         "windows-build-005",
         "windows-build-006",
         "windows-build-007",
+        "windows-build-008",
         "linux-build-001",
         "linux-build-002",
         "linux-build-003",

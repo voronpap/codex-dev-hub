@@ -27,6 +27,7 @@ from pydantic import Field, JsonValue, field_validator, model_validator
 from devhub.benchmark import Digest, canonical, digest
 from devhub.models import Contract, ContractV2
 from devhub.native_bundle import NativeLoaderAuthorityV1, NativeLoaderAuthorityV2
+from devhub.windows_identity import validate_appcontainer_package_sid
 
 WINDOWS_SANDBOX_SPEC_VERSION = "0.1.0"
 WINDOWS_SANDBOX_FILE_IDENTIFIER = b"SBOX"
@@ -41,18 +42,6 @@ WINDOWS_RUNTIME_ACCESS_INHERITANCE = 0x00000003
 
 _HEX_32 = re.compile(r"^[a-f0-9]{32}$")
 _PROFILE_NAME = re.compile(r"^devfabric_[a-f0-9]{32}$")
-_APPCONTAINER_PACKAGE_SID = re.compile(r"^S-1-15-2-(?:0|[1-9]\d{0,9})(?:-(?:0|[1-9]\d{0,9})){6}$")
-
-
-def validate_appcontainer_package_sid(value: str) -> str:
-    """Require one canonical package SID derived for a concrete AppContainer profile."""
-
-    if _APPCONTAINER_PACKAGE_SID.fullmatch(value) is None:
-        raise ValueError("AppContainer SID must be one exact derived package SID")
-    subauthorities = value.split("-")[4:]
-    if len(subauthorities) != 7 or any(int(item) > 0xFFFFFFFF for item in subauthorities):
-        raise ValueError("AppContainer SID contains an invalid package subauthority")
-    return value
 
 
 def _windows_last_error() -> int:

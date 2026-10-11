@@ -31,6 +31,7 @@ from devhub.windows_native import (
     WindowsNativeCodexBuildV4,
     WindowsNativeCodexBuildV5,
     WindowsNativeCodexBuildV6,
+    WindowsNativeCodexBuildV7,
 )
 
 INVENTORY_NAME = "native-build-artifact-inventory.json"
@@ -407,8 +408,15 @@ def seal_windows(root: Path, build_id: str) -> NativeBuildArtifactInventoryV1:
         receipt_stat = _plain_file(receipt_path)
         if receipt_stat.st_size > 256 * 1024:
             raise ValueError("Windows native build receipt exceeds its size bound")
-        receipt: WindowsNativeCodexBuildV4 | WindowsNativeCodexBuildV5 | WindowsNativeCodexBuildV6
-        if build_id == "windows-build-007":
+        receipt: (
+            WindowsNativeCodexBuildV4
+            | WindowsNativeCodexBuildV5
+            | WindowsNativeCodexBuildV6
+            | WindowsNativeCodexBuildV7
+        )
+        if build_id == "windows-build-008":
+            receipt = WindowsNativeCodexBuildV7.model_validate_json(receipt_path.read_bytes())
+        elif build_id == "windows-build-007":
             receipt = WindowsNativeCodexBuildV6.model_validate_json(receipt_path.read_bytes())
         elif build_id == "windows-build-006":
             receipt = WindowsNativeCodexBuildV5.model_validate_json(receipt_path.read_bytes())
