@@ -185,6 +185,14 @@ class LinuxBuildProvenanceV6(LinuxBuildProvenanceV3):
     build_id: Literal["linux-build-006"] = "linux-build-006"  # type: ignore[assignment]
 
 
+class LinuxBuildProvenanceV7(LinuxBuildProvenanceV3):
+    """Forward build identity bound to the native Linux bundle implementation."""
+
+    build_id: Literal["linux-build-007"] = "linux-build-007"  # type: ignore[assignment]
+    workflow_run_id: Annotated[int, Field(ge=1)]
+    workflow_run_attempt: Annotated[int, Field(ge=1)]
+
+
 class LinuxHostProofSummaryV1(Contract):
     process_proof_sha256: Digest
     code_mode_host_sha256: Digest
@@ -347,6 +355,11 @@ class LinuxNativeCodexBuildPayloadV6(LinuxNativeCodexBuildPayloadV3):
     process_proof: LinuxHostProofSummaryV3
 
 
+class LinuxNativeCodexBuildPayloadV7(LinuxNativeCodexBuildPayloadV3):
+    provenance: LinuxBuildProvenanceV7
+    process_proof: LinuxHostProofSummaryV3
+
+
 class LinuxNativeCodexBuildV1(Contract):
     linux_native_codex_build_id: Digest
     payload: LinuxNativeCodexBuildPayloadV1
@@ -467,6 +480,27 @@ class LinuxNativeCodexBuildV6(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> LinuxNativeCodexBuildV6:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_codex_build_id != expected:
+            raise ValueError("Linux native Codex build ID mismatch")
+        return self
+
+
+class LinuxNativeCodexBuildV7(Contract):
+    linux_native_codex_build_id: Digest
+    payload: LinuxNativeCodexBuildPayloadV7
+
+    @classmethod
+    def create(cls, payload: LinuxNativeCodexBuildPayloadV7) -> LinuxNativeCodexBuildV7:
+        return cls(
+            linux_native_codex_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeCodexBuildV7:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_codex_build_id != expected:
             raise ValueError("Linux native Codex build ID mismatch")

@@ -30,16 +30,16 @@ from derive_stage3g_production_lock import PRODUCTION_HOST_LOCK_SHA256
 from stage3g_schema_hash import read_schema_identity
 
 from devhub.linux_native import (
-    LinuxBuildProvenanceV6,
+    LinuxBuildProvenanceV7,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV3,
     LinuxNativeBinaryV1,
-    LinuxNativeCodexBuildPayloadV6,
-    LinuxNativeCodexBuildV6,
+    LinuxNativeCodexBuildPayloadV7,
+    LinuxNativeCodexBuildV7,
 )
 from devhub.native_bundle import git_blob_sha256
 
-BUILD_ID = "linux-build-006"
+BUILD_ID = "linux-build-007"
 TARGET = "x86_64-unknown-linux-gnu"
 V8_RELEASE_TAG = "rusty-v8-v150.4.0"
 V8_RELEASE_BASE = f"https://github.com/openai/codex/releases/download/{V8_RELEASE_TAG}"
@@ -653,6 +653,8 @@ def main() -> None:
     parser.add_argument("--workspace", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--expected-implementation-commit", required=True)
+    parser.add_argument("--workflow-run-id", required=True, type=int)
+    parser.add_argument("--workflow-run-attempt", required=True, type=int)
     args = parser.parse_args()
     if platform.system() != "Linux" or platform.machine().lower() != "x86_64":
         parser.error(f"{BUILD_ID} requires native Linux x86_64")
@@ -862,8 +864,10 @@ def main() -> None:
         rustc = _tool_path("rustc")
         cargo = _tool_path("cargo")
         provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
-        payload = LinuxNativeCodexBuildPayloadV6(
-            provenance=LinuxBuildProvenanceV6(
+        payload = LinuxNativeCodexBuildPayloadV7(
+            provenance=LinuxBuildProvenanceV7(
+                workflow_run_id=args.workflow_run_id,
+                workflow_run_attempt=args.workflow_run_attempt,
                 implementation_commit=implementation_commit,
                 codex_source_commit=retained.SOURCE_COMMIT,
                 source_archive_sha256=retained.SOURCE_ARCHIVE_SHA256,
@@ -893,7 +897,7 @@ def main() -> None:
             binaries=binaries,
             process_proof=summary,
         )
-        final = LinuxNativeCodexBuildV6.create(payload)
+        final = LinuxNativeCodexBuildV7.create(payload)
         (args.output / "linux-native-codex-build.json").write_text(
             final.model_dump_json(indent=2) + "\n", encoding="utf-8"
         )

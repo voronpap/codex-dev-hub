@@ -27,6 +27,9 @@ dev = [
 windows-bundle-build = [
     "pip==26.2.1",
 ]
+linux-bundle-build = [
+    "pip==26.2.1",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/devhub"]
