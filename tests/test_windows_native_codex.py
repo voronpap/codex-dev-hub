@@ -51,6 +51,7 @@ def test_windows_build_reuses_retained_source_preparation(tmp_path, monkeypatch)
     checkout = tmp_path / "pinned-source"
     root = checkout / "codex-rs"
     root.mkdir(parents=True)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(checkout.parent))
     original = b"original lock\n"
     derived = b"complete production lock\n"
     (root / "Cargo.lock").write_bytes(original)
@@ -324,6 +325,102 @@ def test_workflow_builds_exact_sibling_pair_with_one_locked_command() -> None:
     assert 'root / "target" / TARGET / "release"' in source
     assert "windows-native-codex-build.json" in source
     assert "build_id=BUILD_ID" in source
+
+
+def test_shared_process_proof_places_every_runtime_home_outside_sealed_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "sealed"
+    output.mkdir()
+    runtime_root = tmp_path / "runtime-scratch"
+    runtime_root.mkdir()
+    binary = tmp_path / "codex"
+    binary.write_bytes(b"exact binary")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    observed_homes: list[Path] = []
+
+    def proof_env(home: Path, _receipt: Path, _schema: Path, pid_path: Path) -> dict[str, str]:
+        observed_homes.append(home)
+        pid_path.write_text("4242", encoding="ascii")
+        return {"CODEX_HOME": str(home)}
+
+    def capture(
+        command: list[str], *, cwd: Path, env: dict[str, str], timeout: int
+    ) -> dict[str, object]:
+        del cwd, env, timeout
+        if "--devhub-proof-observe-router" in command:
+            observer = Path(command[command.index("--devhub-proof-observe-router") + 1])
+            observer.write_text("{}", encoding="utf-8")
+        return {
+            "exit_code": 7,
+            "timed_out": False,
+            "stdout": "",
+            "stderr": (
+                "unreviewed schema hash resolved devhub_delegate MCP config hash mismatch "
+                "approved canonical namespace mismatch Stage 3G Arm A must not configure "
+                "MCP servers reviewed devhub_delegate MCP server missing "
+                "Stage 3G host admission is fresh-thread only"
+            ),
+        }
+
+    monkeypatch.setattr(
+        WINDOWS_BUILD.retained,
+        "_verify_observer",
+        lambda _path, arm, **_kwargs: {
+            "visible_model_tools": [] if arm == "a" else [WINDOWS_BUILD.DELEGATE]
+        },
+    )
+    monkeypatch.setattr(
+        WINDOWS_BUILD.retained,
+        "_verify_default_observer",
+        lambda _path: {"visible_model_tools": list(ORDINARY_DEFAULT_VISIBLE_TOOLS_V1)},
+    )
+    monkeypatch.setattr(WINDOWS_BUILD.retained, "_proof_stopped", lambda _run: True)
+    monkeypatch.setattr(
+        WINDOWS_BUILD.retained,
+        "_verify_mcp_catalog_records",
+        lambda _records: None,
+    )
+    monkeypatch.setattr(
+        WINDOWS_BUILD.retained,
+        "_mutated_manifest",
+        lambda _source, destination, _path, _value: destination.write_text("{}", encoding="utf-8"),
+    )
+
+    result = WINDOWS_BUILD.process_proof(
+        binary,
+        output=output,
+        manifest=manifest,
+        manifest_sha256="0" * 64,
+        schema=schema,
+        python=tmp_path / "python",
+        server=tmp_path / "server.py",
+        capture=capture,
+        wait_pid_exit=lambda _pid, _timeout: True,
+        proof_env=proof_env,
+        runtime_home_root=runtime_root,
+    )
+
+    expected = {
+        "arm-a",
+        "arm-b",
+        "default",
+        "negative-wrong_schema_hash",
+        "negative-wrong_config_hash",
+        "negative-wrong_namespace",
+        "negative-arm_a_with_mcp",
+        "negative-arm_b_without_mcp",
+        "negative-resume_with_host_authority",
+        "negative-fork_with_host_authority",
+        "lookalike",
+    }
+    assert {home.relative_to(runtime_root).as_posix() for home in observed_homes} == expected
+    assert all(home.is_dir() and not home.is_relative_to(output) for home in observed_homes)
+    assert not list((output / "process-proof").rglob("codex home"))
+    assert result["same_binary"]["passed"] is True
 
 
 def _proof_fixture() -> dict[str, object]:

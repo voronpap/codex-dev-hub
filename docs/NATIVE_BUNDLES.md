@@ -287,6 +287,65 @@ packaged executor boundary are later gates. An unsupported API, OS build,
 path/ACL semantic or cleanup observation fails closed; there is no unrestricted
 fallback.
 
+### Native Linux Codex build authority
+
+The first Linux-native attempt, `linux-build-001`, is retained as failed evidence: the
+`v8_enable_sandbox` feature intentionally has no generic upstream prebuilt archive. The
+second attempt, `linux-build-002`, is also retained as failed evidence: the crates.io
+`v8-150.4.0` source package omits required ICU source data, so its source build cannot
+complete. The forward-only `linux-build-003` consumed the exact sandbox archive and
+matching generated binding from OpenAI's reviewed `rusty-v8-v150.4.0` Codex release.
+Both assets, the release checksum manifest, the pinned source `MODULE.bazel`, the
+`v8_enable_sandbox` feature and post-build rehashes are receipt-bound. It builds the exact sibling
+`codex` and `codex-code-mode-host` executables together from the pinned Codex
+source, reviewed Candidate B and host-integration patches, complete derived lock,
+Rust 1.95.0 and target `x86_64-unknown-linux-gnu`. It reuses the reviewed source
+preparation and Default/A/B observer rather than defining a second patch, lock or
+tool-surface authority. Run `38129490280` compiled that exact pair and completed
+the observed host proof, then failed closed while serializing the build receipt:
+the historical V1 proof contract required ordinary `AllowedTools=None` Default
+to be empty, while the observer correctly reported the accepted eleven ordinary
+tools. Its immutable classification is
+`POSTCOMPILATION_DEFAULT_SURFACE_CONTRACT_REPRESENTATION_FAILURE`; it is not an
+Arm A/B ceiling failure. Forward-only `linux-build-004` uses the shared ordinary
+Default authority already accepted for Windows while retaining Arm A `{}`, Arm B
+exactly the delegate, all security negatives and zero execution counters. It also
+seals the complete build output and creates a separate inventory-bound evidence
+projection that explicitly includes hidden files. V1-V3 receipts remain strict
+historical contracts. Run `38159406760` compiled and proved that exact pair, then
+failed closed when the artifact inventory encountered a non-regular process-proof
+runtime entry. The retained failure did not record the offending pathname;
+`CODEX_HOME` was the only unbounded subprocess-mutated tree in the retained
+output, and pinned Codex creates Unix arg0 symlinks there. Its immutable classification is
+`POSTPROOF_NONPLAIN_RUNTIME_SCRATCH_INVENTORY_FAILURE`. Forward-only
+`linux-build-005` keeps each proof `CODEX_HOME` in a fresh sibling runtime-scratch
+root outside sealed output, requires exhaustive cleanup, and binds the successful
+cleanup into its proof receipt. The strict recursive evidence inventory is unchanged.
+Run `38165368199` is retained as a pre-compilation registration failure: source
+preparation rejected the previously unregistered `linux-build-005` identifier, so
+Rust compilation and process proof did not start. Run `38165606388` is the immutable
+PR-head `linux-build-005` attempt. Its receipt remains valid only for that exact
+implementation commit; it cannot authorize a normal merge commit. Forward-only
+`linux-build-006` preserves the build-005 pair, proof, cleanup and inventory contracts
+and is reserved for one explicit `workflow_dispatch` on `refs/heads/main` after the
+registration change merges. Ordinary PR validation remains in Offline Core and does
+not compile the pair.
+
+Its strict self-hashed receipt binds both executable hashes, ELF class/machine,
+program interpreter, `DT_NEEDED`, absence of embedded RPATH/RUNPATH, required
+symbol versions, toolchain binaries, workflow and build/proof scripts. The
+current pre-sampling proof requires the exact ordinary eleven-tool Default, Arm A `{}`, Arm B exactly
+`{mcp__devhub_delegate.devhub_delegate}`, the existing security negatives, no
+missing sibling-host warning, clean MCP-child shutdown and zero model, provider,
+MCP-tool and real-task counters. A separate stdio EOF check requires the exact
+code-mode host to exit cleanly without a request.
+
+This receipt establishes only native Linux executable/build authority. It keeps
+`native_bundle_qualified=false`, `native_executor_isolation_qualified=false` and
+`execution_ready=false`; Python packaging, Linux isolation, secrets, mutable data,
+Ollama/accounting joins and the final platform qualification remain later gates.
+Build-020 and all OCI evidence remain immutable historical evidence.
+
 ## Delivery order
 
 1. **Windows native Codex identity and host proof.** Historical
@@ -386,8 +445,8 @@ fallback.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PARTIAL — accepted `windows-build-006` pair is bound to its historical implementation commit; forward-only `windows-build-007` is required for the current merged bundle | PENDING — native profile/build required; OCI binary does not qualify it |
-| Same-binary host authority | PARTIAL — `windows-build-006` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-007` pending | PENDING; historical OCI proof is profile-limited |
+| Exact native Codex | PARTIAL — accepted `windows-build-006` pair is bound to its historical implementation commit; forward-only `windows-build-007` is required for the current merged bundle | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required; OCI binary does not qualify it |
+| Same-binary host authority | PARTIAL — `windows-build-006` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-007` pending | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
@@ -398,7 +457,7 @@ fallback.
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PENDING directory/launcher/file manifest |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | Windows native workflow plus shared CI pending | Native Linux workflow plus shared CI pending |
+| CI/review | PASS for the `windows-build-006` native executable-pair authority slice; later package gates remain separate | Native Linux PR-head `linux-build-005` evidence pending completion; merged-main-only `linux-build-006` registration under review |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant
