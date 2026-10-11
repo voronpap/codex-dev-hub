@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import ctypes
+import hashlib
 import importlib.util
 import json
 import os
@@ -35,13 +36,15 @@ from devhub.windows_isolation import (
     WindowsIsolationEvidenceV2,
     WindowsIsolationEvidenceV3,
     WindowsIsolationEvidenceV4,
-    WindowsIsolationEvidenceV5,
+    WindowsIsolationEvidenceV6,
     WindowsIsolationProfilePayloadV1,
     WindowsIsolationProfilePayloadV2,
     WindowsIsolationProfilePayloadV3,
+    WindowsIsolationProfilePayloadV4,
     WindowsIsolationProfileV1,
     WindowsIsolationProfileV2,
     WindowsIsolationProfileV3,
+    WindowsIsolationProfileV4,
     WindowsIsolationReceiptPayloadV1,
     WindowsIsolationReceiptPayloadV2,
     WindowsIsolationReceiptPayloadV3,
@@ -50,6 +53,7 @@ from devhub.windows_isolation import (
     WindowsIsolationReceiptV2,
     WindowsIsolationReceiptV3,
     WindowsIsolationReceiptV4,
+    WindowsLauncherAuthorityV1,
     WindowsNativeImportExpectationV1,
     WindowsRuntimeAccessGrantPayloadV1,
     WindowsRuntimeAccessGrantPayloadV2,
@@ -57,6 +61,7 @@ from devhub.windows_isolation import (
     WindowsRuntimeAccessGrantV2,
     appcontainer_identity,
     windows_isolation_bootstrap_started_id,
+    windows_launcher_locator_sha256,
     windows_sandbox_spec,
 )
 
@@ -255,7 +260,116 @@ def test_v8_loader_failure_binds_exact_stage_dependency_and_winerror(tmp_path: P
         )
         == undecorated_diagnostic
     )
+
+    launcher_failure = copy.deepcopy(frame)
+    launcher_failure["schema_version"] = 9
+    launcher_failure["native_loader_bootstrap_stage"] = "launcher_authority_validation"
+    launcher_failure["native_loader_failure"] = None
+    launcher_failure["expected_launcher_locator_sha256"] = "a" * 64
+    launcher_failure["observed_launcher_locator_sha256"] = None
+    failure.write_bytes(canonical(launcher_failure))
+    with pytest.raises(probe.WindowsIsolationChildExitError) as launcher_rejected:
+        probe._raise_if_child_exited(
+            process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+    launcher_diagnostic = launcher_rejected.value.diagnostic
+    assert isinstance(launcher_diagnostic, probe.WindowsIsolationFailureDiagnosticV8)
+    assert launcher_diagnostic.payload.child_failure_status == "invalid"
+    assert launcher_diagnostic.payload.native_loader_bootstrap_stage is None
+    assert launcher_diagnostic.payload.native_loader_failure is None
     assert not result.exists()
+
+
+def test_v9_failure_diagnostic_joins_launcher_authority(tmp_path: Path) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_child_launcher_authority_v9_test")
+    profile = WindowsIsolationProfileV4.create(profile_payload_v4())
+    result = tmp_path / "child-result.json"
+    failure = tmp_path / "child-failure.json"
+    bootstrap = tmp_path / "bootstrap-started.json"
+    started_payload = probe.WindowsIsolationBootstrapStartedPayloadV1(
+        child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
+        environment_instance_id=ENVIRONMENT,
+        windows_isolation_profile_id=profile.windows_isolation_profile_id,
+        probe_sha256=profile.payload.probe_sha256,
+    )
+    started = probe.WindowsIsolationBootstrapStartedV1(
+        bootstrap_started_id=digest(canonical(started_payload.model_dump(mode="json"))),
+        payload=started_payload,
+    )
+    bootstrap.write_bytes(canonical(started.model_dump(mode="json")))
+    frame = {
+        "schema_version": 9,
+        "phase": "bootstrap_native_loader",
+        "exception_class": "RuntimeError",
+        "winerror": None,
+        "errno": None,
+        "native_loader_activation": {
+            "schema_version": 2,
+            "module_path": "python/_devfabric_native_loader.pyd",
+            "status": "failed",
+            "module_sha256": None,
+            "activated_dependencies": [],
+            "error_code": None,
+        },
+        "native_loader_bootstrap_stage": "launcher_authority_validation",
+        "native_loader_failure": None,
+        "failed_matrix_module": None,
+        "import_boundary": None,
+        "loader_code": None,
+        "loader_reason": "unknown",
+        "expected_launcher_locator_sha256": profile.payload.launcher.locator_sha256,
+        "observed_launcher_locator_sha256": None,
+        "native_import_matrix": [
+            item.model_dump(mode="json") for item in v6_child_matrix(probe, ("not_attempted",) * 6)
+        ],
+        "native_crypto_observations": [
+            item.model_dump(mode="json") for item in v5_crypto_observations(probe)
+        ],
+    }
+    failure.write_bytes(canonical(frame))
+    process = SimpleNamespace(
+        poll_exit_code=lambda: 211,
+        runtime_access_grant=runtime_access_grant_v2(profile),
+    )
+
+    with pytest.raises(probe.WindowsIsolationChildExitError) as exited:
+        probe._raise_if_child_exited(
+            process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+    diagnostic = exited.value.diagnostic
+    assert isinstance(diagnostic, probe.WindowsIsolationFailureDiagnosticV9)
+    assert diagnostic.payload.expected_launcher_locator_sha256 == (
+        profile.payload.launcher.locator_sha256
+    )
+    assert diagnostic.payload.observed_launcher_locator_sha256 is None
+
+    frame["expected_launcher_locator_sha256"] = "f" * 64
+    failure.write_bytes(canonical(frame))
+    with pytest.raises(ValidationError, match="differs from V9 profile"):
+        probe._raise_if_child_exited(
+            process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+
+    post_launcher = copy.deepcopy(frame)
+    post_launcher["expected_launcher_locator_sha256"] = profile.payload.launcher.locator_sha256
+    post_launcher["observed_launcher_locator_sha256"] = profile.payload.launcher.locator_sha256
+    post_launcher["native_loader_bootstrap_stage"] = "helper_activation"
+    failure.write_bytes(canonical(post_launcher))
+    with pytest.raises(probe.WindowsIsolationChildExitError) as post_launcher_exit:
+        probe._raise_if_child_exited(
+            process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+    post_launcher_diagnostic = post_launcher_exit.value.diagnostic
+    assert isinstance(post_launcher_diagnostic, probe.WindowsIsolationFailureDiagnosticV9)
+
+    forged = post_launcher_diagnostic.model_dump(mode="json")
+    forged["payload"]["child_failure"]["observed_launcher_locator_sha256"] = "e" * 64
+    forged["payload"]["observed_launcher_locator_sha256"] = "e" * 64
+    forged["diagnostic_id"] = digest(canonical(forged["payload"]))
+    with pytest.raises(ValidationError, match="sealed launcher authority"):
+        probe.WindowsIsolationFailureDiagnosticV9.model_validate_json(canonical(forged))
 
 
 @pytest.mark.parametrize(
@@ -372,7 +486,12 @@ def profile_payload() -> WindowsIsolationProfilePayloadV1:
 
 
 def receipt_payload(
-    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
+    profile: (
+        WindowsIsolationProfileV1
+        | WindowsIsolationProfileV2
+        | WindowsIsolationProfileV3
+        | WindowsIsolationProfileV4
+    ),
 ) -> dict[str, object]:
     return {
         "windows_isolation_profile_id": profile.windows_isolation_profile_id,
@@ -417,7 +536,12 @@ def receipt_payload_v2(profile: WindowsIsolationProfileV2) -> dict[str, object]:
 
 
 def runtime_access_grant(
-    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
+    profile: (
+        WindowsIsolationProfileV1
+        | WindowsIsolationProfileV2
+        | WindowsIsolationProfileV3
+        | WindowsIsolationProfileV4
+    ),
     sid: str = PACKAGE_SID,
 ) -> WindowsRuntimeAccessGrantV1:
     return WindowsRuntimeAccessGrantV1.create(
@@ -434,7 +558,12 @@ def runtime_access_grant(
 
 
 def runtime_access_grant_v2(
-    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
+    profile: (
+        WindowsIsolationProfileV1
+        | WindowsIsolationProfileV2
+        | WindowsIsolationProfileV3
+        | WindowsIsolationProfileV4
+    ),
     sid: str = PACKAGE_SID,
     *,
     repaired: bool = False,
@@ -512,6 +641,25 @@ def profile_payload_v3() -> WindowsIsolationProfilePayloadV3:
     )
 
 
+def profile_payload_v4() -> WindowsIsolationProfilePayloadV4:
+    payload = profile_payload_v3().model_dump(mode="python")
+    payload["schema_version"] = 4
+    locator = r"C:\qualification\bundle\python\python.exe"
+    return WindowsIsolationProfilePayloadV4(
+        **payload,
+        launcher=WindowsLauncherAuthorityV1(
+            locator=locator,
+            locator_sha256=windows_launcher_locator_sha256(locator),
+            path_identity=NativePathIdentityV1(
+                locator=locator,
+                volume_serial_number=123,
+                file_index="0000000000000004",
+            ),
+            executable_sha256="5" * 64,
+        ),
+    )
+
+
 def native_loader_bundle() -> SimpleNamespace:
     return SimpleNamespace(
         bundle_id=H,
@@ -531,6 +679,55 @@ def native_loader_bundle() -> SimpleNamespace:
             ),
         ),
     )
+
+
+@pytest.mark.windows_smoke
+def test_v4_profile_seals_launcher_locator_file_identity_and_bytes() -> None:
+    profile = WindowsIsolationProfileV4.create(profile_payload_v4())
+    launcher = profile.payload.launcher
+    assert launcher.locator_sha256 == windows_launcher_locator_sha256(launcher.locator)
+    assert launcher.path_identity.locator == launcher.locator
+    assert launcher.executable_sha256 == profile.payload.launcher_executable_sha256
+
+    locator_tamper = launcher.model_copy(update={"locator": r"C:\other\python.exe"})
+    with pytest.raises(ValidationError, match="differs from its Windows file identity"):
+        WindowsLauncherAuthorityV1.model_validate(locator_tamper.model_dump(mode="python"))
+
+    identity_tamper = launcher.path_identity.model_copy(update={"file_index": "ffffffffffffffff"})
+    changed = profile.payload.model_copy(
+        update={
+            "launcher": WindowsLauncherAuthorityV1(
+                locator=launcher.locator,
+                locator_sha256=launcher.locator_sha256,
+                path_identity=identity_tamper,
+                executable_sha256=launcher.executable_sha256,
+            )
+        }
+    )
+    changed_profile = WindowsIsolationProfileV4.create(changed)
+    assert changed_profile.windows_isolation_profile_id != profile.windows_isolation_profile_id
+
+    with pytest.raises(ValidationError, match="locator hash mismatch"):
+        WindowsLauncherAuthorityV1.model_validate(
+            launcher.model_copy(update={"locator_sha256": "f" * 64}).model_dump(mode="python")
+        )
+
+
+def test_v4_launcher_gate_rejects_same_bytes_with_substituted_file_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = WindowsIsolationProfileV4.create(profile_payload_v4())
+    launcher = profile.payload.launcher
+    substituted = launcher.path_identity.model_copy(update={"file_index": "f" * 16})
+    monkeypatch.setattr(isolation, "windows_path_identity", lambda *_args, **_kwargs: substituted)
+    monkeypatch.setattr(isolation, "_file_sha256", lambda _path: launcher.executable_sha256)
+
+    with pytest.raises(ValueError, match="launcher identity changed before ACL grant"):
+        isolation._verify_launcher_authority(
+            profile,
+            Path(launcher.locator),
+            phase="before ACL grant",
+        )
 
 
 def v4_child_matrix(
@@ -647,7 +844,12 @@ def v6_child_matrix(
 
 
 def runtime_acl_ownership(
-    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
+    profile: (
+        WindowsIsolationProfileV1
+        | WindowsIsolationProfileV2
+        | WindowsIsolationProfileV3
+        | WindowsIsolationProfileV4
+    ),
     sid: str = PACKAGE_SID,
 ) -> isolation._WindowsRuntimeAclOwnership:
     root = profile.payload.read_only_roots[0]
@@ -2923,6 +3125,11 @@ def _bootstrap_argv(
     source = Path("scripts/windows_isolation_child_bootstrap.py")
     bootstrap_sha = digest(source.read_bytes())
     probe_sha = digest(child.read_bytes())
+    launcher_sha = (
+        isolation.windows_launcher_locator_sha256(sys.executable)
+        if os.name == "nt"
+        else hashlib.sha256(os.path.normpath(sys.executable).encode("utf-8")).hexdigest()
+    )
     return (
         [
             str(source),
@@ -2936,6 +3143,8 @@ def _bootstrap_argv(
             "7" * 64,
             probe_sha,
             "7" * 64,
+            sys.executable,
+            launcher_sha,
         ],
         result,
         failure,
@@ -2971,7 +3180,7 @@ def _allow_native_loader_activation(module: Any, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(
         module,
         "_activate_native_loader",
-        lambda expected_sha256: (
+        lambda expected_sha256, _expected_launcher_locator: (
             {
                 "activated_dependencies": [
                     "libffi-8.dll",
@@ -2996,7 +3205,7 @@ def _allow_native_matrix(module: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         module,
         "_run_native_import_matrix",
-        lambda: (_successful_native_matrix(), None, None),
+        lambda _runtime_root: (_successful_native_matrix(), None, None),
     )
 
 
@@ -3027,7 +3236,9 @@ def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
     for module, *_ in bootstrap.NATIVE_IMPORT_MATRIX:
         monkeypatch.delitem(sys.modules, module, raising=False)
 
-    activation, error, bootstrap_stage, failure = bootstrap._activate_native_loader(loader_hash)
+    activation, error, bootstrap_stage, failure = bootstrap._activate_native_loader(
+        loader_hash, str(python)
+    )
     assert error is None
     assert bootstrap_stage is None
     assert failure is None
@@ -3042,7 +3253,7 @@ def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
     }
 
     wrong_hash, wrong_hash_error, wrong_hash_stage, wrong_hash_failure = (
-        bootstrap._activate_native_loader("f" * 64)
+        bootstrap._activate_native_loader("f" * 64, str(python))
     )
     assert wrong_hash["status"] == "failed"
     assert isinstance(wrong_hash_error, RuntimeError)
@@ -3063,7 +3274,7 @@ def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
         lambda _name: wrong_origin_loader,
     )
     wrong_origin, wrong_origin_error, wrong_origin_stage, wrong_origin_failure = (
-        bootstrap._activate_native_loader(loader_hash)
+        bootstrap._activate_native_loader(loader_hash, str(python))
     )
     assert wrong_origin["status"] == "failed"
     assert isinstance(wrong_origin_error, RuntimeError)
@@ -3082,7 +3293,7 @@ def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
         lambda _name: wrong_result_loader,
     )
     wrong_result, wrong_result_error, wrong_result_stage, wrong_result_failure = (
-        bootstrap._activate_native_loader(loader_hash)
+        bootstrap._activate_native_loader(loader_hash, str(python))
     )
     assert wrong_result["status"] == "failed"
     assert isinstance(wrong_result_error, RuntimeError)
@@ -3104,7 +3315,7 @@ def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
         lambda _name: undecorated_loader,
     )
     undecorated, undecorated_error, undecorated_stage, undecorated_failure = (
-        bootstrap._activate_native_loader(loader_hash)
+        bootstrap._activate_native_loader(loader_hash, str(python))
     )
     assert undecorated["status"] == "failed"
     assert isinstance(undecorated_error, MemoryError)
@@ -3126,7 +3337,7 @@ def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
         lambda _name: undecorated_numeric_loader,
     )
     numeric, numeric_error, numeric_stage, numeric_failure = bootstrap._activate_native_loader(
-        loader_hash
+        loader_hash, str(python)
     )
     assert numeric["status"] == "failed"
     assert numeric["error_code"] == 13
@@ -3137,13 +3348,105 @@ def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
 
     monkeypatch.setitem(sys.modules, "_ctypes", object())
     preloaded, preloaded_error, preloaded_stage, preloaded_failure = (
-        bootstrap._activate_native_loader(loader_hash)
+        bootstrap._activate_native_loader(loader_hash, str(python))
     )
     assert preloaded["status"] == "failed"
     assert isinstance(preloaded_error, RuntimeError)
     assert preloaded_stage == "preloaded_module_guard"
     assert preloaded_failure is None
     assert calls == [(), (), (), ()]
+
+
+def test_stdlib_bootstrap_uses_host_bound_lexical_launcher_when_resolve_is_denied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_lexical_launcher_test")
+    runtime = tmp_path / "python"
+    runtime.mkdir()
+    python = runtime / "python.exe"
+    python.write_bytes(b"MZ-python")
+    loader_path = runtime / "_devfabric_native_loader.pyd"
+    loader_path.write_bytes(b"reviewed-loader")
+    loader_hash = digest(loader_path.read_bytes())
+    loader = SimpleNamespace(
+        __file__=str(loader_path),
+        activate=lambda: bootstrap.NATIVE_LOADER_DEPENDENCIES,
+    )
+    monkeypatch.setattr(bootstrap.sys, "executable", str(python))
+    monkeypatch.setattr(
+        bootstrap.Path,
+        "resolve",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError(13, "denied")),
+    )
+    monkeypatch.setattr(bootstrap.importlib, "import_module", lambda _name: loader)
+    for module, *_ in bootstrap.NATIVE_IMPORT_MATRIX:
+        monkeypatch.delitem(sys.modules, module, raising=False)
+
+    activation, error, stage, failure = bootstrap._activate_native_loader(loader_hash, str(python))
+
+    assert error is None
+    assert stage is None
+    assert failure is None
+    assert activation["status"] == "active"
+    assert activation["module_sha256"] == loader_hash
+
+
+def test_stdlib_bootstrap_rejects_launcher_path_substitution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_launcher_substitution_test")
+    expected = tmp_path / "expected" / "python.exe"
+    observed = tmp_path / "substituted" / "python.exe"
+    expected.parent.mkdir()
+    observed.parent.mkdir()
+    expected.write_bytes(b"expected")
+    observed.write_bytes(b"substituted")
+    monkeypatch.setattr(bootstrap.sys, "executable", str(observed))
+
+    with pytest.raises(RuntimeError, match="host-bound authority"):
+        bootstrap._reviewed_runtime_root(str(expected))
+
+
+def test_stdlib_bootstrap_rejects_launcher_argv_substitution_before_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_launcher_argv_test")
+    argv, _, failure, status = _bootstrap_argv(tmp_path, "pass\n")
+    argv[11] = str(tmp_path / "substituted" / "python.exe")
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert bootstrap.main() == bootstrap.EXIT_NATIVE_LOADER_ACTIVATION
+    assert status.is_file()
+    observed = json.loads(failure.read_bytes())
+    assert observed["schema_version"] == 9
+    assert observed["native_loader_bootstrap_stage"] == "launcher_authority_validation"
+    assert observed["expected_launcher_locator_sha256"] == argv[12]
+    assert observed["observed_launcher_locator_sha256"] is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows launcher locator syntax")
+@pytest.mark.parametrize(
+    "locator",
+    [
+        r"python.exe",
+        r"\\server\share\python.exe",
+        r"\\?\C:\runtime\python.exe",
+        r"\\.\C:\runtime\python.exe",
+        r"C:\runtime\..\python.exe",
+        r"C:\runtime\.\python.exe",
+        r"C:/runtime/python.exe",
+        r"1:\runtime\python.exe",
+        "C:\\runtime \\python.exe",
+        r"C:\runtime:alternate\python.exe",
+        r"C:\runtime\python3.exe",
+    ],
+)
+def test_stdlib_bootstrap_rejects_noncanonical_windows_launcher_locators(
+    locator: str,
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_launcher_syntax_test")
+    with pytest.raises(ValueError):
+        bootstrap._normalized_launcher_locator(locator)
 
 
 def test_stdlib_bootstrap_fails_closed_when_native_loader_activation_fails(
@@ -3159,7 +3462,7 @@ def test_stdlib_bootstrap_fails_closed_when_native_loader_activation_fails(
     monkeypatch.setattr(
         bootstrap,
         "_activate_native_loader",
-        lambda _expected_sha256: (
+        lambda _expected_sha256, _expected_launcher_locator: (
             {
                 "activated_dependencies": [],
                 "error_code": 5,
@@ -3182,7 +3485,7 @@ def test_stdlib_bootstrap_fails_closed_when_native_loader_activation_fails(
     assert bootstrap.main() == bootstrap.EXIT_NATIVE_LOADER_ACTIVATION
     assert status.is_file()
     observed = json.loads(failure.read_bytes())
-    assert observed["schema_version"] == 8
+    assert observed["schema_version"] == 9
     assert observed["phase"] == "bootstrap_native_loader"
     assert observed["native_loader_bootstrap_stage"] == "helper_activation"
     assert observed["native_loader_activation"]["status"] == "failed"
@@ -3198,7 +3501,7 @@ def test_stdlib_bootstrap_fails_closed_when_native_loader_activation_fails(
     assert b"sensitive" not in failure.read_bytes()
     if os.name == "nt":
         probe = load_probe_module("windows_isolation_probe_v8_helper_round_trip_test")
-        failure_status, parsed = probe._read_child_failure_v8(failure)
+        failure_status, parsed = probe._read_child_failure_v9(failure)
         assert failure_status == "validated"
         assert parsed is not None
         assert parsed.native_loader_bootstrap_stage == "helper_activation"
@@ -3241,7 +3544,9 @@ def test_stdlib_bootstrap_v8_pre_helper_failures_round_trip_through_host_reader(
     matrix = [
         {
             "module": module,
-            "file": bootstrap._native_file_observation(relative_path, filename),
+            "file": bootstrap._native_file_observation(
+                Path(sys.executable).parent, relative_path, filename
+            ),
             "import_status": "not_attempted",
             "schema_version": 3,
         }
@@ -3254,9 +3559,12 @@ def test_stdlib_bootstrap_v8_pre_helper_failures_round_trip_through_host_reader(
         matrix,
         activation,
         native_loader_bootstrap_stage=stage,
+        runtime_root=Path(sys.executable).parent,
+        expected_launcher_locator_sha256=bootstrap._launcher_locator_sha256(sys.executable),
+        observed_launcher_locator_sha256=bootstrap._launcher_locator_sha256(sys.executable),
     )
 
-    failure_status, parsed = probe._read_child_failure_v8(failure)
+    failure_status, parsed = probe._read_child_failure_v9(failure)
     assert failure_status == "validated"
     assert parsed is not None
     assert parsed.native_loader_bootstrap_stage == stage
@@ -3272,7 +3580,7 @@ def test_stdlib_bootstrap_writes_bound_started_frame_before_valid_child(
     _allow_native_matrix(bootstrap, monkeypatch)
     argv, result, failure, status = _bootstrap_argv(
         tmp_path,
-        "def _child_guarded_v6(request, result, failure, activation, matrix):\n"
+        "def _child_guarded_v7(request, result, failure, activation, matrix, launcher):\n"
         "    result.write_bytes(b'{}')\n"
         "    return 0\n",
     )
@@ -3328,7 +3636,7 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     monkeypatch.setattr(
         bootstrap,
         "_run_native_import_matrix",
-        lambda: (observations, error, bootstrap.EXIT_MATRIX_OVERLAPPED),
+        lambda _runtime_root: (observations, error, bootstrap.EXIT_MATRIX_OVERLAPPED),
     )
     _allow_native_loader_activation(bootstrap, monkeypatch)
     monkeypatch.setattr(sys, "argv", argv)
@@ -3336,7 +3644,7 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     assert bootstrap.main() == bootstrap.EXIT_MATRIX_OVERLAPPED
     assert status.is_file()
     observed = json.loads(failure.read_bytes())
-    assert observed["schema_version"] == 8
+    assert observed["schema_version"] == 9
     assert observed["phase"] == "bootstrap_native_matrix"
     assert observed["failed_matrix_module"] == "_overlapped"
     assert observed["loader_reason"] == "unknown"
@@ -3356,7 +3664,7 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     assert import_failed.main() == import_failed.EXIT_IMPORT_UNKNOWN
     assert status.is_file()
     observed = json.loads(failure.read_bytes())
-    assert observed["schema_version"] == 8
+    assert observed["schema_version"] == 9
     assert observed["phase"] == "bootstrap_import"
     assert observed["exception_class"] == "ImportError"
     assert observed["import_boundary"] == "unknown"
@@ -3467,6 +3775,8 @@ def test_stdlib_bootstrap_v8_failure_round_trips_through_host_reader(tmp_path: P
         matrix,
         loader,
         "_overlapped",
+        expected_launcher_locator_sha256=bootstrap._launcher_locator_sha256(sys.executable),
+        observed_launcher_locator_sha256=bootstrap._launcher_locator_sha256(sys.executable),
     )
 
     raw = json.loads(failure.read_bytes())
@@ -3476,10 +3786,10 @@ def test_stdlib_bootstrap_v8_failure_round_trips_through_host_reader(tmp_path: P
     if os.name != "nt":
         return
     probe = load_probe_module("windows_isolation_probe_v8_round_trip_test")
-    status, observed = probe._read_child_failure_v8(failure)
+    status, observed = probe._read_child_failure_v9(failure)
     assert status == "validated"
     assert observed is not None
-    assert observed.schema_version == 8
+    assert observed.schema_version == 9
     assert observed.native_loader_bootstrap_stage is None
     assert observed.native_loader_failure is None
     assert observed.native_loader_activation.status == "active"
@@ -3502,6 +3812,8 @@ def test_stdlib_bootstrap_v8_failure_round_trips_through_host_reader(tmp_path: P
     historical_v7 = json.loads(failure.read_bytes())
     historical_v7["schema_version"] = 7
     historical_v7.pop("native_loader_bootstrap_stage")
+    historical_v7.pop("expected_launcher_locator_sha256")
+    historical_v7.pop("observed_launcher_locator_sha256")
     failure.write_bytes(canonical(historical_v7))
     historical_v7_status, historical_v7_observed = probe._read_child_failure_v7(failure)
     assert historical_v7_status == "validated"
@@ -3525,7 +3837,7 @@ def test_stdlib_bootstrap_distinguishes_invoke_failure_and_self_tampering(
     _allow_native_matrix(bootstrap, monkeypatch)
     argv, _, failure, status = _bootstrap_argv(
         tmp_path,
-        "def _child_guarded_v6(request, result, failure, activation, matrix):\n"
+        "def _child_guarded_v7(request, result, failure, activation, matrix, launcher):\n"
         "    raise RuntimeError('sensitive invocation detail')\n",
     )
     monkeypatch.setattr(sys, "argv", argv)
@@ -3566,7 +3878,7 @@ def test_stdlib_bootstrap_bounds_failure_before_writing_and_reserves_exit_codes(
     argv, _, failure, status = _bootstrap_argv(
         tmp_path,
         f"Oversized = type({oversized_name!r}, (Exception,), {{}})\n"
-        "def _child_guarded_v6(request, result, failure, activation, matrix):\n"
+        "def _child_guarded_v7(request, result, failure, activation, matrix, launcher):\n"
         "    raise Oversized()\n",
     )
     monkeypatch.setattr(sys, "argv", argv)
@@ -4623,7 +4935,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
             pass
 
     child = {
-        "schema_version": 2,
+        "schema_version": 3,
         "allowed_root_read_write": True,
         "inherited_handles_blocked": True,
         "inherited_handle_error_code": 6,
@@ -4685,7 +4997,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
 
     def launch(*args: object, **kwargs: object) -> Process:
         profile = args[0]
-        assert isinstance(profile, WindowsIsolationProfileV3)
+        assert isinstance(profile, WindowsIsolationProfileV4)
         execution_bundle = Path(profile.payload.read_only_roots[0].locator)
         assert execution_bundle.name.endswith(".execution-bundle")
         assert Path(args[1]).is_relative_to(execution_bundle)
@@ -4708,6 +5020,8 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         assert callable(verifier)
         assert verifier(execution_bundle) == profile.payload.native_bundle_id
         assert arguments[12] == profile.payload.native_loader.binary_sha256
+        assert arguments[13] == profile.payload.launcher.locator
+        assert arguments[14] == profile.payload.launcher.locator_sha256
         bootstrap_payload = probe.WindowsIsolationBootstrapStartedPayloadV1(
             child_bootstrap_sha256=arguments[8],
             environment_instance_id=arguments[9],
@@ -4723,12 +5037,14 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
             if marker_mode["value"] == "tampered":
                 started_json["payload"]["probe_sha256"] = "f" * 64
             Path(arguments[7]).write_bytes(canonical(started_json))
+        child["launcher_locator_sha256"] = profile.payload.launcher.locator_sha256
         Path(arguments[5]).write_bytes(canonical(child))
         process = Process()
         process.runtime_access_grant = runtime_access_grant_v2(profile)
         return process
 
-    def identity(path_value: Path) -> NativePathIdentityV1:
+    def identity(path_value: Path, *, require_directory: bool = True) -> NativePathIdentityV1:
+        del require_directory
         return NativePathIdentityV1(
             locator=str(path_value.absolute()),
             volume_serial_number=1,
@@ -4758,7 +5074,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     evidence = probe.qualify(
         bundle_root, manifest, scratch, output, ENVIRONMENT, IMPLEMENTATION_COMMIT
     )
-    retained = WindowsIsolationEvidenceV5.model_validate_json(output.read_bytes())
+    retained = WindowsIsolationEvidenceV6.model_validate_json(output.read_bytes())
     assert retained == evidence
     assert retained.receipt.payload.no_direct_network_baseline_qualified is True
     assert retained.receipt.payload.native_executor_isolation_qualified is False
@@ -4791,7 +5107,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     observed_tamper["receipt"]["payload"]["native_import_matrix"][0]["observed_sha256"] = "f" * 64
     rehash_evidence(observed_tamper)
     with pytest.raises(ValidationError, match="immutable bundle authority"):
-        WindowsIsolationEvidenceV5.model_validate_json(canonical(observed_tamper))
+        WindowsIsolationEvidenceV6.model_validate_json(canonical(observed_tamper))
 
     expectation_tamper = retained.model_dump(mode="json")
     expectation_tamper["receipt"]["payload"]["native_import_expectations"][0]["expected_sha256"] = (
@@ -4801,15 +5117,32 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         "f" * 64
     )
     rehash_evidence(expectation_tamper)
-    with pytest.raises(ValidationError, match="retained V6 profile"):
-        WindowsIsolationEvidenceV5.model_validate_json(canonical(expectation_tamper))
+    with pytest.raises(ValidationError, match="retained V9 profile"):
+        WindowsIsolationEvidenceV6.model_validate_json(canonical(expectation_tamper))
 
     loader_tamper = retained.model_dump(mode="json")
     loader_tamper["receipt"]["payload"]["native_loader"]["binary_sha256"] = "f" * 64
     loader_tamper["receipt"]["payload"]["native_loader_activation"]["module_sha256"] = "f" * 64
     rehash_evidence(loader_tamper)
-    with pytest.raises(ValidationError, match="retained V6 profile"):
-        WindowsIsolationEvidenceV5.model_validate_json(canonical(loader_tamper))
+    with pytest.raises(ValidationError, match="retained V9 profile"):
+        WindowsIsolationEvidenceV6.model_validate_json(canonical(loader_tamper))
+
+    launcher_observation_tamper = retained.model_dump(mode="json")
+    launcher_observation_tamper["receipt"]["payload"]["child_launcher_locator_sha256"] = "f" * 64
+    rehash_evidence(launcher_observation_tamper)
+    with pytest.raises(ValidationError, match="differs from host authority"):
+        WindowsIsolationEvidenceV6.model_validate_json(canonical(launcher_observation_tamper))
+
+    launcher_profile_tamper = retained.model_dump(mode="json")
+    launcher_payload = launcher_profile_tamper["profile"]["payload"]["launcher"]
+    launcher_payload["path_identity"]["file_index"] = "ffffffffffffffff"
+    profile_payload = launcher_profile_tamper["profile"]["payload"]
+    launcher_profile_tamper["profile"]["windows_isolation_profile_id"] = digest(
+        canonical(profile_payload)
+    )
+    rehash_evidence(launcher_profile_tamper)
+    with pytest.raises(ValidationError, match="retained V9 profile"):
+        WindowsIsolationEvidenceV6.model_validate_json(canonical(launcher_profile_tamper))
     assert not scratch.exists()
     assert not scratch.with_name(scratch.name + ".execution-bundle").exists()
     assert python.read_bytes() == b"MZ-native-python"
