@@ -62,7 +62,7 @@ jobs:
           uv run --locked python scripts/build_windows_native_codex.py `
             --workspace $workspace `
             --output $output `
-            --build-id windows-build-003 `
+            --build-id windows-build-004 `
             --expected-implementation-commit '${{ github.event.pull_request.head.sha || github.sha }}' `
             --workflow-run-id '${{ github.run_id }}' `
             --workflow-run-attempt '${{ github.run_attempt }}'
@@ -70,7 +70,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: devfabric-windows-build-003
+          name: devfabric-windows-build-004
           path: C:\dfw003\e
           if-no-files-found: error
           retention-days: 14

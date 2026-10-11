@@ -7,6 +7,15 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from devhub.windows_native import (
+    WindowsBuildProvenanceV2,
+    WindowsBuildProvenanceV3,
+    WindowsNativeCodexBuildPayloadV2,
+    WindowsNativeCodexBuildPayloadV3,
+    WindowsNativeCodexBuildV2,
+    WindowsNativeCodexBuildV3,
+)
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 SPEC = importlib.util.spec_from_file_location(
@@ -24,7 +33,7 @@ def test_windows_build_reuses_exact_reviewed_identities() -> None:
     candidate = (repo / "patches/stage3g-approved-call/candidate.patch").read_bytes()
     host = (repo / "patches/stage3g-approved-call/host-integration.patch").read_bytes()
 
-    assert WINDOWS_BUILD.BUILD_ID == "windows-build-003"
+    assert WINDOWS_BUILD.BUILD_ID == "windows-build-004"
     assert WINDOWS_BUILD.TARGET == "x86_64-pc-windows-msvc"
     assert hashlib.sha256(candidate).hexdigest() == retained.CANDIDATE_SHA256
     assert hashlib.sha256(host).hexdigest() == retained.HOST_SHA256
@@ -67,7 +76,7 @@ new file mode 100644
         root,
         candidate_patch=candidate,
         host_patch=host,
-        build_id="windows-build-003",
+        build_id=WINDOWS_BUILD.BUILD_ID,
     )
 
     assert (root / "candidate.txt").read_text(encoding="utf-8") == "candidate\n"
@@ -238,10 +247,10 @@ def test_workflow_binds_pull_request_head_and_never_cancels_build() -> None:
     assert "cancel-in-progress: false" in workflow
     assert "$workspace = 'C:\\dfw003\\s'" in workflow
     assert "$output = 'C:\\dfw003\\e'" in workflow
-    assert "--build-id windows-build-003" in workflow
+    assert "--build-id windows-build-004" in workflow
     assert "--workflow-run-id '${{ github.run_id }}'" in workflow
     assert "--workflow-run-attempt '${{ github.run_attempt }}'" in workflow
-    assert "name: devfabric-windows-build-003" in workflow
+    assert "name: devfabric-windows-build-004" in workflow
     assert "path: C:\\dfw003\\e" in workflow
 
 
@@ -411,9 +420,9 @@ def test_pair_contract_rejects_reordering_and_forged_self_hash(tmp_path) -> None
     host_path.write_bytes(_pe64_console() + b"host")
     codex = WINDOWS_BUILD.inspect_pe("codex", codex_path)
     host = WINDOWS_BUILD.inspect_pe("codex-code-mode-host", host_path)
-    payload = WINDOWS_BUILD.WindowsNativeCodexBuildPayloadV2(
-        provenance=WINDOWS_BUILD.WindowsBuildProvenanceV2(
-            build_id=WINDOWS_BUILD.BUILD_ID,
+    payload = WindowsNativeCodexBuildPayloadV2(
+        provenance=WindowsBuildProvenanceV2(
+            build_id="windows-build-003",
             implementation_commit="a" * 40,
             workflow_run_id=1,
             workflow_run_attempt=1,
@@ -443,7 +452,7 @@ def test_pair_contract_rejects_reordering_and_forged_self_hash(tmp_path) -> None
             code_mode_host_eof_receipt_sha256="2" * 64,
         ),
     )
-    receipt = WINDOWS_BUILD.WindowsNativeCodexBuildV2.create(payload)
+    receipt = WindowsNativeCodexBuildV2.create(payload)
     assert receipt.payload.provenance.build_id == "windows-build-003"
 
     historical_payload = payload.model_copy(
@@ -451,18 +460,294 @@ def test_pair_contract_rejects_reordering_and_forged_self_hash(tmp_path) -> None
             "provenance": payload.provenance.model_copy(update={"build_id": "windows-build-002"})
         }
     )
-    historical = WINDOWS_BUILD.WindowsNativeCodexBuildV2.create(historical_payload)
-    assert (
-        WINDOWS_BUILD.WindowsNativeCodexBuildV2.model_validate_json(historical.model_dump_json())
-        == historical
-    )
+    historical = WindowsNativeCodexBuildV2.create(historical_payload)
+    assert WindowsNativeCodexBuildV2.model_validate_json(historical.model_dump_json()) == historical
+
+    unsupported_payload = payload.model_dump(mode="python")
+    unsupported_payload["provenance"]["build_id"] = "windows-build-004"
+    with pytest.raises(ValidationError, match="windows-build-002.*windows-build-003"):
+        WindowsNativeCodexBuildPayloadV2.model_validate(unsupported_payload)
 
     raw = receipt.model_dump(mode="python")
     raw["windows_native_codex_build_id"] = "0" * 64
     with pytest.raises(ValidationError, match="build ID mismatch"):
-        WINDOWS_BUILD.WindowsNativeCodexBuildV2.model_validate(raw)
+        WindowsNativeCodexBuildV2.model_validate(raw)
 
     reordered = payload.model_dump(mode="python")
     reordered["binaries"] = tuple(reversed(reordered["binaries"]))
     with pytest.raises(ValidationError, match="ordered Codex"):
-        WINDOWS_BUILD.WindowsNativeCodexBuildPayloadV2.model_validate(reordered)
+        WindowsNativeCodexBuildPayloadV2.model_validate(reordered)
+
+
+def test_windows_build_004_binds_official_sandbox_release() -> None:
+    codex = WINDOWS_BUILD.WindowsNativeBinaryV2(
+        role="codex",
+        relative_path="binary/codex.exe",
+        sha256="1" * 64,
+        size=1,
+        pe=WINDOWS_BUILD.WindowsPeIdentityV1(dll_characteristics=0x8160),
+    )
+    host = WINDOWS_BUILD.WindowsNativeBinaryV2(
+        role="codex-code-mode-host",
+        relative_path="binary/codex-code-mode-host.exe",
+        sha256="2" * 64,
+        size=1,
+        pe=WINDOWS_BUILD.WindowsPeIdentityV1(dll_characteristics=0x8160),
+    )
+    payload = WindowsNativeCodexBuildPayloadV3(
+        provenance=WindowsBuildProvenanceV3(
+            workflow_run_id=1,
+            workflow_run_attempt=1,
+            implementation_commit="a" * 40,
+            codex_source_commit="b" * 40,
+            source_archive_sha256="3" * 64,
+            candidate_b_base_patch_sha256="4" * 64,
+            host_integration_patch_sha256="5" * 64,
+            combined_patchset_sha256="6" * 64,
+            canonical_schema_sha256="7" * 64,
+            raw_schema_file_sha256="8" * 64,
+            host_manifest_sha256="9" * 64,
+            resolved_mcp_config_sha256="a" * 64,
+            original_cargo_lock_sha256="b" * 64,
+            derived_cargo_lock_sha256="c" * 64,
+            rustc_version="rustc 1.95.0",
+            cargo_version="cargo 1.95.0",
+            rustc_sha256="d" * 64,
+            cargo_sha256="e" * 64,
+            build_script_sha256="f" * 64,
+            shared_proof_script_sha256="1" * 64,
+            workflow_sha256="2" * 64,
+            codex_module_bazel_sha256=WINDOWS_BUILD.CODEX_MODULE_BAZEL_SHA256,
+            v8_archive_url=f"{WINDOWS_BUILD.V8_RELEASE_BASE}/{WINDOWS_BUILD.V8_ARCHIVE_NAME}",
+            v8_archive_sha256=WINDOWS_BUILD.V8_ARCHIVE_SHA256,
+            v8_binding_url=f"{WINDOWS_BUILD.V8_RELEASE_BASE}/{WINDOWS_BUILD.V8_BINDING_NAME}",
+            v8_binding_sha256=WINDOWS_BUILD.V8_BINDING_SHA256,
+            v8_checksum_url=f"{WINDOWS_BUILD.V8_RELEASE_BASE}/{WINDOWS_BUILD.V8_CHECKSUM_NAME}",
+            v8_checksum_sha256=WINDOWS_BUILD.V8_CHECKSUM_SHA256,
+            v8_archive_post_build_sha256=WINDOWS_BUILD.V8_ARCHIVE_SHA256,
+            v8_binding_post_build_sha256=WINDOWS_BUILD.V8_BINDING_SHA256,
+            v8_checksum_post_build_sha256=WINDOWS_BUILD.V8_CHECKSUM_SHA256,
+        ),
+        binaries=(codex, host),
+        process_proof=WINDOWS_BUILD.WindowsHostProofSummaryV2(
+            process_proof_sha256="3" * 64,
+            code_mode_host_sha256=host.sha256,
+            code_mode_host_eof_receipt_sha256="4" * 64,
+        ),
+    )
+    receipt = WindowsNativeCodexBuildV3.create(payload)
+
+    assert receipt.payload.provenance.build_id == "windows-build-004"
+    assert receipt.payload.provenance.v8_sandbox_feature_enabled is True
+    assert WindowsNativeCodexBuildV3.model_validate_json(receipt.model_dump_json()) == receipt
+
+
+def test_download_exact_rejects_overflow_and_removes_partial_file(tmp_path, monkeypatch) -> None:
+    class Response:
+        headers: dict[str, str] = {}
+
+        def __init__(self) -> None:
+            self._raw = b"x" * 65
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, size: int) -> bytes:
+            value, self._raw = self._raw[:size], self._raw[size:]
+            return value
+
+    monkeypatch.setattr(WINDOWS_BUILD.urllib.request, "urlopen", lambda *_a, **_k: Response())
+    target = tmp_path / "overflow"
+    with pytest.raises(ValueError, match="byte limit"):
+        WINDOWS_BUILD._download_exact("https://example.invalid/asset", target, "0" * 64, 64)
+    assert not target.exists()
+
+
+def test_v8_release_environment_binds_exact_assets_and_cargo_environment(
+    tmp_path, monkeypatch
+) -> None:
+    root = tmp_path / "source" / "codex-rs"
+    root.mkdir(parents=True)
+    output = tmp_path / "evidence"
+    output.mkdir()
+    monkeypatch.setattr(
+        WINDOWS_BUILD,
+        "_verify_pinned_v8_authority",
+        lambda _root: WINDOWS_BUILD.CODEX_MODULE_BAZEL_SHA256,
+    )
+
+    def fake_download(_url: str, destination: Path, _sha256: str, _limit: int) -> int:
+        if destination.name == WINDOWS_BUILD.V8_CHECKSUM_NAME:
+            raw = (
+                f"{WINDOWS_BUILD.V8_ARCHIVE_SHA256}  {WINDOWS_BUILD.V8_ARCHIVE_NAME}\n"
+                f"{WINDOWS_BUILD.V8_BINDING_SHA256}  {WINDOWS_BUILD.V8_BINDING_NAME}\n"
+            ).encode()
+        else:
+            raw = destination.name.encode()
+        destination.write_bytes(raw)
+        return len(raw)
+
+    monkeypatch.setattr(WINDOWS_BUILD, "_download_exact", fake_download)
+    environment, observed = WINDOWS_BUILD._v8_release_environment(root, output)
+
+    assert "V8_FROM_SOURCE" not in environment
+    assert environment["RUSTY_V8_ARCHIVE_SHA256"] == WINDOWS_BUILD.V8_ARCHIVE_SHA256
+    assert environment["RUSTY_V8_ARCHIVE"].endswith(WINDOWS_BUILD.V8_ARCHIVE_NAME)
+    assert environment["RUSTY_V8_SRC_BINDING_PATH"].endswith(WINDOWS_BUILD.V8_BINDING_NAME)
+    assert observed["sandbox_feature_enabled"] is True
+
+
+def test_v8_release_environment_removes_assets_on_checksum_mismatch(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "source" / "codex-rs"
+    root.mkdir(parents=True)
+    output = tmp_path / "evidence"
+    output.mkdir()
+    monkeypatch.setattr(WINDOWS_BUILD, "_verify_pinned_v8_authority", lambda _root: "0" * 64)
+
+    def fake_download(_url: str, destination: Path, _sha256: str, _limit: int) -> int:
+        destination.write_bytes(b"wrong")
+        return 5
+
+    monkeypatch.setattr(WINDOWS_BUILD, "_download_exact", fake_download)
+    with pytest.raises(ValueError, match="checksum manifest content mismatch"):
+        WINDOWS_BUILD._v8_release_environment(root, output)
+    assert not (output / "v8-release").exists()
+
+
+@pytest.mark.parametrize(
+    "mutated_name",
+    (
+        WINDOWS_BUILD.V8_ARCHIVE_NAME,
+        WINDOWS_BUILD.V8_BINDING_NAME,
+        WINDOWS_BUILD.V8_CHECKSUM_NAME,
+    ),
+)
+def test_post_build_v8_rehash_rejects_each_mutated_asset(
+    tmp_path, monkeypatch, mutated_name
+) -> None:
+    asset_dir = tmp_path / "v8-release"
+    asset_dir.mkdir()
+    contents = {
+        WINDOWS_BUILD.V8_ARCHIVE_NAME: b"archive",
+        WINDOWS_BUILD.V8_BINDING_NAME: b"binding",
+        WINDOWS_BUILD.V8_CHECKSUM_NAME: b"checksum",
+    }
+    monkeypatch.setattr(
+        WINDOWS_BUILD,
+        "V8_ARCHIVE_SHA256",
+        hashlib.sha256(contents[WINDOWS_BUILD.V8_ARCHIVE_NAME]).hexdigest(),
+    )
+    monkeypatch.setattr(
+        WINDOWS_BUILD,
+        "V8_BINDING_SHA256",
+        hashlib.sha256(contents[WINDOWS_BUILD.V8_BINDING_NAME]).hexdigest(),
+    )
+    monkeypatch.setattr(
+        WINDOWS_BUILD,
+        "V8_CHECKSUM_SHA256",
+        hashlib.sha256(contents[WINDOWS_BUILD.V8_CHECKSUM_NAME]).hexdigest(),
+    )
+    for name, value in contents.items():
+        (asset_dir / name).write_bytes(value + (b"tampered" if name == mutated_name else b""))
+    with pytest.raises(ValueError, match="changed during build"):
+        WINDOWS_BUILD._rehash_v8_assets(tmp_path)
+
+
+def test_cargo_receives_reviewed_v8_release_environment(tmp_path, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class Process:
+        def wait(self) -> int:
+            return 0
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["environment"] = kwargs["env"]
+        return Process()
+
+    monkeypatch.setattr(WINDOWS_BUILD.subprocess, "Popen", fake_popen)
+    monkeypatch.setenv("V8_FROM_SOURCE", "1")
+    monkeypatch.setenv("RUSTY_V8_MIRROR", "https://untrusted.invalid")
+    receipt: dict[str, object] = {
+        "rust_compilation_started": False,
+        "compilation": "NOT_RUN",
+        "process_proof": None,
+    }
+    assert (
+        WINDOWS_BUILD._run_cargo_build(
+            ["cargo", "build"],
+            root=tmp_path,
+            output=tmp_path,
+            receipt=receipt,
+            build_environment={
+                "RUSTY_V8_ARCHIVE": r"C:\v8\archive.lib.gz",
+                "RUSTY_V8_ARCHIVE_SHA256": WINDOWS_BUILD.V8_ARCHIVE_SHA256,
+                "RUSTY_V8_SRC_BINDING_PATH": r"C:\v8\binding.rs",
+            },
+        )
+        == 0
+    )
+    environment = captured["environment"]
+    assert isinstance(environment, dict)
+    assert "V8_FROM_SOURCE" not in environment
+    assert "RUSTY_V8_MIRROR" not in environment
+    assert environment["RUSTY_V8_ARCHIVE"] == r"C:\v8\archive.lib.gz"
+    assert environment["RUSTY_V8_ARCHIVE_SHA256"] == WINDOWS_BUILD.V8_ARCHIVE_SHA256
+    assert environment["RUSTY_V8_SRC_BINDING_PATH"] == r"C:\v8\binding.rs"
+
+
+def test_post_build_v8_failure_records_exact_phase(tmp_path, monkeypatch) -> None:
+    receipt: dict[str, object] = {
+        "status": "COMPILING",
+        "phase": "cargo_compile",
+        "rust_compilation_started": True,
+        "compilation": "PASS",
+        "process_proof": None,
+    }
+    monkeypatch.setattr(
+        WINDOWS_BUILD,
+        "_rehash_v8_assets",
+        lambda _output: (_ for _ in ()).throw(ValueError("V8 release asset changed during build")),
+    )
+    try:
+        WINDOWS_BUILD._verify_post_build_v8_assets(receipt, tmp_path)
+    except ValueError as error:
+        WINDOWS_BUILD.record_build_failure(tmp_path, receipt, "cargo_compile", error)
+    observed = json.loads((tmp_path / "windows-build-result.json").read_bytes())
+    assert observed["phase"] == observed["failure"]["phase"] == "v8_release_post_build"
+    assert observed["rust_compilation_started"] is True
+    assert observed["compilation"] == "PASS"
+    assert observed["process_proof"] is None
+
+
+def test_cargo_wait_failure_records_sealed_compile_phase(tmp_path, monkeypatch) -> None:
+    class Process:
+        def wait(self) -> int:
+            raise OSError("wait failed")
+
+    monkeypatch.setattr(WINDOWS_BUILD.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    receipt: dict[str, object] = {
+        "status": "READY_FOR_COMPILE",
+        "phase": "ready_for_cargo",
+        "rust_compilation_started": False,
+        "compilation": "NOT_RUN",
+        "process_proof": None,
+    }
+    try:
+        WINDOWS_BUILD._run_cargo_build(
+            ["cargo", "build"],
+            root=tmp_path,
+            output=tmp_path,
+            receipt=receipt,
+            build_environment={},
+        )
+    except OSError as error:
+        WINDOWS_BUILD.record_build_failure(tmp_path, receipt, "cargo_start", error)
+    observed = json.loads((tmp_path / "windows-build-result.json").read_bytes())
+    assert observed["phase"] == observed["failure"]["phase"] == "cargo_compile"
+    assert observed["rust_compilation_started"] is True
+    assert observed["compilation"] == "NOT_RUN"
+    assert observed["process_proof"] is None

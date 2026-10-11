@@ -54,7 +54,7 @@ from devhub.native_bundle import (
     verify_native_bundle,
 )
 from devhub.runtime_artifact import normalize_distribution_name
-from devhub.windows_native import WindowsNativeCodexBuildV2
+from devhub.windows_native import WindowsNativeCodexBuildV2, WindowsNativeCodexBuildV3
 
 PYTHON_ARCHIVE = "python-3.12.10-embed-amd64.zip"
 PYTHON_ARCHIVE_SHA256 = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
@@ -71,6 +71,15 @@ HOST_SHA256 = "f22369f10ed45d04a740205fca0cb7111ddb56d3b1bdbee603dfcfdfdd7de9ad"
 COMBINED_SHA256 = "e63b68840ecec005703fc61fa1e26aba988c5a9e44a956efedbfbdea96d10c59"
 ORIGINAL_CARGO_LOCK_SHA256 = "7bb060a9b67a22503f9d15030c22122fea38623be9077d44cbadb919896a4146"
 PROOF_CARGO_LOCK_SHA256 = "9236f6c0b8703eaf337dd219c8fdfb6834c14fa430a0a83b938159016371bb88"
+V8_RELEASE_TAG = "rusty-v8-v150.4.0"
+V8_RELEASE_BASE = f"https://github.com/openai/codex/releases/download/{V8_RELEASE_TAG}"
+V8_ARCHIVE_NAME = "rusty_v8_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.lib.gz"
+V8_ARCHIVE_SHA256 = "732ec5da4243aa166799780c8519a5eea6f32f6e47657a323342794dc3c239d6"
+V8_BINDING_NAME = "src_binding_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.rs"
+V8_BINDING_SHA256 = "dabf78ba1faac127660db9862b1d0354175c71b8db2d4fcb5bacbd9c93576b16"
+V8_CHECKSUM_NAME = "rusty_v8_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.sha256"
+V8_CHECKSUM_SHA256 = "a4d6221dddb4b5724b23411eaac47caf6095489fbf9d126f65b33cef96a0a8ef"
+CODEX_MODULE_BAZEL_SHA256 = "1a6c8685d241a5390ff94432581e842c2950cbe5262b47b27d8db467cebec4c2"
 # This is a locator for the exact GitHub artifact authority. The corresponding
 # receipt and executable still have to pass every content check below.
 WINDOWS_BUILD_ARTIFACT_RUN_ID = 38065801496
@@ -632,7 +641,12 @@ def validate_windows_codex_pair_artifact(
     if accepted_run_id < 1 or accepted_run_attempt < 1:
         raise ValueError("Windows Codex pair artifact run identity must be positive")
     receipt_path = artifact / "windows-native-codex-build.json"
-    receipt = WindowsNativeCodexBuildV2.model_validate_json(receipt_path.read_bytes())
+    raw_receipt = receipt_path.read_bytes()
+    receipt: WindowsNativeCodexBuildV2 | WindowsNativeCodexBuildV3
+    try:
+        receipt = WindowsNativeCodexBuildV3.model_validate_json(raw_receipt)
+    except ValueError:
+        receipt = WindowsNativeCodexBuildV2.model_validate_json(raw_receipt)
     payload = receipt.payload
     provenance = payload.provenance
     if (

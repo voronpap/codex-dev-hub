@@ -277,7 +277,13 @@ fallback.
    `windows-build-001` retained only `codex.exe`; its valid pre-sampling proof is
    preserved but cannot authorize the operational CodeModeOnly path. The
    first paired attempt, `windows-build-002`, is retained as historical evidence.
-   The immutable-head retry is `windows-build-003`; it builds and binds
+   `windows-build-003` is also retained as failed evidence: the crates.io V8
+   build script requested an unpublished generic sandbox archive and received
+   HTTP 404. The forward-only `windows-build-004` consumes the exact sandbox
+   archive and matching generated binding from OpenAI's reviewed
+   `rusty-v8-v150.4.0` Codex release. Both assets, the release checksum manifest,
+   the pinned source `MODULE.bazel`, the `v8_enable_sandbox` feature and
+   post-build rehashes are receipt-bound. It builds and binds
    `codex.exe` and the sibling `codex-code-mode-host.exe` together for
    `x86_64-pc-windows-msvc`
    from the exact pinned source, reviewed patches and complete locked dependency

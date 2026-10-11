@@ -29,7 +29,11 @@ from devhub.benchmark import Digest, canonical, digest
 from devhub.models import Contract
 from devhub.qualification import GitCommit
 from devhub.runtime_artifact import DistributionIdentityV1, normalize_distribution_name
-from devhub.windows_native import WindowsBuildId, WindowsNativeCodexBuildV2
+from devhub.windows_native import (
+    WindowsBuildId,
+    WindowsNativeCodexBuildV2,
+    WindowsNativeCodexBuildV3,
+)
 
 NativePlatform = Literal["windows", "linux"]
 NativeArchitecture = Literal["x86_64"]
@@ -1180,8 +1184,13 @@ def verify_native_bundle(
         receipt_path = root.joinpath(*PurePosixPath(codex_authority.build_receipt_path).parts)
         if receipt_path.stat().st_size > 256 * 1024:
             raise ValueError("Windows Codex pair build receipt exceeds its size bound")
+        pair_receipt: WindowsNativeCodexBuildV2 | WindowsNativeCodexBuildV3
         try:
-            pair_receipt = WindowsNativeCodexBuildV2.model_validate_json(receipt_path.read_bytes())
+            raw_pair_receipt = receipt_path.read_bytes()
+            try:
+                pair_receipt = WindowsNativeCodexBuildV3.model_validate_json(raw_pair_receipt)
+            except ValueError:
+                pair_receipt = WindowsNativeCodexBuildV2.model_validate_json(raw_pair_receipt)
         except (OSError, ValueError) as exc:
             raise ValueError("Windows Codex pair build receipt is invalid") from exc
         provenance = pair_receipt.payload.provenance

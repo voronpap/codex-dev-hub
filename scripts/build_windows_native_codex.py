@@ -30,16 +30,25 @@ from stage3g_schema_hash import read_schema_identity
 
 from devhub.native_bundle import git_blob_sha256
 from devhub.windows_native import (
-    WindowsBuildProvenanceV2,
+    WindowsBuildProvenanceV3,
     WindowsHostProofSummaryV2,
     WindowsNativeBinaryV2,
-    WindowsNativeCodexBuildPayloadV2,
-    WindowsNativeCodexBuildV2,
+    WindowsNativeCodexBuildPayloadV3,
+    WindowsNativeCodexBuildV3,
     WindowsPeIdentityV1,
 )
 
-BUILD_ID = "windows-build-003"
+BUILD_ID = "windows-build-004"
 TARGET = "x86_64-pc-windows-msvc"
+V8_RELEASE_TAG = "rusty-v8-v150.4.0"
+V8_RELEASE_BASE = f"https://github.com/openai/codex/releases/download/{V8_RELEASE_TAG}"
+V8_ARCHIVE_NAME = "rusty_v8_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.lib.gz"
+V8_ARCHIVE_SHA256 = "732ec5da4243aa166799780c8519a5eea6f32f6e47657a323342794dc3c239d6"
+V8_BINDING_NAME = "src_binding_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.rs"
+V8_BINDING_SHA256 = "dabf78ba1faac127660db9862b1d0354175c71b8db2d4fcb5bacbd9c93576b16"
+V8_CHECKSUM_NAME = "rusty_v8_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.sha256"
+V8_CHECKSUM_SHA256 = "a4d6221dddb4b5724b23411eaac47caf6095489fbf9d126f65b33cef96a0a8ef"
+CODEX_MODULE_BAZEL_SHA256 = "1a6c8685d241a5390ff94432581e842c2950cbe5262b47b27d8db467cebec4c2"
 SCHEMA_ENV = "DEVHUB_BUILD009_SCHEMA"
 MCP_PID_ENV = "DEVHUB_BUILD009_MCP_PID"
 DELEGATE = retained.DELEGATE
@@ -84,6 +93,120 @@ def canonical_sha256(value: object) -> str:
     return sha256_bytes(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     )
+
+
+def _download_exact(url: str, destination: Path, expected_sha256: str, limit: int) -> int:
+    """Download one immutable release asset with a hard byte ceiling."""
+
+    hasher = hashlib.sha256()
+    observed = 0
+    try:
+        with urllib.request.urlopen(url, timeout=120) as response, destination.open("xb") as stream:
+            content_length = response.headers.get("Content-Length")
+            if content_length is not None and int(content_length) > limit:
+                raise ValueError("V8 release asset exceeds its reviewed byte limit")
+            while block := response.read(min(1024 * 1024, limit - observed + 1)):
+                observed += len(block)
+                if observed > limit:
+                    raise ValueError("V8 release asset exceeds its reviewed byte limit")
+                hasher.update(block)
+                stream.write(block)
+        if hasher.hexdigest() != expected_sha256:
+            raise ValueError("V8 release asset SHA-256 mismatch")
+        return observed
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+
+
+def _verify_pinned_v8_authority(root: Path) -> str:
+    module = root.parent / "MODULE.bazel"
+    raw = module.read_bytes()
+    if sha256_bytes(raw) != CODEX_MODULE_BAZEL_SHA256:
+        raise ValueError("pinned Codex MODULE.bazel identity changed")
+    text = raw.decode("utf-8", errors="strict")
+    required = (
+        'crate = "v8"',
+        '"x86_64-pc-windows-msvc": ["v8_enable_sandbox"]',
+        'name = "v8_crate_150_4_0"',
+        'urls = ["https://static.crates.io/crates/v8/v8-150.4.0.crate"]',
+    )
+    if any(item not in text for item in required):
+        raise ValueError("pinned Codex V8 sandbox authority changed")
+    return CODEX_MODULE_BAZEL_SHA256
+
+
+def _v8_release_environment(root: Path, output: Path) -> tuple[dict[str, str], dict[str, object]]:
+    """Bind exact OpenAI sandbox archive/binding assets before Cargo starts."""
+
+    module_sha256 = _verify_pinned_v8_authority(root)
+    asset_dir = output / "v8-release"
+    asset_dir.mkdir()
+    authority = (
+        (V8_CHECKSUM_NAME, V8_CHECKSUM_SHA256, 4096),
+        (V8_ARCHIVE_NAME, V8_ARCHIVE_SHA256, 64 * 1024 * 1024),
+        (V8_BINDING_NAME, V8_BINDING_SHA256, 1024 * 1024),
+    )
+    try:
+        sizes = {
+            name: _download_exact(f"{V8_RELEASE_BASE}/{name}", asset_dir / name, sha256, limit)
+            for name, sha256, limit in authority
+        }
+        checksum_lines = (asset_dir / V8_CHECKSUM_NAME).read_text(encoding="ascii").splitlines()
+        if checksum_lines != [
+            f"{V8_ARCHIVE_SHA256}  {V8_ARCHIVE_NAME}",
+            f"{V8_BINDING_SHA256}  {V8_BINDING_NAME}",
+        ]:
+            raise ValueError("official V8 checksum manifest content mismatch")
+    except Exception:
+        shutil.rmtree(asset_dir)
+        raise
+    archive = (asset_dir / V8_ARCHIVE_NAME).resolve(strict=True)
+    binding = (asset_dir / V8_BINDING_NAME).resolve(strict=True)
+    environment = {
+        "RUSTY_V8_ARCHIVE": str(archive),
+        "RUSTY_V8_ARCHIVE_SHA256": V8_ARCHIVE_SHA256,
+        "RUSTY_V8_SRC_BINDING_PATH": str(binding),
+    }
+    observed: dict[str, object] = {
+        "release_tag": V8_RELEASE_TAG,
+        "module_bazel_sha256": module_sha256,
+        "sandbox_feature_enabled": True,
+        "archive_url": f"{V8_RELEASE_BASE}/{V8_ARCHIVE_NAME}",
+        "archive_sha256": V8_ARCHIVE_SHA256,
+        "binding_url": f"{V8_RELEASE_BASE}/{V8_BINDING_NAME}",
+        "binding_sha256": V8_BINDING_SHA256,
+        "checksum_url": f"{V8_RELEASE_BASE}/{V8_CHECKSUM_NAME}",
+        "checksum_sha256": V8_CHECKSUM_SHA256,
+        "sizes": sizes,
+    }
+    return environment, observed
+
+
+def _rehash_v8_assets(output: Path) -> dict[str, str]:
+    asset_dir = output / "v8-release"
+    observed = {
+        "archive_sha256": sha256_file(asset_dir / V8_ARCHIVE_NAME),
+        "binding_sha256": sha256_file(asset_dir / V8_BINDING_NAME),
+        "checksum_sha256": sha256_file(asset_dir / V8_CHECKSUM_NAME),
+    }
+    expected = {
+        "archive_sha256": V8_ARCHIVE_SHA256,
+        "binding_sha256": V8_BINDING_SHA256,
+        "checksum_sha256": V8_CHECKSUM_SHA256,
+    }
+    if observed != expected:
+        raise ValueError("V8 release asset changed during build")
+    return observed
+
+
+def _verify_post_build_v8_assets(receipt: dict[str, object], output: Path) -> dict[str, str]:
+    receipt["phase"] = "v8_release_post_build"
+    write_build_state(output, receipt)
+    observed = _rehash_v8_assets(output)
+    receipt["v8_release_post_build"] = observed
+    write_build_state(output, receipt)
+    return observed
 
 
 def committed_provenance_hashes(repo: Path, commit: str) -> dict[str, str]:
@@ -196,6 +319,13 @@ def write_build_state(output: Path, receipt: dict[str, object]) -> None:
 def record_build_failure(
     output: Path, receipt: dict[str, object], phase: str, error: BaseException
 ) -> None:
+    sealed_phase = receipt.get("phase")
+    if phase in {"cargo_start", "cargo_compile"} and sealed_phase in {
+        "cargo_start",
+        "cargo_compile",
+        "v8_release_post_build",
+    }:
+        phase = str(sealed_phase)
     receipt["status"] = "FAIL"
     receipt["phase"] = phase
     receipt["failure"] = {
@@ -204,6 +334,53 @@ def record_build_failure(
         "message": str(error),
     }
     write_build_state(output, receipt)
+
+
+def _run_cargo_build(
+    command: list[str],
+    *,
+    root: Path,
+    output: Path,
+    receipt: dict[str, object],
+    build_environment: dict[str, str],
+) -> int:
+    """Start Cargo before recording that a meaningful compilation began."""
+
+    receipt["build_command"] = command
+    receipt["phase"] = "cargo_start"
+    write_build_state(output, receipt)
+    started = time.monotonic()
+    with (
+        (output / "build.stdout").open("xb") as stdout,
+        (output / "build.stderr").open("xb") as stderr,
+    ):
+        child_environment = os.environ.copy()
+        child_environment.pop("V8_FROM_SOURCE", None)
+        child_environment.pop("RUSTY_V8_MIRROR", None)
+        child_environment.update(build_environment)
+        child_environment.update(
+            {
+                "CARGO_BUILD_JOBS": "2",
+                "CARGO_INCREMENTAL": "0",
+            }
+        )
+        build = subprocess.Popen(
+            command,
+            cwd=root,
+            env=child_environment,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        receipt["rust_compilation_started"] = True
+        receipt["phase"] = "cargo_compile"
+        receipt["status"] = "COMPILING"
+        write_build_state(output, receipt)
+        exit_code = build.wait()
+    receipt["build_duration_seconds"] = time.monotonic() - started
+    receipt["build_exit_code"] = exit_code
+    receipt["compilation"] = "PASS" if exit_code == 0 else "FAIL"
+    write_build_state(output, receipt)
+    return exit_code
 
 
 def _host_exec(
@@ -811,6 +988,9 @@ def main() -> None:
         if fmt.returncode != 0:
             raise ValueError("pinned patched source failed cargo fmt --check")
         receipt["formatting"] = "PASS"
+        phase = "v8_release_authority"
+        build_environment, v8_release = _v8_release_environment(root, args.output)
+        receipt["v8_release"] = v8_release
         verify_runner_assets(assets, asset_hashes)
         receipt["phase"] = "ready_for_cargo"
         receipt["status"] = "READY_FOR_COMPILE"
@@ -834,32 +1014,18 @@ def main() -> None:
             "--bin",
             "codex-code-mode-host",
         ]
-        receipt["build_command"] = command
         phase = "cargo_start"
-        started = time.monotonic()
-        with (
-            (args.output / "build.stdout").open("xb") as stdout,
-            (args.output / "build.stderr").open("xb") as stderr,
-        ):
-            build = subprocess.Popen(
-                command,
-                cwd=root,
-                env={**os.environ, "CARGO_BUILD_JOBS": "2", "CARGO_INCREMENTAL": "0"},
-                stdout=stdout,
-                stderr=stderr,
-            )
-            receipt["rust_compilation_started"] = True
-            receipt["phase"] = "cargo_compile"
-            receipt["status"] = "COMPILING"
-            write_build_state(args.output, receipt)
-            phase = "cargo_compile"
-            build_exit_code = build.wait()
-        receipt["build_duration_seconds"] = time.monotonic() - started
-        receipt["build_exit_code"] = build_exit_code
-        receipt["compilation"] = "PASS" if build_exit_code == 0 else "FAIL"
-        write_build_state(args.output, receipt)
+        build_exit_code = _run_cargo_build(
+            command,
+            root=root,
+            output=args.output,
+            receipt=receipt,
+            build_environment=build_environment,
+        )
+        phase = "cargo_compile"
         if build_exit_code != 0:
             raise ValueError(f"{BUILD_ID} Rust compilation failed")
+        v8_release_post_build = _verify_post_build_v8_assets(receipt, args.output)
 
         phase = "binary_identity"
         binary_dir = args.output / "binary"
@@ -921,8 +1087,8 @@ def main() -> None:
         provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
         preparation = receipt["source_preparation"]
         assert isinstance(preparation, dict)
-        payload = WindowsNativeCodexBuildPayloadV2(
-            provenance=WindowsBuildProvenanceV2(
+        payload = WindowsNativeCodexBuildPayloadV3(
+            provenance=WindowsBuildProvenanceV3(
                 build_id=BUILD_ID,
                 implementation_commit=implementation_commit,
                 workflow_run_id=args.workflow_run_id,
@@ -940,12 +1106,22 @@ def main() -> None:
                 cargo_version=toolchain["cargo"],
                 rustc_sha256=sha256_file(rustc),
                 cargo_sha256=sha256_file(cargo),
+                codex_module_bazel_sha256=CODEX_MODULE_BAZEL_SHA256,
+                v8_archive_url=f"{V8_RELEASE_BASE}/{V8_ARCHIVE_NAME}",
+                v8_archive_sha256=V8_ARCHIVE_SHA256,
+                v8_binding_url=f"{V8_RELEASE_BASE}/{V8_BINDING_NAME}",
+                v8_binding_sha256=V8_BINDING_SHA256,
+                v8_checksum_url=f"{V8_RELEASE_BASE}/{V8_CHECKSUM_NAME}",
+                v8_checksum_sha256=V8_CHECKSUM_SHA256,
+                v8_archive_post_build_sha256=v8_release_post_build["archive_sha256"],
+                v8_binding_post_build_sha256=v8_release_post_build["binding_sha256"],
+                v8_checksum_post_build_sha256=v8_release_post_build["checksum_sha256"],
                 **provenance_hashes,
             ),
             binaries=binaries,
             process_proof=summary,
         )
-        final = WindowsNativeCodexBuildV2.create(payload)
+        final = WindowsNativeCodexBuildV3.create(payload)
         (args.output / "windows-native-codex-build.json").write_text(
             final.model_dump_json(indent=2) + "\n", encoding="utf-8"
         )

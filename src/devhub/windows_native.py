@@ -16,7 +16,7 @@ from devhub.models import Contract
 from devhub.qualification import GitCommit
 
 WindowsBinaryRole = Literal["codex", "codex-code-mode-host"]
-WindowsBuildId = Literal["windows-build-002", "windows-build-003"]
+WindowsBuildId = Literal["windows-build-002", "windows-build-003", "windows-build-004"]
 
 
 class WindowsPeIdentityV1(Contract):
@@ -44,7 +44,7 @@ class WindowsNativeBinaryV2(Contract):
 
 class WindowsBuildProvenanceV2(Contract):
     repository: Literal["voronpap/codex-dev-hub"] = "voronpap/codex-dev-hub"
-    build_id: WindowsBuildId = "windows-build-002"
+    build_id: Literal["windows-build-002", "windows-build-003"] = "windows-build-002"
     workflow_run_id: Annotated[int, Field(ge=1)]
     workflow_run_attempt: Annotated[int, Field(ge=1)]
     implementation_commit: GitCommit
@@ -67,6 +67,64 @@ class WindowsBuildProvenanceV2(Contract):
     build_script_sha256: Digest
     shared_proof_script_sha256: Digest
     workflow_sha256: Digest
+
+
+class WindowsBuildProvenanceV3(Contract):
+    repository: Literal["voronpap/codex-dev-hub"] = "voronpap/codex-dev-hub"
+    build_id: Literal["windows-build-004"] = "windows-build-004"
+    workflow_run_id: Annotated[int, Field(ge=1)]
+    workflow_run_attempt: Annotated[int, Field(ge=1)]
+    implementation_commit: GitCommit
+    codex_source_commit: GitCommit
+    source_archive_sha256: Digest
+    candidate_b_base_patch_sha256: Digest
+    host_integration_patch_sha256: Digest
+    combined_patchset_sha256: Digest
+    canonical_schema_sha256: Digest
+    raw_schema_file_sha256: Digest
+    host_manifest_sha256: Digest
+    resolved_mcp_config_sha256: Digest
+    original_cargo_lock_sha256: Digest
+    derived_cargo_lock_sha256: Digest
+    target: Literal["x86_64-pc-windows-msvc"] = "x86_64-pc-windows-msvc"
+    rustc_version: str = Field(min_length=1, max_length=4096)
+    cargo_version: str = Field(min_length=1, max_length=4096)
+    rustc_sha256: Digest
+    cargo_sha256: Digest
+    build_script_sha256: Digest
+    shared_proof_script_sha256: Digest
+    workflow_sha256: Digest
+    v8_crate_version: Literal["150.4.0"] = "150.4.0"
+    v8_build_mode: Literal["official_openai_sandbox_release"] = "official_openai_sandbox_release"
+    v8_release_tag: Literal["rusty-v8-v150.4.0"] = "rusty-v8-v150.4.0"
+    codex_module_bazel_sha256: Literal[
+        "1a6c8685d241a5390ff94432581e842c2950cbe5262b47b27d8db467cebec4c2"
+    ]
+    v8_sandbox_feature_enabled: Literal[True] = True
+    v8_archive_url: Literal[
+        "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/"
+        "rusty_v8_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.lib.gz"
+    ]
+    v8_archive_sha256: Literal["732ec5da4243aa166799780c8519a5eea6f32f6e47657a323342794dc3c239d6"]
+    v8_binding_url: Literal[
+        "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/"
+        "src_binding_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.rs"
+    ]
+    v8_binding_sha256: Literal["dabf78ba1faac127660db9862b1d0354175c71b8db2d4fcb5bacbd9c93576b16"]
+    v8_checksum_url: Literal[
+        "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/"
+        "rusty_v8_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.sha256"
+    ]
+    v8_checksum_sha256: Literal["a4d6221dddb4b5724b23411eaac47caf6095489fbf9d126f65b33cef96a0a8ef"]
+    v8_archive_post_build_sha256: Literal[
+        "732ec5da4243aa166799780c8519a5eea6f32f6e47657a323342794dc3c239d6"
+    ]
+    v8_binding_post_build_sha256: Literal[
+        "dabf78ba1faac127660db9862b1d0354175c71b8db2d4fcb5bacbd9c93576b16"
+    ]
+    v8_checksum_post_build_sha256: Literal[
+        "a4d6221dddb4b5724b23411eaac47caf6095489fbf9d126f65b33cef96a0a8ef"
+    ]
 
 
 class WindowsHostProofSummaryV2(Contract):
@@ -151,6 +209,61 @@ class WindowsNativeCodexBuildV2(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> WindowsNativeCodexBuildV2:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.windows_native_codex_build_id != expected:
+            raise ValueError("Windows native Codex build ID mismatch")
+        return self
+
+
+class WindowsNativeCodexBuildPayloadV3(Contract):
+    provenance: WindowsBuildProvenanceV3
+    binaries: tuple[WindowsNativeBinaryV2, WindowsNativeBinaryV2]
+    process_proof: WindowsHostProofSummaryV2
+    compilation: Literal["PASS"] = "PASS"
+    qualification: Literal["WINDOWS_NATIVE_CODEX_PAIR_AUTHORITY_PRE_SAMPLING"] = (
+        "WINDOWS_NATIVE_CODEX_PAIR_AUTHORITY_PRE_SAMPLING"
+    )
+    native_bundle_qualified: Literal[False] = False
+    native_executor_isolation_qualified: Literal[False] = False
+    execution_ready: Literal[False] = False
+
+    @field_validator("binaries")
+    @classmethod
+    def exact_binary_pair(
+        cls, value: tuple[WindowsNativeBinaryV2, WindowsNativeBinaryV2]
+    ) -> tuple[WindowsNativeBinaryV2, WindowsNativeBinaryV2]:
+        if tuple(item.role for item in value) != ("codex", "codex-code-mode-host"):
+            raise ValueError("Windows build must bind the ordered Codex/code-mode-host pair")
+        if value[0].sha256 == value[1].sha256:
+            raise ValueError("Windows build binaries must have distinct identities")
+        return value
+
+    @model_validator(mode="after")
+    def proof_uses_exact_sibling_host(self) -> WindowsNativeCodexBuildPayloadV3:
+        host = self.binaries[1]
+        if (
+            self.process_proof.code_mode_host_sha256 != host.sha256
+            or self.process_proof.code_mode_host_relative_path != host.relative_path
+        ):
+            raise ValueError("Windows process proof does not bind the exact sibling code-mode host")
+        return self
+
+
+class WindowsNativeCodexBuildV3(Contract):
+    windows_native_codex_build_id: Digest
+    payload: WindowsNativeCodexBuildPayloadV3
+
+    @classmethod
+    def create(cls, payload: WindowsNativeCodexBuildPayloadV3) -> WindowsNativeCodexBuildV3:
+        return cls(
+            windows_native_codex_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> WindowsNativeCodexBuildV3:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.windows_native_codex_build_id != expected:
             raise ValueError("Windows native Codex build ID mismatch")
