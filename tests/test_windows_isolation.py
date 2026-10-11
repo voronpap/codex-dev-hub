@@ -3131,9 +3131,9 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     assert not failure.exists()
 
 
+@pytest.mark.windows_smoke
 def test_stdlib_bootstrap_v6_failure_round_trips_through_host_reader(tmp_path: Path) -> None:
     bootstrap = load_bootstrap_module("windows_isolation_bootstrap_v6_round_trip_test")
-    probe = load_probe_module("windows_isolation_probe_v6_round_trip_test")
     failure = tmp_path / "child-failure.json"
     matrix = _successful_native_matrix()
     matrix[2]["import_status"] = "failed"
@@ -3161,6 +3161,9 @@ def test_stdlib_bootstrap_v6_failure_round_trips_through_host_reader(tmp_path: P
     assert [item["schema_version"] for item in raw["native_import_matrix"]] == [3] * 6
     assert [item["file"]["schema_version"] for item in raw["native_import_matrix"]] == [3] * 6
     assert [item["schema_version"] for item in raw["native_crypto_observations"]] == [1] * 4
+    if os.name != "nt":
+        return
+    probe = load_probe_module("windows_isolation_probe_v6_round_trip_test")
     status, observed = probe._read_child_failure_v6(failure)
     assert status == "validated"
     assert observed is not None
