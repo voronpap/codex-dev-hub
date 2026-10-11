@@ -430,6 +430,16 @@ Build-020 and all OCI evidence remain immutable historical evidence.
    after the registration change merges, so a PR-head compilation cannot become
    stale solely because the normal merge commit changes the implementation identity.
    Ordinary PR validation remains in Offline Core and does not compile the pair.
+   Run `38169871650` at commit
+   `c886b042eb57d24a1893d16f5752ac03ef24398a` completed
+   `windows-build-007`, including the exact native pair,
+   ordinary Default/Arm A/Arm B same-binary proof, EOF and security negatives.
+   That receipt remains authority for its exact historical implementation commit.
+   The subsequently merged Windows broker and packaging changes require a new
+   exact-commit pair; forward-only `windows-build-008` preserves all build-007
+   proof semantics and keeps build-002 through build-007 receipts parseable.
+   Build-008 is likewise reserved for one explicit `workflow_dispatch` on merged
+   `main`; PR validation only registers and tests its strict contract.
 2. **Self-contained runtime directory.** Freeze one reviewed Windows CPython and
    non-editable DevFabric wheel environment, verify distribution metadata/RECORD,
    dependency lock, module origin and entrypoint, and bundle the accepted
@@ -499,8 +509,8 @@ mandatory before Linux readiness.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PARTIAL — accepted `windows-build-006` pair is bound to its historical implementation commit; forward-only `windows-build-007` is required for the current merged bundle | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required; OCI binary does not qualify it |
-| Same-binary host authority | PARTIAL — `windows-build-006` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-007` pending | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required |
+| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required; OCI binary does not qualify it |
+| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
@@ -511,7 +521,7 @@ mandatory before Linux readiness.
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PENDING directory/launcher/file manifest |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for the `windows-build-006` native executable-pair authority slice; later package gates remain separate | Native Linux PR-head `linux-build-005` evidence pending completion; merged-main-only `linux-build-006` registration under review |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | Native Linux PR-head `linux-build-005` evidence pending completion; merged-main-only `linux-build-006` registration under review |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

@@ -20,6 +20,7 @@ from devhub.windows_native import (
     WindowsBuildProvenanceV4,
     WindowsBuildProvenanceV5,
     WindowsBuildProvenanceV6,
+    WindowsBuildProvenanceV7,
     WindowsHostProofSummaryV2,
     WindowsHostProofSummaryV3,
     WindowsNativeBinaryV2,
@@ -27,10 +28,12 @@ from devhub.windows_native import (
     WindowsNativeCodexBuildPayloadV4,
     WindowsNativeCodexBuildPayloadV5,
     WindowsNativeCodexBuildPayloadV6,
+    WindowsNativeCodexBuildPayloadV7,
     WindowsNativeCodexBuildV3,
     WindowsNativeCodexBuildV4,
     WindowsNativeCodexBuildV5,
     WindowsNativeCodexBuildV6,
+    WindowsNativeCodexBuildV7,
     WindowsPeIdentityV1,
 )
 
@@ -442,7 +445,7 @@ def test_validate_windows_codex_pair_artifact_binds_both_executables(tmp_path: P
         BUNDLE.validate_windows_codex_artifact(tmp_path, 42, 3)
 
 
-def test_validate_windows_codex_pair_accepts_forward_v4_v5_v6_and_preserves_v3(
+def test_validate_windows_codex_pair_accepts_forward_v4_through_v7_and_preserves_v3(
     tmp_path: Path,
 ) -> None:
     historical = _write_codex_pair_artifact(tmp_path)
@@ -502,6 +505,24 @@ def test_validate_windows_codex_pair_accepts_forward_v4_v5_v6_and_preserves_v3(
 
     assert authority.build_id == "windows-build-007"
     assert authority.windows_native_codex_build_id == latest.windows_native_codex_build_id
+
+    current_provenance = latest.payload.provenance.model_dump(mode="python")
+    current_provenance["build_id"] = "windows-build-008"
+    current = WindowsNativeCodexBuildV7.create(
+        WindowsNativeCodexBuildPayloadV7(
+            provenance=WindowsBuildProvenanceV7.model_validate(current_provenance),
+            binaries=latest.payload.binaries,
+            process_proof=latest.payload.process_proof,
+        )
+    )
+    (tmp_path / "windows-native-codex-build.json").write_text(
+        current.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+
+    authority = BUNDLE.validate_windows_codex_artifact(tmp_path, 42, 3)
+
+    assert authority.build_id == "windows-build-008"
+    assert authority.windows_native_codex_build_id == current.windows_native_codex_build_id
 
 
 @pytest.mark.parametrize(("run_id", "attempt"), [(41, 3), (42, 2)])
