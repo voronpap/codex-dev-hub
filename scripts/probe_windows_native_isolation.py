@@ -25,11 +25,11 @@ from devhub.models import Contract, ContractV2
 from devhub.native_bundle import NativeBundleV1, verify_native_bundle
 from devhub.windows_isolation import (
     WindowsIsolationChildResultV1,
-    WindowsIsolationEvidenceV2,
+    WindowsIsolationEvidenceV3,
     WindowsIsolationProfilePayloadV2,
     WindowsIsolationProfileV2,
-    WindowsIsolationReceiptPayloadV2,
-    WindowsIsolationReceiptV2,
+    WindowsIsolationReceiptPayloadV3,
+    WindowsIsolationReceiptV3,
     _reject_reparse_chain,
     appcontainer_identity,
     launch_windows_isolated,
@@ -652,7 +652,7 @@ def qualify(
     output: Path,
     environment_instance_id: str,
     expected_implementation_commit: str,
-) -> WindowsIsolationEvidenceV2:
+) -> WindowsIsolationEvidenceV3:
     scratch = Path(os.path.abspath(scratch))
     output = Path(os.path.abspath(output))
     failure_output = output.with_name(output.name + ".failure.json")
@@ -694,7 +694,7 @@ def qualify(
     listener: socket.socket | None = None
     event: int | None = None
     process: Any | None = None
-    evidence: WindowsIsolationEvidenceV2 | None = None
+    evidence: WindowsIsolationEvidenceV3 | None = None
     primary_error: BaseException | None = None
     failure_diagnostic: WindowsIsolationFailureDiagnosticV2 | None = None
     try:
@@ -765,6 +765,16 @@ def qualify(
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONNOUSERSITE": "1",
         }
+
+        def verify_execution_bundle(root: Path) -> str:
+            verify_native_bundle(
+                bundle,
+                root,
+                expected_platform="windows",
+                expected_architecture="x86_64",
+            )
+            return bundle.bundle_id
+
         process = launch_windows_isolated(
             profile,
             python,
@@ -784,7 +794,10 @@ def qualify(
             ),
             cwd=allowed,
             environment=environment,
+            verify_runtime_bundle=verify_execution_bundle,
         )
+        if process.runtime_access_grant is None:
+            raise RuntimeError("Windows sandbox launch did not retain its runtime access grant")
         deadline = time.monotonic() + 30
         while not child_result.is_file() and time.monotonic() < deadline:
             try:
@@ -816,13 +829,14 @@ def qualify(
         profile_deleted = process.close()
         host_registry_unchanged = not _registry_exists(registry_path)
         spec = windows_sandbox_spec(profile)
-        payload = WindowsIsolationReceiptPayloadV2(
+        payload = WindowsIsolationReceiptPayloadV3(
             windows_isolation_profile_id=profile.windows_isolation_profile_id,
             environment_instance_id=environment_instance_id,
             probe_sha256=profile.payload.probe_sha256,
             child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
             bootstrap_started_id=bootstrap_started.bootstrap_started_id,
             bootstrap_started_validated=True,
+            runtime_access_grant=process.runtime_access_grant,
             sandbox_spec_sha256=digest(spec),
             observed_windows_build=observed_build,
             observed_architecture=observed_architecture,
@@ -840,8 +854,8 @@ def qualify(
             direct_public_denied=child.public.denied,
             appcontainer_profile_deleted=profile_deleted,
         )
-        receipt = WindowsIsolationReceiptV2.create(payload)
-        evidence = WindowsIsolationEvidenceV2.create(profile, spec, receipt)
+        receipt = WindowsIsolationReceiptV3.create(payload)
+        evidence = WindowsIsolationEvidenceV3.create(profile, spec, receipt)
     except BaseException as error:
         primary_error = error
     cleanup_errors = _cleanup_probe_resources(

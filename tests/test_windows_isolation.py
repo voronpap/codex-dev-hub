@@ -4,6 +4,8 @@ import ctypes
 import importlib.util
 import json
 import os
+import secrets
+import shutil
 import struct
 import subprocess
 import sys
@@ -16,19 +18,26 @@ from pydantic import ValidationError
 import devhub.windows_isolation as isolation
 from devhub.benchmark import canonical, digest
 from devhub.windows_isolation import (
+    WINDOWS_RUNTIME_ACCESS_INHERITANCE,
+    WINDOWS_RUNTIME_ACCESS_MASK,
     WINDOWS_SANDBOX_SCHEMA_IDENTITY,
     NativePathIdentityV1,
     WindowsIsolationChildResultV1,
     WindowsIsolationEvidenceV1,
     WindowsIsolationEvidenceV2,
+    WindowsIsolationEvidenceV3,
     WindowsIsolationProfilePayloadV1,
     WindowsIsolationProfilePayloadV2,
     WindowsIsolationProfileV1,
     WindowsIsolationProfileV2,
     WindowsIsolationReceiptPayloadV1,
     WindowsIsolationReceiptPayloadV2,
+    WindowsIsolationReceiptPayloadV3,
     WindowsIsolationReceiptV1,
     WindowsIsolationReceiptV2,
+    WindowsIsolationReceiptV3,
+    WindowsRuntimeAccessGrantPayloadV1,
+    WindowsRuntimeAccessGrantV1,
     appcontainer_identity,
     windows_isolation_bootstrap_started_id,
     windows_sandbox_spec,
@@ -37,6 +46,7 @@ from devhub.windows_isolation import (
 H = "1" * 64
 ENVIRONMENT = "2" * 32
 IMPLEMENTATION_COMMIT = "3" * 40
+PACKAGE_SID = "S-1-15-2-1-2-3-4-5-6-7"
 
 
 def load_probe_module(name: str):
@@ -149,6 +159,7 @@ def test_missing_systemroot_fails_before_native_api_acquisition(
             ("-c", "pass"),
             cwd=Path(r"C:\qualification\workspace"),
             environment={},
+            verify_runtime_bundle=lambda _: H,
         )
 
 
@@ -170,6 +181,7 @@ def test_caller_supplied_local_app_data_fails_before_native_api_acquisition(
                 "SYSTEMROOT": r"C:\Windows",
                 "LOCALAPPDATA": r"C:\caller-controlled",
             },
+            verify_runtime_bundle=lambda _: H,
         )
 
 
@@ -240,6 +252,49 @@ def receipt_payload_v2(profile: WindowsIsolationProfileV2) -> dict[str, object]:
     return payload
 
 
+def runtime_access_grant(
+    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2,
+    sid: str = PACKAGE_SID,
+) -> WindowsRuntimeAccessGrantV1:
+    return WindowsRuntimeAccessGrantV1.create(
+        WindowsRuntimeAccessGrantPayloadV1(
+            appcontainer_identity=profile.payload.appcontainer_identity,
+            appcontainer_sid=sid,
+            root=profile.payload.read_only_roots[0],
+            native_bundle_id=profile.payload.native_bundle_id,
+            launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+            verified_entry_count=3,
+            acl_inventory_sha256="7" * 64,
+        )
+    )
+
+
+def runtime_acl_ownership(
+    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2,
+    sid: str = PACKAGE_SID,
+) -> isolation._WindowsRuntimeAclOwnership:
+    root = profile.payload.read_only_roots[0]
+    return isolation._WindowsRuntimeAclOwnership(
+        root=root,
+        sid=sid,
+        entries=(
+            isolation._WindowsRuntimeAclOwnedEntry(
+                identity=root,
+                relative_path=".",
+                kind="directory",
+                inheritance_flags=WINDOWS_RUNTIME_ACCESS_INHERITANCE,
+            ),
+        ),
+    )
+
+
+def receipt_payload_v3(profile: WindowsIsolationProfileV2) -> dict[str, object]:
+    payload = receipt_payload_v2(profile)
+    payload["schema_version"] = 3
+    payload["runtime_access_grant"] = runtime_access_grant(profile)
+    return payload
+
+
 @pytest.mark.windows_smoke
 def test_profile_and_receipt_are_canonical_strict_authority() -> None:
     profile = WindowsIsolationProfileV1.create(profile_payload())
@@ -302,6 +357,752 @@ def test_v2_profile_receipt_and_evidence_bind_child_bootstrap_without_reinterpre
     del missing["bootstrap_started_id"]
     with pytest.raises(ValidationError):
         WindowsIsolationReceiptPayloadV2.model_validate(missing)
+
+
+@pytest.mark.windows_smoke
+def test_runtime_access_grant_is_exact_strict_and_bound_to_v3_evidence() -> None:
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    grant = runtime_access_grant(profile)
+    assert grant.payload.access_mask == 0x001200A9 == WINDOWS_RUNTIME_ACCESS_MASK
+    assert grant.payload.inheritance_flags == 0x3 == WINDOWS_RUNTIME_ACCESS_INHERITANCE
+    assert grant.payload.access_mode == "grant_access"
+    assert grant.payload.root == profile.payload.read_only_roots[0]
+    assert grant.payload.native_bundle_id == profile.payload.native_bundle_id
+    assert grant.payload.verified_entry_count == 3
+    assert grant.payload.acl_inventory_sha256 == "7" * 64
+
+    changed = grant.payload.model_dump(mode="json")
+    changed["access_mask"] |= 0x2 | 0x10000 | 0x40000 | 0x80000
+    with pytest.raises(ValidationError):
+        WindowsRuntimeAccessGrantPayloadV1.model_validate(changed)
+
+    receipt = WindowsIsolationReceiptV3.create(
+        WindowsIsolationReceiptPayloadV3.model_validate(receipt_payload_v3(profile))
+    )
+    wrong_root = runtime_access_grant(
+        WindowsIsolationProfileV2.create(
+            profile_payload_v2().model_copy(update={"read_only_roots": (path("other-bundle", 9),)})
+        )
+    )
+    changed_receipt = WindowsIsolationReceiptV3.create(
+        receipt.payload.model_copy(update={"runtime_access_grant": wrong_root})
+    )
+    with pytest.raises(ValidationError, match="does not bind"):
+        WindowsIsolationEvidenceV3.create(profile, windows_sandbox_spec(profile), changed_receipt)
+
+    legacy_receipt = WindowsIsolationReceiptV2.create(
+        WindowsIsolationReceiptPayloadV2.model_validate(receipt_payload_v2(profile))
+    )
+    assert (
+        WindowsIsolationReceiptV2.model_validate_json(
+            canonical(legacy_receipt.model_dump(mode="json"))
+        )
+        == legacy_receipt
+    )
+    incompatible = receipt_payload_v2(profile)
+    incompatible["runtime_access_grant"] = grant
+    with pytest.raises(ValidationError):
+        WindowsIsolationReceiptPayloadV2.model_validate(incompatible)
+
+
+@pytest.mark.parametrize(
+    "invalid_sid",
+    [
+        "S-1-15-2-1",
+        "S-1-15-2-2",
+        "S-1-15-2-1-2-3-4-5-6",
+        "S-1-15-2-1-2-3-4-5-6-7-8",
+        "S-1-15-2-01-2-3-4-5-6-7",
+        "S-1-15-2-4294967296-2-3-4-5-6-7",
+        "S-1-15-3-1-2-3-4-5-6-7",
+    ],
+)
+def test_runtime_access_grant_and_v3_evidence_reject_non_package_sid(
+    invalid_sid: str,
+) -> None:
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    grant = runtime_access_grant(profile).model_dump(mode="json")
+    grant_payload = grant["payload"]
+    assert isinstance(grant_payload, dict)
+    grant_payload["appcontainer_sid"] = invalid_sid
+    grant["runtime_access_grant_id"] = digest(canonical(grant_payload))
+    with pytest.raises(ValidationError, match="exact derived package SID|subauthority"):
+        WindowsRuntimeAccessGrantV1.model_validate(grant)
+
+    receipt = receipt_payload_v3(profile)
+    receipt["runtime_access_grant"] = grant
+    with pytest.raises(ValidationError, match="exact derived package SID|subauthority"):
+        WindowsIsolationReceiptPayloadV3.model_validate(receipt)
+
+
+@pytest.mark.parametrize(
+    "invalid_sid",
+    ["S-1-15-2-1", "S-1-15-2-2", "S-1-15-2-1-2-3-4-5-6"],
+)
+def test_runtime_acl_rejects_invalid_native_sid_before_any_filesystem_observation(
+    invalid_sid: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "read_only_roots": (
+                    NativePathIdentityV1(
+                        locator=str(bundle), volume_serial_number=7, file_index="1" * 16
+                    ),
+                ),
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+            }
+        )
+    )
+    monkeypatch.setattr(
+        isolation,
+        "windows_path_identity",
+        lambda *_args, **_kwargs: pytest.fail("path identity observed before SID validation"),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_windows_acl_snapshot",
+        lambda *_: pytest.fail("DACL observed before SID validation"),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_set_windows_sid_acl_entry",
+        lambda *_args, **_kwargs: pytest.fail("DACL changed before SID validation"),
+    )
+    owned = isolation.OwnedAppContainerProfile(
+        profile.payload.appcontainer_identity, invalid_sid, tmp_path / "local"
+    )
+    with pytest.raises(ValueError, match="exact derived package SID"):
+        isolation._install_appcontainer_runtime_access(profile, owned, executable)
+
+
+def test_runtime_access_grant_applies_and_rechecks_every_entry_and_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    library = bundle / "DLLs" / "_ctypes.pyd"
+    library.parent.mkdir()
+    library.write_bytes(b"extension")
+    root_identity = NativePathIdentityV1(
+        locator=str(bundle), volume_serial_number=7, file_index="1" * 16
+    )
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "read_only_roots": (root_identity,),
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+            }
+        )
+    )
+    identities = {
+        bundle: root_identity,
+        library.parent: NativePathIdentityV1(
+            locator=str(library.parent), volume_serial_number=7, file_index="2" * 16
+        ),
+        library: NativePathIdentityV1(
+            locator=str(library), volume_serial_number=7, file_index="3" * 16
+        ),
+        executable: NativePathIdentityV1(
+            locator=str(executable), volume_serial_number=7, file_index="4" * 16
+        ),
+    }
+    granted: set[Path] = set()
+    calls: list[tuple[Path, str, int, int]] = []
+
+    def snapshot(observed: Path) -> isolation._WindowsAclSnapshot:
+        if observed not in granted:
+            return isolation._WindowsAclSnapshot(False, ())
+        flags = WINDOWS_RUNTIME_ACCESS_INHERITANCE if observed.is_dir() else 0
+        return isolation._WindowsAclSnapshot(
+            False,
+            (isolation._WindowsAclEntry(PACKAGE_SID, WINDOWS_RUNTIME_ACCESS_MASK, 1, flags),),
+        )
+
+    def apply(root: Path, sid: str, mask: int, inheritance: int) -> None:
+        calls.append((root, sid, mask, inheritance))
+        granted.add(root)
+
+    monkeypatch.setattr(isolation, "windows_path_identity", lambda path, **_: identities[path])
+    monkeypatch.setattr(isolation, "_windows_acl_snapshot", snapshot)
+    monkeypatch.setattr(isolation, "_set_windows_sid_acl_entry", apply)
+    owned = isolation.OwnedAppContainerProfile(
+        profile.payload.appcontainer_identity,
+        PACKAGE_SID,
+        tmp_path / "local",
+    )
+    ownership = isolation._install_appcontainer_runtime_access(
+        profile,
+        owned,
+        executable,
+    )
+    grant = isolation._verified_appcontainer_runtime_access(
+        profile,
+        owned,
+        ownership,
+        executable,
+        lambda root: profile.payload.native_bundle_id,
+    )
+    assert calls == [
+        (
+            bundle,
+            PACKAGE_SID,
+            WINDOWS_RUNTIME_ACCESS_MASK,
+            WINDOWS_RUNTIME_ACCESS_INHERITANCE,
+        ),
+        (
+            bundle / "DLLs",
+            PACKAGE_SID,
+            WINDOWS_RUNTIME_ACCESS_MASK,
+            WINDOWS_RUNTIME_ACCESS_INHERITANCE,
+        ),
+        (
+            library,
+            PACKAGE_SID,
+            WINDOWS_RUNTIME_ACCESS_MASK,
+            0,
+        ),
+        (
+            executable,
+            PACKAGE_SID,
+            WINDOWS_RUNTIME_ACCESS_MASK,
+            0,
+        ),
+    ]
+    assert grant.payload.root == root_identity
+    assert grant.payload.appcontainer_sid == PACKAGE_SID
+    assert grant.payload.verified_entry_count == 4
+    assert grant.payload.post_grant_bundle_verified is True
+
+
+@pytest.mark.parametrize("failure", ["set", "verify", "broad", "protected", "bundle"])
+def test_runtime_access_grant_fails_closed_for_partial_or_unsafe_acl(
+    failure: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    root_identity = NativePathIdentityV1(
+        locator=str(bundle), volume_serial_number=7, file_index="1" * 16
+    )
+    executable_identity = NativePathIdentityV1(
+        locator=str(executable), volume_serial_number=7, file_index="2" * 16
+    )
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "read_only_roots": (root_identity,),
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+            }
+        )
+    )
+    granted: set[Path] = set()
+
+    def identity(path: Path, **_: object) -> NativePathIdentityV1:
+        return root_identity if path == bundle else executable_identity
+
+    def snapshot(path: Path) -> isolation._WindowsAclSnapshot:
+        if failure == "broad":
+            return isolation._WindowsAclSnapshot(
+                False,
+                (isolation._WindowsAclEntry("S-1-15-2-1", 1, 1, 3),),
+            )
+        if path in granted:
+            mask = (
+                WINDOWS_RUNTIME_ACCESS_MASK | 0x2
+                if failure == "verify"
+                else WINDOWS_RUNTIME_ACCESS_MASK
+            )
+            return isolation._WindowsAclSnapshot(
+                failure == "protected" and path == executable,
+                (isolation._WindowsAclEntry(PACKAGE_SID, mask, 1, 3 if path.is_dir() else 0),),
+            )
+        return isolation._WindowsAclSnapshot(False, ())
+
+    def apply(path: Path, *_: object, access_mode: int = 1, **__: object) -> None:
+        if access_mode == 4:
+            granted.discard(path)
+        elif failure == "set":
+            raise isolation.WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", 5, "injected partial ACL failure"
+            )
+        else:
+            granted.add(path)
+
+    monkeypatch.setattr(isolation, "windows_path_identity", identity)
+    monkeypatch.setattr(isolation, "_windows_acl_snapshot", snapshot)
+    monkeypatch.setattr(isolation, "_set_windows_sid_acl_entry", apply)
+    with pytest.raises(
+        (
+            ValueError,
+            isolation.WindowsIsolationLaunchError,
+            isolation.WindowsRuntimeAclRollbackError,
+        )
+    ):
+        owned = isolation.OwnedAppContainerProfile(
+            profile.payload.appcontainer_identity,
+            PACKAGE_SID,
+            tmp_path / "local",
+        )
+        ownership = isolation._install_appcontainer_runtime_access(
+            profile,
+            owned,
+            executable,
+        )
+        isolation._verified_appcontainer_runtime_access(
+            profile,
+            owned,
+            ownership,
+            executable,
+            lambda _: "0" * 64 if failure == "bundle" else profile.payload.native_bundle_id,
+        )
+
+
+@pytest.mark.parametrize("failure", ["root", "owned", "broad", "protected"])
+def test_runtime_acl_preflight_failure_performs_no_acl_mutation(
+    failure: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    child = bundle / "DLLs"
+    child.mkdir()
+    root_identity = NativePathIdentityV1(
+        locator=str(bundle), volume_serial_number=7, file_index="1" * 16
+    )
+    child_identity = NativePathIdentityV1(
+        locator=str(child), volume_serial_number=7, file_index="2" * 16
+    )
+    changed_root = root_identity.model_copy(update={"file_index": "3" * 16})
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "read_only_roots": (root_identity,),
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+            }
+        )
+    )
+    writes: list[Path] = []
+    revocations: list[isolation._WindowsRuntimeAclOwnership] = []
+
+    def identity(path: Path, **_: object) -> NativePathIdentityV1:
+        if path == bundle:
+            return changed_root if failure == "root" else root_identity
+        return child_identity
+
+    def snapshot(path: Path) -> isolation._WindowsAclSnapshot:
+        if failure == "owned" and path == bundle:
+            return isolation._WindowsAclSnapshot(
+                False,
+                (isolation._WindowsAclEntry(PACKAGE_SID, WINDOWS_RUNTIME_ACCESS_MASK, 1, 3),),
+            )
+        if failure == "broad" and path == bundle:
+            return isolation._WindowsAclSnapshot(
+                False, (isolation._WindowsAclEntry("S-1-15-2-1", 1, 1, 3),)
+            )
+        return isolation._WindowsAclSnapshot(failure == "protected" and path == child, ())
+
+    monkeypatch.setattr(isolation, "windows_path_identity", identity)
+    monkeypatch.setattr(isolation, "_windows_acl_snapshot", snapshot)
+    monkeypatch.setattr(
+        isolation,
+        "_set_windows_sid_acl_entry",
+        lambda path, *_args, **_kwargs: writes.append(path),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_revoke_appcontainer_runtime_access",
+        lambda ownership: revocations.append(ownership),
+    )
+    owned = isolation.OwnedAppContainerProfile(
+        profile.payload.appcontainer_identity, PACKAGE_SID, tmp_path / "local"
+    )
+    with pytest.raises((ValueError, isolation.WindowsIsolationLaunchError)):
+        isolation._install_appcontainer_runtime_access(profile, owned, executable)
+    assert writes == []
+    assert revocations == []
+
+
+def test_runtime_acl_partial_install_rolls_back_only_written_identity_bound_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    library = bundle / "library.dll"
+    library.write_bytes(b"library")
+    root_identity = NativePathIdentityV1(
+        locator=str(bundle), volume_serial_number=7, file_index="1" * 16
+    )
+    executable_identity = NativePathIdentityV1(
+        locator=str(executable), volume_serial_number=7, file_index="2" * 16
+    )
+    library_identity = NativePathIdentityV1(
+        locator=str(library), volume_serial_number=7, file_index="3" * 16
+    )
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "read_only_roots": (root_identity,),
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+            }
+        )
+    )
+    planned = (
+        isolation._WindowsRuntimeAclOwnedEntry(
+            root_identity, ".", "directory", WINDOWS_RUNTIME_ACCESS_INHERITANCE
+        ),
+        isolation._WindowsRuntimeAclOwnedEntry(executable_identity, "python.exe", "file", 0),
+        isolation._WindowsRuntimeAclOwnedEntry(library_identity, "library.dll", "file", 0),
+    )
+    identities = {
+        bundle: root_identity,
+        executable: executable_identity,
+        library: library_identity,
+    }
+    active: set[Path] = set()
+    operations: list[tuple[str, Path]] = []
+
+    def snapshot(path: Path) -> isolation._WindowsAclSnapshot:
+        if path not in active:
+            return isolation._WindowsAclSnapshot(False, ())
+        entry = next(value for value in planned if Path(value.identity.locator) == path)
+        return isolation._WindowsAclSnapshot(
+            False, (isolation._expected_runtime_acl(entry, PACKAGE_SID),)
+        )
+
+    def apply(
+        path: Path,
+        _sid: str,
+        _mask: int,
+        _inheritance: int,
+        *,
+        access_mode: int = 1,
+    ) -> None:
+        if access_mode == 4:
+            operations.append(("revoke", path))
+            active.discard(path)
+            return
+        operations.append(("grant", path))
+        if path == executable:
+            raise isolation.WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", 5, "injected second-entry write failure"
+            )
+        active.add(path)
+
+    monkeypatch.setattr(isolation, "windows_path_identity", lambda path, **_: identities[path])
+    monkeypatch.setattr(isolation, "_planned_runtime_acl_entries", lambda *_: planned)
+    monkeypatch.setattr(isolation, "_windows_acl_snapshot", snapshot)
+    monkeypatch.setattr(isolation, "_set_windows_sid_acl_entry", apply)
+    owned = isolation.OwnedAppContainerProfile(
+        profile.payload.appcontainer_identity, PACKAGE_SID, tmp_path / "local"
+    )
+    with pytest.raises(isolation.WindowsIsolationLaunchError, match="second-entry"):
+        isolation._install_appcontainer_runtime_access(profile, owned, executable)
+    assert operations == [
+        ("grant", bundle),
+        ("grant", executable),
+        ("revoke", bundle),
+    ]
+    assert active == set()
+
+
+def test_runtime_acl_partial_install_preserves_exact_token_when_rollback_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    root_identity = NativePathIdentityV1(
+        locator=str(bundle), volume_serial_number=7, file_index="1" * 16
+    )
+    executable_identity = NativePathIdentityV1(
+        locator=str(executable), volume_serial_number=7, file_index="2" * 16
+    )
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "read_only_roots": (root_identity,),
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+            }
+        )
+    )
+    planned = (
+        isolation._WindowsRuntimeAclOwnedEntry(
+            root_identity, ".", "directory", WINDOWS_RUNTIME_ACCESS_INHERITANCE
+        ),
+        isolation._WindowsRuntimeAclOwnedEntry(executable_identity, "python.exe", "file", 0),
+    )
+    identities = {bundle: root_identity, executable: executable_identity}
+    active = {bundle: False}
+
+    def snapshot(path: Path) -> isolation._WindowsAclSnapshot:
+        if not active.get(path, False):
+            return isolation._WindowsAclSnapshot(False, ())
+        entry = next(value for value in planned if Path(value.identity.locator) == path)
+        return isolation._WindowsAclSnapshot(
+            False, (isolation._expected_runtime_acl(entry, PACKAGE_SID),)
+        )
+
+    def apply(path: Path, *_args: object, **_kwargs: object) -> None:
+        if path == executable:
+            raise RuntimeError("install failed")
+        active[path] = True
+
+    captured: list[isolation._WindowsRuntimeAclOwnership] = []
+
+    def failed_rollback(ownership: isolation._WindowsRuntimeAclOwnership) -> None:
+        captured.append(ownership)
+        raise RuntimeError("rollback failed")
+
+    monkeypatch.setattr(isolation, "windows_path_identity", lambda path, **_: identities[path])
+    monkeypatch.setattr(isolation, "_planned_runtime_acl_entries", lambda *_: planned)
+    monkeypatch.setattr(isolation, "_windows_acl_snapshot", snapshot)
+    monkeypatch.setattr(isolation, "_set_windows_sid_acl_entry", apply)
+    monkeypatch.setattr(isolation, "_revoke_appcontainer_runtime_access", failed_rollback)
+    owned = isolation.OwnedAppContainerProfile(
+        profile.payload.appcontainer_identity, PACKAGE_SID, tmp_path / "local"
+    )
+    with pytest.raises(isolation.WindowsRuntimeAclRollbackError) as raised:
+        isolation._install_appcontainer_runtime_access(profile, owned, executable)
+    assert captured == [raised.value.ownership]
+    assert raised.value.ownership.entries == (planned[0],)
+
+
+def test_runtime_acl_revoke_validates_all_owned_identities_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "runtime"
+    root.mkdir()
+    child = root / "python.exe"
+    child.write_bytes(b"MZ")
+    root_identity = NativePathIdentityV1(
+        locator=str(root), volume_serial_number=7, file_index="1" * 16
+    )
+    child_identity = NativePathIdentityV1(
+        locator=str(child), volume_serial_number=7, file_index="2" * 16
+    )
+    changed_child = child_identity.model_copy(update={"file_index": "3" * 16})
+    entries = (
+        isolation._WindowsRuntimeAclOwnedEntry(
+            root_identity, ".", "directory", WINDOWS_RUNTIME_ACCESS_INHERITANCE
+        ),
+        isolation._WindowsRuntimeAclOwnedEntry(child_identity, "python.exe", "file", 0),
+    )
+    ownership = isolation._WindowsRuntimeAclOwnership(root_identity, PACKAGE_SID, entries)
+    writes: list[Path] = []
+    monkeypatch.setattr(
+        isolation,
+        "windows_path_identity",
+        lambda path, **_: root_identity if path == root else changed_child,
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_windows_acl_snapshot",
+        lambda path: isolation._WindowsAclSnapshot(
+            False,
+            (
+                isolation._expected_runtime_acl(
+                    entries[0] if path == root else entries[1], ownership.sid
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_set_windows_sid_acl_entry",
+        lambda path, *_args, **_kwargs: writes.append(path),
+    )
+    with pytest.raises(ValueError, match="identity changed"):
+        isolation._revoke_appcontainer_runtime_access(ownership)
+    assert writes == []
+
+
+def test_runtime_acl_revoke_is_retry_safe_for_already_absent_owned_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "runtime"
+    root.mkdir()
+    child = root / "python.exe"
+    child.write_bytes(b"MZ")
+    root_identity = NativePathIdentityV1(
+        locator=str(root), volume_serial_number=7, file_index="1" * 16
+    )
+    child_identity = NativePathIdentityV1(
+        locator=str(child), volume_serial_number=7, file_index="2" * 16
+    )
+    entries = (
+        isolation._WindowsRuntimeAclOwnedEntry(
+            root_identity, ".", "directory", WINDOWS_RUNTIME_ACCESS_INHERITANCE
+        ),
+        isolation._WindowsRuntimeAclOwnedEntry(child_identity, "python.exe", "file", 0),
+    )
+    ownership = isolation._WindowsRuntimeAclOwnership(root_identity, PACKAGE_SID, entries)
+    active = {root: False, child: True}
+    writes: list[Path] = []
+
+    def snapshot(path: Path) -> isolation._WindowsAclSnapshot:
+        entry = entries[0] if path == root else entries[1]
+        observed = (isolation._expected_runtime_acl(entry, ownership.sid),) if active[path] else ()
+        return isolation._WindowsAclSnapshot(False, observed)
+
+    def revoke(path: Path, *_args: object, **_kwargs: object) -> None:
+        writes.append(path)
+        active[path] = False
+
+    monkeypatch.setattr(
+        isolation,
+        "windows_path_identity",
+        lambda path, **_: root_identity if path == root else child_identity,
+    )
+    monkeypatch.setattr(isolation, "_windows_acl_snapshot", snapshot)
+    monkeypatch.setattr(isolation, "_set_windows_sid_acl_entry", revoke)
+    isolation._revoke_appcontainer_runtime_access(ownership)
+    assert writes == [child]
+
+
+@pytest.mark.windows_smoke
+def test_native_runtime_acl_is_exact_recursive_revocable_and_source_unchanged(
+    tmp_path: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("native Windows ACL regression")
+    source = tmp_path / "source"
+    source_dlls = source / "DLLs"
+    source_dlls.mkdir(parents=True)
+    (source / "python.exe").write_bytes(b"MZ-python")
+    (source_dlls / "_ctypes.pyd").write_bytes(b"MZ-ctypes")
+    (source / "libffi-8.dll").write_bytes(b"MZ-libffi")
+    disposable = tmp_path / "disposable"
+    shutil.copytree(source, disposable)
+    source_bytes = {
+        path.relative_to(source).as_posix(): path.read_bytes()
+        for path in source.rglob("*")
+        if path.is_file()
+    }
+    source_acls = {
+        path.relative_to(source).as_posix()
+        if path != source
+        else ".": isolation._windows_acl_snapshot(path)
+        for path in isolation._runtime_acl_paths(source)
+    }
+    executable = disposable / "python.exe"
+    environment = secrets.token_hex(16)
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "environment_instance_id": environment,
+                "appcontainer_identity": appcontainer_identity(environment),
+                "read_only_roots": (isolation.windows_path_identity(disposable),),
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+            }
+        )
+    )
+    userenv = isolation._windows_dll("userenv.dll")
+    advapi = isolation._windows_dll("advapi32.dll")
+    kernel = isolation._windows_dll("kernel32.dll")
+    derive_sid = userenv.DeriveAppContainerSidFromAppContainerName
+    derive_sid.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_void_p)]
+    derive_sid.restype = ctypes.c_long
+    convert_sid = advapi.ConvertSidToStringSidW
+    convert_sid.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    convert_sid.restype = ctypes.c_int
+    free_sid = advapi.FreeSid
+    free_sid.argtypes = [ctypes.c_void_p]
+    free_sid.restype = ctypes.c_void_p
+    local_free = kernel.LocalFree
+    local_free.argtypes = [ctypes.c_void_p]
+    local_free.restype = ctypes.c_void_p
+    sid_pointer = ctypes.c_void_p()
+    sid_text_pointer = ctypes.c_void_p()
+    result = (
+        int(derive_sid(profile.payload.appcontainer_identity, ctypes.byref(sid_pointer)))
+        & 0xFFFFFFFF
+    )
+    assert result == 0 and sid_pointer.value
+    assert convert_sid(sid_pointer, ctypes.byref(sid_text_pointer)) and sid_text_pointer.value
+    owned = isolation.OwnedAppContainerProfile(
+        profile.payload.appcontainer_identity,
+        ctypes.wstring_at(sid_text_pointer.value),
+        tmp_path / "unused-profile-local",
+    )
+    ownership: isolation._WindowsRuntimeAclOwnership | None = None
+    revoked = False
+    try:
+        ownership = isolation._install_appcontainer_runtime_access(profile, owned, executable)
+
+        def verify_runtime(root: Path) -> str:
+            assert {
+                path.relative_to(root).as_posix(): path.read_bytes()
+                for path in root.rglob("*")
+                if path.is_file()
+            } == source_bytes
+            return profile.payload.native_bundle_id
+
+        grant = isolation._verified_appcontainer_runtime_access(
+            profile, owned, ownership, executable, verify_runtime
+        )
+        assert grant.payload.verified_entry_count == len(isolation._runtime_acl_paths(disposable))
+        for required in (
+            disposable / "python.exe",
+            disposable / "DLLs" / "_ctypes.pyd",
+            disposable / "libffi-8.dll",
+        ):
+            snapshot = isolation._windows_acl_snapshot(required)
+            owned_entries = tuple(entry for entry in snapshot.entries if entry.sid == owned.sid)
+            assert owned_entries == (
+                isolation._WindowsAclEntry(
+                    owned.sid,
+                    WINDOWS_RUNTIME_ACCESS_MASK,
+                    1,
+                    0,
+                ),
+            )
+        isolation._revoke_appcontainer_runtime_access(ownership)
+        revoked = True
+        for path_value in isolation._runtime_acl_paths(disposable):
+            assert all(
+                entry.sid != owned.sid
+                for entry in isolation._windows_acl_snapshot(path_value).entries
+            )
+        assert {
+            path.relative_to(source).as_posix(): path.read_bytes()
+            for path in source.rglob("*")
+            if path.is_file()
+        } == source_bytes
+        assert {
+            path.relative_to(source).as_posix()
+            if path != source
+            else ".": isolation._windows_acl_snapshot(path)
+            for path in isolation._runtime_acl_paths(source)
+        } == source_acls
+    finally:
+        cleanup_errors: list[BaseException] = []
+        if not revoked and ownership is not None:
+            try:
+                isolation._revoke_appcontainer_runtime_access(ownership)
+            except BaseException as error:
+                cleanup_errors.append(error)
+        try:
+            shutil.rmtree(disposable)
+        except BaseException as error:
+            cleanup_errors.append(error)
+        if sid_text_pointer.value:
+            local_free(sid_text_pointer)
+        if sid_pointer.value:
+            free_sid(sid_pointer)
+        if cleanup_errors:
+            raise BaseExceptionGroup("native Windows ACL test cleanup failed", cleanup_errors)
 
 
 @pytest.mark.windows_smoke
@@ -529,9 +1330,21 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
     monkeypatch.setattr(
         isolation,
         "_create_owned_appcontainer_profile",
-        lambda identity: isolation.OwnedAppContainerProfile(
-            identity, "S-1-15-2-123", local_app_data
-        ),
+        lambda identity: isolation.OwnedAppContainerProfile(identity, PACKAGE_SID, local_app_data),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_install_appcontainer_runtime_access",
+        lambda *_: runtime_acl_ownership(profile),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_verified_appcontainer_runtime_access",
+        lambda observed, _owned, _ownership, _executable, verifier: (
+            calls.append("bundle_verified"),
+            verifier(bundle),
+            runtime_access_grant(observed),
+        )[-1],
     )
     process = isolation.launch_windows_isolated(
         profile,
@@ -539,10 +1352,12 @@ def test_launch_assigns_non_breakaway_job_before_resume(tmp_path: Path, monkeypa
         ("-c", "pass"),
         cwd=writable,
         environment=supplied_environment,
+        verify_runtime_bundle=lambda _: profile.payload.native_bundle_id,
     )
     assert calls == [
         "job_created",
         "limits_set",
+        "bundle_verified",
         "created_suspended",
         "job_assigned",
         "thread_resumed",
@@ -587,6 +1402,7 @@ def test_launch_rechecks_exact_launcher_hash_before_creating_job(
             ("-c", "pass"),
             cwd=writable,
             environment={"SYSTEMROOT": r"C:\Windows"},
+            verify_runtime_bundle=lambda _: profile.payload.native_bundle_id,
         )
 
 
@@ -617,7 +1433,7 @@ def test_preexisting_appcontainer_profile_is_rejected_and_never_deleted(monkeypa
 def test_owned_appcontainer_profile_binds_sid_and_official_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sid_text = ctypes.create_unicode_buffer("S-1-15-2-123")
+    sid_text = ctypes.create_unicode_buffer(PACKAGE_SID)
     folder = tmp_path / "official-profile-local"
     folder.mkdir()
     folder_text = ctypes.create_unicode_buffer(str(folder))
@@ -653,13 +1469,56 @@ def test_owned_appcontainer_profile_binds_sid_and_official_folder(
     monkeypatch.setattr(isolation, "_reject_reparse_chain", lambda value, **_: Path(value))
     owned = isolation._create_owned_appcontainer_profile("devfabric_" + ENVIRONMENT)
     assert owned == isolation.OwnedAppContainerProfile(
-        "devfabric_" + ENVIRONMENT, "S-1-15-2-123", folder
+        "devfabric_" + ENVIRONMENT, PACKAGE_SID, folder
     )
     assert frees == ["CoTaskMemFree", "LocalFree", "FreeSid"]
 
 
+def test_owned_appcontainer_profile_rejects_broad_native_sid_and_deletes_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sid_text = ctypes.create_unicode_buffer("S-1-15-2-1")
+    calls: list[str] = []
+
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __call__(self, *args: object) -> int | None:
+            if self.name == "CreateAppContainerProfile":
+                args[-1]._obj.value = 1234  # type: ignore[attr-defined]
+                return 0
+            if self.name == "ConvertSidToStringSidW":
+                args[-1]._obj.value = ctypes.addressof(sid_text)  # type: ignore[attr-defined]
+                return 1
+            if self.name == "GetAppContainerFolderPath":
+                pytest.fail("folder path queried before native SID validation")
+            if self.name in {"LocalFree", "FreeSid"}:
+                calls.append(self.name)
+                return None
+            raise AssertionError(self.name)
+
+    class Dll:
+        def __getattr__(self, name: str) -> Function:
+            return Function(name)
+
+    identity = "devfabric_" + ENVIRONMENT
+    monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
+    monkeypatch.setattr(
+        isolation,
+        "_delete_appcontainer_profile",
+        lambda observed: calls.append(f"delete:{observed}") or True,
+    )
+    with pytest.raises(ValueError, match="exact derived package SID"):
+        isolation._create_owned_appcontainer_profile(identity)
+    assert calls == [f"delete:{identity}", "LocalFree", "FreeSid"]
+
+
 def test_partial_profile_preparation_deletes_only_the_owned_profile(monkeypatch) -> None:
-    sid_text = ctypes.create_unicode_buffer("S-1-15-2-123")
+    sid_text = ctypes.create_unicode_buffer(PACKAGE_SID)
     calls: list[str] = []
 
     class Function:
@@ -699,6 +1558,130 @@ def test_partial_profile_preparation_deletes_only_the_owned_profile(monkeypatch)
     assert failure.value.phase == "appcontainer_folder_path"
     assert failure.value.error_code == 3
     assert calls == [f"delete:{identity}", "LocalFree", "FreeSid"]
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [("root", "root identity changed"), ("owned", "Unexpected owned runtime ACL")],
+)
+def test_runtime_acl_preflight_failure_only_deletes_newly_owned_profile(
+    failure: str,
+    message: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    executable = bundle / "python.exe"
+    executable.write_bytes(b"MZ")
+    writable = tmp_path / "workspace"
+    writable.mkdir()
+    local_app_data = tmp_path / "local"
+    local_app_data.mkdir()
+    profile = WindowsIsolationProfileV1.create(
+        profile_payload().model_copy(
+            update={
+                "launcher_executable_sha256": digest(executable.read_bytes()),
+                "read_only_roots": (
+                    NativePathIdentityV1(
+                        locator=str(bundle), volume_serial_number=1, file_index="1" * 16
+                    ),
+                ),
+                "writable_roots": (
+                    NativePathIdentityV1(
+                        locator=str(writable), volume_serial_number=1, file_index="2" * 16
+                    ),
+                ),
+                "denied_roots": (),
+            }
+        )
+    )
+    root_identity = profile.payload.read_only_roots[0]
+    executable_identity = NativePathIdentityV1(
+        locator=str(executable), volume_serial_number=1, file_index="3" * 16
+    )
+    changed_root = root_identity.model_copy(update={"file_index": "4" * 16})
+    calls: list[str] = []
+
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __call__(self, *_: object) -> int:
+            calls.append(self.name)
+            return 1
+
+    class Dll:
+        def __getattr__(self, name: str) -> Function:
+            return Function(name)
+
+    monkeypatch.setattr(isolation, "observed_windows_platform", lambda: (26200, "x86_64"))
+    monkeypatch.setattr(isolation, "_verify_profile_paths", lambda _: None)
+    monkeypatch.setattr(
+        isolation, "_reject_reparse_chain", lambda value, **_: Path(value).absolute()
+    )
+    monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
+    monkeypatch.setattr(
+        isolation,
+        "_create_owned_appcontainer_profile",
+        lambda identity: isolation.OwnedAppContainerProfile(identity, PACKAGE_SID, local_app_data),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "windows_path_identity",
+        lambda path, **_: (
+            changed_root
+            if failure == "root" and path == bundle
+            else root_identity
+            if path == bundle
+            else executable_identity
+        ),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_windows_acl_snapshot",
+        lambda path: isolation._WindowsAclSnapshot(
+            False,
+            (
+                isolation._WindowsAclEntry(
+                    PACKAGE_SID,
+                    WINDOWS_RUNTIME_ACCESS_MASK,
+                    1,
+                    WINDOWS_RUNTIME_ACCESS_INHERITANCE,
+                ),
+            )
+            if failure == "owned" and path == bundle
+            else (),
+        ),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_set_windows_sid_acl_entry",
+        lambda *_args, **_kwargs: calls.append("write"),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_revoke_appcontainer_runtime_access",
+        lambda *_: calls.append("revoke"),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_delete_appcontainer_profile",
+        lambda identity: calls.append(f"delete:{identity}") or True,
+    )
+    with pytest.raises((ValueError, isolation.WindowsIsolationLaunchError), match=message):
+        isolation.launch_windows_isolated(
+            profile,
+            executable,
+            ("-c", "pass"),
+            cwd=writable,
+            environment={"SYSTEMROOT": r"C:\Windows"},
+            verify_runtime_bundle=lambda _: profile.payload.native_bundle_id,
+        )
+    assert calls == [f"delete:{profile.payload.appcontainer_identity}"]
 
 
 @pytest.mark.parametrize("failure_phase", ["environment", "job", "processmodel"])
@@ -782,7 +1765,22 @@ def test_every_post_profile_preprocess_failure_cleans_owned_profile(
     monkeypatch.setattr(
         isolation,
         "_create_owned_appcontainer_profile",
-        lambda identity: isolation.OwnedAppContainerProfile(identity, "S-1-15-2-123", official),
+        lambda identity: isolation.OwnedAppContainerProfile(identity, PACKAGE_SID, official),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_install_appcontainer_runtime_access",
+        lambda *_: runtime_acl_ownership(profile),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_verified_appcontainer_runtime_access",
+        lambda observed, *_: runtime_access_grant(observed),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_revoke_appcontainer_runtime_access",
+        lambda *_: None,
     )
     monkeypatch.setattr(
         isolation,
@@ -796,6 +1794,7 @@ def test_every_post_profile_preprocess_failure_cleans_owned_profile(
             ("-c", "pass"),
             cwd=writable,
             environment={"SYSTEMROOT": r"C:\Windows"},
+            verify_runtime_bundle=lambda _: profile.payload.native_bundle_id,
         )
     assert calls[-1] == f"delete:{profile.payload.appcontainer_identity}"
     if failure_phase == "processmodel":
@@ -873,9 +1872,22 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
     monkeypatch.setattr(
         isolation,
         "_create_owned_appcontainer_profile",
-        lambda identity: isolation.OwnedAppContainerProfile(
-            identity, "S-1-15-2-123", local_app_data
-        ),
+        lambda identity: isolation.OwnedAppContainerProfile(identity, PACKAGE_SID, local_app_data),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_install_appcontainer_runtime_access",
+        lambda *_: runtime_acl_ownership(profile),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_verified_appcontainer_runtime_access",
+        lambda observed, *_: runtime_access_grant(observed),
+    )
+    monkeypatch.setattr(
+        isolation,
+        "_revoke_appcontainer_runtime_access",
+        lambda *_: cleanup_order.append("revoke"),
     )
     monkeypatch.setattr(
         isolation,
@@ -894,6 +1906,7 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
             ("-c", "pass"),
             cwd=writable,
             environment={"SYSTEMROOT": r"C:\Windows"},
+            verify_runtime_bundle=lambda _: profile.payload.native_bundle_id,
         )
     assert cleanup_order == [
         "TerminateProcess",
@@ -901,6 +1914,7 @@ def test_failed_launch_closes_exact_handles_and_requires_profile_cleanup(
         "close:102",
         "close:101",
         "close:100",
+        "revoke",
         "delete",
     ]
 
@@ -957,6 +1971,73 @@ def test_process_close_retries_profile_deletion_after_closing_handles(monkeypatc
     assert (process.thread_handle, process.process_handle, process.job_handle) == (0, 0, 0)
     assert process.close() is True
     assert calls.count("CloseHandle") == 3
+
+
+def test_process_close_revokes_runtime_acl_before_profile_and_retries_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    class Function:
+        argtypes: object = None
+        restype: object = None
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __call__(self, *_: object) -> int:
+            calls.append(self.name)
+            return 1
+
+    class Dll:
+        def __getattr__(self, name: str) -> Function:
+            return Function(name)
+
+    revocations = iter((False, True))
+
+    def revoke(_: isolation._WindowsRuntimeAclOwnership) -> None:
+        calls.append("revoke")
+        if not next(revocations):
+            raise isolation.WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl_cleanup", 5, "injected revocation failure"
+            )
+
+    monkeypatch.setattr(isolation, "_windows_dll", lambda _: Dll())
+    monkeypatch.setattr(isolation, "_revoke_appcontainer_runtime_access", revoke)
+    monkeypatch.setattr(
+        isolation,
+        "_delete_appcontainer_profile",
+        lambda _: calls.append("delete") or True,
+    )
+    process = isolation.WindowsSandboxProcess(
+        101,
+        102,
+        100,
+        333,
+        "devfabric_" + ENVIRONMENT,
+        (),
+        appcontainer_sid=PACKAGE_SID,
+        runtime_acl_ownership=runtime_acl_ownership(
+            WindowsIsolationProfileV1.create(
+                profile_payload().model_copy(
+                    update={
+                        "read_only_roots": (
+                            NativePathIdentityV1(
+                                locator=str(tmp_path),
+                                volume_serial_number=1,
+                                file_index="1" * 16,
+                            ),
+                        )
+                    }
+                )
+            )
+        ),
+    )
+    with pytest.raises(ExceptionGroup, match="cleanup failed"):
+        process.close()
+    assert "delete" not in calls
+    assert process.close() is True
+    assert calls[-2:] == ["revoke", "delete"]
 
 
 @pytest.mark.parametrize(
@@ -1070,6 +2151,7 @@ def test_failed_launch_cleanup_retains_profile_when_process_cleanup_fails(
             return Function(name)
 
     monkeypatch.setattr(isolation, "_windows_last_error", lambda: 5)
+    monkeypatch.setattr(isolation, "_revoke_appcontainer_runtime_access", lambda *_: None)
     monkeypatch.setattr(
         isolation,
         "_delete_appcontainer_profile",
@@ -1082,6 +2164,7 @@ def test_failed_launch_cleanup_retains_profile_when_process_cleanup_fails(
         job_handle=100,
         appcontainer_identity="devfabric_" + ENVIRONMENT,
         appcontainer_profile_owned=True,
+        runtime_acl_ownership=None,
     )
     assert len(errors) == 2
     assert "retained because process cleanup did not complete" in str(errors[-1])
@@ -1889,6 +2972,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
 
     class Process:
         process_id = 1000
+        runtime_access_grant: WindowsRuntimeAccessGrantV1 | None = None
 
         def poll_exit_code(self) -> None:
             return None
@@ -1930,6 +3014,9 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         }
         assert all(name.casefold() != "path" for name in environment)
         assert all(name.casefold() != "localappdata" for name in environment)
+        verifier = kwargs["verify_runtime_bundle"]
+        assert callable(verifier)
+        assert verifier(execution_bundle) == profile.payload.native_bundle_id
         bootstrap_payload = probe.WindowsIsolationBootstrapStartedPayloadV1(
             child_bootstrap_sha256=arguments[8],
             environment_instance_id=arguments[9],
@@ -1946,7 +3033,9 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
                 started_json["payload"]["probe_sha256"] = "f" * 64
             Path(arguments[7]).write_bytes(canonical(started_json))
         Path(arguments[5]).write_bytes(canonical(child))
-        return Process()
+        process = Process()
+        process.runtime_access_grant = runtime_access_grant(profile)
+        return process
 
     def identity(path_value: Path) -> NativePathIdentityV1:
         return NativePathIdentityV1(
@@ -1978,7 +3067,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     evidence = probe.qualify(
         bundle_root, manifest, scratch, output, ENVIRONMENT, IMPLEMENTATION_COMMIT
     )
-    retained = WindowsIsolationEvidenceV2.model_validate_json(output.read_bytes())
+    retained = WindowsIsolationEvidenceV3.model_validate_json(output.read_bytes())
     assert retained == evidence
     assert retained.receipt.payload.no_direct_network_baseline_qualified is True
     assert retained.receipt.payload.native_executor_isolation_qualified is False
@@ -1986,8 +3075,9 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     assert not scratch.exists()
     assert not scratch.with_name(scratch.name + ".execution-bundle").exists()
     assert python.read_bytes() == b"MZ-native-python"
-    assert verified_roots[:3] == [
+    assert verified_roots[:4] == [
         bundle_root,
+        scratch.with_name(scratch.name + ".execution-bundle"),
         scratch.with_name(scratch.name + ".execution-bundle"),
         bundle_root,
     ]
