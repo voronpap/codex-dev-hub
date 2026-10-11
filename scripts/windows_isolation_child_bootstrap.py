@@ -52,6 +52,18 @@ NATIVE_LOADER_FAILURE_STAGES = (
     "file_identity_compare",
 )
 NATIVE_LOADER_DEPENDENCY_STAGES = frozenset(NATIVE_LOADER_FAILURE_STAGES[2:])
+NATIVE_LOADER_BOOTSTRAP_STAGES = (
+    "preloaded_module_guard",
+    "runtime_root_resolve",
+    "module_path_resolve",
+    "module_sibling_validation",
+    "module_hash_read",
+    "module_hash_validation",
+    "module_import",
+    "module_origin_validation",
+    "helper_activation",
+    "activation_result_validation",
+)
 NATIVE_IMPORT_MATRIX = (
     ("_ctypes", "python/_ctypes.pyd", "_ctypes.pyd", EXIT_MATRIX_CTYPES_V6),
     ("_socket", "python/_socket.pyd", "_socket.pyd", EXIT_MATRIX_SOCKET),
@@ -193,7 +205,7 @@ def _run_native_import_matrix() -> tuple[list[dict[str, object]], BaseException 
 
 def _activate_native_loader(
     expected_sha256: str,
-) -> tuple[dict[str, object], BaseException | None, dict[str, object] | None]:
+) -> tuple[dict[str, object], BaseException | None, str | None, dict[str, object] | None]:
     """Activate only the reviewed interpreter-sibling native loader."""
 
     relative_path, filename = NATIVE_LOADER_MODULE
@@ -205,31 +217,41 @@ def _activate_native_loader(
         "schema_version": 2,
         "status": "failed",
     }
+    bootstrap_stage = "preloaded_module_guard"
     try:
         if any(module in sys.modules for module, *_ in NATIVE_IMPORT_MATRIX):
             raise RuntimeError("Reviewed native module loaded before native-loader activation")
+        bootstrap_stage = "runtime_root_resolve"
         runtime_root = Path(sys.executable).resolve(strict=True).parent
+        bootstrap_stage = "module_path_resolve"
         module_path = (runtime_root / filename).resolve(strict=True)
+        bootstrap_stage = "module_sibling_validation"
         if module_path.parent != runtime_root or module_path.name != filename:
             raise RuntimeError("Native-loader module is not the interpreter sibling")
+        bootstrap_stage = "module_hash_read"
         observed_sha256 = _sha2.sha256(module_path.read_bytes()).hexdigest()
+        bootstrap_stage = "module_hash_validation"
         if observed_sha256 != expected_sha256:
             raise RuntimeError("Native-loader module hash differs from reviewed authority")
+        bootstrap_stage = "module_import"
         loader = importlib.import_module("_devfabric_native_loader")
+        bootstrap_stage = "module_origin_validation"
         origin_raw = getattr(loader, "__file__", None)
         if not isinstance(origin_raw, str):
             raise RuntimeError("Imported native-loader origin is unavailable")
         origin = Path(origin_raw).resolve(strict=True)
         if origin != module_path:
             raise RuntimeError("Imported native-loader origin differs from reviewed sibling")
+        bootstrap_stage = "helper_activation"
         activated = loader.activate()
+        bootstrap_stage = "activation_result_validation"
         if activated != NATIVE_LOADER_DEPENDENCIES:
             raise RuntimeError("Native-loader activation result differs from reviewed order")
     except BaseException as error:
         observation["error_code"] = _numeric_code(error, "winerror") or _numeric_code(
             error, "errno"
         )
-        return observation, error, _native_loader_failure(error)
+        return observation, error, bootstrap_stage, _native_loader_failure(error)
     observation.update(
         {
             "activated_dependencies": list(NATIVE_LOADER_DEPENDENCIES),
@@ -237,7 +259,7 @@ def _activate_native_loader(
             "status": "active",
         }
     )
-    return observation, None, None
+    return observation, None, None, None
 
 
 def _native_loader_failure(error: BaseException) -> dict[str, object] | None:
@@ -295,6 +317,7 @@ def _write_failure(
     native_import_matrix: list[dict[str, object]],
     native_loader_activation: dict[str, object],
     failed_matrix_module: str | None = None,
+    native_loader_bootstrap_stage: str | None = None,
     native_loader_failure: dict[str, object] | None = None,
 ) -> None:
     exception_class = type(error).__name__
@@ -314,6 +337,7 @@ def _write_failure(
         {
             "errno": _numeric_code(error, "errno"),
             "native_loader_activation": native_loader_activation,
+            "native_loader_bootstrap_stage": native_loader_bootstrap_stage,
             "native_loader_failure": native_loader_failure,
             "exception_class": exception_class,
             "failed_matrix_module": failed_matrix_module,
@@ -326,7 +350,7 @@ def _write_failure(
                 for relative_path, filename in NATIVE_CRYPTO_FILES
             ],
             "phase": phase,
-            "schema_version": 7,
+            "schema_version": 8,
             "winerror": _numeric_code(error, "winerror"),
         }
     )
@@ -403,9 +427,12 @@ def main() -> int:
     except BaseException:
         return EXIT_STATUS_WRITE_DENIED
 
-    native_loader_activation, activation_error, native_loader_failure = _activate_native_loader(
-        expected_native_loader_sha256
-    )
+    (
+        native_loader_activation,
+        activation_error,
+        native_loader_bootstrap_stage,
+        native_loader_failure,
+    ) = _activate_native_loader(expected_native_loader_sha256)
     if activation_error is not None:
         native_import_matrix: list[dict[str, object]] = [
             {
@@ -423,6 +450,7 @@ def main() -> int:
                 activation_error,
                 native_import_matrix,
                 native_loader_activation,
+                native_loader_bootstrap_stage=native_loader_bootstrap_stage,
                 native_loader_failure=native_loader_failure,
             )
         except _FailureFrameTooLarge:

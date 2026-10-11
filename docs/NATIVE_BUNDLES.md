@@ -248,6 +248,18 @@ V7 changes diagnostics only: the fixed DLL allowlist, load flags, held handles,
 file-identity checks, ACLs, isolation policy and non-readiness classification are
 unchanged.
 
+Forward V8 separates the Python bootstrap boundary from the helper's activation
+boundary. It retains exactly one bounded bootstrap stage covering the preloaded
+module guard, runtime/helper path resolution, sibling/hash/import/origin checks,
+helper activation and activation-result validation. Only `helper_activation` may
+carry the V7 `NativeLoaderFailureV1` helper stage, dependency and Win32 code;
+pre-helper failures must not claim that authority. Every failure binds the
+numeric `winerror`/`errno`, when present, to the activation observation. Raw
+messages and paths remain excluded. V1-V7 receipts remain parseable historical
+evidence and cannot establish the V8 bootstrap boundary. V8 remains a
+metadata-only diagnostic step: it does not change the allowlist, load flags,
+handles, file-identity or isolation policy, and it does not grant readiness.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of
