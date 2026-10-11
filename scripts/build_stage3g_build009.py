@@ -121,6 +121,11 @@ def prepare_build_source(
         "build-019",
         "build-020",
         "windows-build-001",
+        "windows-build-002",
+        "windows-build-003",
+        "windows-build-004",
+        "windows-build-005",
+        "windows-build-006",
     }:
         derived_lock, lock_changes = derive_production_host_lock(root)
         expected_lock = PRODUCTION_HOST_LOCK_SHA256

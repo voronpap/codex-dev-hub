@@ -273,15 +273,55 @@ fallback.
 
 ## Delivery order
 
-1. **Windows native Codex identity and host proof.** Build `windows-build-001` for
-   `x86_64-pc-windows-msvc` from the exact pinned source and reviewed patches with
-   the complete locked dependency graph. Record the new executable identity and
-   run same-binary Default/A/B pre-sampling and security-negative proofs. No
-   inference occurs in this slice.
+1. **Windows native Codex identity and host proof.** Historical
+   `windows-build-001` retained only `codex.exe`; its valid pre-sampling proof is
+   preserved but cannot authorize the operational CodeModeOnly path. The
+   first paired attempt, `windows-build-002`, is retained as historical evidence.
+   `windows-build-003` is also retained as failed evidence: the crates.io V8
+   build script requested an unpublished generic sandbox archive and received
+   HTTP 404. `windows-build-004` consumed the exact sandbox
+   archive and matching generated binding from OpenAI's reviewed
+   `rusty-v8-v150.4.0` Codex release. Both assets, the release checksum manifest,
+   the pinned source `MODULE.bazel`, the `v8_enable_sandbox` feature and
+   post-build rehashes are receipt-bound. It builds and binds
+   `codex.exe` and the sibling `codex-code-mode-host.exe` together for
+   `x86_64-pc-windows-msvc`
+   from the exact pinned source, reviewed patches and complete locked dependency
+   graph. Its self-hashed receipt records both PE identities, exact toolchain and
+   committed builder/workflow provenance. Run `38131544194` at commit
+   `8f47c02dccfb994fb9513625d08061c19cf51d74` completed compilation and observed
+   the same binary pair, then failed closed while serializing its proof: the V2
+   receipt incorrectly required the ordinary `AllowedTools=None` Default surface
+   to be empty even though the observer reported the accepted eleven ordinary
+   tools. Its immutable classification is
+   `POSTCOMPILATION_DEFAULT_SURFACE_CONTRACT_REPRESENTATION_FAILURE`; it is not an
+   Arm A/B ceiling failure. Forward-only `windows-build-005` corrects that proof
+   representation and adds fail-closed artifact inventory/retention controls; it
+   does not change the production binary semantics. It requires the exact sorted
+   ordinary Default tuple while retaining Arm A `{}`, Arm B exactly the delegate,
+   absent Default ceiling, all security negatives and zero execution counters. A
+   content-bound inventory seals every file in the staged build output before CI
+   splits the uploads, joins a PASS result to the exact binary pair, process proof
+   and EOF proof, excludes `binary/**` from failure evidence, and publishes the
+   executable pair only on success. Run `38139154084` at commit
+   `9deae70ab018bd6fbd1e9c2c1dbca8356b074f0a` completed compilation and the exact
+   Default/A/B proof, but the CI artifact projection omitted 252 inventory-bound
+   files beneath hidden path components because `upload-artifact` used
+   `include-hidden-files: false`. Its immutable classification is
+   `POSTPROOF_ARTIFACT_PROJECTION_INCOMPLETE`; the binary and process proof remain
+   valid but the retained evidence artifact cannot satisfy its sealed inventory.
+   Forward-only `windows-build-006` keeps the V4 proof semantics unchanged and
+   creates a bounded evidence projection from every `kind=evidence` inventory
+   member plus the inventory itself before uploading hidden members explicitly.
+   Historical receipts remain strict and parseable. Default/A/B
+   proof must use the exact colocated pair without a missing-host diagnostic; the
+   host must also exit cleanly on stdio EOF. No inference or MCP tool execution
+   occurs in this slice.
 2. **Self-contained runtime directory.** Freeze one reviewed Windows CPython and
    non-editable DevFabric wheel environment, verify distribution metadata/RECORD,
    dependency lock, module origin and entrypoint, and bundle the accepted
-   `codex.exe`. No ambient developer runtime is accepted.
+   `codex.exe` plus its exact `codex-code-mode-host.exe` sibling. No ambient
+   developer runtime or codex-only forward bundle is accepted.
 3. **Native executor isolation.** Qualify a fail-closed Windows process boundary
    covering the complete child tree, filesystem/registry scope, inherited handles,
    resource termination and exact network destinations. A Job Object alone is not
@@ -318,8 +358,8 @@ fallback.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PENDING — run `38065330820` stopped before compilation with `PREBUILD_WINDOWS_PATH_LENGTH_FAILURE`; short-root retry pending | PENDING — native profile/build required; OCI binary does not qualify it |
-| Same-binary host authority | PENDING Default/A/B and security negatives | PENDING; historical OCI proof is profile-limited |
+| Exact native Codex | PENDING — `windows-build-005` compiled and proved the pair but retained an incomplete evidence projection; reviewed `windows-build-006` correction pending CI | PENDING — native profile/build required; OCI binary does not qualify it |
+| Same-binary host authority | PENDING reviewed `windows-build-006` Default/A/B, security and complete artifact proof | PENDING; historical OCI proof is profile-limited |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |

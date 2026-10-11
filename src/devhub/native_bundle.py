@@ -29,6 +29,13 @@ from devhub.benchmark import Digest, canonical, digest
 from devhub.models import Contract
 from devhub.qualification import GitCommit
 from devhub.runtime_artifact import DistributionIdentityV1, normalize_distribution_name
+from devhub.windows_native import (
+    WindowsBuildId,
+    WindowsNativeCodexBuildV2,
+    WindowsNativeCodexBuildV3,
+    WindowsNativeCodexBuildV4,
+    WindowsNativeCodexBuildV5,
+)
 
 NativePlatform = Literal["windows", "linux"]
 NativeArchitecture = Literal["x86_64"]
@@ -818,6 +825,35 @@ class NativeCodexAuthorityV1(Contract):
     combined_patchset_sha256: Digest
 
 
+class NativeCodexAuthorityV2(Contract):
+    accepted_run_id: Annotated[int, Field(ge=1)]
+    accepted_run_attempt: Annotated[int, Field(ge=1)]
+    devfabric_implementation_commit: GitCommit
+    build_id: WindowsBuildId = "windows-build-002"
+    build_receipt_path: Literal["authority/windows-native-codex-build.json"] = (
+        "authority/windows-native-codex-build.json"
+    )
+    build_receipt_sha256: Digest
+    windows_native_codex_build_id: Digest
+    qualification: Literal["WINDOWS_NATIVE_CODEX_PAIR_AUTHORITY_PRE_SAMPLING"] = (
+        "WINDOWS_NATIVE_CODEX_PAIR_AUTHORITY_PRE_SAMPLING"
+    )
+    target: Literal["x86_64-pc-windows-msvc"] = "x86_64-pc-windows-msvc"
+    executable_path: Literal["codex/codex.exe"] = "codex/codex.exe"
+    executable_sha256: Digest
+    code_mode_host_path: Literal["codex/codex-code-mode-host.exe"] = (
+        "codex/codex-code-mode-host.exe"
+    )
+    code_mode_host_sha256: Digest
+    process_proof_sha256: Digest
+    code_mode_host_eof_receipt_sha256: Digest
+    codex_source_commit: GitCommit
+    source_archive_sha256: Digest
+    candidate_b_base_patch_sha256: Digest
+    host_integration_patch_sha256: Digest
+    combined_patchset_sha256: Digest
+
+
 class NativeLauncherV1(Contract):
     python_path: Literal["python/python.exe"] = "python/python.exe"
     delegate_argv_prefix: tuple[
@@ -829,14 +865,20 @@ class NativeLauncherV1(Contract):
     mutable_state_external: Literal[True] = True
 
 
+class NativeLauncherV2(NativeLauncherV1):
+    code_mode_host_path: Literal["codex/codex-code-mode-host.exe"] = (
+        "codex/codex-code-mode-host.exe"
+    )
+
+
 class NativeBundlePayloadV1(Contract):
     kind: Literal["devfabric_native_directory"] = "devfabric_native_directory"
     platform: NativePlatform
     architecture: NativeArchitecture
     implementation_commit: GitCommit
     python: EmbeddedPythonAuthorityV1
-    codex: NativeCodexAuthorityV1
-    launcher: NativeLauncherV1
+    codex: NativeCodexAuthorityV2 | NativeCodexAuthorityV1
+    launcher: NativeLauncherV1 | NativeLauncherV2
     native_loader: NativeLoaderAuthorityV2 | NativeLoaderAuthorityV1 | None = None
     files: tuple[NativeBundleFileV1, ...] = Field(min_length=1)
     trusted_prelaunch_verifier_required: Literal[True] = True
@@ -863,6 +905,16 @@ class NativeBundlePayloadV1(Contract):
             self.codex.build_receipt_path: self.codex.build_receipt_sha256,
             self.codex.executable_path: self.codex.executable_sha256,
         }
+        if isinstance(self.codex, NativeCodexAuthorityV2):
+            if not isinstance(self.launcher, NativeLauncherV2):
+                raise ValueError("Paired Windows Codex authority requires the V2 launcher")
+            if self.launcher.code_mode_host_path != self.codex.code_mode_host_path:
+                raise ValueError("Windows launcher code-mode host path differs from authority")
+            required[self.codex.code_mode_host_path] = self.codex.code_mode_host_sha256
+        elif not isinstance(self.launcher, NativeLauncherV1) or isinstance(
+            self.launcher, NativeLauncherV2
+        ):
+            raise ValueError("Historical Windows Codex authority requires the V1 launcher")
         if self.native_loader is not None:
             required.update(
                 {
@@ -899,7 +951,10 @@ class NativeBundlePayloadV1(Contract):
         observed_authority = {path for path in paths if path.startswith("authority/")}
         if observed_authority != expected_authority:
             raise ValueError("Native bundle authority directory differs from the closed layout")
-        if {path for path in paths if path.startswith("codex/")} != {self.codex.executable_path}:
+        expected_codex: set[str] = {self.codex.executable_path}
+        if isinstance(self.codex, NativeCodexAuthorityV2):
+            expected_codex.add(self.codex.code_mode_host_path)
+        if {path for path in paths if path.startswith("codex/")} != expected_codex:
             raise ValueError("Native bundle Codex directory differs from the closed layout")
         if self.platform != "windows" or self.architecture != "x86_64":
             raise ValueError("Native bundle V1 currently defines only Windows x86_64")
@@ -910,6 +965,13 @@ def _native_bundle_payload_json(payload: NativeBundlePayloadV1) -> JsonValue:
     """Preserve the historical V1 hash when the forward-only loader field is absent."""
 
     raw = payload.model_dump(mode="json")
+    # Pydantic serializes unions through their declared schema.  Serialize the
+    # concrete authority versions explicitly so extending the union cannot
+    # change an already-issued V1 bundle identity.
+    if "codex" in raw:
+        raw["codex"] = payload.codex.model_dump(mode="json")
+    if "launcher" in raw:
+        raw["launcher"] = payload.launcher.model_dump(mode="json")
     if payload.native_loader is None:
         del raw["native_loader"]
     return cast(JsonValue, raw)
@@ -1119,6 +1181,79 @@ def verify_native_bundle(
     observed = inventory_native_bundle(root)
     if observed != bundle.payload.files:
         raise ValueError("Native bundle files differ from the immutable manifest")
+    codex_authority = bundle.payload.codex
+    if isinstance(codex_authority, NativeCodexAuthorityV2):
+        receipt_path = root.joinpath(*PurePosixPath(codex_authority.build_receipt_path).parts)
+        if receipt_path.stat().st_size > 256 * 1024:
+            raise ValueError("Windows Codex pair build receipt exceeds its size bound")
+        pair_receipt: (
+            WindowsNativeCodexBuildV2
+            | WindowsNativeCodexBuildV3
+            | WindowsNativeCodexBuildV4
+            | WindowsNativeCodexBuildV5
+        )
+        try:
+            raw_pair_receipt = receipt_path.read_bytes()
+            try:
+                pair_receipt = WindowsNativeCodexBuildV5.model_validate_json(raw_pair_receipt)
+            except ValueError:
+                try:
+                    pair_receipt = WindowsNativeCodexBuildV4.model_validate_json(raw_pair_receipt)
+                except ValueError:
+                    try:
+                        pair_receipt = WindowsNativeCodexBuildV3.model_validate_json(
+                            raw_pair_receipt
+                        )
+                    except ValueError:
+                        pair_receipt = WindowsNativeCodexBuildV2.model_validate_json(
+                            raw_pair_receipt
+                        )
+        except (OSError, ValueError) as exc:
+            raise ValueError("Windows Codex pair build receipt is invalid") from exc
+        provenance = pair_receipt.payload.provenance
+        binaries = pair_receipt.payload.binaries
+        codex_binary = binaries[0]
+        host_binary = binaries[1]
+        if (
+            file_sha256(receipt_path) != codex_authority.build_receipt_sha256
+            or pair_receipt.windows_native_codex_build_id
+            != codex_authority.windows_native_codex_build_id
+            or provenance.workflow_run_id != codex_authority.accepted_run_id
+            or provenance.workflow_run_attempt != codex_authority.accepted_run_attempt
+            or provenance.build_id != codex_authority.build_id
+            or provenance.implementation_commit != codex_authority.devfabric_implementation_commit
+            or provenance.implementation_commit != bundle.payload.implementation_commit
+            or provenance.codex_source_commit != codex_authority.codex_source_commit
+            or provenance.source_archive_sha256 != codex_authority.source_archive_sha256
+            or provenance.candidate_b_base_patch_sha256
+            != codex_authority.candidate_b_base_patch_sha256
+            or provenance.host_integration_patch_sha256
+            != codex_authority.host_integration_patch_sha256
+            or provenance.combined_patchset_sha256 != codex_authority.combined_patchset_sha256
+            or codex_binary.role != "codex"
+            or codex_binary.relative_path != "binary/codex.exe"
+            or codex_binary.sha256 != codex_authority.executable_sha256
+            or host_binary.role != "codex-code-mode-host"
+            or host_binary.relative_path != "binary/codex-code-mode-host.exe"
+            or host_binary.sha256 != codex_authority.code_mode_host_sha256
+            or pair_receipt.payload.process_proof.process_proof_sha256
+            != codex_authority.process_proof_sha256
+            or pair_receipt.payload.process_proof.code_mode_host_eof_receipt_sha256
+            != codex_authority.code_mode_host_eof_receipt_sha256
+            or pair_receipt.payload.process_proof.code_mode_host_sha256
+            != codex_authority.code_mode_host_sha256
+        ):
+            raise ValueError("Windows Codex pair build authority differs from bundle manifest")
+        for pair_binary, bundle_path in (
+            (codex_binary, codex_authority.executable_path),
+            (host_binary, codex_authority.code_mode_host_path),
+        ):
+            target = root.joinpath(*PurePosixPath(bundle_path).parts)
+            if (
+                target.stat().st_size != pair_binary.size
+                or file_sha256(target) != pair_binary.sha256
+            ):
+                raise ValueError("Windows Codex pair binary differs from embedded build receipt")
     pth = root / PurePosixPath(bundle.payload.python.pth_path)
     pth_lines = pth.read_text(encoding="ascii").splitlines()
     expected_pth = [
