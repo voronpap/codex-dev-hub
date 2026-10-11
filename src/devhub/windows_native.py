@@ -23,6 +23,7 @@ WindowsBuildId = Literal[
     "windows-build-004",
     "windows-build-005",
     "windows-build-006",
+    "windows-build-007",
 ]
 
 
@@ -144,6 +145,12 @@ class WindowsBuildProvenanceV5(WindowsBuildProvenanceV3):
     """Forward build identity for complete inventory-bound artifact retention."""
 
     build_id: Literal["windows-build-006"] = "windows-build-006"  # type: ignore[assignment]
+
+
+class WindowsBuildProvenanceV6(WindowsBuildProvenanceV3):
+    """Forward build identity for the current merged bundle implementation."""
+
+    build_id: Literal["windows-build-007"] = "windows-build-007"  # type: ignore[assignment]
 
 
 class WindowsHostProofSummaryV2(Contract):
@@ -345,6 +352,34 @@ class WindowsNativeCodexBuildV5(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> WindowsNativeCodexBuildV5:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.windows_native_codex_build_id != expected:
+            raise ValueError("Windows native Codex build ID mismatch")
+        return self
+
+
+class WindowsNativeCodexBuildPayloadV6(WindowsNativeCodexBuildPayloadV3):
+    """Forward payload for windows-build-007 with unchanged proof semantics."""
+
+    provenance: WindowsBuildProvenanceV6
+    process_proof: WindowsHostProofSummaryV3
+
+
+class WindowsNativeCodexBuildV6(Contract):
+    windows_native_codex_build_id: Digest
+    payload: WindowsNativeCodexBuildPayloadV6
+
+    @classmethod
+    def create(cls, payload: WindowsNativeCodexBuildPayloadV6) -> WindowsNativeCodexBuildV6:
+        return cls(
+            windows_native_codex_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> WindowsNativeCodexBuildV6:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.windows_native_codex_build_id != expected:
             raise ValueError("Windows native Codex build ID mismatch")

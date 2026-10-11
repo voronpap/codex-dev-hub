@@ -260,6 +260,22 @@ evidence and cannot establish the V8 bootstrap boundary. V8 remains a
 metadata-only diagnostic step: it does not change the allowlist, load flags,
 handles, file-identity or isolation policy, and it does not grant readiness.
 
+Forward V9 replaces child-side filesystem canonicalization of `sys.executable`
+with an exact host-bound lexical launcher authority. Profile V4 seals the already
+validated, drive-qualified local `python.exe` locator, its lexical SHA-256, its
+Windows volume/file identity and its immutable-bundle byte hash. The host passes
+that sealed locator and hash; the child rejects relative, UNC, device, slash-mixed
+and dot-segment forms, requires normalized equality with `sys.executable`, and
+returns only the bounded locator digest. Receipt/evidence V6 join that child
+observation to the V4 profile. Failure diagnostic V9 joins the same expected and
+observed digest without disclosing the path. Loader and imported-module paths must
+remain exact siblings of that launcher. This avoids traversing intentionally
+ungranted AppContainer ancestor directories while preserving the module hash,
+native helper sibling, open-handle and file-identity checks. No ancestor ACL is
+widened. V1-V8 failure receipts and earlier profile/evidence versions remain
+parseable historical evidence and cannot establish this V9 launcher boundary. V9
+remains metadata-only and does not grant readiness.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of
@@ -369,14 +385,19 @@ Build-020 and all OCI evidence remain immutable historical evidence.
    Historical receipts remain strict and parseable. Default/A/B
    proof must use the exact colocated pair without a missing-host diagnostic; the
    host must also exit cleanly on stdio EOF. No inference or MCP tool execution
-   occurs in this slice. Run `38148646088` at accepted commit
-   `3b70f932480b017c2a21c1a30c65143ae5d5ff0c` passed that complete slice. The
-   exact `codex.exe` SHA-256 is
-   `45b0a10199a596d6ef7b7a25c4e4396597a42b3082f36403061233dbbdfa69b3`
-   and the exact sibling host SHA-256 is
-   `c06bf0d26ed4b28f8aaa336cc5813817fe33f2b883540a3a189440ffe390663d`.
-   This establishes the Windows executable-pair authority only; it does not
-   promote package or native-executor readiness.
+   occurs in this slice.
+   Run `38148646088` at commit
+   `3b70f932480b017c2a21c1a30c65143ae5d5ff0c` completed `windows-build-006`
+   and retained its complete exact pair, proof and inventory. That authority is
+   valid for its implementation commit, but the bundle verifier correctly rejects
+   replaying it into a bundle built from a later implementation commit. Forward-only
+   `windows-build-007` preserves the exact build-006 binary/proof/security contract
+   while producing a fresh pair bound to the current merged implementation commit;
+   historical build-002 through build-006 receipts remain strict and parseable.
+   Build-007 is reserved for one explicit `workflow_dispatch` on `refs/heads/main`
+   after the registration change merges, so a PR-head compilation cannot become
+   stale solely because the normal merge commit changes the implementation identity.
+   Ordinary PR validation remains in Offline Core and does not compile the pair.
 2. **Self-contained runtime directory.** Freeze one reviewed Windows CPython and
    non-editable DevFabric wheel environment, verify distribution metadata/RECORD,
    dependency lock, module origin and entrypoint, and bundle the accepted
@@ -418,8 +439,8 @@ Build-020 and all OCI evidence remain immutable historical evidence.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PASS — reviewed `windows-build-006` pair and complete retained artifact inventory | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` pending CI; OCI binary does not qualify it |
-| Same-binary host authority | PASS — `windows-build-006` exact Default/A/B, security, EOF and complete artifact proof | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` pending CI |
+| Exact native Codex | PARTIAL — accepted `windows-build-006` pair is bound to its historical implementation commit; forward-only `windows-build-007` is required for the current merged bundle | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` is historical PR-head evidence and an exact merged-main build is still required; OCI binary does not qualify it |
+| Same-binary host authority | PARTIAL — `windows-build-006` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-007` pending | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` is PR-head evidence and an exact merged-main build is still required |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |

@@ -29,13 +29,15 @@ from devhub.native_bundle import (
     verify_native_bundle,
 )
 from devhub.windows_isolation import (
-    WindowsIsolationChildResultV2,
-    WindowsIsolationEvidenceV5,
-    WindowsIsolationProfilePayloadV3,
+    WindowsIsolationChildResultV3,
+    WindowsIsolationEvidenceV6,
+    WindowsIsolationProfilePayloadV4,
     WindowsIsolationProfileV2,
     WindowsIsolationProfileV3,
-    WindowsIsolationReceiptPayloadV5,
-    WindowsIsolationReceiptV5,
+    WindowsIsolationProfileV4,
+    WindowsIsolationReceiptPayloadV6,
+    WindowsIsolationReceiptV6,
+    WindowsLauncherAuthorityV1,
     WindowsNativeImportExpectationV1,
     WindowsNativeImportSuccessV1,
     WindowsNativeLoaderActivationV1,
@@ -46,6 +48,7 @@ from devhub.windows_isolation import (
     appcontainer_identity,
     launch_windows_isolated,
     observed_windows_platform,
+    windows_launcher_locator_sha256,
     windows_path_identity,
     windows_sandbox_spec,
 )
@@ -125,6 +128,18 @@ NativeImportStatus = Literal["imported", "failed", "not_attempted"]
 NativeLoaderBootstrapStageV8 = Literal[
     "preloaded_module_guard",
     "runtime_root_resolve",
+    "module_path_resolve",
+    "module_sibling_validation",
+    "module_hash_read",
+    "module_hash_validation",
+    "module_import",
+    "module_origin_validation",
+    "helper_activation",
+    "activation_result_validation",
+]
+NativeLoaderBootstrapStageV9 = Literal[
+    "preloaded_module_guard",
+    "launcher_authority_validation",
     "module_path_resolve",
     "module_sibling_validation",
     "module_hash_read",
@@ -671,6 +686,24 @@ class WindowsIsolationChildFailureV8(WindowsIsolationChildFailureV6):
                 raise ValueError("Helper activation detail differs from the failure code")
         elif self.native_loader_failure is not None:
             raise ValueError("Pre-helper bootstrap failure cannot claim a helper stage")
+        return self
+
+
+class WindowsIsolationChildFailureV9(WindowsIsolationChildFailureV8):
+    """Forward diagnostic binding the host-validated launcher locator."""
+
+    schema_version: Literal[9] = 9  # type: ignore[assignment]
+    native_loader_bootstrap_stage: NativeLoaderBootstrapStageV9 | None = None  # type: ignore[assignment]
+    expected_launcher_locator_sha256: Digest
+    observed_launcher_locator_sha256: Digest | None = None
+
+    @model_validator(mode="after")
+    def exact_launcher_observation(self) -> WindowsIsolationChildFailureV9:
+        if self.native_loader_bootstrap_stage != "launcher_authority_validation":
+            if self.observed_launcher_locator_sha256 is None:
+                raise ValueError("Post-launcher failure lacks its bounded launcher observation")
+            if self.observed_launcher_locator_sha256 != self.expected_launcher_locator_sha256:
+                raise ValueError("Post-launcher failure differs from sealed launcher authority")
         return self
 
 
@@ -1611,6 +1644,33 @@ class WindowsIsolationFailureDiagnosticPayloadV8(WindowsIsolationFailureDiagnost
         return self
 
 
+class WindowsIsolationFailureDiagnosticPayloadV9(WindowsIsolationFailureDiagnosticPayloadV8):
+    """Forward diagnostic for lexical host-bound launcher authority."""
+
+    schema_version: Literal[9] = 9  # type: ignore[assignment]
+    profile: WindowsIsolationProfileV4  # type: ignore[assignment]
+    child_failure: WindowsIsolationChildFailureV9 | None = None  # type: ignore[assignment]
+    native_loader_bootstrap_stage: NativeLoaderBootstrapStageV9 | None = None  # type: ignore[assignment]
+    expected_launcher_locator_sha256: Digest
+    observed_launcher_locator_sha256: Digest | None = None
+
+    @model_validator(mode="after")
+    def exact_launcher_authority_join(self) -> WindowsIsolationFailureDiagnosticPayloadV9:
+        expected = self.profile.payload.launcher.locator_sha256
+        if self.expected_launcher_locator_sha256 != expected:
+            raise ValueError("Failure diagnostic launcher authority differs from V9 profile")
+        failure = self.child_failure
+        if failure is None:
+            if self.observed_launcher_locator_sha256 is not None:
+                raise ValueError("Unvalidated child cannot authorize a launcher observation")
+            return self
+        if failure.expected_launcher_locator_sha256 != expected:
+            raise ValueError("Child launcher authority differs from V9 profile")
+        if self.observed_launcher_locator_sha256 != failure.observed_launcher_locator_sha256:
+            raise ValueError("Launcher observation differs from validated child evidence")
+        return self
+
+
 class WindowsIsolationFailureDiagnosticV6(Contract):
     schema_version: Literal[6] = 6
     diagnostic_id: Digest
@@ -1674,6 +1734,27 @@ class WindowsIsolationFailureDiagnosticV8(Contract):
         return self
 
 
+class WindowsIsolationFailureDiagnosticV9(Contract):
+    schema_version: Literal[9] = 9
+    diagnostic_id: Digest
+    payload: WindowsIsolationFailureDiagnosticPayloadV9
+
+    @classmethod
+    def create(
+        cls, payload: WindowsIsolationFailureDiagnosticPayloadV9
+    ) -> WindowsIsolationFailureDiagnosticV9:
+        return cls(
+            diagnostic_id=digest(canonical(payload.model_dump(mode="json"))), payload=payload
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationFailureDiagnosticV9:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.diagnostic_id != expected:
+            raise ValueError("Windows isolation failure diagnostic hash mismatch")
+        return self
+
+
 class WindowsIsolationChildExitError(RuntimeError):
     phase = "child_before_evidence"
 
@@ -1687,6 +1768,7 @@ class WindowsIsolationChildExitError(RuntimeError):
             | WindowsIsolationFailureDiagnosticV6
             | WindowsIsolationFailureDiagnosticV7
             | WindowsIsolationFailureDiagnosticV8
+            | WindowsIsolationFailureDiagnosticV9
         ),
     ) -> None:
         self.diagnostic = diagnostic
@@ -1745,6 +1827,7 @@ def _child(
     result_path: Path,
     native_loader_activation: WindowsNativeLoaderActivationV1 | None = None,
     native_import_matrix: tuple[WindowsNativeImportSuccessV1, ...] | None = None,
+    launcher_locator_sha256: str | None = None,
 ) -> int:
     if (native_loader_activation is None) != (native_import_matrix is None):
         raise ValueError("Native loader success evidence must be supplied together")
@@ -1818,13 +1901,15 @@ def _child(
     if native_loader_activation is not None and native_import_matrix is not None:
         result.update(
             {
-                "schema_version": 2,
+                "schema_version": 3 if launcher_locator_sha256 is not None else 2,
                 "native_loader_activation": native_loader_activation.model_dump(mode="json"),
                 "native_import_matrix": [
                     item.model_dump(mode="json") for item in native_import_matrix
                 ],
             }
         )
+        if launcher_locator_sha256 is not None:
+            result["launcher_locator_sha256"] = launcher_locator_sha256
     temporary = result_path.with_suffix(".tmp")
     temporary.write_bytes(canonical(cast(JsonValue, result)))
     os.replace(temporary, result_path)
@@ -1994,6 +2079,62 @@ def _child_guarded_v6(
         return 1
 
 
+def _child_guarded_v7(
+    request_path: Path,
+    result_path: Path,
+    failure_path: Path,
+    native_loader_activation: dict[str, object],
+    native_import_matrix: list[dict[str, object]],
+    launcher_locator_sha256: str | None,
+) -> int:
+    """Run V9 only with the bootstrap's bounded launcher observation."""
+
+    if launcher_locator_sha256 is None:
+        return 1
+    try:
+        activation_observation = WindowsNativeLoaderActivationObservationV2.model_validate(
+            native_loader_activation
+        )
+        if activation_observation.status != "active":
+            raise ValueError("Child probe requires active native-loader authority")
+        activation = WindowsNativeLoaderActivationV1(
+            module_sha256=cast(str, activation_observation.module_sha256),
+            activated_dependencies=cast(
+                tuple[Literal["libffi-8.dll"], Literal["libcrypto-3.dll"], Literal["libssl-3.dll"]],
+                activation_observation.activated_dependencies,
+            ),
+        )
+        observations = tuple(
+            WindowsNativeImportMatrixObservationV3.model_validate(item)
+            for item in native_import_matrix
+        )
+        expected_modules = ["_ctypes", "_socket", "_overlapped", "select", "_hashlib", "_ssl"]
+        if [item.module for item in observations] != expected_modules or any(
+            item.import_status != "imported"
+            or item.file.status != "readable"
+            or item.file.observed_sha256 is None
+            for item in observations
+        ):
+            raise ValueError("Child probe requires the complete reviewed native import matrix")
+        success_matrix = tuple(
+            WindowsNativeImportSuccessV1(
+                module=item.module,
+                relative_path=item.file.relative_path,
+                observed_sha256=cast(str, item.file.observed_sha256),
+            )
+            for item in observations
+        )
+        return _child(
+            request_path,
+            result_path,
+            activation,
+            success_matrix,
+            launcher_locator_sha256,
+        )
+    except BaseException:
+        return 1
+
+
 def _read_child_failure(
     failure_path: Path,
 ) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV4 | None]:
@@ -2074,6 +2215,22 @@ def _read_child_failure_v8(
         return "invalid", None
 
 
+def _read_child_failure_v9(
+    failure_path: Path,
+) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV9 | None]:
+    if not failure_path.is_file():
+        return "absent", None
+    try:
+        _reject_reparse_chain(failure_path, require_directory=False)
+        with failure_path.open("rb") as stream:
+            encoded = stream.read(MAX_CHILD_FAILURE_BYTES + 1)
+        if len(encoded) > MAX_CHILD_FAILURE_BYTES:
+            return "invalid", None
+        return "validated", WindowsIsolationChildFailureV9.model_validate_json(encoded)
+    except (OSError, ValueError):
+        return "invalid", None
+
+
 def _read_bootstrap_started(
     status_path: Path,
 ) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationBootstrapStartedV1 | None]:
@@ -2092,7 +2249,7 @@ def _read_bootstrap_started(
 
 def _read_bound_bootstrap_started(
     status_path: Path,
-    profile: WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
+    profile: WindowsIsolationProfileV2 | WindowsIsolationProfileV3 | WindowsIsolationProfileV4,
     environment_instance_id: str,
 ) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationBootstrapStartedV1 | None]:
     status, started = _read_bootstrap_started(status_path)
@@ -2111,7 +2268,7 @@ def _read_bound_bootstrap_started(
 
 def _require_bootstrap_started(
     status_path: Path,
-    profile: WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
+    profile: WindowsIsolationProfileV2 | WindowsIsolationProfileV3 | WindowsIsolationProfileV4,
     environment_instance_id: str,
 ) -> WindowsIsolationBootstrapStartedV1:
     status, started = _read_bound_bootstrap_started(status_path, profile, environment_instance_id)
@@ -2261,6 +2418,7 @@ def _native_import_matrix_evidence_v6(
         WindowsIsolationChildFailureV6
         | WindowsIsolationChildFailureV7
         | WindowsIsolationChildFailureV8
+        | WindowsIsolationChildFailureV9
         | None
     ),
 ) -> tuple[
@@ -2365,6 +2523,7 @@ def _native_crypto_file_evidence(
         | WindowsIsolationChildFailureV6
         | WindowsIsolationChildFailureV7
         | WindowsIsolationChildFailureV8
+        | WindowsIsolationChildFailureV9
         | None
     ),
 ) -> tuple[
@@ -2412,7 +2571,7 @@ def _raise_if_child_exited(
     child_result: Path,
     child_failure: Path,
     bootstrap_status: Path,
-    profile: WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
+    profile: WindowsIsolationProfileV2 | WindowsIsolationProfileV3 | WindowsIsolationProfileV4,
     environment_instance_id: str,
     bundle: NativeBundleV1,
 ) -> None:
@@ -2425,7 +2584,7 @@ def _raise_if_child_exited(
         bootstrap_started_status, validated_bootstrap_started = _read_bound_bootstrap_started(
             bootstrap_status, profile, environment_instance_id
         )
-        child_failure_status, validated_child_failure = _read_child_failure_v5(child_failure)
+        child_failure_status, validated_legacy_child_failure = _read_child_failure_v5(child_failure)
         runtime_access_grant = process.runtime_access_grant
         if not isinstance(runtime_access_grant, WindowsRuntimeAccessGrantV2):
             raise RuntimeError("Failed child lacks the reviewed post-create runtime ACL grant")
@@ -2443,81 +2602,105 @@ def _raise_if_child_exited(
                 bootstrap_started_status=bootstrap_started_status,
                 bootstrap_started=validated_bootstrap_started,
                 child_failure_status=child_failure_status,
-                child_failure=validated_child_failure,
+                child_failure=validated_legacy_child_failure,
                 dll_directory_activation=(
-                    validated_child_failure.dll_directory_activation
-                    if validated_child_failure is not None
+                    validated_legacy_child_failure.dll_directory_activation
+                    if validated_legacy_child_failure is not None
                     else None
                 ),
                 loader_reason=(
-                    validated_child_failure.loader_reason
-                    if validated_child_failure is not None
+                    validated_legacy_child_failure.loader_reason
+                    if validated_legacy_child_failure is not None
                     else None
                 ),
                 loader_code=(
-                    validated_child_failure.loader_code
-                    if validated_child_failure is not None
+                    validated_legacy_child_failure.loader_code
+                    if validated_legacy_child_failure is not None
                     else None
                 ),
-                native_loader_files=_native_loader_file_evidence(bundle, validated_child_failure),
-                native_import_matrix=_native_import_matrix_evidence_v5(
-                    bundle, validated_child_failure
+                native_loader_files=_native_loader_file_evidence(
+                    bundle, validated_legacy_child_failure
                 ),
-                native_crypto_files=_native_crypto_file_evidence(bundle, validated_child_failure),
+                native_import_matrix=_native_import_matrix_evidence_v5(
+                    bundle, validated_legacy_child_failure
+                ),
+                native_crypto_files=_native_crypto_file_evidence(
+                    bundle, validated_legacy_child_failure
+                ),
             )
         )
         raise WindowsIsolationChildExitError(diagnostic)
     bootstrap_started_status, validated_bootstrap_started = _read_bound_bootstrap_started(
         bootstrap_status, profile, environment_instance_id
     )
-    child_failure_status, validated_child_failure = _read_child_failure_v8(child_failure)
+    validated_child_failure: WindowsIsolationChildFailureV8 | WindowsIsolationChildFailureV9 | None
+    if isinstance(profile, WindowsIsolationProfileV4):
+        child_failure_status, validated_child_failure = _read_child_failure_v9(child_failure)
+    else:
+        child_failure_status, validated_child_failure = _read_child_failure_v8(child_failure)
     runtime_access_grant = process.runtime_access_grant
     if not isinstance(runtime_access_grant, WindowsRuntimeAccessGrantV2):
         raise RuntimeError("Failed child lacks the reviewed post-create runtime ACL grant")
     native_import_matrix = _native_import_matrix_evidence_v6(bundle, validated_child_failure)
     native_crypto_files = _native_crypto_file_evidence(bundle, validated_child_failure)
-    diagnostic = WindowsIsolationFailureDiagnosticV8.create(
-        WindowsIsolationFailureDiagnosticPayloadV8(
-            environment_instance_id=environment_instance_id,
-            windows_isolation_profile_id=profile.windows_isolation_profile_id,
-            profile=profile,
-            native_bundle_id=bundle.bundle_id,
-            launcher_executable_sha256=profile.payload.launcher_executable_sha256,
-            runtime_access_grant=runtime_access_grant,
-            probe_sha256=profile.payload.probe_sha256,
-            child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
-            process_exit_code=exit_code,
-            bootstrap_started_status=bootstrap_started_status,
-            bootstrap_started=validated_bootstrap_started,
-            child_failure_status=child_failure_status,
-            child_failure=validated_child_failure,
-            native_loader_activation=(
-                validated_child_failure.native_loader_activation
-                if validated_child_failure is not None
-                else None
-            ),
-            loader_reason=(
-                validated_child_failure.loader_reason
-                if validated_child_failure is not None
-                else None
-            ),
-            loader_code=(
-                validated_child_failure.loader_code if validated_child_failure is not None else None
-            ),
-            native_loader_bootstrap_stage=(
-                validated_child_failure.native_loader_bootstrap_stage
-                if validated_child_failure is not None
-                else None
-            ),
-            native_loader_failure=(
-                validated_child_failure.native_loader_failure
-                if validated_child_failure is not None
-                else None
-            ),
-            native_import_matrix=native_import_matrix,
-            native_crypto_files=native_crypto_files,
+    payload_fields: dict[str, Any] = {
+        "environment_instance_id": environment_instance_id,
+        "windows_isolation_profile_id": profile.windows_isolation_profile_id,
+        "profile": profile,
+        "native_bundle_id": bundle.bundle_id,
+        "launcher_executable_sha256": profile.payload.launcher_executable_sha256,
+        "runtime_access_grant": runtime_access_grant,
+        "probe_sha256": profile.payload.probe_sha256,
+        "child_bootstrap_sha256": profile.payload.child_bootstrap_sha256,
+        "process_exit_code": exit_code,
+        "bootstrap_started_status": bootstrap_started_status,
+        "bootstrap_started": validated_bootstrap_started,
+        "child_failure_status": child_failure_status,
+        "child_failure": validated_child_failure,
+        "native_loader_activation": (
+            validated_child_failure.native_loader_activation
+            if validated_child_failure is not None
+            else None
+        ),
+        "loader_reason": (
+            validated_child_failure.loader_reason if validated_child_failure is not None else None
+        ),
+        "loader_code": (
+            validated_child_failure.loader_code if validated_child_failure is not None else None
+        ),
+        "native_loader_bootstrap_stage": (
+            validated_child_failure.native_loader_bootstrap_stage
+            if validated_child_failure is not None
+            else None
+        ),
+        "native_loader_failure": (
+            validated_child_failure.native_loader_failure
+            if validated_child_failure is not None
+            else None
+        ),
+        "native_import_matrix": native_import_matrix,
+        "native_crypto_files": native_crypto_files,
+    }
+    if isinstance(profile, WindowsIsolationProfileV3):
+        diagnostic = WindowsIsolationFailureDiagnosticV8.create(
+            WindowsIsolationFailureDiagnosticPayloadV8(**payload_fields)
         )
-    )
+    else:
+        if not isinstance(profile, WindowsIsolationProfileV4):
+            raise RuntimeError("V9 child evidence requires the sealed V4 isolation profile")
+        payload_fields.update(
+            {
+                "expected_launcher_locator_sha256": profile.payload.launcher.locator_sha256,
+                "observed_launcher_locator_sha256": (
+                    validated_child_failure.observed_launcher_locator_sha256
+                    if isinstance(validated_child_failure, WindowsIsolationChildFailureV9)
+                    else None
+                ),
+            }
+        )
+        diagnostic = WindowsIsolationFailureDiagnosticV9.create(
+            WindowsIsolationFailureDiagnosticPayloadV9(**payload_fields)
+        )
     raise WindowsIsolationChildExitError(diagnostic)
 
 
@@ -2532,6 +2715,7 @@ def _raise_after_cleanup(
         | WindowsIsolationFailureDiagnosticV6
         | WindowsIsolationFailureDiagnosticV7
         | WindowsIsolationFailureDiagnosticV8
+        | WindowsIsolationFailureDiagnosticV9
         | WindowsPostCreateAclFailureV1
         | None
     ),
@@ -2772,7 +2956,7 @@ def qualify(
     output: Path,
     environment_instance_id: str,
     expected_implementation_commit: str,
-) -> WindowsIsolationEvidenceV5:
+) -> WindowsIsolationEvidenceV6:
     scratch = Path(os.path.abspath(scratch))
     output = Path(os.path.abspath(output))
     failure_output = output.with_name(output.name + ".failure.json")
@@ -2810,14 +2994,14 @@ def qualify(
     if bundle.payload.implementation_commit != expected_implementation_commit:
         raise ValueError("Native bundle implementation commit differs from expected authority")
     if not isinstance(bundle.payload.native_loader, NativeLoaderAuthorityV2):
-        raise ValueError("V8 Windows isolation requires reviewed V2 native-loader authority")
+        raise ValueError("V9 Windows isolation requires reviewed V2 native-loader authority")
     native_import_expectations = _native_import_expectations_v6(bundle)
     source_security_descriptor_sha256 = _security_descriptor_inventory_sha256(bundle_root)
     registry_path = rf"Software\DevFabric\IsolationProbe\{environment_instance_id}"
     listener: socket.socket | None = None
     event: int | None = None
     process: Any | None = None
-    evidence: WindowsIsolationEvidenceV5 | None = None
+    evidence: WindowsIsolationEvidenceV6 | None = None
     primary_error: BaseException | None = None
     failure_diagnostic: (
         WindowsIsolationFailureDiagnosticV2
@@ -2827,6 +3011,7 @@ def qualify(
         | WindowsIsolationFailureDiagnosticV6
         | WindowsIsolationFailureDiagnosticV7
         | WindowsIsolationFailureDiagnosticV8
+        | WindowsIsolationFailureDiagnosticV9
         | WindowsPostCreateAclFailureV1
         | None
     ) = None
@@ -2865,8 +3050,16 @@ def qualify(
         event = _inheritable_event()
         _delete_registry(registry_path)
         reparse_rejected = _reparse_rejected(scratch, hidden)
-        profile = WindowsIsolationProfileV3.create(
-            WindowsIsolationProfilePayloadV3(
+        python = execution_bundle / bundle.payload.python.executable_path
+        launcher_identity = windows_path_identity(python, require_directory=False)
+        launcher = WindowsLauncherAuthorityV1(
+            locator=launcher_identity.locator,
+            locator_sha256=windows_launcher_locator_sha256(launcher_identity.locator),
+            path_identity=launcher_identity,
+            executable_sha256=bundle.payload.python.executable_sha256,
+        )
+        profile = WindowsIsolationProfileV4.create(
+            WindowsIsolationProfilePayloadV4(
                 environment_instance_id=environment_instance_id,
                 appcontainer_identity=appcontainer_identity(environment_instance_id),
                 native_bundle_id=bundle.bundle_id,
@@ -2876,6 +3069,7 @@ def qualify(
                 child_bootstrap_sha256=digest(bootstrap_bytes),
                 native_loader=bundle.payload.native_loader,
                 native_import_expectations=native_import_expectations,
+                launcher=launcher,
                 read_only_roots=(windows_path_identity(execution_bundle),),
                 writable_roots=(windows_path_identity(allowed),),
                 denied_roots=(windows_path_identity(hidden),),
@@ -2892,7 +3086,6 @@ def qualify(
                 }
             )
         )
-        python = execution_bundle / bundle.payload.python.executable_path
         environment = {
             "SYSTEMROOT": os.environ["SYSTEMROOT"],
             "TEMP": str(allowed),
@@ -2927,6 +3120,8 @@ def qualify(
                 profile.windows_isolation_profile_id,
                 profile.payload.probe_sha256,
                 profile.payload.native_loader.binary_sha256,
+                profile.payload.launcher.locator,
+                profile.payload.launcher.locator_sha256,
             ),
             cwd=allowed,
             environment=environment,
@@ -2957,7 +3152,9 @@ def qualify(
         bootstrap_started = _require_bootstrap_started(
             bootstrap_status, profile, environment_instance_id
         )
-        child = WindowsIsolationChildResultV2.model_validate_json(child_result.read_bytes())
+        child = WindowsIsolationChildResultV3.model_validate_json(child_result.read_bytes())
+        if child.launcher_locator_sha256 != profile.payload.launcher.locator_sha256:
+            raise RuntimeError("Child launcher observation differs from V9 profile")
         if (
             child.native_loader_activation.module_sha256
             != profile.payload.native_loader.binary_sha256
@@ -2984,7 +3181,7 @@ def qualify(
         profile_deleted = process.close()
         host_registry_unchanged = not _registry_exists(registry_path)
         spec = windows_sandbox_spec(profile)
-        payload = WindowsIsolationReceiptPayloadV5(
+        payload = WindowsIsolationReceiptPayloadV6(
             windows_isolation_profile_id=profile.windows_isolation_profile_id,
             environment_instance_id=environment_instance_id,
             probe_sha256=profile.payload.probe_sha256,
@@ -2996,6 +3193,8 @@ def qualify(
             native_loader_activation=child.native_loader_activation,
             native_import_expectations=profile.payload.native_import_expectations,
             native_import_matrix=child.native_import_matrix,
+            launcher=profile.payload.launcher,
+            child_launcher_locator_sha256=child.launcher_locator_sha256,
             sandbox_spec_sha256=digest(spec),
             observed_windows_build=observed_build,
             observed_architecture=observed_architecture,
@@ -3013,8 +3212,8 @@ def qualify(
             direct_public_denied=child.public.denied,
             appcontainer_profile_deleted=profile_deleted,
         )
-        receipt = WindowsIsolationReceiptV5.create(payload)
-        evidence = WindowsIsolationEvidenceV5.create(profile, spec, receipt)
+        receipt = WindowsIsolationReceiptV6.create(payload)
+        evidence = WindowsIsolationEvidenceV6.create(profile, spec, receipt)
     except BaseException as error:
         if isinstance(error, WindowsPostCreateAclGateError):
             failure_diagnostic = error.diagnostic

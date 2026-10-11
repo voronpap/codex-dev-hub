@@ -11,15 +11,15 @@ from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 from devhub.windows_native import (
     WindowsBuildProvenanceV2,
     WindowsBuildProvenanceV3,
-    WindowsBuildProvenanceV5,
+    WindowsBuildProvenanceV6,
     WindowsHostProofSummaryV2,
     WindowsHostProofSummaryV3,
     WindowsNativeCodexBuildPayloadV2,
     WindowsNativeCodexBuildPayloadV3,
-    WindowsNativeCodexBuildPayloadV5,
+    WindowsNativeCodexBuildPayloadV6,
     WindowsNativeCodexBuildV2,
     WindowsNativeCodexBuildV3,
-    WindowsNativeCodexBuildV5,
+    WindowsNativeCodexBuildV6,
 )
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -39,7 +39,7 @@ def test_windows_build_reuses_exact_reviewed_identities() -> None:
     candidate = (repo / "patches/stage3g-approved-call/candidate.patch").read_bytes()
     host = (repo / "patches/stage3g-approved-call/host-integration.patch").read_bytes()
 
-    assert WINDOWS_BUILD.BUILD_ID == "windows-build-006"
+    assert WINDOWS_BUILD.BUILD_ID == "windows-build-007"
     assert WINDOWS_BUILD.TARGET == "x86_64-pc-windows-msvc"
     assert hashlib.sha256(candidate).hexdigest() == retained.CANDIDATE_SHA256
     assert hashlib.sha256(host).hexdigest() == retained.HOST_SHA256
@@ -243,22 +243,25 @@ def test_final_binary_identity_rejects_post_proof_mutation(tmp_path) -> None:
         WINDOWS_BUILD.verify_binary_identity(binary, expected)
 
 
-def test_workflow_binds_pull_request_head_and_never_cancels_build() -> None:
+def test_workflow_reserves_build_007_for_post_merge_main_dispatch() -> None:
     workflow = (
         Path(__file__).resolve().parents[1] / ".github/workflows/windows-native-qualification.yml"
     ).read_text(encoding="utf-8")
 
-    assert "pull_request:" in workflow
-    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
+    assert "pull_request:" not in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "github.ref == 'refs/heads/main'" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "github.event.pull_request.head.sha" not in workflow
     assert "--expected-implementation-commit" in workflow
     assert "cancel-in-progress: false" in workflow
     assert "$workspace = 'C:\\dfw003\\s'" in workflow
     assert "$output = 'C:\\dfw003\\e'" in workflow
-    assert "--build-id windows-build-006" in workflow
+    assert "--build-id windows-build-007" in workflow
     assert "--workflow-run-id '${{ github.run_id }}'" in workflow
     assert "--workflow-run-attempt '${{ github.run_attempt }}'" in workflow
-    assert "name: devfabric-windows-build-006-evidence" in workflow
-    assert "name: devfabric-windows-build-006-binaries" in workflow
+    assert "name: devfabric-windows-build-007-evidence" in workflow
+    assert "name: devfabric-windows-build-007-binaries" in workflow
     assert "scripts/inventory_native_build_artifact.py" in workflow
     assert "--evidence-projection C:\\dfw003\\u\\evidence" in workflow
     assert "path: C:/dfw003/u/evidence/**" in workflow
@@ -658,7 +661,7 @@ def test_windows_build_004_binds_official_sandbox_release() -> None:
     assert WindowsNativeCodexBuildV3.model_validate_json(receipt.model_dump_json()) == receipt
 
 
-def test_windows_build_006_binds_exact_ordinary_default_surface() -> None:
+def test_windows_build_007_binds_exact_ordinary_default_surface() -> None:
     codex = WINDOWS_BUILD.WindowsNativeBinaryV2(
         role="codex",
         relative_path="binary/codex.exe",
@@ -673,7 +676,7 @@ def test_windows_build_006_binds_exact_ordinary_default_surface() -> None:
         size=1,
         pe=WINDOWS_BUILD.WindowsPeIdentityV1(dll_characteristics=0x8160),
     )
-    provenance = WindowsBuildProvenanceV5(
+    provenance = WindowsBuildProvenanceV6(
         workflow_run_id=1,
         workflow_run_attempt=1,
         implementation_commit="a" * 40,
@@ -711,8 +714,8 @@ def test_windows_build_006_binds_exact_ordinary_default_surface() -> None:
         code_mode_host_sha256=host.sha256,
         code_mode_host_eof_receipt_sha256="4" * 64,
     )
-    receipt = WindowsNativeCodexBuildV5.create(
-        WindowsNativeCodexBuildPayloadV5(
+    receipt = WindowsNativeCodexBuildV6.create(
+        WindowsNativeCodexBuildPayloadV6(
             provenance=provenance,
             binaries=(codex, host),
             process_proof=proof,
@@ -727,7 +730,7 @@ def test_windows_build_006_binds_exact_ordinary_default_surface() -> None:
         ORDINARY_DEFAULT_VISIBLE_TOOLS_V1[:-1]
     )
     with pytest.raises(ValidationError, match="literal_error|tuple_type|Field required"):
-        WindowsNativeCodexBuildPayloadV5.model_validate(changed)
+        WindowsNativeCodexBuildPayloadV6.model_validate(changed)
 
 
 def test_download_exact_rejects_overflow_and_removes_partial_file(tmp_path, monkeypatch) -> None:
