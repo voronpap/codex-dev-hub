@@ -14,11 +14,14 @@ from devhub.native_bundle import (
     NativeBundlePayloadV1,
     NativeBundleV1,
     NativeCodexAuthorityV1,
+    NativeCodexAuthorityV2,
     NativeDependencyWheelV1,
     NativeLauncherV1,
+    NativeLauncherV2,
     NativeModuleOriginV1,
     NativePythonRuntimePayloadV1,
     NativePythonRuntimeV1,
+    _native_bundle_payload_json,
     embedded_archive_members_sha256,
     file_sha256,
     inspect_embedded_windows_runtime,
@@ -27,6 +30,14 @@ from devhub.native_bundle import (
     verify_native_bundle,
 )
 from devhub.runtime_artifact import DistributionIdentityV1
+from devhub.windows_native import (
+    WindowsBuildProvenanceV2,
+    WindowsHostProofSummaryV2,
+    WindowsNativeBinaryV2,
+    WindowsNativeCodexBuildPayloadV2,
+    WindowsNativeCodexBuildV2,
+    WindowsPeIdentityV1,
+)
 
 HASH = "a" * 64
 COMMIT = "b" * 40
@@ -161,14 +172,156 @@ def build_fixture(root: Path) -> NativeBundleV1:
     return NativeBundleV1.create(payload)
 
 
+def build_pair_fixture(root: Path) -> NativeBundleV1:
+    historical = build_fixture(root)
+    (root / "authority/windows-build-result.json").unlink()
+    host = write(root, "codex/codex-code-mode-host.exe", b"code mode host")
+    codex_binary = WindowsNativeBinaryV2(
+        role="codex",
+        relative_path="binary/codex.exe",
+        sha256=file_sha256(root / "codex/codex.exe"),
+        size=(root / "codex/codex.exe").stat().st_size,
+        pe=WindowsPeIdentityV1(dll_characteristics=0x8160),
+    )
+    host_binary = WindowsNativeBinaryV2(
+        role="codex-code-mode-host",
+        relative_path="binary/codex-code-mode-host.exe",
+        sha256=file_sha256(host),
+        size=host.stat().st_size,
+        pe=WindowsPeIdentityV1(dll_characteristics=0x8160),
+    )
+    pair = WindowsNativeCodexBuildV2.create(
+        WindowsNativeCodexBuildPayloadV2(
+            provenance=WindowsBuildProvenanceV2(
+                implementation_commit=COMMIT,
+                workflow_run_id=2,
+                workflow_run_attempt=1,
+                codex_source_commit=COMMIT,
+                source_archive_sha256=HASH,
+                candidate_b_base_patch_sha256=HASH,
+                host_integration_patch_sha256=HASH,
+                combined_patchset_sha256=HASH,
+                canonical_schema_sha256=HASH,
+                raw_schema_file_sha256=HASH,
+                host_manifest_sha256=HASH,
+                resolved_mcp_config_sha256=HASH,
+                original_cargo_lock_sha256=HASH,
+                derived_cargo_lock_sha256=HASH,
+                rustc_version="rustc 1.95.0",
+                cargo_version="cargo 1.95.0",
+                rustc_sha256=HASH,
+                cargo_sha256=HASH,
+                build_script_sha256=HASH,
+                shared_proof_script_sha256=HASH,
+                workflow_sha256=HASH,
+            ),
+            binaries=(codex_binary, host_binary),
+            process_proof=WindowsHostProofSummaryV2(
+                process_proof_sha256=HASH,
+                code_mode_host_sha256=host_binary.sha256,
+                code_mode_host_eof_receipt_sha256=HASH,
+            ),
+        )
+    )
+    pair_receipt = write(
+        root,
+        "authority/windows-native-codex-build.json",
+        pair.model_dump_json(indent=2).encode() + b"\n",
+    )
+    payload = NativeBundlePayloadV1(
+        platform="windows",
+        architecture="x86_64",
+        implementation_commit=historical.payload.implementation_commit,
+        python=historical.payload.python,
+        codex=NativeCodexAuthorityV2(
+            accepted_run_id=2,
+            accepted_run_attempt=1,
+            devfabric_implementation_commit=COMMIT,
+            build_receipt_sha256=file_sha256(pair_receipt),
+            windows_native_codex_build_id=pair.windows_native_codex_build_id,
+            executable_sha256=file_sha256(root / "codex/codex.exe"),
+            code_mode_host_sha256=file_sha256(host),
+            process_proof_sha256=pair.payload.process_proof.process_proof_sha256,
+            code_mode_host_eof_receipt_sha256=(
+                pair.payload.process_proof.code_mode_host_eof_receipt_sha256
+            ),
+            codex_source_commit=COMMIT,
+            source_archive_sha256=HASH,
+            candidate_b_base_patch_sha256=HASH,
+            host_integration_patch_sha256=HASH,
+            combined_patchset_sha256=HASH,
+        ),
+        launcher=NativeLauncherV2(),
+        files=inventory_native_bundle(root),
+    )
+    return NativeBundleV1.create(payload)
+
+
 def test_native_bundle_canonical_id_and_exact_inventory(tmp_path: Path) -> None:
     bundle = build_fixture(tmp_path)
 
+    canonical_payload = _native_bundle_payload_json(bundle.payload)
+    assert isinstance(canonical_payload, dict)
+    assert canonical_payload["codex"] == bundle.payload.codex.model_dump(mode="json")
+    assert canonical_payload["launcher"] == bundle.payload.launcher.model_dump(mode="json")
+    assert "code_mode_host_path" not in canonical_payload["launcher"]
+    assert "accepted_run_attempt" not in canonical_payload["codex"]
     reparsed = NativeBundleV1.model_validate_json(bundle.model_dump_json())
     verify_native_bundle(
         reparsed, tmp_path, expected_platform="windows", expected_architecture="x86_64"
     )
     assert reparsed == bundle
+
+
+def test_native_bundle_v2_requires_exact_codex_sibling_pair(tmp_path: Path) -> None:
+    bundle = build_pair_fixture(tmp_path)
+    reparsed = NativeBundleV1.model_validate_json(bundle.model_dump_json())
+    verify_native_bundle(
+        reparsed, tmp_path, expected_platform="windows", expected_architecture="x86_64"
+    )
+    assert isinstance(reparsed.payload.codex, NativeCodexAuthorityV2)
+    assert isinstance(reparsed.payload.launcher, NativeLauncherV2)
+
+    (tmp_path / "codex/codex-code-mode-host.exe").write_bytes(b"changed")
+    with pytest.raises(ValueError, match="files differ"):
+        verify_native_bundle(
+            reparsed, tmp_path, expected_platform="windows", expected_architecture="x86_64"
+        )
+
+
+def test_native_bundle_v2_rejects_self_consistent_embedded_receipt_substitution(
+    tmp_path: Path,
+) -> None:
+    bundle = build_pair_fixture(tmp_path)
+    receipt_path = tmp_path / "authority/windows-native-codex-build.json"
+    receipt = WindowsNativeCodexBuildV2.model_validate_json(receipt_path.read_bytes())
+    provenance = receipt.payload.provenance.model_dump(mode="python")
+    provenance["workflow_run_id"] = 3
+    changed_payload = receipt.payload.model_dump(mode="python")
+    changed_payload["provenance"] = provenance
+    changed = WindowsNativeCodexBuildV2.create(
+        WindowsNativeCodexBuildPayloadV2.model_validate(changed_payload)
+    )
+    receipt_path.write_text(changed.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    authority = bundle.payload.codex.model_dump(mode="python")
+    authority["build_receipt_sha256"] = file_sha256(receipt_path)
+    changed_bundle = NativeBundleV1.create(
+        NativeBundlePayloadV1(
+            **{
+                **bundle.payload.model_dump(mode="python"),
+                "codex": NativeCodexAuthorityV2.model_validate(authority),
+                "files": inventory_native_bundle(tmp_path),
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="build authority differs"):
+        verify_native_bundle(
+            changed_bundle,
+            tmp_path,
+            expected_platform="windows",
+            expected_architecture="x86_64",
+        )
 
 
 def test_native_bundle_rejects_forged_id(tmp_path: Path) -> None:

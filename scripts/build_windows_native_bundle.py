@@ -37,8 +37,10 @@ from devhub.native_bundle import (
     NativeBundlePayloadV1,
     NativeBundleV1,
     NativeCodexAuthorityV1,
+    NativeCodexAuthorityV2,
     NativeDependencyWheelV1,
     NativeLauncherV1,
+    NativeLauncherV2,
     NativeLoaderAuthorityV2,
     NativeLoaderBuildV2,
     embedded_archive_members_sha256,
@@ -52,6 +54,7 @@ from devhub.native_bundle import (
     verify_native_bundle,
 )
 from devhub.runtime_artifact import normalize_distribution_name
+from devhub.windows_native import WindowsNativeCodexBuildV2
 
 PYTHON_ARCHIVE = "python-3.12.10-embed-amd64.zip"
 PYTHON_ARCHIVE_SHA256 = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
@@ -392,7 +395,14 @@ def _zero_counters(value: dict[str, Any], label: str) -> None:
         raise ValueError(f"{label} reports a nonzero real task execution count")
 
 
-def validate_windows_codex_artifact(artifact: Path, accepted_run_id: int) -> NativeCodexAuthorityV1:
+def validate_windows_codex_artifact(
+    artifact: Path, accepted_run_id: int, accepted_run_attempt: int | None = None
+) -> NativeCodexAuthorityV2 | NativeCodexAuthorityV1:
+    pair_receipt = artifact / "windows-native-codex-build.json"
+    if pair_receipt.is_file():
+        if accepted_run_attempt is None:
+            raise ValueError("Windows Codex pair artifact requires an accepted run attempt")
+        return validate_windows_codex_pair_artifact(artifact, accepted_run_id, accepted_run_attempt)
     if accepted_run_id != WINDOWS_BUILD_ARTIFACT_RUN_ID:
         raise ValueError("Windows Codex artifact run differs from the reviewed workflow run")
     receipt_path = artifact / "windows-build-result.json"
@@ -616,6 +626,74 @@ def validate_windows_codex_artifact(artifact: Path, accepted_run_id: int) -> Nat
     )
 
 
+def validate_windows_codex_pair_artifact(
+    artifact: Path, accepted_run_id: int, accepted_run_attempt: int
+) -> NativeCodexAuthorityV2:
+    if accepted_run_id < 1 or accepted_run_attempt < 1:
+        raise ValueError("Windows Codex pair artifact run identity must be positive")
+    receipt_path = artifact / "windows-native-codex-build.json"
+    receipt = WindowsNativeCodexBuildV2.model_validate_json(receipt_path.read_bytes())
+    payload = receipt.payload
+    provenance = payload.provenance
+    if (
+        provenance.workflow_run_id != accepted_run_id
+        or provenance.workflow_run_attempt != accepted_run_attempt
+    ):
+        raise ValueError("Windows Codex pair receipt workflow identity differs")
+    expected = {
+        "build_id": "windows-build-002",
+        "codex_source_commit": CODEX_SOURCE_COMMIT,
+        "source_archive_sha256": CODEX_SOURCE_ARCHIVE_SHA256,
+        "candidate_b_base_patch_sha256": CANDIDATE_SHA256,
+        "host_integration_patch_sha256": HOST_SHA256,
+        "combined_patchset_sha256": COMBINED_SHA256,
+        "canonical_schema_sha256": SCHEMA_SHA256,
+        "original_cargo_lock_sha256": ORIGINAL_CARGO_LOCK_SHA256,
+        "derived_cargo_lock_sha256": PROOF_CARGO_LOCK_SHA256,
+        "target": "x86_64-pc-windows-msvc",
+    }
+    observed = provenance.model_dump(mode="json")
+    for key, value in expected.items():
+        if observed.get(key) != value:
+            raise ValueError(f"Windows Codex pair receipt differs at {key}")
+    binary_by_role = {item.role: item for item in payload.binaries}
+    codex = binary_by_role["codex"]
+    host = binary_by_role["codex-code-mode-host"]
+    for item in (codex, host):
+        path = artifact / item.relative_path
+        if (
+            not path.is_file()
+            or file_sha256(path) != item.sha256
+            or path.stat().st_size != item.size
+        ):
+            raise ValueError(f"Windows Codex pair binary differs: {item.role}")
+    proof_path = artifact / "windows-process-proof.json"
+    eof_path = artifact / "code-mode-host-eof.json"
+    if (
+        file_sha256(proof_path) != payload.process_proof.process_proof_sha256
+        or file_sha256(eof_path) != payload.process_proof.code_mode_host_eof_receipt_sha256
+    ):
+        raise ValueError("Windows Codex pair proof receipt differs")
+    if payload.process_proof.code_mode_host_sha256 != host.sha256:
+        raise ValueError("Windows Codex pair proof uses another sibling host")
+    return NativeCodexAuthorityV2(
+        accepted_run_id=accepted_run_id,
+        accepted_run_attempt=accepted_run_attempt,
+        devfabric_implementation_commit=provenance.implementation_commit,
+        build_receipt_sha256=file_sha256(receipt_path),
+        windows_native_codex_build_id=receipt.windows_native_codex_build_id,
+        executable_sha256=codex.sha256,
+        code_mode_host_sha256=host.sha256,
+        process_proof_sha256=payload.process_proof.process_proof_sha256,
+        code_mode_host_eof_receipt_sha256=(payload.process_proof.code_mode_host_eof_receipt_sha256),
+        codex_source_commit=provenance.codex_source_commit,
+        source_archive_sha256=provenance.source_archive_sha256,
+        candidate_b_base_patch_sha256=provenance.candidate_b_base_patch_sha256,
+        host_integration_patch_sha256=provenance.host_integration_patch_sha256,
+        combined_patchset_sha256=provenance.combined_patchset_sha256,
+    )
+
+
 def archive_members_sha256(archive: Path) -> str:
     return embedded_archive_members_sha256(archive.read_bytes())
 
@@ -744,6 +822,7 @@ def _assemble_bundle(
     python_sbom: Path,
     codex_artifact: Path,
     accepted_run_id: int,
+    accepted_run_attempt: int | None,
     pip_interpreter: Path,
     native_loader_artifact: Path | None,
     accepted_native_loader_run_id: int | None,
@@ -757,7 +836,7 @@ def _assemble_bundle(
         raise ValueError("CPython embedded archive differs from the reviewed release asset")
     if file_sha256(python_sbom) != PYTHON_SBOM_SHA256:
         raise ValueError("CPython SPDX document differs from the reviewed release asset")
-    codex = validate_windows_codex_artifact(codex_artifact, accepted_run_id)
+    codex = validate_windows_codex_artifact(codex_artifact, accepted_run_id, accepted_run_attempt)
     if (
         native_loader_artifact is None
         or accepted_native_loader_run_id is None
@@ -860,10 +939,20 @@ def _assemble_bundle(
         codex_dir = bundle_root / "codex"
         codex_dir.mkdir()
         shutil.copy2(codex_artifact / "binary/codex.exe", codex_dir / "codex.exe")
-        shutil.copy2(
-            codex_artifact / "windows-build-result.json",
-            authority / "windows-build-result.json",
-        )
+        if isinstance(codex, NativeCodexAuthorityV2):
+            shutil.copy2(
+                codex_artifact / "binary/codex-code-mode-host.exe",
+                codex_dir / "codex-code-mode-host.exe",
+            )
+            shutil.copy2(
+                codex_artifact / "windows-native-codex-build.json",
+                authority / "windows-native-codex-build.json",
+            )
+        else:
+            shutil.copy2(
+                codex_artifact / "windows-build-result.json",
+                authority / "windows-build-result.json",
+            )
         runtime = inspect_embedded_windows_runtime(
             bundle_root / "python/python.exe", devhub_wheel, authority / "uv.lock", commit
         )
@@ -899,7 +988,11 @@ def _assemble_bundle(
             implementation_commit=commit,
             python=python,
             codex=codex,
-            launcher=NativeLauncherV1(),
+            launcher=(
+                NativeLauncherV2()
+                if isinstance(codex, NativeCodexAuthorityV2)
+                else NativeLauncherV1()
+            ),
             native_loader=native_loader,
             files=inventory_native_bundle(bundle_root),
         )
@@ -919,6 +1012,7 @@ def build(
     python_sbom: Path,
     codex_artifact: Path,
     accepted_run_id: int,
+    accepted_run_attempt: int | None = None,
     native_loader_artifact: Path | None = None,
     accepted_native_loader_run_id: int | None = None,
     accepted_native_loader_run_attempt: int | None = None,
@@ -945,6 +1039,7 @@ def build(
             python_sbom,
             codex_artifact,
             accepted_run_id,
+            accepted_run_attempt,
             pip_interpreter,
             native_loader_artifact,
             accepted_native_loader_run_id,
@@ -962,6 +1057,7 @@ def main() -> None:
     parser.add_argument("--python-sbom", required=True, type=Path)
     parser.add_argument("--codex-artifact", required=True, type=Path)
     parser.add_argument("--accepted-run-id", required=True, type=int)
+    parser.add_argument("--accepted-run-attempt", type=int)
     parser.add_argument("--native-loader-artifact", required=True, type=Path)
     parser.add_argument("--accepted-native-loader-run-id", required=True, type=int)
     parser.add_argument("--accepted-native-loader-run-attempt", required=True, type=int)
@@ -974,6 +1070,7 @@ def main() -> None:
         args.python_sbom.resolve(strict=True),
         args.codex_artifact.resolve(strict=True),
         args.accepted_run_id,
+        args.accepted_run_attempt,
         args.native_loader_artifact.resolve(strict=True),
         args.accepted_native_loader_run_id,
         args.accepted_native_loader_run_attempt,

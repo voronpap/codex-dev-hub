@@ -1,4 +1,4 @@
-"""Build and qualify one pinned patched native Windows Codex executable.
+"""Build and qualify the pinned patched native Windows Codex executable pair.
 
 This is a pre-sampling host-visibility proof. It never sends a model request,
 invokes an MCP tool, contacts a provider, or qualifies the Windows executor sandbox.
@@ -15,6 +15,7 @@ import os
 import platform
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -27,12 +28,30 @@ import build_stage3g_build009 as retained
 from derive_stage3g_production_lock import PRODUCTION_HOST_LOCK_SHA256
 from stage3g_schema_hash import read_schema_identity
 
-BUILD_ID = "windows-build-001"
+from devhub.native_bundle import git_blob_sha256
+from devhub.windows_native import (
+    WindowsBuildProvenanceV2,
+    WindowsHostProofSummaryV2,
+    WindowsNativeBinaryV2,
+    WindowsNativeCodexBuildPayloadV2,
+    WindowsNativeCodexBuildV2,
+    WindowsPeIdentityV1,
+)
+
+BUILD_ID = "windows-build-002"
 TARGET = "x86_64-pc-windows-msvc"
 SCHEMA_ENV = "DEVHUB_BUILD009_SCHEMA"
 MCP_PID_ENV = "DEVHUB_BUILD009_MCP_PID"
 DELEGATE = retained.DELEGATE
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
+CODE_MODE_FAILURE_TEXT = (
+    "host executable was not found",
+    "code mode is unavailable",
+    "failed to spawn code-mode host",
+    "failed to read code-mode host hello",
+    "failed to write code-mode host hello",
+    "code-mode host protocol",
+)
 WINDOWS_RUNNER_ASSETS = frozenset(
     {
         "build_stage3g_build009.py",
@@ -65,6 +84,22 @@ def canonical_sha256(value: object) -> str:
     return sha256_bytes(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     )
+
+
+def committed_provenance_hashes(repo: Path, commit: str) -> dict[str, str]:
+    """Hash committed authority bytes without worktree line-ending filters."""
+
+    return {
+        "build_script_sha256": git_blob_sha256(
+            repo, commit, "scripts/build_windows_native_codex.py"
+        ),
+        "shared_proof_script_sha256": git_blob_sha256(
+            repo, commit, "scripts/build_stage3g_build009.py"
+        ),
+        "workflow_sha256": git_blob_sha256(
+            repo, commit, ".github/workflows/windows-native-qualification.yml"
+        ),
+    }
 
 
 def write_json(path: Path, value: object) -> None:
@@ -522,22 +557,150 @@ def process_proof(
     }
 
 
+def inspect_pe(role: str, binary: Path) -> WindowsNativeBinaryV2:
+    raw = binary.read_bytes()
+    if len(raw) < 64 or raw[:2] != b"MZ":
+        raise ValueError(f"{role} is not a PE executable")
+    pe_offset = struct.unpack_from("<I", raw, 0x3C)[0]
+    optional_offset = pe_offset + 24
+    if pe_offset + 24 > len(raw) or raw[pe_offset : pe_offset + 4] != b"PE\0\0":
+        raise ValueError(f"{role} has an invalid PE signature")
+    machine = struct.unpack_from("<H", raw, pe_offset + 4)[0]
+    optional_size = struct.unpack_from("<H", raw, pe_offset + 20)[0]
+    if optional_size < 72 or optional_offset + optional_size > len(raw):
+        raise ValueError(f"{role} has an invalid PE optional header")
+    magic = struct.unpack_from("<H", raw, optional_offset)[0]
+    subsystem = struct.unpack_from("<H", raw, optional_offset + 68)[0]
+    dll_characteristics = struct.unpack_from("<H", raw, optional_offset + 70)[0]
+    if machine != 0x8664 or magic != 0x20B or subsystem != 3:
+        raise ValueError(f"{role} is not an x86_64 PE32+ console executable")
+    return WindowsNativeBinaryV2(
+        role=role,
+        relative_path=f"binary/{role}.exe",
+        sha256=sha256_file(binary),
+        size=len(raw),
+        pe=WindowsPeIdentityV1(dll_characteristics=dll_characteristics),
+    )
+
+
+def _tool_path(tool: str) -> Path:
+    raw = subprocess.check_output(
+        ["rustup", "which", "--toolchain", "1.95.0", tool], text=True
+    ).strip()
+    return Path(raw).resolve(strict=True)
+
+
+def _host_eof_proof(binary: Path, output: Path) -> dict[str, object]:
+    binary_sha256 = sha256_file(binary)
+    process = subprocess.Popen(
+        [str(binary), "--listen", "stdio"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+    )
+    timed_out = False
+    try:
+        stdout, stderr = process.communicate(b"", timeout=15)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+        )
+        stdout, stderr = process.communicate(timeout=10)
+    result = {
+        "schema_version": 1,
+        "binary_relative_path": "binary/codex-code-mode-host.exe",
+        "binary_sha256": binary_sha256,
+        "exit_code": None if timed_out else process.returncode,
+        "timed_out": timed_out,
+        "request_count": 0,
+        "stdin_bytes": 0,
+        "stdin_closed": True,
+        "stdout_sha256": sha256_bytes(stdout),
+        "stderr_sha256": sha256_bytes(stderr),
+        "process_exited": not _pid_is_active(process.pid),
+    }
+    write_json(output, result)
+    if timed_out or process.returncode != 0 or not result["process_exited"]:
+        raise ValueError("code-mode host did not terminate cleanly on stdio EOF")
+    return result
+
+
+def _proof_summary(
+    proof: dict[str, object],
+    proof_sha256: str,
+    eof: dict[str, object],
+    eof_receipt_sha256: str,
+    host_binary: WindowsNativeBinaryV2,
+) -> WindowsHostProofSummaryV2:
+    arms = proof["arms"]
+    default = proof["default"]
+    same = proof["same_binary"]
+    negatives = proof["negatives"]
+    assert isinstance(arms, dict) and isinstance(default, dict)
+    assert isinstance(same, dict) and isinstance(negatives, dict)
+    serialized = json.dumps(proof, sort_keys=True).lower()
+    observed_failures = tuple(text for text in CODE_MODE_FAILURE_TEXT if text in serialized)
+    if observed_failures:
+        raise ValueError(
+            "pre-sampling proof observed a code-mode host failure: " + ", ".join(observed_failures)
+        )
+    if (
+        host_binary.role != "codex-code-mode-host"
+        or host_binary.relative_path != "binary/codex-code-mode-host.exe"
+        or eof.get("binary_sha256") != host_binary.sha256
+        or eof.get("binary_relative_path") != host_binary.relative_path
+    ):
+        raise ValueError("EOF proof does not bind the exact sibling code-mode host")
+    return WindowsHostProofSummaryV2(
+        process_proof_sha256=proof_sha256,
+        code_mode_host_sha256=host_binary.sha256,
+        code_mode_host_eof_receipt_sha256=eof_receipt_sha256,
+        code_mode_host_eof_exit_code=eof["exit_code"],
+        code_mode_host_eof_timed_out=eof["timed_out"],
+        default_visible_tools=tuple(default["observer"]["visible_model_tools"]),
+        arm_a_visible_tools=tuple(arms["A"]["observer"]["visible_model_tools"]),
+        arm_b_visible_tools=tuple(arms["B"]["observer"]["visible_model_tools"]),
+        b_minus_a=tuple(same["b_minus_a"]),
+        a_minus_b=tuple(same["a_minus_b"]),
+        default_allowed_tools_ceiling_present=default["observer"]["allowed_tools_ceiling_present"],
+        arm_a_allowed_tools_ceiling_present=arms["A"]["observer"]["allowed_tools_ceiling_present"],
+        arm_b_allowed_tools_ceiling_present=arms["B"]["observer"]["allowed_tools_ceiling_present"],
+        approved_delegate_policy_arm_a=arms["A"]["observer"]["approved_delegate_policy_present"],
+        approved_delegate_policy_arm_b=arms["B"]["observer"]["approved_delegate_policy_present"],
+        code_mode_host_stdio_eof_passed=bool(eof["process_exited"]),
+        mcp_child_cleanup_passed=bool(arms["B"].get("mcp_child_exited")),
+        security_negatives_passed=all(bool(item.get("passed")) for item in negatives.values()),
+        model_requests=proof["model_requests"],
+        provider_sends=proof["provider_sends"],
+        mcp_tool_executions=proof["mcp_tool_executions"],
+        real_task_executions=proof["real_task_executions"],
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--build-id", choices=(BUILD_ID,), default=BUILD_ID)
     parser.add_argument("--expected-implementation-commit", required=True)
+    parser.add_argument("--workflow-run-id", required=True, type=int)
+    parser.add_argument("--workflow-run-attempt", required=True, type=int)
     args = parser.parse_args()
     if os.name != "nt" or platform.machine().upper() not in {"AMD64", "X86_64"}:
-        parser.error("windows-build-001 requires native Windows x64")
+        parser.error("windows-build-002 requires native Windows x64")
+    if args.workflow_run_id < 1 or args.workflow_run_attempt < 1:
+        parser.error("workflow run ID and attempt must be positive")
     repo = Path(__file__).resolve().parents[1]
     if args.workspace.exists() or args.output.exists():
         parser.error("workspace and output must not already exist")
     args.workspace.mkdir(parents=True)
     args.output.mkdir(parents=True)
     receipt: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "build_id": BUILD_ID,
         "expected_implementation_commit": args.expected_implementation_commit,
         "devfabric_implementation_commit": None,
@@ -621,7 +784,8 @@ def main() -> None:
             build_id=BUILD_ID,
         )
         phase = "toolchain_identity"
-        receipt["toolchain"] = retained._pinned_toolchain_identity(root, expected_host=TARGET)
+        toolchain = retained._pinned_toolchain_identity(root, expected_host=TARGET)
+        receipt["toolchain"] = toolchain
         phase = "locked_resolution"
         receipt["locked_resolution"] = retained._verify_locked_resolution(
             root, args.output, PRODUCTION_HOST_LOCK_SHA256, target=TARGET
@@ -659,10 +823,16 @@ def main() -> None:
             "build",
             "--release",
             "--locked",
+            "--target",
+            TARGET,
             "-p",
             "codex-cli",
             "--bin",
             "codex",
+            "-p",
+            "codex-code-mode-host",
+            "--bin",
+            "codex-code-mode-host",
         ]
         receipt["build_command"] = command
         phase = "cargo_start"
@@ -689,24 +859,27 @@ def main() -> None:
         receipt["compilation"] = "PASS" if build_exit_code == 0 else "FAIL"
         write_build_state(args.output, receipt)
         if build_exit_code != 0:
-            raise ValueError("windows-build-001 Rust compilation failed")
+            raise ValueError("windows-build-002 Rust compilation failed")
 
         phase = "binary_identity"
         binary_dir = args.output / "binary"
         binary_dir.mkdir()
+        target_dir = root / "target" / TARGET / "release"
+        for name in ("codex.exe", "codex-code-mode-host.exe"):
+            shutil.copy2(target_dir / name, binary_dir / name)
         binary = binary_dir / "codex.exe"
-        shutil.copy2(root / "target" / "release" / "codex.exe", binary)
+        host_binary_path = binary_dir / "codex-code-mode-host.exe"
         version = subprocess.run([binary, "--version"], capture_output=True, text=True, check=False)
         if version.returncode != 0 or "codex-cli 0.155.0-alpha.9.2" not in version.stdout:
             raise ValueError("native Windows Codex version identity mismatch")
-        binary_sha256 = sha256_file(binary)
-        receipt["executable"] = {
-            "relative_path": "binary/codex.exe",
-            "sha256": binary_sha256,
-            "bytes": binary.stat().st_size,
-            "version_stdout": version.stdout.strip(),
-            "version_stderr": version.stderr.strip(),
-        }
+        binaries = (
+            inspect_pe("codex", binary),
+            inspect_pe("codex-code-mode-host", host_binary_path),
+        )
+        binary_sha256 = binaries[0].sha256
+        receipt["executables"] = [item.model_dump(mode="json") for item in binaries]
+        receipt["version_stdout"] = version.stdout.strip()
+        receipt["version_stderr"] = version.stderr.strip()
         receipt["windows_environment"] = {
             "platform": platform.platform(),
             "win32_ver": list(platform.win32_ver()),
@@ -715,6 +888,9 @@ def main() -> None:
             "runner_image_version": os.environ.get("ImageVersion"),
         }
 
+        phase = "code_mode_host_eof"
+        eof_path = args.output / "code-mode-host-eof.json"
+        eof = _host_eof_proof(host_binary_path, eof_path)
         phase = "process_proof"
         proof = process_proof(
             binary,
@@ -727,10 +903,57 @@ def main() -> None:
         )
         if proof["final_binary_sha256"] != binary_sha256:
             raise ValueError("final proof binary identity does not match retained executable")
+        for item in binaries:
+            if sha256_file(args.output / item.relative_path) != item.sha256:
+                raise ValueError("native Windows binary changed during process proof")
+        proof_path = args.output / "windows-process-proof.json"
+        write_json(proof_path, proof)
+        summary = _proof_summary(
+            proof,
+            sha256_file(proof_path),
+            eof,
+            sha256_file(eof_path),
+            binaries[1],
+        )
         receipt["process_proof"] = proof
+        rustc = _tool_path("rustc")
+        cargo = _tool_path("cargo")
+        provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
+        preparation = receipt["source_preparation"]
+        assert isinstance(preparation, dict)
+        payload = WindowsNativeCodexBuildPayloadV2(
+            provenance=WindowsBuildProvenanceV2(
+                implementation_commit=implementation_commit,
+                workflow_run_id=args.workflow_run_id,
+                workflow_run_attempt=args.workflow_run_attempt,
+                codex_source_commit=retained.SOURCE_COMMIT,
+                source_archive_sha256=retained.SOURCE_ARCHIVE_SHA256,
+                **identities,
+                canonical_schema_sha256=schema_identity.canonical_schema_sha256,
+                raw_schema_file_sha256=schema_identity.raw_file_sha256,
+                host_manifest_sha256=manifest_hash,
+                resolved_mcp_config_sha256=canonical_sha256(config),
+                original_cargo_lock_sha256=preparation["original_cargo_lock_sha256"],
+                derived_cargo_lock_sha256=preparation["proof_cargo_lock_sha256"],
+                rustc_version=toolchain["rustc"],
+                cargo_version=toolchain["cargo"],
+                rustc_sha256=sha256_file(rustc),
+                cargo_sha256=sha256_file(cargo),
+                **provenance_hashes,
+            ),
+            binaries=binaries,
+            process_proof=summary,
+        )
+        final = WindowsNativeCodexBuildV2.create(payload)
+        (args.output / "windows-native-codex-build.json").write_text(
+            final.model_dump_json(indent=2) + "\n", encoding="utf-8"
+        )
         receipt["phase"] = "complete"
         receipt["status"] = "PASS"
-        receipt["qualification"] = "WINDOWS_PRODUCTION_HOST_QUALIFIED_PRE_SAMPLING"
+        receipt["qualification"] = "WINDOWS_NATIVE_CODEX_PAIR_AUTHORITY_PRE_SAMPLING"
+        receipt["windows_native_codex_build_id"] = final.windows_native_codex_build_id
+        receipt["executable_sha256"] = binaries[0].sha256
+        receipt["code_mode_host_sha256"] = binaries[1].sha256
         receipt["failure"] = None
         write_build_state(args.output, receipt)
     except Exception as error:

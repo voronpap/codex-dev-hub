@@ -14,6 +14,8 @@ on:
       - 'scripts/derive_stage3g_production_lock.py'
       - 'scripts/stage3g_build009_mcp.py'
       - 'scripts/stage3g_schema_hash.py'
+      - 'src/devhub/windows_native.py'
+      - 'src/devhub/native_bundle.py'
       - 'tests/test_windows_native_codex.py'
 
 concurrency:
@@ -55,18 +57,20 @@ jobs:
       - name: Build and prove native Windows Codex
         shell: pwsh
         run: |
-          $workspace = 'C:\dfw001\s'
-          $output = 'C:\dfw001\e'
+          $workspace = 'C:\dfw002\s'
+          $output = 'C:\dfw002\e'
           uv run --locked python scripts/build_windows_native_codex.py `
             --workspace $workspace `
             --output $output `
-            --build-id windows-build-001 `
-            --expected-implementation-commit '${{ github.event.pull_request.head.sha || github.sha }}'
+            --build-id windows-build-002 `
+            --expected-implementation-commit '${{ github.event.pull_request.head.sha || github.sha }}' `
+            --workflow-run-id '${{ github.run_id }}' `
+            --workflow-run-attempt '${{ github.run_attempt }}'
       - name: Upload exact Windows executable and evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: devfabric-windows-build-001
-          path: C:\dfw001\e
+          name: devfabric-windows-build-002
+          path: C:\dfw002\e
           if-no-files-found: error
           retention-days: 14

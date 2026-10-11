@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -23,7 +24,7 @@ def test_windows_build_reuses_exact_reviewed_identities() -> None:
     candidate = (repo / "patches/stage3g-approved-call/candidate.patch").read_bytes()
     host = (repo / "patches/stage3g-approved-call/host-integration.patch").read_bytes()
 
-    assert WINDOWS_BUILD.BUILD_ID == "windows-build-001"
+    assert WINDOWS_BUILD.BUILD_ID == "windows-build-002"
     assert WINDOWS_BUILD.TARGET == "x86_64-pc-windows-msvc"
     assert hashlib.sha256(candidate).hexdigest() == retained.CANDIDATE_SHA256
     assert hashlib.sha256(host).hexdigest() == retained.HOST_SHA256
@@ -66,7 +67,7 @@ new file mode 100644
         root,
         candidate_patch=candidate,
         host_patch=host,
-        build_id="windows-build-001",
+        build_id="windows-build-002",
     )
 
     assert (root / "candidate.txt").read_text(encoding="utf-8") == "candidate\n"
@@ -235,6 +236,216 @@ def test_workflow_binds_pull_request_head_and_never_cancels_build() -> None:
     assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
     assert "--expected-implementation-commit" in workflow
     assert "cancel-in-progress: false" in workflow
-    assert "$workspace = 'C:\\dfw001\\s'" in workflow
-    assert "$output = 'C:\\dfw001\\e'" in workflow
-    assert "path: C:\\dfw001\\e" in workflow
+    assert "$workspace = 'C:\\dfw002\\s'" in workflow
+    assert "$output = 'C:\\dfw002\\e'" in workflow
+    assert "--build-id windows-build-002" in workflow
+    assert "--workflow-run-id '${{ github.run_id }}'" in workflow
+    assert "--workflow-run-attempt '${{ github.run_attempt }}'" in workflow
+    assert "name: devfabric-windows-build-002" in workflow
+    assert "path: C:\\dfw002\\e" in workflow
+
+
+def _pe64_console() -> bytes:
+    raw = bytearray(0x200)
+    raw[:2] = b"MZ"
+    raw[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    raw[0x80:0x84] = b"PE\0\0"
+    raw[0x84:0x86] = (0x8664).to_bytes(2, "little")
+    raw[0x94:0x96] = (0xF0).to_bytes(2, "little")
+    raw[0x98:0x9A] = (0x20B).to_bytes(2, "little")
+    raw[0x98 + 68 : 0x98 + 70] = (3).to_bytes(2, "little")
+    raw[0x98 + 70 : 0x98 + 72] = (0x8160).to_bytes(2, "little")
+    return bytes(raw)
+
+
+@pytest.mark.parametrize("role", ["codex", "codex-code-mode-host"])
+def test_pe_identity_binds_exact_role_path_and_amd64_console(tmp_path, role) -> None:
+    binary = tmp_path / f"{role}.exe"
+    binary.write_bytes(_pe64_console())
+
+    identity = WINDOWS_BUILD.inspect_pe(role, binary)
+
+    assert identity.relative_path == f"binary/{role}.exe"
+    assert identity.sha256 == hashlib.sha256(_pe64_console()).hexdigest()
+    assert identity.pe.machine_code == 0x8664
+    assert identity.pe.subsystem_code == 3
+    assert identity.pe.dll_characteristics == 0x8160
+
+
+@pytest.mark.parametrize(
+    ("offset", "value", "message"),
+    [
+        (0, b"NO", "not a PE"),
+        (0x84, (0x14C).to_bytes(2, "little"), "not an x86_64"),
+        (0x98, (0x10B).to_bytes(2, "little"), "not an x86_64"),
+        (0x98 + 68, (2).to_bytes(2, "little"), "not an x86_64"),
+    ],
+)
+def test_pe_identity_rejects_wrong_format(tmp_path, offset, value, message) -> None:
+    raw = bytearray(_pe64_console())
+    raw[offset : offset + len(value)] = value
+    binary = tmp_path / "codex.exe"
+    binary.write_bytes(raw)
+
+    with pytest.raises(ValueError, match=message):
+        WINDOWS_BUILD.inspect_pe("codex", binary)
+
+
+def test_workflow_builds_exact_sibling_pair_with_one_locked_command() -> None:
+    source = (SCRIPTS / "build_windows_native_codex.py").read_text(encoding="utf-8")
+
+    assert '"--target",\n            TARGET,' in source
+    assert source.count('"codex-code-mode-host"') >= 3
+    assert 'root / "target" / TARGET / "release"' in source
+    assert "windows-native-codex-build.json" in source
+
+
+def _proof_fixture() -> dict[str, object]:
+    def observer(tools, *, ceiling, policy):
+        return {
+            "visible_model_tools": tools,
+            "allowed_tools_ceiling_present": ceiling,
+            "approved_delegate_policy_present": policy,
+        }
+
+    return {
+        "arms": {
+            "A": {"observer": observer([], ceiling=True, policy=False)},
+            "B": {
+                "observer": observer(
+                    ["mcp__devhub_delegate.devhub_delegate"], ceiling=True, policy=True
+                ),
+                "mcp_child_exited": True,
+            },
+        },
+        "default": {"observer": observer([], ceiling=False, policy=False)},
+        "same_binary": {
+            "b_minus_a": ["mcp__devhub_delegate.devhub_delegate"],
+            "a_minus_b": [],
+        },
+        "negatives": {"wrong_schema": {"passed": True}},
+        "model_requests": 0,
+        "provider_sends": 0,
+        "mcp_tool_executions": 0,
+        "real_task_executions": 0,
+    }
+
+
+def _host_identity(tmp_path):
+    binary = tmp_path / "codex-code-mode-host.exe"
+    binary.write_bytes(_pe64_console())
+    return WINDOWS_BUILD.inspect_pe("codex-code-mode-host", binary)
+
+
+def test_proof_summary_rejects_historical_missing_host_diagnostic(tmp_path) -> None:
+    proof = _proof_fixture()
+    proof["default"]["stderr"] = "Code mode host executable was not found"
+    host = _host_identity(tmp_path)
+    eof = {
+        "binary_sha256": host.sha256,
+        "binary_relative_path": host.relative_path,
+        "exit_code": 0,
+        "timed_out": False,
+        "process_exited": True,
+    }
+
+    with pytest.raises(ValueError, match="code-mode host failure"):
+        WINDOWS_BUILD._proof_summary(proof, "1" * 64, eof, "2" * 64, host)
+
+
+@pytest.mark.parametrize(("returncode", "active"), [(9, False), (0, True)])
+def test_code_mode_host_eof_rejects_nonzero_or_surviving_process(
+    tmp_path, monkeypatch, returncode, active
+) -> None:
+    binary = tmp_path / "codex-code-mode-host.exe"
+    binary.write_bytes(b"host")
+
+    class Process:
+        pid = 42
+
+        def __init__(self):
+            self.returncode = returncode
+
+        def communicate(self, _input=None, timeout=None):
+            return b"", b""
+
+    monkeypatch.setattr(WINDOWS_BUILD.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    monkeypatch.setattr(WINDOWS_BUILD, "_pid_is_active", lambda _pid: active)
+
+    with pytest.raises(ValueError, match="did not terminate cleanly"):
+        WINDOWS_BUILD._host_eof_proof(binary, tmp_path / "eof.json")
+
+
+def test_code_mode_host_eof_rejects_timeout(tmp_path, monkeypatch) -> None:
+    binary = tmp_path / "codex-code-mode-host.exe"
+    binary.write_bytes(b"host")
+
+    class Process:
+        pid = 42
+        returncode = 1
+
+        def __init__(self):
+            self.calls = 0
+
+        def communicate(self, _input=None, timeout=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise WINDOWS_BUILD.subprocess.TimeoutExpired(["host"], timeout)
+            return b"", b""
+
+    monkeypatch.setattr(WINDOWS_BUILD.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    monkeypatch.setattr(WINDOWS_BUILD.subprocess, "run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(WINDOWS_BUILD, "_pid_is_active", lambda _pid: False)
+
+    with pytest.raises(ValueError, match="did not terminate cleanly"):
+        WINDOWS_BUILD._host_eof_proof(binary, tmp_path / "eof.json")
+
+
+def test_pair_contract_rejects_reordering_and_forged_self_hash(tmp_path) -> None:
+    codex_path = tmp_path / "codex.exe"
+    host_path = tmp_path / "codex-code-mode-host.exe"
+    codex_path.write_bytes(_pe64_console())
+    host_path.write_bytes(_pe64_console() + b"host")
+    codex = WINDOWS_BUILD.inspect_pe("codex", codex_path)
+    host = WINDOWS_BUILD.inspect_pe("codex-code-mode-host", host_path)
+    payload = WINDOWS_BUILD.WindowsNativeCodexBuildPayloadV2(
+        provenance=WINDOWS_BUILD.WindowsBuildProvenanceV2(
+            implementation_commit="a" * 40,
+            workflow_run_id=1,
+            workflow_run_attempt=1,
+            codex_source_commit="b" * 40,
+            source_archive_sha256="1" * 64,
+            candidate_b_base_patch_sha256="2" * 64,
+            host_integration_patch_sha256="3" * 64,
+            combined_patchset_sha256="4" * 64,
+            canonical_schema_sha256="5" * 64,
+            raw_schema_file_sha256="6" * 64,
+            host_manifest_sha256="7" * 64,
+            resolved_mcp_config_sha256="8" * 64,
+            original_cargo_lock_sha256="9" * 64,
+            derived_cargo_lock_sha256="a" * 64,
+            rustc_version="rustc",
+            cargo_version="cargo",
+            rustc_sha256="b" * 64,
+            cargo_sha256="c" * 64,
+            build_script_sha256="d" * 64,
+            shared_proof_script_sha256="e" * 64,
+            workflow_sha256="f" * 64,
+        ),
+        binaries=(codex, host),
+        process_proof=WINDOWS_BUILD.WindowsHostProofSummaryV2(
+            process_proof_sha256="1" * 64,
+            code_mode_host_sha256=host.sha256,
+            code_mode_host_eof_receipt_sha256="2" * 64,
+        ),
+    )
+    receipt = WINDOWS_BUILD.WindowsNativeCodexBuildV2.create(payload)
+    raw = receipt.model_dump(mode="python")
+    raw["windows_native_codex_build_id"] = "0" * 64
+    with pytest.raises(ValidationError, match="build ID mismatch"):
+        WINDOWS_BUILD.WindowsNativeCodexBuildV2.model_validate(raw)
+
+    reordered = payload.model_dump(mode="python")
+    reordered["binaries"] = tuple(reversed(reordered["binaries"]))
+    with pytest.raises(ValidationError, match="ordered Codex"):
+        WINDOWS_BUILD.WindowsNativeCodexBuildPayloadV2.model_validate(reordered)

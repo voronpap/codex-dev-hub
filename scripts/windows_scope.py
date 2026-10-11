@@ -21,6 +21,7 @@ patterns = (
     "scripts/*windows*.py",
     "native/windows_loader/**",
     "src/devhub/native_bundle.py",
+    "src/devhub/windows_native.py",
     ".github/workflows/windows-native-qualification.yml",
     ".github/workflows/windows-native-loader.yml",
     "docs/NATIVE_BUNDLES.md",
