@@ -282,10 +282,36 @@ handle inheritance, child-tree termination, breakaway denial and denial of
 direct loopback, LAN, DNS and public network operations without running Codex,
 MCP, a model or a provider. This proves only the **no-direct-network baseline**.
 It deliberately keeps `native_executor_isolation_qualified=false` and
-`package_readiness=false`: the fixed-destination trusted broker and the complete
-packaged executor boundary are later gates. An unsupported API, OS build,
+`package_readiness=false`: the complete packaged executor boundary remains a
+later gate. An unsupported API, OS build,
 path/ACL semantic or cleanup observation fails closed; there is no unrestricted
 fallback.
+
+The forward-only Windows Ollama broker slice is metadata-only. Each attempt
+copies and verifies the exact source `NativeBundleV1` into a fresh disposable
+runtime, derives a fresh exact-path isolation profile from one strictly joined
+`WindowsIsolationEvidenceV6` baseline, and removes that runtime only after
+AppContainer cleanup, retained-parent identity checks, and source
+re-verification. Its authority embeds the baseline profile, proves that the
+fresh profile changes only launcher/path identities, and binds one exact
+read-only runtime, writable client root, and denied host-control root. It also
+binds the baseline receipt/evidence, exact AppContainer package SID, retained
+bundled Python/module bytes, and one exact `127.0.0.1:11434` listener process
+identity. The final receipt retains the observed `WindowsRuntimeAccessGrantV2`
+and joins its SID, runtime root, bundle, launcher, and pre/post ACL inventories
+to that fresh profile. A protected message-mode named pipe grants only generic
+read/write to that package SID; the host authenticates the client SID and the
+client authenticates the exact broker process. The allowlist is limited to
+`/api/version`, `/api/tags`, and `/api/show`; `/api/generate` has no protocol
+endpoint. The metadata receipt is derived from the observed ordered responses
+and records `generation_requests=0`, `model_requests=0`, and
+`provider_sends=0`. Bounded overlapped I/O, exact framing, DACL readback, and
+cleanup failures all fail closed. Final evidence re-parses the retained response
+bodies and recomputes all authority, runtime, server/client, response, metadata,
+listener, pipe, model, SID, access-grant and baseline-isolation joins. The code
+still does not claim that a live listener or AppContainer run has passed:
+Windows readiness remains false until an exact-host receipt and final platform
+manifest exist.
 
 ### Native Linux Codex build authority
 
@@ -478,8 +504,8 @@ mandatory before Linux readiness.
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
-| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline implemented; exact-host receipt and fixed-destination broker pending | PENDING process/files/permissions/network proof without Docker |
-| Ollama boundary | PENDING Windows receipt | PENDING native Linux receipt; service/model remain external |
+| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PENDING process/files/permissions/network proof without Docker |
+| Ollama boundary | PARTIAL — closed metadata-only broker implemented; exact listener/AppContainer receipt pending | PENDING native Linux receipt; service/model remain external |
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
