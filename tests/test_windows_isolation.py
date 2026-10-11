@@ -308,6 +308,9 @@ def native_loader_bundle() -> SimpleNamespace:
                 SimpleNamespace(path="python/_overlapped.pyd", sha256="b" * 64),
                 SimpleNamespace(path="python/select.pyd", sha256="c" * 64),
                 SimpleNamespace(path="python/_ssl.pyd", sha256="d" * 64),
+                SimpleNamespace(path="python/_hashlib.pyd", sha256="e" * 64),
+                SimpleNamespace(path="python/libcrypto-3.dll", sha256="f" * 64),
+                SimpleNamespace(path="python/libssl-3.dll", sha256="0" * 64),
             )
         ),
     )
@@ -336,6 +339,56 @@ def v4_child_matrix(
             ),
             statuses,
             strict=True,
+        )
+    )
+
+
+def v5_child_matrix(
+    probe: Any,
+    statuses: tuple[str, str, str, str, str] = (
+        "imported",
+        "imported",
+        "imported",
+        "imported",
+        "imported",
+    ),
+) -> tuple[Any, ...]:
+    return tuple(
+        probe.WindowsNativeImportMatrixObservationV2(
+            module=module,
+            file=probe.WindowsNativeMatrixFileObservationV2(
+                relative_path=path,
+                status="readable",
+                observed_sha256=character * 64,
+            ),
+            import_status=status,
+        )
+        for (module, path, character), status in zip(
+            (
+                ("_socket", "python/_socket.pyd", "a"),
+                ("_overlapped", "python/_overlapped.pyd", "b"),
+                ("select", "python/select.pyd", "c"),
+                ("_hashlib", "python/_hashlib.pyd", "e"),
+                ("_ssl", "python/_ssl.pyd", "d"),
+            ),
+            statuses,
+            strict=True,
+        )
+    )
+
+
+def v5_crypto_observations(probe: Any) -> tuple[Any, ...]:
+    return tuple(
+        probe.WindowsNativeCryptoObservationV1(
+            relative_path=path,
+            status="readable",
+            observed_sha256=character * 64,
+        )
+        for path, character in (
+            ("python/_hashlib.pyd", "e"),
+            ("python/_ssl.pyd", "d"),
+            ("python/libcrypto-3.dll", "f"),
+            ("python/libssl-3.dll", "0"),
         )
     )
 
@@ -2651,17 +2704,173 @@ def _successful_native_matrix() -> list[dict[str, object]]:
             ("_socket", "python/_socket.pyd", "a"),
             ("_overlapped", "python/_overlapped.pyd", "b"),
             ("select", "python/select.pyd", "c"),
+            ("_hashlib", "python/_hashlib.pyd", "e"),
             ("_ssl", "python/_ssl.pyd", "d"),
         )
     ]
 
 
+def _allow_dll_activation(module: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(
+        module,
+        "_activate_launcher_dll_directory",
+        lambda: (
+            {
+                "schema_version": 1,
+                "directory_kind": "launcher_parent",
+                "status": "active",
+                "error_code": None,
+            },
+            handle,
+            None,
+        ),
+    )
+
+
 def _allow_native_matrix(module: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    _allow_dll_activation(module, monkeypatch)
     monkeypatch.setattr(
         module,
         "_run_native_import_matrix",
         lambda: (_successful_native_matrix(), None, None),
     )
+
+
+def test_stdlib_bootstrap_binds_only_launcher_parent_and_retains_handle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_dll_directory_test")
+    lifetime_bootstrap = load_bootstrap_module("windows_isolation_bootstrap_handle_lifetime_test")
+    repository_root = Path.cwd()
+    captured: list[str] = []
+
+    class Handle:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    handle = Handle()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "ambient-dlls"))
+    monkeypatch.delitem(sys.modules, "_hashlib", raising=False)
+    monkeypatch.delitem(sys.modules, "_ssl", raising=False)
+    monkeypatch.setattr(
+        bootstrap.os,
+        "add_dll_directory",
+        lambda path: captured.append(path) or handle,
+        raising=False,
+    )
+    activation, retained, error = bootstrap._activate_launcher_dll_directory()
+    assert error is None
+    assert retained is handle
+    assert captured == [str(Path(sys.executable).resolve(strict=True).parent)]
+    assert str(tmp_path) not in captured
+    assert activation == {
+        "schema_version": 1,
+        "directory_kind": "launcher_parent",
+        "status": "active",
+        "error_code": None,
+    }
+    monkeypatch.setitem(sys.modules, "_hashlib", object())
+    blocked_activation, blocked_handle, blocked_error = bootstrap._activate_launcher_dll_directory()
+    assert blocked_activation["status"] == "failed"
+    assert blocked_handle is None
+    assert isinstance(blocked_error, RuntimeError)
+    assert captured == [str(Path(sys.executable).resolve(strict=True).parent)]
+    monkeypatch.delitem(sys.modules, "_hashlib")
+
+    monkeypatch.chdir(repository_root)
+    argv, result, failure, _ = _bootstrap_argv(tmp_path / "lifetime", "pass\n")
+    guarded_handle = Handle()
+
+    def activate() -> tuple[dict[str, object], Handle, None]:
+        assert "_hashlib" not in sys.modules
+        assert "_ssl" not in sys.modules
+        return activation, guarded_handle, None
+
+    monkeypatch.setattr(
+        lifetime_bootstrap,
+        "_activate_launcher_dll_directory",
+        activate,
+    )
+    hashes = {
+        "_socket.pyd": "a" * 64,
+        "_overlapped.pyd": "b" * 64,
+        "select.pyd": "c" * 64,
+        "_hashlib.pyd": "e" * 64,
+        "_ssl.pyd": "d" * 64,
+    }
+    monkeypatch.setattr(
+        lifetime_bootstrap,
+        "_native_file_observation",
+        lambda relative_path, filename: {
+            "observed_sha256": hashes[filename],
+            "relative_path": relative_path,
+            "status": "readable",
+        },
+    )
+    imported: list[str] = []
+
+    def import_module(module: str) -> object:
+        assert guarded_handle.closed is False
+        if module in {"_hashlib", "_ssl"}:
+            assert module not in sys.modules
+        imported.append(module)
+        return object()
+
+    monkeypatch.setattr(lifetime_bootstrap.importlib, "import_module", import_module)
+
+    def guarded(*_: object) -> int:
+        assert guarded_handle.closed is False
+        assert imported == ["_socket", "_overlapped", "select", "_hashlib", "_ssl"]
+        result.write_bytes(b"{}")
+        return 0
+
+    monkeypatch.setattr(
+        lifetime_bootstrap.runpy,
+        "run_path",
+        lambda *_args, **_kwargs: {"_child_guarded": guarded},
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+    assert lifetime_bootstrap.main() == 0
+    assert guarded_handle.closed is True
+    assert result.read_bytes() == b"{}"
+    assert not failure.exists()
+
+
+def test_stdlib_bootstrap_fails_closed_when_dll_directory_binding_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_dll_failure_test")
+    argv, _, failure, status = _bootstrap_argv(tmp_path, "pass\n")
+    binding_error = OSError(5, "sensitive loader path")
+    monkeypatch.setattr(
+        bootstrap,
+        "_activate_launcher_dll_directory",
+        lambda: (
+            {
+                "schema_version": 1,
+                "directory_kind": "launcher_parent",
+                "status": "failed",
+                "error_code": 5,
+            },
+            None,
+            binding_error,
+        ),
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+    assert bootstrap.main() == bootstrap.EXIT_DLL_DIRECTORY_BINDING
+    assert status.is_file()
+    observed = json.loads(failure.read_bytes())
+    assert observed["schema_version"] == 5
+    assert observed["phase"] == "bootstrap_dll_directory"
+    assert observed["dll_directory_activation"]["status"] == "failed"
+    assert [item["import_status"] for item in observed["native_import_matrix"]] == [
+        "not_attempted"
+    ] * 5
+    assert b"sensitive" not in failure.read_bytes()
 
 
 def test_stdlib_bootstrap_writes_bound_started_frame_before_valid_child(
@@ -2671,7 +2880,7 @@ def test_stdlib_bootstrap_writes_bound_started_frame_before_valid_child(
     _allow_native_matrix(bootstrap, monkeypatch)
     argv, result, failure, status = _bootstrap_argv(
         tmp_path,
-        "def _child_guarded(request, result, failure):\n"
+        "def _child_guarded(request, result, failure, activation, matrix):\n"
         "    result.write_bytes(b'{}')\n"
         "    return 0\n",
     )
@@ -2719,6 +2928,7 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     observations[1]["import_status"] = "failed"
     observations[2]["import_status"] = "not_attempted"
     observations[3]["import_status"] = "not_attempted"
+    observations[4]["import_status"] = "not_attempted"
     error = ImportError(
         "DLL load failed while importing _overlapped: C:\\private\\secret.dll",
         name="_overlapped",
@@ -2728,12 +2938,13 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
         "_run_native_import_matrix",
         lambda: (observations, error, bootstrap.EXIT_MATRIX_OVERLAPPED),
     )
+    _allow_dll_activation(bootstrap, monkeypatch)
     monkeypatch.setattr(sys, "argv", argv)
 
     assert bootstrap.main() == bootstrap.EXIT_MATRIX_OVERLAPPED
     assert status.is_file()
     observed = json.loads(failure.read_bytes())
-    assert observed["schema_version"] == 4
+    assert observed["schema_version"] == 5
     assert observed["phase"] == "bootstrap_native_matrix"
     assert observed["failed_matrix_module"] == "_overlapped"
     assert observed["loader_reason"] == "unknown"
@@ -2766,19 +2977,26 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     assert import_failed.main() == import_failed.EXIT_IMPORT_UNKNOWN
     assert status.is_file()
     observed = json.loads(failure.read_bytes())
-    assert observed == {
-        "errno": None,
-        "exception_class": "ImportError",
-        "failed_matrix_module": None,
-        "import_boundary": "unknown",
-        "loader_code": None,
-        "loader_reason": "unknown",
-        "native_import_matrix": _successful_native_matrix(),
-        "native_loader_observations": native_observations,
-        "phase": "bootstrap_import",
-        "schema_version": 4,
-        "winerror": None,
+    assert observed["schema_version"] == 5
+    assert observed["phase"] == "bootstrap_import"
+    assert observed["exception_class"] == "ImportError"
+    assert observed["import_boundary"] == "unknown"
+    assert observed["loader_reason"] == "unknown"
+    assert observed["loader_code"] is None
+    assert observed["dll_directory_activation"] == {
+        "schema_version": 1,
+        "directory_kind": "launcher_parent",
+        "status": "active",
+        "error_code": None,
     }
+    assert observed["native_import_matrix"] == _successful_native_matrix()
+    assert observed["native_loader_observations"] == native_observations
+    assert [item["relative_path"] for item in observed["native_crypto_observations"]] == [
+        "python/_hashlib.pyd",
+        "python/_ssl.pyd",
+        "python/libcrypto-3.dll",
+        "python/libssl-3.dll",
+    ]
     assert b"sensitive" not in failure.read_bytes()
 
     classifications = {
@@ -2852,7 +3070,7 @@ def test_stdlib_bootstrap_distinguishes_invoke_failure_and_self_tampering(
     _allow_native_matrix(bootstrap, monkeypatch)
     argv, _, failure, status = _bootstrap_argv(
         tmp_path,
-        "def _child_guarded(request, result, failure):\n"
+        "def _child_guarded(request, result, failure, activation, matrix):\n"
         "    raise RuntimeError('sensitive invocation detail')\n",
     )
     monkeypatch.setattr(sys, "argv", argv)
@@ -2893,7 +3111,7 @@ def test_stdlib_bootstrap_bounds_failure_before_writing_and_reserves_exit_codes(
     argv, _, failure, status = _bootstrap_argv(
         tmp_path,
         f"Oversized = type({oversized_name!r}, (Exception,), {{}})\n"
-        "def _child_guarded(request, result, failure):\n"
+        "def _child_guarded(request, result, failure, activation, matrix):\n"
         "    raise Oversized()\n",
     )
     monkeypatch.setattr(sys, "argv", argv)
@@ -2921,9 +3139,12 @@ def test_stdlib_bootstrap_bounds_failure_before_writing_and_reserves_exit_codes(
         bootstrap.EXIT_MATRIX_OVERLAPPED,
         bootstrap.EXIT_MATRIX_SELECT,
         bootstrap.EXIT_MATRIX_SSL,
+        bootstrap.EXIT_DLL_DIRECTORY_BINDING,
+        bootstrap.EXIT_MATRIX_HASHLIB_V5,
+        bootstrap.EXIT_MATRIX_SSL_V5,
     }
-    assert len(exit_codes) == 19
-    assert exit_codes == set(range(189, 208))
+    assert len(exit_codes) == 22
+    assert exit_codes == set(range(189, 211))
 
 
 def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malformed_data(
@@ -2964,16 +3185,27 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
     failure.write_bytes(
         canonical(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "phase": "child_probe",
                 "exception_class": "PermissionError",
                 "winerror": 5,
                 "errno": 13,
+                "dll_directory_activation": {
+                    "schema_version": 1,
+                    "directory_kind": "launcher_parent",
+                    "status": "active",
+                    "error_code": None,
+                },
                 "failed_matrix_module": None,
                 "import_boundary": None,
                 "loader_code": None,
                 "loader_reason": None,
-                "native_import_matrix": [],
+                "native_import_matrix": [
+                    item.model_dump(mode="json") for item in v5_child_matrix(probe)
+                ],
+                "native_crypto_observations": [
+                    item.model_dump(mode="json") for item in v5_crypto_observations(probe)
+                ],
                 "native_loader_observations": [],
             }
         )
@@ -3072,7 +3304,7 @@ def test_valid_foreign_bootstrap_marker_retains_cleanup_sealed_failure_diagnosti
     with pytest.raises(probe.WindowsIsolationChildExitError):
         probe._raise_after_cleanup(exited.value, [], diagnostic, failure_output)
     assert not success_output.exists()
-    retained = probe.WindowsIsolationFailureDiagnosticV4.model_validate_json(
+    retained = probe.WindowsIsolationFailureDiagnosticV5.model_validate_json(
         failure_output.read_bytes()
     )
     assert retained == diagnostic
@@ -3128,6 +3360,54 @@ def test_child_guard_writes_only_bounded_strict_failure_data(
     assert observed.loader_reason is None
     assert observed.native_import_matrix == ()
     assert observed.native_loader_observations == ()
+    assert len(failure.read_bytes()) <= probe.MAX_CHILD_FAILURE_BYTES
+    assert b"sensitive" not in failure.read_bytes()
+    assert not result.exists()
+
+
+def test_v5_child_guard_retains_activation_matrix_and_crypto_without_raw_detail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_child_guard_v5_test")
+    request = tmp_path / "request.json"
+    result = tmp_path / "result.json"
+    failure = tmp_path / "failure.json"
+    error = PermissionError(13, "sensitive path must not be retained")
+    monkeypatch.setattr(probe, "_child", lambda *_: (_ for _ in ()).throw(error))
+    monkeypatch.setattr(
+        probe,
+        "_child_native_crypto_observations",
+        lambda: v5_crypto_observations(probe),
+    )
+    activation = {
+        "schema_version": 1,
+        "directory_kind": "launcher_parent",
+        "status": "active",
+        "error_code": None,
+    }
+    matrix = [item.model_dump(mode="json") for item in v5_child_matrix(probe)]
+
+    assert probe._child_guarded(request, result, failure, activation, matrix) == 1
+    status, observed = probe._read_child_failure_v5(failure)
+    assert status == "validated"
+    assert isinstance(observed, probe.WindowsIsolationChildFailureV5)
+    assert observed.phase == "child_probe"
+    assert observed.dll_directory_activation.status == "active"
+    assert [item.module for item in observed.native_import_matrix] == [
+        "_socket",
+        "_overlapped",
+        "select",
+        "_hashlib",
+        "_ssl",
+    ]
+    assert [item.relative_path for item in observed.native_crypto_observations] == [
+        "python/_hashlib.pyd",
+        "python/_ssl.pyd",
+        "python/libcrypto-3.dll",
+        "python/libssl-3.dll",
+    ]
     assert len(failure.read_bytes()) <= probe.MAX_CHILD_FAILURE_BYTES
     assert b"sensitive" not in failure.read_bytes()
     assert not result.exists()
@@ -3312,6 +3592,93 @@ def test_v4_failure_diagnostic_binds_ordered_matrix_codes_and_manifest(
     with pytest.raises(BaseExceptionGroup, match="probe and cleanup failed"):
         probe._raise_after_cleanup(error, [OSError("cleanup")], diagnostic, blocked)
     assert not blocked.exists()
+
+
+def test_v5_failure_diagnostic_binds_dll_activation_crypto_and_matrix_authority() -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_failure_v5_authority_test")
+    profile = WindowsIsolationProfileV2.create(profile_payload_v2())
+    activation = probe.WindowsDllDirectoryActivationV1(status="active")
+    child_failure = probe.WindowsIsolationChildFailureV5(
+        phase="bootstrap_native_matrix",
+        exception_class="ImportError",
+        dll_directory_activation=activation,
+        failed_matrix_module="_hashlib",
+        loader_reason="dependency_not_found",
+        loader_code=126,
+        native_import_matrix=v5_child_matrix(
+            probe, ("imported", "imported", "imported", "failed", "not_attempted")
+        ),
+        native_crypto_observations=v5_crypto_observations(probe),
+    )
+    bundle = native_loader_bundle()
+    payload = probe.WindowsIsolationFailureDiagnosticPayloadV5(
+        environment_instance_id=ENVIRONMENT,
+        windows_isolation_profile_id=profile.windows_isolation_profile_id,
+        profile=profile,
+        native_bundle_id=H,
+        launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+        runtime_access_grant=runtime_access_grant_v2(profile),
+        probe_sha256=profile.payload.probe_sha256,
+        child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
+        process_exit_code=209,
+        bootstrap_started_status="absent",
+        child_failure_status="validated",
+        child_failure=child_failure,
+        dll_directory_activation=activation,
+        loader_reason="dependency_not_found",
+        loader_code=126,
+        native_loader_files=probe._native_loader_file_evidence(bundle, child_failure),
+        native_import_matrix=probe._native_import_matrix_evidence_v5(bundle, child_failure),
+        native_crypto_files=probe._native_crypto_file_evidence(bundle, child_failure),
+    )
+    diagnostic = probe.WindowsIsolationFailureDiagnosticV5.create(payload)
+    encoded = canonical(diagnostic.model_dump(mode="json"))
+    assert probe.WindowsIsolationFailureDiagnosticV5.model_validate_json(encoded) == diagnostic
+    with pytest.raises(ValidationError):
+        probe.WindowsIsolationFailureDiagnosticV4.model_validate_json(encoded)
+
+    raw = payload.model_dump()
+    changed = copy.deepcopy(raw)
+    changed["dll_directory_activation"]["directory_kind"] = "ambient"
+    with pytest.raises(ValidationError):
+        probe.WindowsIsolationFailureDiagnosticPayloadV5.model_validate(changed)
+    changed = copy.deepcopy(raw)
+    changed["native_import_matrix"] = tuple(reversed(changed["native_import_matrix"]))
+    with pytest.raises(ValidationError, match="reviewed set"):
+        probe.WindowsIsolationFailureDiagnosticPayloadV5.model_validate(changed)
+    changed = copy.deepcopy(raw)
+    changed["native_crypto_files"][2]["child_observed_sha256"] = "a" * 64
+    with pytest.raises(ValidationError, match="immutable manifest"):
+        probe.WindowsIsolationFailureDiagnosticPayloadV5.model_validate(changed)
+    changed = {**raw, "process_exit_code": 210}
+    with pytest.raises(ValidationError, match="exit code"):
+        probe.WindowsIsolationFailureDiagnosticPayloadV5.model_validate(changed)
+
+    no_child = probe.WindowsIsolationFailureDiagnosticPayloadV5(
+        environment_instance_id=ENVIRONMENT,
+        windows_isolation_profile_id=profile.windows_isolation_profile_id,
+        profile=profile,
+        native_bundle_id=H,
+        launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+        runtime_access_grant=runtime_access_grant_v2(profile),
+        probe_sha256=profile.payload.probe_sha256,
+        child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
+        process_exit_code=0xC0000135,
+        bootstrap_started_status="absent",
+        child_failure_status="absent",
+        native_loader_files=probe._native_loader_file_evidence(bundle, None),
+        native_import_matrix=probe._native_import_matrix_evidence_v5(bundle, None),
+        native_crypto_files=probe._native_crypto_file_evidence(bundle, None),
+    )
+    forged_no_child = no_child.model_dump()
+    forged_loader = list(forged_no_child["native_loader_files"])
+    forged_loader[0]["child_status"] = "readable"
+    forged_loader[0]["child_observed_sha256"] = forged_loader[0]["expected_sha256"]
+    forged_no_child["native_loader_files"] = tuple(forged_loader)
+    with pytest.raises(ValidationError, match="Unvalidated child"):
+        probe.WindowsIsolationFailureDiagnosticPayloadV5.model_validate(forged_no_child)
 
 
 def test_native_loader_evidence_rejects_child_hash_tampering() -> None:
