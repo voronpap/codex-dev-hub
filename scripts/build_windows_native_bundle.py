@@ -39,14 +39,15 @@ from devhub.native_bundle import (
     NativeCodexAuthorityV1,
     NativeDependencyWheelV1,
     NativeLauncherV1,
-    NativeLoaderAuthorityV1,
-    NativeLoaderBuildV1,
+    NativeLoaderAuthorityV2,
+    NativeLoaderBuildV2,
     embedded_archive_members_sha256,
     file_sha256,
     git_blob_sha256,
     inspect_embedded_windows_runtime,
     installed_wheel_plan,
     inventory_native_bundle,
+    parse_native_loader_build,
     sanitize_installed_wheel_tree,
     verify_native_bundle,
 )
@@ -205,7 +206,7 @@ def _review_native_loader_artifact(
     expected_commit: str,
     accepted_run_id: int,
     accepted_run_attempt: int,
-) -> NativeLoaderBuildV1:
+) -> NativeLoaderBuildV2:
     artifact = artifact.resolve(strict=True)
     root_stat = artifact.lstat()
     if artifact.is_symlink() or (
@@ -228,9 +229,11 @@ def _review_native_loader_artifact(
     if receipt_path.stat().st_size > 64 * 1024:
         raise ValueError("Native-loader build receipt exceeds its size bound")
     try:
-        receipt = NativeLoaderBuildV1.model_validate_json(receipt_path.read_bytes())
+        receipt = parse_native_loader_build(receipt_path.read_bytes())
     except (OSError, ValueError) as exc:
         raise ValueError("Native-loader build receipt is invalid") from exc
+    if not isinstance(receipt, NativeLoaderBuildV2):
+        raise ValueError("Current Windows bundle requires a V2 native-loader build receipt")
     if (
         receipt.payload.implementation_commit != expected_commit
         or file_sha256(binary) != receipt.payload.binary_sha256
@@ -245,7 +248,7 @@ def _review_native_loader_artifact(
     return receipt
 
 
-def _review_native_loader_runtime(receipt: NativeLoaderBuildV1, runtime_root: Path) -> None:
+def _review_native_loader_runtime(receipt: NativeLoaderBuildV2, runtime_root: Path) -> None:
     if receipt.payload.runtime_python_executable_sha256 != file_sha256(runtime_root / "python.exe"):
         raise ValueError("Native-loader runtime interpreter differs from embedded Python")
     for dependency in receipt.payload.dependencies:
@@ -878,7 +881,7 @@ def _assemble_bundle(
         dependency_wheels=dependencies,
         runtime=runtime,
     )
-    native_loader = NativeLoaderAuthorityV1(
+    native_loader = NativeLoaderAuthorityV2(
         build_receipt_sha256=file_sha256(authority / "native-loader-build.json"),
         native_loader_build_id=loader_receipt.native_loader_build_id,
         accepted_workflow_run_id=loader_receipt.payload.workflow.run_id,
@@ -887,6 +890,7 @@ def _assemble_bundle(
         source_sha256=loader_receipt.payload.source_sha256,
         binary_sha256=loader_receipt.payload.binary_sha256,
         dependencies=loader_receipt.payload.dependencies,
+        failure_stages=loader_receipt.payload.failure_stages,
     )
     bundle = NativeBundleV1.create(
         NativeBundlePayloadV1(

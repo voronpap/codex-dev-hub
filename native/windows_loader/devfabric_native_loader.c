@@ -9,29 +9,38 @@
 
 typedef struct {
     const wchar_t *name;
+    const char *label;
     HMODULE handle;
 } DevFabricLibrary;
 
 static DevFabricLibrary libraries[] = {
-    {L"libffi-8.dll", NULL},
-    {L"libcrypto-3.dll", NULL},
-    {L"libssl-3.dll", NULL},
+    {L"libffi-8.dll", "libffi-8.dll", NULL},
+    {L"libcrypto-3.dll", "libcrypto-3.dll", NULL},
+    {L"libssl-3.dll", "libssl-3.dll", NULL},
 };
 static SRWLOCK loader_lock = SRWLOCK_INIT;
 static int loader_active = 0;
 
 static int
-same_file_identity(HANDLE expected, HANDLE observed)
+same_file_identity(HANDLE expected, HANDLE observed, DWORD *failure_error)
 {
     BY_HANDLE_FILE_INFORMATION left;
     BY_HANDLE_FILE_INFORMATION right;
-    if (!GetFileInformationByHandle(expected, &left) ||
-        !GetFileInformationByHandle(observed, &right)) {
+    if (!GetFileInformationByHandle(expected, &left)) {
+        *failure_error = GetLastError();
         return 0;
     }
-    return left.dwVolumeSerialNumber == right.dwVolumeSerialNumber &&
-           left.nFileIndexHigh == right.nFileIndexHigh &&
-           left.nFileIndexLow == right.nFileIndexLow;
+    if (!GetFileInformationByHandle(observed, &right)) {
+        *failure_error = GetLastError();
+        return 0;
+    }
+    if (left.dwVolumeSerialNumber != right.dwVolumeSerialNumber ||
+        left.nFileIndexHigh != right.nFileIndexHigh ||
+        left.nFileIndexLow != right.nFileIndexLow) {
+        *failure_error = ERROR_ACCESS_DENIED;
+        return 0;
+    }
+    return 1;
 }
 
 static HANDLE
@@ -49,8 +58,13 @@ open_plain_file(const wchar_t *path)
     if (handle == INVALID_HANDLE_VALUE) {
         return INVALID_HANDLE_VALUE;
     }
-    if (!GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &tag, sizeof(tag)) ||
-        (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+    if (!GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &tag, sizeof(tag))) {
+        DWORD error = GetLastError();
+        CloseHandle(handle);
+        SetLastError(error);
+        return INVALID_HANDLE_VALUE;
+    }
+    if ((tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
         (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
         CloseHandle(handle);
         SetLastError(ERROR_REPARSE_TAG_INVALID);
@@ -74,8 +88,13 @@ open_plain_directory(const wchar_t *path)
     if (handle == INVALID_HANDLE_VALUE) {
         return INVALID_HANDLE_VALUE;
     }
-    if (!GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &tag, sizeof(tag)) ||
-        (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+    if (!GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &tag, sizeof(tag))) {
+        DWORD error = GetLastError();
+        CloseHandle(handle);
+        SetLastError(error);
+        return INVALID_HANDLE_VALUE;
+    }
+    if ((tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
         (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
         CloseHandle(handle);
         SetLastError(ERROR_ACCESS_DENIED);
@@ -103,9 +122,18 @@ module_directory(wchar_t *directory, DWORD capacity)
         return 0;
     }
     helper_length = GetModuleFileNameW(self, helper_path, MAX_PATH);
+    if (helper_length == 0) {
+        return 0;
+    }
+    if (helper_length >= MAX_PATH) {
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return 0;
+    }
     python_length = GetModuleFileNameW(NULL, python_path, MAX_PATH);
-    if (helper_length == 0 || helper_length >= MAX_PATH ||
-        python_length == 0 || python_length >= MAX_PATH) {
+    if (python_length == 0) {
+        return 0;
+    }
+    if (python_length >= MAX_PATH) {
         SetLastError(ERROR_INSUFFICIENT_BUFFER);
         return 0;
     }
@@ -130,7 +158,10 @@ module_directory(wchar_t *directory, DWORD capacity)
 }
 
 static int
-load_one(DevFabricLibrary *library, const wchar_t *directory)
+load_one(
+    DevFabricLibrary *library,
+    const wchar_t *directory,
+    const char **failure_stage)
 {
     wchar_t expected_path[MAX_PATH];
     wchar_t loaded_path[MAX_PATH];
@@ -141,29 +172,46 @@ load_one(DevFabricLibrary *library, const wchar_t *directory)
     DWORD failure_error = ERROR_SUCCESS;
     int result = 0;
 
+    *failure_stage = "dependency_preopen";
     if (swprintf_s(expected_path, MAX_PATH, L"%ls\\%ls", directory, library->name) < 0) {
         SetLastError(ERROR_INSUFFICIENT_BUFFER);
         return 0;
     }
     expected_file = open_plain_file(expected_path);
     if (expected_file == INVALID_HANDLE_VALUE) {
+        *failure_stage = "dependency_preopen";
         return 0;
     }
     loaded = LoadLibraryExW(expected_path, NULL, DEVFABRIC_LOAD_FLAGS);
     if (loaded == NULL) {
+        *failure_stage = "dependency_load";
         failure_error = GetLastError();
         goto done;
     }
     loaded_length = GetModuleFileNameW(loaded, loaded_path, MAX_PATH);
-    if (loaded_length == 0 || loaded_length >= MAX_PATH) {
+    if (loaded_length == 0) {
+        *failure_stage = "loaded_path_query";
+        failure_error = GetLastError();
+        goto done;
+    }
+    if (loaded_length >= MAX_PATH) {
+        *failure_stage = "loaded_path_query";
         failure_error = ERROR_INSUFFICIENT_BUFFER;
         goto done;
     }
     loaded_file = open_plain_file(loaded_path);
-    if (loaded_file == INVALID_HANDLE_VALUE ||
-        _wcsicmp(expected_path, loaded_path) != 0 ||
-        !same_file_identity(expected_file, loaded_file)) {
+    if (loaded_file == INVALID_HANDLE_VALUE) {
+        *failure_stage = "loaded_file_reopen";
+        failure_error = GetLastError();
+        goto done;
+    }
+    if (_wcsicmp(expected_path, loaded_path) != 0) {
+        *failure_stage = "file_identity_compare";
         failure_error = ERROR_ACCESS_DENIED;
+        goto done;
+    }
+    if (!same_file_identity(expected_file, loaded_file, &failure_error)) {
+        *failure_stage = "file_identity_compare";
         goto done;
     }
     library->handle = loaded;
@@ -182,6 +230,41 @@ done:
         SetLastError(failure_error == ERROR_SUCCESS ? ERROR_ACCESS_DENIED : failure_error);
     }
     return result;
+}
+
+static PyObject *
+raise_activation_error(const char *stage, const char *dependency, DWORD error)
+{
+    PyObject *type = NULL;
+    PyObject *value = NULL;
+    PyObject *traceback = NULL;
+    PyObject *stage_value = NULL;
+    PyObject *dependency_value = NULL;
+
+    PyErr_SetFromWindowsErr((int)error);
+    PyErr_Fetch(&type, &value, &traceback);
+    PyErr_NormalizeException(&type, &value, &traceback);
+    if (value == NULL) {
+        Py_XDECREF(type);
+        Py_XDECREF(traceback);
+        return NULL;
+    }
+    stage_value = PyUnicode_FromString(stage);
+    dependency_value = dependency == NULL ? Py_NewRef(Py_None) : PyUnicode_FromString(dependency);
+    if (stage_value == NULL || dependency_value == NULL ||
+        PyObject_SetAttrString(value, "devfabric_failure_stage", stage_value) < 0 ||
+        PyObject_SetAttrString(value, "devfabric_failure_dependency", dependency_value) < 0) {
+        Py_XDECREF(stage_value);
+        Py_XDECREF(dependency_value);
+        Py_XDECREF(type);
+        Py_XDECREF(value);
+        Py_XDECREF(traceback);
+        return NULL;
+    }
+    Py_DECREF(stage_value);
+    Py_DECREF(dependency_value);
+    PyErr_Restore(type, value, traceback);
+    return NULL;
 }
 
 static PyObject *
@@ -210,6 +293,8 @@ activate(PyObject *self, PyObject *unused)
     size_t index;
     size_t loaded_count = 0;
     DWORD error = ERROR_SUCCESS;
+    const char *failure_stage = "module_interpreter_sibling_identity";
+    const char *failure_dependency = NULL;
     HANDLE directory_handle = INVALID_HANDLE_VALUE;
     PyObject *result = NULL;
     (void)self;
@@ -227,11 +312,13 @@ activate(PyObject *self, PyObject *unused)
     }
     directory_handle = open_plain_directory(directory);
     if (directory_handle == INVALID_HANDLE_VALUE) {
+        failure_stage = "directory_open_validation";
         error = GetLastError();
         goto failed;
     }
     for (index = 0; index < 3; ++index) {
-        if (!load_one(&libraries[index], directory)) {
+        failure_dependency = libraries[index].label;
+        if (!load_one(&libraries[index], directory, &failure_stage)) {
             error = GetLastError();
             goto failed;
         }
@@ -253,8 +340,7 @@ failed:
         libraries[loaded_count].handle = NULL;
     }
     ReleaseSRWLockExclusive(&loader_lock);
-    SetLastError(error);
-    return PyErr_SetFromWindowsErr((int)error);
+    return raise_activation_error(failure_stage, failure_dependency, error);
 }
 
 static PyMethodDef methods[] = {

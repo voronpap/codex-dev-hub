@@ -42,6 +42,16 @@ EXIT_MATRIX_CTYPES_V6 = 212
 MAX_FAILURE_BYTES = 4096
 NATIVE_LOADER_MODULE = ("python/_devfabric_native_loader.pyd", "_devfabric_native_loader.pyd")
 NATIVE_LOADER_DEPENDENCIES = ("libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll")
+NATIVE_LOADER_FAILURE_STAGES = (
+    "module_interpreter_sibling_identity",
+    "directory_open_validation",
+    "dependency_preopen",
+    "dependency_load",
+    "loaded_path_query",
+    "loaded_file_reopen",
+    "file_identity_compare",
+)
+NATIVE_LOADER_DEPENDENCY_STAGES = frozenset(NATIVE_LOADER_FAILURE_STAGES[2:])
 NATIVE_IMPORT_MATRIX = (
     ("_ctypes", "python/_ctypes.pyd", "_ctypes.pyd", EXIT_MATRIX_CTYPES_V6),
     ("_socket", "python/_socket.pyd", "_socket.pyd", EXIT_MATRIX_SOCKET),
@@ -183,7 +193,7 @@ def _run_native_import_matrix() -> tuple[list[dict[str, object]], BaseException 
 
 def _activate_native_loader(
     expected_sha256: str,
-) -> tuple[dict[str, object], BaseException | None]:
+) -> tuple[dict[str, object], BaseException | None, dict[str, object] | None]:
     """Activate only the reviewed interpreter-sibling native loader."""
 
     relative_path, filename = NATIVE_LOADER_MODULE
@@ -219,7 +229,7 @@ def _activate_native_loader(
         observation["error_code"] = _numeric_code(error, "winerror") or _numeric_code(
             error, "errno"
         )
-        return observation, error
+        return observation, error, _native_loader_failure(error)
     observation.update(
         {
             "activated_dependencies": list(NATIVE_LOADER_DEPENDENCIES),
@@ -227,7 +237,29 @@ def _activate_native_loader(
             "status": "active",
         }
     )
-    return observation, None
+    return observation, None, None
+
+
+def _native_loader_failure(error: BaseException) -> dict[str, object] | None:
+    """Retain only helper-emitted bounded stage/dependency/code attributes."""
+
+    stage = getattr(error, "devfabric_failure_stage", None)
+    dependency = getattr(error, "devfabric_failure_dependency", None)
+    winerror = _numeric_code(error, "winerror")
+    if stage not in NATIVE_LOADER_FAILURE_STAGES or winerror is None:
+        return None
+    dependency_stage = stage in NATIVE_LOADER_DEPENDENCY_STAGES
+    if dependency_stage:
+        if dependency not in NATIVE_LOADER_DEPENDENCIES:
+            return None
+    elif dependency is not None:
+        return None
+    return {
+        "dependency": dependency,
+        "schema_version": 1,
+        "stage": stage,
+        "winerror": winerror,
+    }
 
 
 def _canonical(value: object) -> bytes:
@@ -263,6 +295,7 @@ def _write_failure(
     native_import_matrix: list[dict[str, object]],
     native_loader_activation: dict[str, object],
     failed_matrix_module: str | None = None,
+    native_loader_failure: dict[str, object] | None = None,
 ) -> None:
     exception_class = type(error).__name__
     if (
@@ -281,6 +314,7 @@ def _write_failure(
         {
             "errno": _numeric_code(error, "errno"),
             "native_loader_activation": native_loader_activation,
+            "native_loader_failure": native_loader_failure,
             "exception_class": exception_class,
             "failed_matrix_module": failed_matrix_module,
             "import_boundary": _import_boundary(error) if phase == "bootstrap_import" else None,
@@ -292,7 +326,7 @@ def _write_failure(
                 for relative_path, filename in NATIVE_CRYPTO_FILES
             ],
             "phase": phase,
-            "schema_version": 6,
+            "schema_version": 7,
             "winerror": _numeric_code(error, "winerror"),
         }
     )
@@ -369,7 +403,7 @@ def main() -> int:
     except BaseException:
         return EXIT_STATUS_WRITE_DENIED
 
-    native_loader_activation, activation_error = _activate_native_loader(
+    native_loader_activation, activation_error, native_loader_failure = _activate_native_loader(
         expected_native_loader_sha256
     )
     if activation_error is not None:
@@ -389,6 +423,7 @@ def main() -> int:
                 activation_error,
                 native_import_matrix,
                 native_loader_activation,
+                native_loader_failure=native_loader_failure,
             )
         except _FailureFrameTooLarge:
             return EXIT_IMPORT_FAILURE_TOO_LARGE

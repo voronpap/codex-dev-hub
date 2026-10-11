@@ -25,7 +25,7 @@ from pydantic import Field, JsonValue, field_validator, model_validator
 
 from devhub.benchmark import Digest, canonical, digest
 from devhub.models import Contract, ContractV2
-from devhub.native_bundle import NativeLoaderAuthorityV1
+from devhub.native_bundle import NativeLoaderAuthorityV1, NativeLoaderAuthorityV2
 
 WINDOWS_SANDBOX_SPEC_VERSION = "0.1.0"
 WINDOWS_SANDBOX_FILE_IDENTIFIER = b"SBOX"
@@ -244,7 +244,7 @@ class WindowsIsolationProfilePayloadV3(WindowsIsolationProfilePayloadV2):
     """Forward-only native-loader-bound Windows isolation authority."""
 
     schema_version: Literal[3] = 3  # type: ignore[assignment]
-    native_loader: NativeLoaderAuthorityV1
+    native_loader: NativeLoaderAuthorityV2 | NativeLoaderAuthorityV1
     native_import_expectations: Annotated[
         tuple[WindowsNativeImportExpectationV1, ...], Field(min_length=6, max_length=6)
     ]
@@ -614,7 +614,7 @@ class WindowsNativeImportSuccessV1(Contract):
 
 class WindowsIsolationReceiptPayloadV5(WindowsIsolationReceiptPayloadV4):
     schema_version: Literal[5] = 5  # type: ignore[assignment]
-    native_loader: NativeLoaderAuthorityV1
+    native_loader: NativeLoaderAuthorityV2 | NativeLoaderAuthorityV1
     native_loader_activation: WindowsNativeLoaderActivationV1
     native_import_expectations: Annotated[
         tuple[WindowsNativeImportExpectationV1, ...], Field(min_length=6, max_length=6)
