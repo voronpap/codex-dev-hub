@@ -68,12 +68,30 @@ NativeLoaderReason = Literal[
     "procedure_not_found",
     "unknown",
 ]
+NativeLoaderReasonV4 = Literal[
+    "access_denied",
+    "dependency_not_found",
+    "bad_image",
+    "procedure_not_found",
+    "initialization_failed",
+    "unknown",
+]
 NativeImportBoundary = Literal["ctypes", "socket", "pydantic_core", "devhub", "unknown"]
 NativeLoaderPath = Literal["python/_ctypes.pyd", "python/libffi-8.dll"]
+NativeMatrixModule = Literal["_socket", "_overlapped", "select", "_ssl"]
+NativeMatrixPath = Literal[
+    "python/_socket.pyd",
+    "python/_overlapped.pyd",
+    "python/select.pyd",
+    "python/_ssl.pyd",
+]
 NativeLoaderStatus = Literal["readable", "missing", "access_denied", "other_error"]
 NativeLoaderEvidenceStatus = Literal[
     "readable", "missing", "access_denied", "other_error", "not_observed"
 ]
+NativeImportStatus = Literal["imported", "failed", "not_attempted"]
+NativeImportEvidenceStatus = Literal["imported", "failed", "not_attempted", "not_observed"]
+NativeLoaderCode = Literal[5, 126, 127, 193, 1114]
 
 
 class WindowsNativeLoaderObservationV1(Contract):
@@ -116,6 +134,121 @@ class WindowsIsolationChildFailureV3(Contract):
         return self
 
 
+class WindowsNativeMatrixFileObservationV1(Contract):
+    relative_path: NativeMatrixPath
+    status: NativeLoaderStatus
+    observed_sha256: Digest | None = None
+
+    @model_validator(mode="after")
+    def exact_hash_presence(self) -> WindowsNativeMatrixFileObservationV1:
+        if (self.observed_sha256 is not None) != (self.status == "readable"):
+            raise ValueError("Native matrix observation hash does not match readability")
+        return self
+
+
+class WindowsNativeImportMatrixObservationV1(Contract):
+    module: NativeMatrixModule
+    file: WindowsNativeMatrixFileObservationV1
+    import_status: NativeImportStatus
+
+    @model_validator(mode="after")
+    def exact_module_path(self) -> WindowsNativeImportMatrixObservationV1:
+        expected = {
+            "_socket": "python/_socket.pyd",
+            "_overlapped": "python/_overlapped.pyd",
+            "select": "python/select.pyd",
+            "_ssl": "python/_ssl.pyd",
+        }
+        if self.file.relative_path != expected[self.module]:
+            raise ValueError("Native matrix module differs from its reviewed file")
+        return self
+
+
+class WindowsIsolationChildFailureV4(Contract):
+    schema_version: Literal[4] = 4
+    phase: Literal[
+        "bootstrap_native_matrix", "bootstrap_import", "bootstrap_invoke", "child_probe"
+    ] = "child_probe"
+    exception_class: Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")]
+    winerror: int | None = None
+    errno: int | None = None
+    failed_matrix_module: NativeMatrixModule | None = None
+    import_boundary: NativeImportBoundary | None = None
+    loader_code: NativeLoaderCode | None = None
+    loader_reason: NativeLoaderReasonV4 | None = None
+    native_import_matrix: Annotated[
+        tuple[WindowsNativeImportMatrixObservationV1, ...], Field(max_length=4)
+    ] = ()
+    native_loader_observations: Annotated[
+        tuple[WindowsNativeLoaderObservationV1, ...], Field(max_length=2)
+    ] = ()
+
+    @model_validator(mode="after")
+    def strict_forward_diagnostic(self) -> WindowsIsolationChildFailureV4:
+        matrix_phases = {"bootstrap_native_matrix", "bootstrap_import", "bootstrap_invoke"}
+        loader_phases = {"bootstrap_native_matrix", "bootstrap_import"}
+        if self.phase in matrix_phases:
+            pairs = [(item.module, item.file.relative_path) for item in self.native_import_matrix]
+            if pairs != [
+                ("_socket", "python/_socket.pyd"),
+                ("_overlapped", "python/_overlapped.pyd"),
+                ("select", "python/select.pyd"),
+                ("_ssl", "python/_ssl.pyd"),
+            ]:
+                raise ValueError("Native import matrix differs from the reviewed order")
+        elif self.native_import_matrix:
+            raise ValueError("Native import matrix requires a bootstrap phase")
+        if self.phase == "bootstrap_native_matrix":
+            if self.failed_matrix_module is None or self.import_boundary is not None:
+                raise ValueError("Native matrix failure lacks its exact failed module")
+            statuses = [item.import_status for item in self.native_import_matrix]
+            failed_index = next(
+                (
+                    index
+                    for index, item in enumerate(self.native_import_matrix)
+                    if item.module == self.failed_matrix_module
+                ),
+                None,
+            )
+            if failed_index is None or statuses != [
+                *(["imported"] * failed_index),
+                "failed",
+                *(["not_attempted"] * (3 - failed_index)),
+            ]:
+                raise ValueError("Native matrix statuses do not bind the failed module")
+        else:
+            if self.failed_matrix_module is not None:
+                raise ValueError("Failed matrix module requires a native matrix failure")
+            if self.phase in {"bootstrap_import", "bootstrap_invoke"} and any(
+                item.import_status != "imported" for item in self.native_import_matrix
+            ):
+                raise ValueError("Full probe phases require a completed native import matrix")
+        if self.phase == "bootstrap_import":
+            if self.import_boundary is None:
+                raise ValueError("Bootstrap import failure lacks its import boundary")
+            paths = [item.relative_path for item in self.native_loader_observations]
+            if paths != ["python/_ctypes.pyd", "python/libffi-8.dll"]:
+                raise ValueError("Native loader observations must use the exact reviewed files")
+        elif self.import_boundary is not None or self.native_loader_observations:
+            raise ValueError("Native loader files require a full probe import failure")
+        if self.phase in loader_phases:
+            if self.loader_reason is None:
+                raise ValueError("Native loader failure lacks a bounded reason")
+            expected_codes: dict[str, int | None] = {
+                "access_denied": 5,
+                "dependency_not_found": 126,
+                "procedure_not_found": 127,
+                "bad_image": 193,
+                "initialization_failed": 1114,
+                "unknown": None,
+            }
+            if self.loader_code != expected_codes[self.loader_reason]:
+                raise ValueError("Native loader code differs from its bounded reason")
+        elif self.loader_reason is not None or self.loader_code is not None:
+            raise ValueError("Native loader classification requires an import failure")
+        return self
+
+
 class WindowsNativeLoaderFileEvidenceV1(Contract):
     relative_path: NativeLoaderPath
     expected_sha256: Digest
@@ -131,6 +264,34 @@ class WindowsNativeLoaderFileEvidenceV1(Contract):
             and self.child_observed_sha256 != self.expected_sha256
         ):
             raise ValueError("Native loader child hash differs from immutable manifest")
+        return self
+
+
+class WindowsNativeImportMatrixEvidenceV1(Contract):
+    module: NativeMatrixModule
+    relative_path: NativeMatrixPath
+    expected_sha256: Digest
+    child_file_status: NativeLoaderEvidenceStatus
+    child_observed_sha256: Digest | None = None
+    child_import_status: NativeImportEvidenceStatus
+
+    @model_validator(mode="after")
+    def exact_manifest_join(self) -> WindowsNativeImportMatrixEvidenceV1:
+        expected = {
+            "_socket": "python/_socket.pyd",
+            "_overlapped": "python/_overlapped.pyd",
+            "select": "python/select.pyd",
+            "_ssl": "python/_ssl.pyd",
+        }
+        if self.relative_path != expected[self.module]:
+            raise ValueError("Native matrix evidence module differs from reviewed file")
+        if (self.child_observed_sha256 is not None) != (self.child_file_status == "readable"):
+            raise ValueError("Native matrix evidence hash does not match readability")
+        if (
+            self.child_observed_sha256 is not None
+            and self.child_observed_sha256 != self.expected_sha256
+        ):
+            raise ValueError("Native matrix child hash differs from immutable manifest")
         return self
 
 
@@ -360,12 +521,187 @@ class WindowsIsolationFailureDiagnosticV3(Contract):
         return self
 
 
+class WindowsIsolationFailureDiagnosticPayloadV4(Contract):
+    schema_version: Literal[4] = 4
+    failure_kind: Literal["child_before_evidence"] = "child_before_evidence"
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    windows_isolation_profile_id: Digest
+    profile: WindowsIsolationProfileV2
+    native_bundle_id: Digest
+    launcher_executable_sha256: Digest
+    runtime_access_grant: WindowsRuntimeAccessGrantV2
+    probe_sha256: Digest
+    child_bootstrap_sha256: Digest
+    process_exit_code: Annotated[int, Field(ge=0, le=0xFFFFFFFF)]
+    bootstrap_started_status: Literal["absent", "validated", "invalid"]
+    bootstrap_started: WindowsIsolationBootstrapStartedV1 | None = None
+    child_failure_status: Literal["absent", "validated", "invalid"]
+    child_failure: WindowsIsolationChildFailureV4 | None = None
+    loader_reason: NativeLoaderReasonV4 | None = None
+    loader_code: NativeLoaderCode | None = None
+    native_loader_files: Annotated[
+        tuple[WindowsNativeLoaderFileEvidenceV1, ...], Field(min_length=2, max_length=2)
+    ]
+    native_import_matrix: Annotated[
+        tuple[WindowsNativeImportMatrixEvidenceV1, ...], Field(min_length=4, max_length=4)
+    ]
+    success_evidence_published: Literal[False] = False
+
+    @model_validator(mode="after")
+    def strict_authority_joins(self) -> WindowsIsolationFailureDiagnosticPayloadV4:
+        if (self.bootstrap_started is not None) != (self.bootstrap_started_status == "validated"):
+            raise ValueError("Bootstrap-started status does not match the validated frame")
+        if (self.child_failure is not None) != (self.child_failure_status == "validated"):
+            raise ValueError("Child failure status does not match the validated diagnostic")
+        profile = self.profile
+        profile_payload = profile.payload
+        if self.windows_isolation_profile_id != profile.windows_isolation_profile_id:
+            raise ValueError("Failure diagnostic profile identity mismatch")
+        if (
+            self.environment_instance_id != profile_payload.environment_instance_id
+            or self.native_bundle_id != profile_payload.native_bundle_id
+            or self.launcher_executable_sha256 != profile_payload.launcher_executable_sha256
+            or self.probe_sha256 != profile_payload.probe_sha256
+            or self.child_bootstrap_sha256 != profile_payload.child_bootstrap_sha256
+        ):
+            raise ValueError("Failure diagnostic authority differs from isolation profile")
+        grant = self.runtime_access_grant.payload
+        if (
+            grant.appcontainer_identity != profile_payload.appcontainer_identity
+            or grant.native_bundle_id != self.native_bundle_id
+            or grant.launcher_executable_sha256 != self.launcher_executable_sha256
+            or len(profile_payload.read_only_roots) != 1
+            or grant.root != profile_payload.read_only_roots[0]
+        ):
+            raise ValueError("Failure diagnostic runtime grant differs from isolation profile")
+        if self.bootstrap_started is not None:
+            started = self.bootstrap_started.payload
+            if (
+                started.child_bootstrap_sha256 != self.child_bootstrap_sha256
+                or started.environment_instance_id != self.environment_instance_id
+                or started.windows_isolation_profile_id != self.windows_isolation_profile_id
+                or started.probe_sha256 != self.probe_sha256
+            ):
+                raise ValueError("Bootstrap-started frame does not bind the failed child")
+        loader_paths = [item.relative_path for item in self.native_loader_files]
+        if loader_paths != ["python/_ctypes.pyd", "python/libffi-8.dll"]:
+            raise ValueError("Failure diagnostic native loader files differ from reviewed set")
+        matrix_pairs = [(item.module, item.relative_path) for item in self.native_import_matrix]
+        if matrix_pairs != [
+            ("_socket", "python/_socket.pyd"),
+            ("_overlapped", "python/_overlapped.pyd"),
+            ("select", "python/select.pyd"),
+            ("_ssl", "python/_ssl.pyd"),
+        ]:
+            raise ValueError("Failure diagnostic native import matrix differs from reviewed set")
+        if self.child_failure is None:
+            if self.loader_reason is not None or self.loader_code is not None:
+                raise ValueError("Loader classification requires a validated child failure")
+            if any(
+                item.child_file_status != "not_observed"
+                or item.child_import_status != "not_observed"
+                for item in self.native_import_matrix
+            ):
+                raise ValueError("Unvalidated child cannot authorize native matrix observations")
+        else:
+            failure = self.child_failure
+            if (
+                self.loader_reason != failure.loader_reason
+                or self.loader_code != failure.loader_code
+            ):
+                raise ValueError("Loader classification differs from validated child failure")
+            if failure.phase == "bootstrap_import":
+                if failure.import_boundary is None:
+                    raise ValueError("Validated bootstrap import lacks its import boundary")
+                exit_codes = {
+                    "ctypes": 199,
+                    "socket": 200,
+                    "pydantic_core": 201,
+                    "devhub": 202,
+                    "unknown": 203,
+                }
+                if self.process_exit_code != exit_codes[failure.import_boundary]:
+                    raise ValueError("Process exit code differs from import boundary")
+            elif failure.phase == "bootstrap_native_matrix":
+                if failure.failed_matrix_module is None:
+                    raise ValueError("Validated matrix failure lacks its failed module")
+                matrix_exit_codes = {
+                    "_socket": 204,
+                    "_overlapped": 205,
+                    "select": 206,
+                    "_ssl": 207,
+                }
+                if self.process_exit_code != matrix_exit_codes[failure.failed_matrix_module]:
+                    raise ValueError("Process exit code differs from native matrix failure")
+            elif failure.phase == "bootstrap_invoke" and self.process_exit_code != 196:
+                raise ValueError("Process exit code differs from bootstrap invoke failure")
+            elif failure.phase == "child_probe" and self.process_exit_code != 1:
+                raise ValueError("Process exit code differs from guarded child failure")
+            loader_observations = {
+                item.relative_path: item for item in failure.native_loader_observations
+            }
+            for item in self.native_loader_files:
+                child = loader_observations.get(item.relative_path)
+                expected_status = child.status if child is not None else "not_observed"
+                expected_hash = child.observed_sha256 if child is not None else None
+                if (
+                    item.child_status != expected_status
+                    or item.child_observed_sha256 != expected_hash
+                ):
+                    raise ValueError("Native loader evidence differs from child observation")
+            matrix_observations = {item.module: item for item in failure.native_import_matrix}
+            for item in self.native_import_matrix:
+                child = matrix_observations.get(item.module)
+                if child is None:
+                    if (
+                        item.child_file_status != "not_observed"
+                        or item.child_import_status != "not_observed"
+                    ):
+                        raise ValueError(
+                            "Native matrix evidence lacks a validated child observation"
+                        )
+                    continue
+                if (
+                    item.relative_path != child.file.relative_path
+                    or item.child_file_status != child.file.status
+                    or item.child_observed_sha256 != child.file.observed_sha256
+                    or item.child_import_status != child.import_status
+                ):
+                    raise ValueError("Native matrix evidence differs from child observation")
+        return self
+
+
+class WindowsIsolationFailureDiagnosticV4(Contract):
+    schema_version: Literal[4] = 4
+    diagnostic_id: Digest
+    payload: WindowsIsolationFailureDiagnosticPayloadV4
+
+    @classmethod
+    def create(
+        cls, payload: WindowsIsolationFailureDiagnosticPayloadV4
+    ) -> WindowsIsolationFailureDiagnosticV4:
+        return cls(
+            diagnostic_id=digest(canonical(payload.model_dump(mode="json"))), payload=payload
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationFailureDiagnosticV4:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.diagnostic_id != expected:
+            raise ValueError("Windows isolation failure diagnostic hash mismatch")
+        return self
+
+
 class WindowsIsolationChildExitError(RuntimeError):
     phase = "child_before_evidence"
 
     def __init__(
         self,
-        diagnostic: WindowsIsolationFailureDiagnosticV2 | WindowsIsolationFailureDiagnosticV3,
+        diagnostic: (
+            WindowsIsolationFailureDiagnosticV2
+            | WindowsIsolationFailureDiagnosticV3
+            | WindowsIsolationFailureDiagnosticV4
+        ),
     ) -> None:
         self.diagnostic = diagnostic
         self.exit_code = diagnostic.payload.process_exit_code
@@ -497,13 +833,16 @@ def _child_guarded(request_path: Path, result_path: Path, failure_path: Path) ->
     try:
         return _child(request_path, result_path)
     except BaseException as error:
-        failure = WindowsIsolationChildFailureV3(
+        failure = WindowsIsolationChildFailureV4(
             phase="child_probe",
             exception_class=type(error).__name__,
             winerror=getattr(error, "winerror", None),
             errno=getattr(error, "errno", None),
+            failed_matrix_module=None,
             import_boundary=None,
+            loader_code=None,
             loader_reason=None,
+            native_import_matrix=(),
             native_loader_observations=(),
         )
         encoded = canonical(failure.model_dump(mode="json"))
@@ -517,7 +856,7 @@ def _child_guarded(request_path: Path, result_path: Path, failure_path: Path) ->
 
 def _read_child_failure(
     failure_path: Path,
-) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV3 | None]:
+) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV4 | None]:
     if not failure_path.is_file():
         return "absent", None
     try:
@@ -526,7 +865,7 @@ def _read_child_failure(
             encoded = stream.read(MAX_CHILD_FAILURE_BYTES + 1)
         if len(encoded) > MAX_CHILD_FAILURE_BYTES:
             return "invalid", None
-        return "validated", WindowsIsolationChildFailureV3.model_validate_json(encoded)
+        return "validated", WindowsIsolationChildFailureV4.model_validate_json(encoded)
     except (OSError, ValueError):
         return "invalid", None
 
@@ -579,7 +918,7 @@ def _require_bootstrap_started(
 
 def _native_loader_file_evidence(
     bundle: NativeBundleV1,
-    child_failure: WindowsIsolationChildFailureV3 | None,
+    child_failure: WindowsIsolationChildFailureV3 | WindowsIsolationChildFailureV4 | None,
 ) -> tuple[WindowsNativeLoaderFileEvidenceV1, WindowsNativeLoaderFileEvidenceV1]:
     expected_paths: tuple[NativeLoaderPath, NativeLoaderPath] = (
         "python/_ctypes.pyd",
@@ -610,6 +949,53 @@ def _native_loader_file_evidence(
     )
 
 
+def _native_import_matrix_evidence(
+    bundle: NativeBundleV1,
+    child_failure: WindowsIsolationChildFailureV4 | None,
+) -> tuple[
+    WindowsNativeImportMatrixEvidenceV1,
+    WindowsNativeImportMatrixEvidenceV1,
+    WindowsNativeImportMatrixEvidenceV1,
+    WindowsNativeImportMatrixEvidenceV1,
+]:
+    expected: tuple[tuple[NativeMatrixModule, NativeMatrixPath], ...] = (
+        ("_socket", "python/_socket.pyd"),
+        ("_overlapped", "python/_overlapped.pyd"),
+        ("select", "python/select.pyd"),
+        ("_ssl", "python/_ssl.pyd"),
+    )
+    inventory = {item.path: item.sha256 for item in bundle.payload.files}
+    if any(path not in inventory for _, path in expected):
+        raise ValueError("Immutable bundle lacks a reviewed native matrix file")
+    observed = (
+        {item.module: item for item in child_failure.native_import_matrix}
+        if child_failure is not None
+        else {}
+    )
+    evidence: list[WindowsNativeImportMatrixEvidenceV1] = []
+    for module, path in expected:
+        item = observed.get(module)
+        evidence.append(
+            WindowsNativeImportMatrixEvidenceV1(
+                module=module,
+                relative_path=path,
+                expected_sha256=inventory[path],
+                child_file_status=item.file.status if item is not None else "not_observed",
+                child_observed_sha256=(item.file.observed_sha256 if item is not None else None),
+                child_import_status=item.import_status if item is not None else "not_observed",
+            )
+        )
+    return cast(
+        tuple[
+            WindowsNativeImportMatrixEvidenceV1,
+            WindowsNativeImportMatrixEvidenceV1,
+            WindowsNativeImportMatrixEvidenceV1,
+            WindowsNativeImportMatrixEvidenceV1,
+        ],
+        tuple(evidence),
+    )
+
+
 def _raise_if_child_exited(
     process: Any,
     child_result: Path,
@@ -632,8 +1018,9 @@ def _raise_if_child_exited(
     if not isinstance(runtime_access_grant, WindowsRuntimeAccessGrantV2):
         raise RuntimeError("Failed child lacks the reviewed post-create runtime ACL grant")
     native_loader_files = _native_loader_file_evidence(bundle, validated_child_failure)
-    diagnostic = WindowsIsolationFailureDiagnosticV3.create(
-        WindowsIsolationFailureDiagnosticPayloadV3(
+    native_import_matrix = _native_import_matrix_evidence(bundle, validated_child_failure)
+    diagnostic = WindowsIsolationFailureDiagnosticV4.create(
+        WindowsIsolationFailureDiagnosticPayloadV4(
             environment_instance_id=environment_instance_id,
             windows_isolation_profile_id=profile.windows_isolation_profile_id,
             profile=profile,
@@ -652,7 +1039,11 @@ def _raise_if_child_exited(
                 if validated_child_failure is not None
                 else None
             ),
+            loader_code=(
+                validated_child_failure.loader_code if validated_child_failure is not None else None
+            ),
             native_loader_files=native_loader_files,
+            native_import_matrix=native_import_matrix,
         )
     )
     raise WindowsIsolationChildExitError(diagnostic)
@@ -664,6 +1055,7 @@ def _raise_after_cleanup(
     failure_diagnostic: (
         WindowsIsolationFailureDiagnosticV2
         | WindowsIsolationFailureDiagnosticV3
+        | WindowsIsolationFailureDiagnosticV4
         | WindowsPostCreateAclFailureV1
         | None
     ),
@@ -951,6 +1343,7 @@ def qualify(
     failure_diagnostic: (
         WindowsIsolationFailureDiagnosticV2
         | WindowsIsolationFailureDiagnosticV3
+        | WindowsIsolationFailureDiagnosticV4
         | WindowsPostCreateAclFailureV1
         | None
     ) = None
