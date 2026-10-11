@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from devhub.native_bundle import (
     NativeLoaderDependencyV1,
     NativeLoaderPostBuildProofV1,
     NativeLoaderWorkflowV1,
+    git_blob_bytes,
+    git_blob_sha256,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,6 +132,7 @@ def test_native_loader_builder_rejects_dirty_or_wrong_head(
 
 def test_bundle_loader_artifact_review_rejects_substitution_and_extra_files(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     artifact = tmp_path / "loader"
     artifact.mkdir()
@@ -152,6 +156,15 @@ def test_bundle_loader_artifact_review_rejects_substitution_and_extra_files(
     )
     receipt = NativeLoaderBuildV1.create(payload)
     (artifact / "native-loader-build.json").write_text(receipt.model_dump_json(), encoding="utf-8")
+    monkeypatch.setattr(
+        BUNDLE_BUILDER,
+        "git_blob_sha256",
+        lambda _repo, _commit, path: (
+            payload.source_sha256
+            if path == payload.source_path
+            else payload.workflow.workflow_sha256
+        ),
+    )
     assert (
         BUNDLE_BUILDER._review_native_loader_artifact(
             ROOT, artifact, "a" * 40, 123, 1
@@ -170,7 +183,7 @@ def test_bundle_loader_artifact_review_rejects_substitution_and_extra_files(
 
 @pytest.mark.parametrize("mutation", ["source", "workflow", "run", "attempt"])
 def test_bundle_loader_artifact_review_rejects_forged_self_hashed_provenance(
-    tmp_path: Path, mutation: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
 ) -> None:
     artifact = tmp_path / "loader"
     artifact.mkdir()
@@ -201,6 +214,17 @@ def test_bundle_loader_artifact_review_rejects_forged_self_hashed_provenance(
         updates["workflow"] = workflow.model_copy(update={"run_attempt": 2})
     receipt = NativeLoaderBuildV1.create(_payload().model_copy(update=updates))
     (artifact / "native-loader-build.json").write_text(receipt.model_dump_json(), encoding="utf-8")
+    monkeypatch.setattr(
+        BUNDLE_BUILDER,
+        "git_blob_sha256",
+        lambda _repo, _commit, path: (
+            hashlib.sha256(SOURCE.read_bytes()).hexdigest()
+            if path == _payload().source_path
+            else hashlib.sha256(
+                (ROOT / ".github/workflows/windows-native-loader.yml").read_bytes()
+            ).hexdigest()
+        ),
+    )
     with pytest.raises(ValueError, match="differs"):
         BUNDLE_BUILDER._review_native_loader_artifact(ROOT, artifact, "a" * 40, 123, 1)
 
@@ -302,3 +326,112 @@ def test_native_loader_header_inventory_is_content_bound(tmp_path: Path) -> None
     (include / "Python.h").write_bytes(b"second")
     second, _ = LOADER_BUILDER._header_inventory(include)
     assert first != second
+
+
+def _git(repo: Path, *arguments: str) -> str:
+    result = subprocess.run(
+        ["git", *arguments],
+        cwd=repo,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return result.stdout.strip()
+
+
+def _committed_loader_repo(tmp_path: Path) -> tuple[Path, str]:
+    repo = tmp_path / "repo"
+    (repo / "native/windows_loader").mkdir(parents=True)
+    (repo / ".github/workflows").mkdir(parents=True)
+    (repo / "native/windows_loader/devfabric_native_loader.c").write_bytes(b"source\n")
+    (repo / ".github/workflows/windows-native-loader.yml").write_bytes(b"workflow\n")
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "tests@example.invalid")
+    _git(repo, "config", "user.name", "DevFabric Tests")
+    _git(repo, "config", "core.autocrlf", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    return repo, _git(repo, "rev-parse", "HEAD")
+
+
+def test_git_blob_authority_is_worktree_line_ending_independent_and_semantic(
+    tmp_path: Path,
+) -> None:
+    repo, commit = _committed_loader_repo(tmp_path)
+    source = repo / "native/windows_loader/devfabric_native_loader.c"
+    expected = hashlib.sha256(b"source\n").hexdigest()
+    assert (
+        git_blob_sha256(repo, commit, "native/windows_loader/devfabric_native_loader.c") == expected
+    )
+
+    source.write_bytes(b"source\r\n")
+    assert hashlib.sha256(source.read_bytes()).hexdigest() != expected
+    assert (
+        git_blob_sha256(repo, commit, "native/windows_loader/devfabric_native_loader.c") == expected
+    )
+
+    source.write_bytes(b"semantic change\n")
+    _git(repo, "add", str(source.relative_to(repo)))
+    _git(repo, "commit", "-m", "semantic change")
+    changed = _git(repo, "rev-parse", "HEAD")
+    assert (
+        git_blob_sha256(repo, changed, "native/windows_loader/devfabric_native_loader.c")
+        != expected
+    )
+
+
+def test_native_loader_materializes_exact_committed_source_snapshot(tmp_path: Path) -> None:
+    repo, commit = _committed_loader_repo(tmp_path)
+    source = repo / "native/windows_loader/devfabric_native_loader.c"
+    source.write_bytes(b"source\r\n")
+    stage = tmp_path / "stage"
+    stage.mkdir()
+
+    snapshot, observed = LOADER_BUILDER._materialize_source_snapshot(repo, commit, stage)
+
+    committed = git_blob_bytes(repo, commit, "native/windows_loader/devfabric_native_loader.c")
+    assert snapshot.read_bytes() == committed == b"source\n"
+    assert observed == hashlib.sha256(committed).hexdigest()
+
+
+def test_bundle_review_uses_blob_authority_and_rejects_changed_blob(tmp_path: Path) -> None:
+    repo, commit = _committed_loader_repo(tmp_path)
+    source_path = "native/windows_loader/devfabric_native_loader.c"
+    workflow_path = ".github/workflows/windows-native-loader.yml"
+    source = repo / source_path
+    workflow = repo / workflow_path
+    source.write_bytes(b"source\r\n")
+    workflow.write_bytes(b"workflow\r\n")
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    binary = artifact / "_devfabric_native_loader.pyd"
+    binary.write_bytes(b"native-loader")
+    binary_sha256 = hashlib.sha256(binary.read_bytes()).hexdigest()
+    payload = _payload().model_copy(
+        update={
+            "implementation_commit": commit,
+            "source_sha256": git_blob_sha256(repo, commit, source_path),
+            "binary_sha256": binary_sha256,
+            "workflow": NativeLoaderWorkflowV1(
+                workflow_sha256=git_blob_sha256(repo, commit, workflow_path),
+                run_id=123,
+                run_attempt=1,
+            ),
+            "post_build_proof": NativeLoaderPostBuildProofV1(final_binary_sha256=binary_sha256),
+        }
+    )
+    receipt = NativeLoaderBuildV1.create(payload)
+    receipt_path = artifact / "native-loader-build.json"
+    receipt_path.write_text(receipt.model_dump_json(), encoding="utf-8")
+    assert BUNDLE_BUILDER._review_native_loader_artifact(repo, artifact, commit, 123, 1) == receipt
+
+    source.write_bytes(b"semantic change\n")
+    _git(repo, "add", source_path)
+    _git(repo, "commit", "-m", "semantic change")
+    changed = _git(repo, "rev-parse", "HEAD")
+    forged = NativeLoaderBuildV1.create(
+        payload.model_copy(update={"implementation_commit": changed})
+    )
+    receipt_path.write_text(forged.model_dump_json(), encoding="utf-8")
+    with pytest.raises(ValueError, match="differs"):
+        BUNDLE_BUILDER._review_native_loader_artifact(repo, artifact, changed, 123, 1)

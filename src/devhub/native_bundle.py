@@ -123,6 +123,32 @@ def file_sha256(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def git_blob_bytes(repo: Path, commit: str, path: str) -> bytes:
+    """Read exact committed bytes without worktree filters or line-ending conversion."""
+    member = PurePosixPath(path)
+    if (
+        len(commit) != 40
+        or any(character not in "0123456789abcdef" for character in commit)
+        or member.is_absolute()
+        or ".." in member.parts
+        or "\\" in path
+    ):
+        raise ValueError("Git blob authority has an invalid commit or path")
+    result = subprocess.run(
+        ["git", "--no-replace-objects", "cat-file", "blob", f"{commit}:{path}"],
+        cwd=repo,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError("Git blob authority is unavailable")
+    return result.stdout
+
+
+def git_blob_sha256(repo: Path, commit: str, path: str) -> str:
+    return hashlib.sha256(git_blob_bytes(repo, commit, path)).hexdigest()
+
+
 def embedded_archive_members_sha256(raw: bytes) -> str:
     records: list[dict[str, JsonValue]] = []
     names: set[str] = set()

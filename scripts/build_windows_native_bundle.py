@@ -43,6 +43,7 @@ from devhub.native_bundle import (
     NativeLoaderBuildV1,
     embedded_archive_members_sha256,
     file_sha256,
+    git_blob_sha256,
     inspect_embedded_windows_runtime,
     installed_wheel_plan,
     inventory_native_bundle,
@@ -234,9 +235,9 @@ def _review_native_loader_artifact(
         receipt.payload.implementation_commit != expected_commit
         or file_sha256(binary) != receipt.payload.binary_sha256
         or receipt.payload.source_sha256
-        != file_sha256(repo / "native/windows_loader/devfabric_native_loader.c")
+        != git_blob_sha256(repo, expected_commit, "native/windows_loader/devfabric_native_loader.c")
         or receipt.payload.workflow.workflow_sha256
-        != file_sha256(repo / ".github/workflows/windows-native-loader.yml")
+        != git_blob_sha256(repo, expected_commit, ".github/workflows/windows-native-loader.yml")
         or receipt.payload.workflow.run_id != accepted_run_id
         or receipt.payload.workflow.run_attempt != accepted_run_attempt
     ):

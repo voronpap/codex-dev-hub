@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -27,6 +28,8 @@ from devhub.native_bundle import (
     NativeLoaderPostBuildProofV1,
     NativeLoaderWorkflowV1,
     file_sha256,
+    git_blob_bytes,
+    git_blob_sha256,
 )
 
 MODULE = "_devfabric_native_loader"
@@ -87,6 +90,16 @@ def _pe_machine(path: Path) -> str:
     if machine != 0x8664:
         raise ValueError("Native-loader output is not Windows AMD64")
     return "0x8664"
+
+
+def _materialize_source_snapshot(repo: Path, commit: str, stage: Path) -> tuple[Path, str]:
+    raw = git_blob_bytes(repo, commit, SOURCE)
+    target = stage / "devfabric_native_loader.c"
+    target.write_bytes(raw)
+    blob_sha256 = hashlib.sha256(raw).hexdigest()
+    if file_sha256(target) != blob_sha256:
+        raise ValueError("Native-loader source snapshot differs from its Git blob")
+    return target, blob_sha256
 
 
 def _run_isolated(runtime: Path, code: str, *, hostile_path: Path | None = None) -> str:
@@ -238,13 +251,13 @@ def build(
         )
         for name in DEPENDENCIES
     )
-    source = (repo / SOURCE).resolve(strict=True)
     compile_flags = ("/nologo", "/LD", "/O2", "/GS", "/guard:cf", "/sdl", "/W3", "/WX")
     link_flags = ("/DYNAMICBASE", "/NXCOMPAT")
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="devfabric-native-loader-", dir=output.parent) as raw:
         stage = Path(raw)
         binary = stage / BINARY
+        source, source_sha256 = _materialize_source_snapshot(repo, commit, stage)
         command = [
             str(compiler_path),
             *compile_flags,
@@ -264,7 +277,7 @@ def build(
         post_build_proof = _post_build_proof(runtime_root, binary, stage / "proof")
         payload = NativeLoaderBuildPayloadV1(
             implementation_commit=commit,
-            source_sha256=file_sha256(source),
+            source_sha256=source_sha256,
             binary_sha256=file_sha256(binary),
             python_executable_sha256=file_sha256(Path(sys.executable).resolve(strict=True)),
             runtime_python_executable_sha256=file_sha256(runtime_python),
@@ -280,7 +293,9 @@ def build(
             link_flags=link_flags,
             dependencies=dependencies,
             workflow=NativeLoaderWorkflowV1(
-                workflow_sha256=file_sha256(repo / ".github/workflows/windows-native-loader.yml"),
+                workflow_sha256=git_blob_sha256(
+                    repo, commit, ".github/workflows/windows-native-loader.yml"
+                ),
                 run_id=workflow_run_id,
                 run_attempt=workflow_run_attempt,
             ),
