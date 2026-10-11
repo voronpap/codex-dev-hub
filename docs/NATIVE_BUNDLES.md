@@ -323,7 +323,13 @@ root outside sealed output, requires exhaustive cleanup, and binds the successfu
 cleanup into its proof receipt. The strict recursive evidence inventory is unchanged.
 Run `38165368199` is retained as a pre-compilation registration failure: source
 preparation rejected the previously unregistered `linux-build-005` identifier, so
-Rust compilation and process proof did not start.
+Rust compilation and process proof did not start. Run `38165606388` is the immutable
+PR-head `linux-build-005` attempt. Its receipt remains valid only for that exact
+implementation commit; it cannot authorize a normal merge commit. Forward-only
+`linux-build-006` preserves the build-005 pair, proof, cleanup and inventory contracts
+and is reserved for one explicit `workflow_dispatch` on `refs/heads/main` after the
+registration change merges. Ordinary PR validation remains in Offline Core and does
+not compile the pair.
 
 Its strict self-hashed receipt binds both executable hashes, ELF class/machine,
 program interpreter, `DT_NEEDED`, absence of embedded RPATH/RUNPATH, required
@@ -439,8 +445,8 @@ Build-020 and all OCI evidence remain immutable historical evidence.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PARTIAL — accepted `windows-build-006` pair is bound to its historical implementation commit; forward-only `windows-build-007` is required for the current merged bundle | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` is historical PR-head evidence and an exact merged-main build is still required; OCI binary does not qualify it |
-| Same-binary host authority | PARTIAL — `windows-build-006` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-007` pending | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` is PR-head evidence and an exact merged-main build is still required |
+| Exact native Codex | PARTIAL — accepted `windows-build-006` pair is bound to its historical implementation commit; forward-only `windows-build-007` is required for the current merged bundle | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required; OCI binary does not qualify it |
+| Same-binary host authority | PARTIAL — `windows-build-006` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-007` pending | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
@@ -451,7 +457,7 @@ Build-020 and all OCI evidence remain immutable historical evidence.
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PENDING directory/launcher/file manifest |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for the `windows-build-006` native executable-pair authority slice; later package gates remain separate | Native Linux `linux-build-005` executable-pair workflow/review pending |
+| CI/review | PASS for the `windows-build-006` native executable-pair authority slice; later package gates remain separate | Native Linux PR-head `linux-build-005` evidence pending completion; merged-main-only `linux-build-006` registration under review |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

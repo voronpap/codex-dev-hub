@@ -12,7 +12,11 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 from devhub.experiment_launch import durable_publish
-from devhub.linux_native import LinuxNativeCodexBuildV4, LinuxNativeCodexBuildV5
+from devhub.linux_native import (
+    LinuxNativeCodexBuildV4,
+    LinuxNativeCodexBuildV5,
+    LinuxNativeCodexBuildV6,
+)
 from devhub.native_proof import (
     LinuxNativeBuildArtifactJoinV1,
     NativeBuildArtifactEntryV1,
@@ -480,15 +484,17 @@ def seal_linux(root: Path, build_id: str) -> NativeBuildArtifactInventoryV2:
     files = inventory_linux(root)
     linux_pair = None
     if status == "PASS":
-        if build_id not in {"linux-build-004", "linux-build-005"}:
+        if build_id not in {"linux-build-004", "linux-build-005", "linux-build-006"}:
             raise ValueError("Linux native build inventory does not support this build ID")
         receipt_path = root / "linux-native-codex-build.json"
         receipt_stat = _plain_file(receipt_path)
         if receipt_stat.st_size > 256 * 1024:
             raise ValueError("Linux native build receipt exceeds its size bound")
-        receipt_model = (
-            LinuxNativeCodexBuildV5 if build_id == "linux-build-005" else LinuxNativeCodexBuildV4
-        )
+        receipt_model = {
+            "linux-build-004": LinuxNativeCodexBuildV4,
+            "linux-build-005": LinuxNativeCodexBuildV5,
+            "linux-build-006": LinuxNativeCodexBuildV6,
+        }[build_id]
         receipt = receipt_model.model_validate_json(receipt_path.read_bytes())
         if receipt.payload.provenance.build_id != build_id:
             raise ValueError("Linux native build receipt identity differs")

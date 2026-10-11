@@ -17,6 +17,7 @@ from devhub.linux_native import (
     LinuxBuildProvenanceV3,
     LinuxBuildProvenanceV4,
     LinuxBuildProvenanceV5,
+    LinuxBuildProvenanceV6,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV1,
     LinuxHostProofSummaryV2,
@@ -27,11 +28,13 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildPayloadV3,
     LinuxNativeCodexBuildPayloadV4,
     LinuxNativeCodexBuildPayloadV5,
+    LinuxNativeCodexBuildPayloadV6,
     LinuxNativeCodexBuildV1,
     LinuxNativeCodexBuildV2,
     LinuxNativeCodexBuildV3,
     LinuxNativeCodexBuildV4,
     LinuxNativeCodexBuildV5,
+    LinuxNativeCodexBuildV6,
 )
 from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 
@@ -292,6 +295,21 @@ def test_linux_build_004_binds_ordinary_default_and_preserves_history() -> None:
     assert forward.payload.provenance.build_id == "linux-build-005"
     assert forward.payload.process_proof.runtime_scratch_cleanup_passed is True
     assert LinuxNativeCodexBuildV5.model_validate_json(forward.model_dump_json()) == forward
+
+    merged_main = LinuxNativeCodexBuildV6.create(
+        LinuxNativeCodexBuildPayloadV6(
+            provenance=LinuxBuildProvenanceV6(
+                **{
+                    **forward.payload.provenance.model_dump(mode="python"),
+                    "build_id": "linux-build-006",
+                }
+            ),
+            binaries=forward.payload.binaries,
+            process_proof=forward.payload.process_proof,
+        )
+    )
+    assert merged_main.payload.provenance.build_id == "linux-build-006"
+    assert LinuxNativeCodexBuildV6.model_validate_json(merged_main.model_dump_json()) == merged_main
 
 
 @pytest.mark.parametrize(
@@ -613,19 +631,23 @@ def test_post_build_v8_failure_records_exact_phase_and_preserves_compile_state(
     assert observed["process_proof"] is None
 
 
-def test_linux_workflow_names_forward_only_build_005_artifacts() -> None:
+def test_linux_workflow_reserves_build_006_for_merged_main_dispatch() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
-    assert "devfabric-linux-build-005-evidence" in workflow
-    assert "devfabric-linux-build-005-binaries" in workflow
+    assert "devfabric-linux-build-006-evidence" in workflow
+    assert "devfabric-linux-build-006-binaries" in workflow
     assert "--platform linux" in workflow
-    assert "--build-id linux-build-005" in workflow
+    assert "--build-id linux-build-006" in workflow
+    assert "pull_request:" not in workflow
+    assert "github.ref == 'refs/heads/main'" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "--expected-implementation-commit '${{ github.sha }}'" in workflow
     assert "include-hidden-files: true" in workflow
     assert "if: always() && steps.seal.outcome == 'success'" in workflow
     assert "if: success()" in workflow
-    assert "devfabric-linux-build-004" not in workflow
+    assert "devfabric-linux-build-005" not in workflow
 
 
-def test_linux_build_005_uses_complete_source_preparation(
+def test_linux_build_006_uses_complete_source_preparation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     checkout = tmp_path / "pinned-source"
@@ -665,7 +687,7 @@ new file mode 100644
         root,
         candidate_patch=candidate,
         host_patch=host,
-        build_id="linux-build-005",
+        build_id="linux-build-006",
     )
 
     assert (root / "candidate.txt").read_text(encoding="utf-8") == "candidate\n"
@@ -933,7 +955,7 @@ def test_process_summary_rejects_alternate_code_mode_failures(message: str) -> N
 
 
 def test_linux_builder_reuses_shared_source_and_process_authority() -> None:
-    assert LINUX_BUILD.BUILD_ID == "linux-build-005"
+    assert LINUX_BUILD.BUILD_ID == "linux-build-006"
     assert LINUX_BUILD.retained.prepare_build_source is not None
     signature = inspect.signature(LINUX_BUILD.shared.process_proof)
     assert {"capture", "wait_pid_exit", "proof_env", "platform_label"} <= set(signature.parameters)
@@ -944,10 +966,11 @@ def test_linux_builder_reuses_shared_source_and_process_authority() -> None:
     assert hashlib.sha256(candidate + host).hexdigest() == LINUX_BUILD.retained.COMBINED_SHA256
 
 
-def test_linux_workflow_binds_exact_pr_head_pair_and_never_cancels() -> None:
+def test_linux_workflow_binds_exact_merged_main_pair_and_never_cancels() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
-    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
-    assert "--expected-implementation-commit" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "--expected-implementation-commit '${{ github.sha }}'" in workflow
+    assert "github.ref == 'refs/heads/main'" in workflow
     assert "cancel-in-progress: false" in workflow
     assert "x86_64-unknown-linux-gnu" in workflow
     assert "scripts/build_linux_native_codex.py" in workflow

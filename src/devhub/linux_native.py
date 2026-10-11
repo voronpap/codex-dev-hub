@@ -179,6 +179,12 @@ class LinuxBuildProvenanceV5(LinuxBuildProvenanceV3):
     build_id: Literal["linux-build-005"] = "linux-build-005"  # type: ignore[assignment]
 
 
+class LinuxBuildProvenanceV6(LinuxBuildProvenanceV3):
+    """Forward build identity bound to the exact merged implementation commit."""
+
+    build_id: Literal["linux-build-006"] = "linux-build-006"  # type: ignore[assignment]
+
+
 class LinuxHostProofSummaryV1(Contract):
     process_proof_sha256: Digest
     code_mode_host_sha256: Digest
@@ -336,6 +342,11 @@ class LinuxNativeCodexBuildPayloadV5(LinuxNativeCodexBuildPayloadV3):
     process_proof: LinuxHostProofSummaryV3
 
 
+class LinuxNativeCodexBuildPayloadV6(LinuxNativeCodexBuildPayloadV3):
+    provenance: LinuxBuildProvenanceV6
+    process_proof: LinuxHostProofSummaryV3
+
+
 class LinuxNativeCodexBuildV1(Contract):
     linux_native_codex_build_id: Digest
     payload: LinuxNativeCodexBuildPayloadV1
@@ -435,6 +446,27 @@ class LinuxNativeCodexBuildV5(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> LinuxNativeCodexBuildV5:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_codex_build_id != expected:
+            raise ValueError("Linux native Codex build ID mismatch")
+        return self
+
+
+class LinuxNativeCodexBuildV6(Contract):
+    linux_native_codex_build_id: Digest
+    payload: LinuxNativeCodexBuildPayloadV6
+
+    @classmethod
+    def create(cls, payload: LinuxNativeCodexBuildPayloadV6) -> LinuxNativeCodexBuildV6:
+        return cls(
+            linux_native_codex_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeCodexBuildV6:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_codex_build_id != expected:
             raise ValueError("Linux native Codex build ID mismatch")

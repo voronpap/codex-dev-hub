@@ -6,17 +6,21 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
 
 from devhub.linux_native import (
     LinuxBuildProvenanceV5,
+    LinuxBuildProvenanceV6,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV3,
     LinuxNativeBinaryV1,
     LinuxNativeCodexBuildPayloadV5,
+    LinuxNativeCodexBuildPayloadV6,
     LinuxNativeCodexBuildV5,
+    LinuxNativeCodexBuildV6,
 )
 from devhub.native_proof import (
     LinuxNativeBuildArtifactJoinV1,
@@ -52,9 +56,14 @@ def _result(root: Path, *, status: str = "FAIL") -> None:
     )
 
 
-def _linux_result(root: Path, *, status: str = "FAIL") -> None:
+def _linux_result(
+    root: Path,
+    *,
+    status: str = "FAIL",
+    build_id: Literal["linux-build-005", "linux-build-006"] = "linux-build-006",
+) -> None:
     (root / "linux-build-result.json").write_text(
-        json.dumps({"build_id": "linux-build-005", "status": status}), encoding="utf-8"
+        json.dumps({"build_id": build_id, "status": status}), encoding="utf-8"
     )
 
 
@@ -168,7 +177,10 @@ def _pass_artifact(root: Path) -> WindowsNativeCodexBuildV6:
     return receipt
 
 
-def _linux_pass_artifact(root: Path) -> LinuxNativeCodexBuildV5:
+def _linux_pass_artifact(
+    root: Path,
+    build_id: Literal["linux-build-005", "linux-build-006"] = "linux-build-006",
+) -> LinuxNativeCodexBuildV5 | LinuxNativeCodexBuildV6:
     binary = root / "binary"
     binary.mkdir()
     codex_path = binary / "codex"
@@ -200,7 +212,7 @@ def _linux_pass_artifact(root: Path) -> LinuxNativeCodexBuildV5:
         elf=elf,
         identity_output_sha256="2" * 64,
     )
-    provenance = LinuxBuildProvenanceV5(
+    provenance_fields: dict[str, str] = dict(
         implementation_commit="a" * 40,
         codex_source_commit="b" * 40,
         source_archive_sha256="1" * 64,
@@ -253,20 +265,29 @@ def _linux_pass_artifact(root: Path) -> LinuxNativeCodexBuildV5:
         code_mode_host_sha256=host.sha256,
         code_mode_host_eof_receipt_sha256=_sha256(eof_path),
     )
-    receipt = LinuxNativeCodexBuildV5.create(
-        LinuxNativeCodexBuildPayloadV5(
-            provenance=provenance,
-            binaries=(codex, host),
-            process_proof=proof,
+    if build_id == "linux-build-005":
+        receipt: LinuxNativeCodexBuildV5 | LinuxNativeCodexBuildV6 = LinuxNativeCodexBuildV5.create(
+            LinuxNativeCodexBuildPayloadV5(
+                provenance=LinuxBuildProvenanceV5(**provenance_fields),
+                binaries=(codex, host),
+                process_proof=proof,
+            )
         )
-    )
+    else:
+        receipt = LinuxNativeCodexBuildV6.create(
+            LinuxNativeCodexBuildPayloadV6(
+                provenance=LinuxBuildProvenanceV6(**provenance_fields),
+                binaries=(codex, host),
+                process_proof=proof,
+            )
+        )
     (root / "linux-native-codex-build.json").write_text(
         receipt.model_dump_json(indent=2) + "\n", encoding="utf-8"
     )
     (root / "linux-build-result.json").write_text(
         json.dumps(
             {
-                "build_id": "linux-build-005",
+                "build_id": build_id,
                 "status": "PASS",
                 "linux_native_codex_build_id": receipt.linux_native_codex_build_id,
                 "executable_sha256": codex.sha256,
@@ -336,7 +357,7 @@ def test_windows_pass_inventory_rejects_binary_substitution(tmp_path: Path) -> N
 def test_linux_pass_inventory_exactly_joins_pair_proof_and_result(tmp_path: Path) -> None:
     pair = _linux_pass_artifact(tmp_path)
 
-    receipt = INVENTORY.seal_linux(tmp_path, "linux-build-005")
+    receipt = INVENTORY.seal_linux(tmp_path, "linux-build-006")
 
     assert receipt.payload.status == "PASS"
     assert receipt.payload.linux_pair is not None
@@ -357,12 +378,24 @@ def test_linux_pass_inventory_exactly_joins_pair_proof_and_result(tmp_path: Path
     )
 
 
+def test_linux_build_005_inventory_remains_strictly_parseable(tmp_path: Path) -> None:
+    pair = _linux_pass_artifact(tmp_path, "linux-build-005")
+
+    receipt = INVENTORY.seal_linux(tmp_path, "linux-build-005")
+
+    assert receipt.payload.status == "PASS"
+    assert receipt.payload.linux_pair is not None
+    assert (
+        receipt.payload.linux_pair.linux_native_codex_build_id == pair.linux_native_codex_build_id
+    )
+
+
 def test_linux_pass_inventory_rejects_binary_substitution(tmp_path: Path) -> None:
     _linux_pass_artifact(tmp_path)
     (tmp_path / "binary/codex").write_bytes(b"substituted")
 
     with pytest.raises(ValueError, match="exact binary pair"):
-        INVENTORY.seal_linux(tmp_path, "linux-build-005")
+        INVENTORY.seal_linux(tmp_path, "linux-build-006")
 
 
 def test_linux_failure_projection_retains_hidden_evidence_and_excludes_binary(
@@ -380,7 +413,7 @@ def test_linux_failure_projection_retains_hidden_evidence_and_excludes_binary(
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_bytes(b"locked")
 
-    inventory = INVENTORY.seal_linux(root, "linux-build-005")
+    inventory = INVENTORY.seal_linux(root, "linux-build-006")
     projection = tmp_path / "projection"
     members = INVENTORY.project_linux_evidence(root, projection, inventory)
 
@@ -502,7 +535,7 @@ def test_linux_build_inventory_rejects_special_file_with_bounded_path(tmp_path: 
         ValueError,
         match=r"plain regular files: process-proof/runtime\.pipe$",
     ):
-        INVENTORY.seal_linux(tmp_path, "linux-build-005")
+        INVENTORY.seal_linux(tmp_path, "linux-build-006")
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation requires Unix")
