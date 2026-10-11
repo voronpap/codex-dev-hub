@@ -10,7 +10,9 @@ from __future__ import annotations
 import _sha2  # type: ignore[import-not-found]  # CPython built-in; verified by the bundle gate.
 import importlib
 import json
+import ntpath
 import os
+import posixpath
 import runpy
 import sys
 from pathlib import Path
@@ -54,7 +56,7 @@ NATIVE_LOADER_FAILURE_STAGES = (
 NATIVE_LOADER_DEPENDENCY_STAGES = frozenset(NATIVE_LOADER_FAILURE_STAGES[2:])
 NATIVE_LOADER_BOOTSTRAP_STAGES = (
     "preloaded_module_guard",
-    "runtime_root_resolve",
+    "launcher_authority_validation",
     "module_path_resolve",
     "module_sibling_validation",
     "module_hash_read",
@@ -155,8 +157,113 @@ def _loader_reason(error: BaseException) -> str:
     return _loader_diagnostic(error)[0]
 
 
-def _native_file_observation(relative_path: str, filename: str) -> dict[str, object]:
-    target = Path(sys.executable).resolve().parent / filename
+def _normalized_launcher_locator(value: str) -> str:
+    """Validate a host-bound launcher locator without filesystem traversal."""
+
+    if not value or "\x00" in value:
+        raise ValueError("Launcher locator is empty or contains a NUL")
+    if os.name == "nt":
+        if "/" in value or value.startswith(("\\\\", "\\\\?\\", "\\\\.\\")):
+            raise ValueError("Launcher locator must use a local drive-qualified path")
+        drive, tail = ntpath.splitdrive(value)
+        if (
+            len(drive) != 2
+            or drive[1] != ":"
+            or drive[0] not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+            or not tail.startswith("\\")
+        ):
+            raise ValueError("Launcher locator must use a local drive-qualified path")
+        parts = tail.split("\\")[1:]
+        if not parts or any(
+            part in {"", ".", ".."} or ":" in part or part.rstrip(" .") != part for part in parts
+        ):
+            raise ValueError("Launcher locator contains a non-canonical path segment")
+        normalized = ntpath.normpath(value)
+        if ntpath.basename(normalized).casefold() != "python.exe":
+            raise ValueError("Launcher locator must name python.exe")
+        return ntpath.normcase(normalized)
+
+    # Platform-independent tests import this Windows bootstrap. Keep an
+    # equivalent lexical contract without treating a POSIX path as Windows
+    # authority in production.
+    if not value.startswith("/") or "\\" in value:
+        raise ValueError("Test launcher locator must be an absolute POSIX path")
+    parts = value.split("/")[1:]
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("Launcher locator contains a non-canonical path segment")
+    normalized = posixpath.normpath(value)
+    if not posixpath.basename(normalized):
+        raise ValueError("Test launcher locator must name an executable")
+    return normalized
+
+
+def _reviewed_runtime_root(expected_launcher_locator: str) -> Path:
+    expected = _normalized_launcher_locator(expected_launcher_locator)
+    observed = _normalized_launcher_locator(sys.executable)
+    if observed != expected:
+        raise RuntimeError("Runtime launcher differs from host-bound authority")
+    parent = (
+        ntpath.dirname(expected_launcher_locator)
+        if os.name == "nt"
+        else posixpath.dirname(expected_launcher_locator)
+    )
+    return Path(parent)
+
+
+def _launcher_locator_sha256(value: str) -> str:
+    return str(_sha2.sha256(_normalized_launcher_locator(value).encode("utf-8")).hexdigest())
+
+
+def _normalized_runtime_member(value: str, filename: str) -> str:
+    if not value or "\x00" in value:
+        raise ValueError("Runtime member locator is empty or contains a NUL")
+    if os.name == "nt":
+        if "/" in value or value.startswith(("\\\\", "\\\\?\\", "\\\\.\\")):
+            raise ValueError("Runtime member must use a local drive-qualified path")
+        drive, tail = ntpath.splitdrive(value)
+        parts = tail.split("\\")[1:] if tail.startswith("\\") else []
+        if (
+            len(drive) != 2
+            or drive[1] != ":"
+            or drive[0] not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+            or not parts
+            or any(
+                part in {"", ".", ".."} or ":" in part or part.rstrip(" .") != part
+                for part in parts
+            )
+        ):
+            raise ValueError("Runtime member locator is not canonical")
+        normalized = ntpath.normcase(ntpath.normpath(value))
+        if ntpath.basename(normalized) != filename.casefold():
+            raise ValueError("Runtime member filename differs from reviewed authority")
+        return normalized
+
+    if not value.startswith("/") or "\\" in value:
+        raise ValueError("Test runtime member must be an absolute POSIX path")
+    parts = value.split("/")[1:]
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("Runtime member locator is not canonical")
+    normalized = posixpath.normpath(value)
+    if posixpath.basename(normalized) != filename:
+        raise ValueError("Runtime member filename differs from reviewed authority")
+    return normalized
+
+
+def _reviewed_runtime_member(runtime_root: Path, raw: str, filename: str) -> Path:
+    expected = (
+        ntpath.normcase(ntpath.join(str(runtime_root), filename))
+        if os.name == "nt"
+        else posixpath.join(str(runtime_root), filename)
+    )
+    if _normalized_runtime_member(raw, filename) != expected:
+        raise RuntimeError("Runtime member differs from reviewed interpreter sibling")
+    return Path(raw)
+
+
+def _native_file_observation(
+    runtime_root: Path, relative_path: str, filename: str
+) -> dict[str, object]:
+    target = runtime_root / filename
     try:
         observed_sha256 = _sha2.sha256(target.read_bytes()).hexdigest()
         status = "readable"
@@ -177,17 +284,21 @@ def _native_file_observation(relative_path: str, filename: str) -> dict[str, obj
     }
 
 
-def _native_crypto_observation(relative_path: str, filename: str) -> dict[str, object]:
-    observation = _native_file_observation(relative_path, filename)
+def _native_crypto_observation(
+    runtime_root: Path, relative_path: str, filename: str
+) -> dict[str, object]:
+    observation = _native_file_observation(runtime_root, relative_path, filename)
     observation["schema_version"] = 1
     return observation
 
 
-def _run_native_import_matrix() -> tuple[list[dict[str, object]], BaseException | None, int | None]:
+def _run_native_import_matrix(
+    runtime_root: Path,
+) -> tuple[list[dict[str, object]], BaseException | None, int | None]:
     observations: list[dict[str, object]] = [
         {
             "module": module,
-            "file": _native_file_observation(relative_path, filename),
+            "file": _native_file_observation(runtime_root, relative_path, filename),
             "import_status": "not_attempted",
             "schema_version": 3,
         }
@@ -205,6 +316,7 @@ def _run_native_import_matrix() -> tuple[list[dict[str, object]], BaseException 
 
 def _activate_native_loader(
     expected_sha256: str,
+    expected_launcher_locator: str,
 ) -> tuple[dict[str, object], BaseException | None, str | None, dict[str, object] | None]:
     """Activate only the reviewed interpreter-sibling native loader."""
 
@@ -221,10 +333,10 @@ def _activate_native_loader(
     try:
         if any(module in sys.modules for module, *_ in NATIVE_IMPORT_MATRIX):
             raise RuntimeError("Reviewed native module loaded before native-loader activation")
-        bootstrap_stage = "runtime_root_resolve"
-        runtime_root = Path(sys.executable).resolve(strict=True).parent
+        bootstrap_stage = "launcher_authority_validation"
+        runtime_root = _reviewed_runtime_root(expected_launcher_locator)
         bootstrap_stage = "module_path_resolve"
-        module_path = (runtime_root / filename).resolve(strict=True)
+        module_path = _reviewed_runtime_member(runtime_root, str(runtime_root / filename), filename)
         bootstrap_stage = "module_sibling_validation"
         if module_path.parent != runtime_root or module_path.name != filename:
             raise RuntimeError("Native-loader module is not the interpreter sibling")
@@ -239,7 +351,7 @@ def _activate_native_loader(
         origin_raw = getattr(loader, "__file__", None)
         if not isinstance(origin_raw, str):
             raise RuntimeError("Imported native-loader origin is unavailable")
-        origin = Path(origin_raw).resolve(strict=True)
+        origin = _reviewed_runtime_member(runtime_root, origin_raw, filename)
         if origin != module_path:
             raise RuntimeError("Imported native-loader origin differs from reviewed sibling")
         bootstrap_stage = "helper_activation"
@@ -319,6 +431,9 @@ def _write_failure(
     failed_matrix_module: str | None = None,
     native_loader_bootstrap_stage: str | None = None,
     native_loader_failure: dict[str, object] | None = None,
+    runtime_root: Path | None = None,
+    expected_launcher_locator_sha256: str | None = None,
+    observed_launcher_locator_sha256: str | None = None,
 ) -> None:
     exception_class = type(error).__name__
     if (
@@ -344,13 +459,27 @@ def _write_failure(
             "import_boundary": _import_boundary(error) if phase == "bootstrap_import" else None,
             "loader_code": loader_code,
             "loader_reason": loader_reason,
+            "expected_launcher_locator_sha256": expected_launcher_locator_sha256,
+            "observed_launcher_locator_sha256": observed_launcher_locator_sha256,
             "native_import_matrix": native_import_matrix,
-            "native_crypto_observations": [
-                _native_crypto_observation(relative_path, filename)
-                for relative_path, filename in NATIVE_CRYPTO_FILES
-            ],
+            "native_crypto_observations": (
+                [
+                    _native_crypto_observation(runtime_root, relative_path, filename)
+                    for relative_path, filename in NATIVE_CRYPTO_FILES
+                ]
+                if runtime_root is not None
+                else [
+                    {
+                        "observed_sha256": None,
+                        "relative_path": relative_path,
+                        "schema_version": 1,
+                        "status": "other_error",
+                    }
+                    for relative_path, _ in NATIVE_CRYPTO_FILES
+                ]
+            ),
             "phase": phase,
-            "schema_version": 8,
+            "schema_version": 9,
             "winerror": _numeric_code(error, "winerror"),
         }
     )
@@ -382,7 +511,7 @@ def _started_frame(
 
 
 def main() -> int:
-    if len(sys.argv) != 11:
+    if len(sys.argv) != 13:
         return EXIT_ARGUMENTS_INVALID
     (
         _,
@@ -396,6 +525,8 @@ def main() -> int:
         profile_id,
         probe_sha256,
         expected_native_loader_sha256,
+        expected_launcher_locator,
+        expected_launcher_locator_sha256,
     ) = sys.argv
     child_script = Path(child_script_raw)
     request_path = Path(request_raw)
@@ -427,17 +558,50 @@ def main() -> int:
     except BaseException:
         return EXIT_STATUS_WRITE_DENIED
 
-    (
-        native_loader_activation,
-        activation_error,
-        native_loader_bootstrap_stage,
-        native_loader_failure,
-    ) = _activate_native_loader(expected_native_loader_sha256)
+    runtime_root: Path | None = None
+    observed_launcher_locator_sha256: str | None = None
+    launcher_error: BaseException | None = None
+    try:
+        if _launcher_locator_sha256(expected_launcher_locator) != expected_launcher_locator_sha256:
+            raise RuntimeError("Launcher locator argument differs from sealed authority")
+        observed_launcher_locator_sha256 = _launcher_locator_sha256(sys.executable)
+        runtime_root = _reviewed_runtime_root(expected_launcher_locator)
+    except BaseException as error:
+        launcher_error = error
+    if launcher_error is None:
+        (
+            native_loader_activation,
+            activation_error,
+            native_loader_bootstrap_stage,
+            native_loader_failure,
+        ) = _activate_native_loader(expected_native_loader_sha256, expected_launcher_locator)
+    else:
+        native_loader_activation = {
+            "activated_dependencies": [],
+            "error_code": _numeric_code(launcher_error, "winerror")
+            or _numeric_code(launcher_error, "errno"),
+            "module_path": "python/_devfabric_native_loader.pyd",
+            "module_sha256": None,
+            "schema_version": 2,
+            "status": "failed",
+        }
+        activation_error = launcher_error
+        native_loader_bootstrap_stage = "launcher_authority_validation"
+        native_loader_failure = None
     if activation_error is not None:
         native_import_matrix: list[dict[str, object]] = [
             {
                 "module": module,
-                "file": _native_file_observation(relative_path, filename),
+                "file": (
+                    _native_file_observation(runtime_root, relative_path, filename)
+                    if runtime_root is not None
+                    else {
+                        "observed_sha256": None,
+                        "relative_path": relative_path,
+                        "schema_version": 3,
+                        "status": "other_error",
+                    }
+                ),
                 "import_status": "not_attempted",
                 "schema_version": 3,
             }
@@ -452,6 +616,9 @@ def main() -> int:
                 native_loader_activation,
                 native_loader_bootstrap_stage=native_loader_bootstrap_stage,
                 native_loader_failure=native_loader_failure,
+                runtime_root=runtime_root,
+                expected_launcher_locator_sha256=expected_launcher_locator_sha256,
+                observed_launcher_locator_sha256=observed_launcher_locator_sha256,
             )
         except _FailureFrameTooLarge:
             return EXIT_IMPORT_FAILURE_TOO_LARGE
@@ -459,7 +626,9 @@ def main() -> int:
             return EXIT_IMPORT_FAILURE_WRITE_DENIED
         return EXIT_NATIVE_LOADER_ACTIVATION
 
-    native_import_matrix, matrix_error, matrix_exit = _run_native_import_matrix()
+    if runtime_root is None:
+        return EXIT_NATIVE_LOADER_ACTIVATION
+    native_import_matrix, matrix_error, matrix_exit = _run_native_import_matrix(runtime_root)
     if (matrix_error is None) != (matrix_exit is None):
         return EXIT_IMPORT_FAILED
     if matrix_error is not None:
@@ -476,6 +645,9 @@ def main() -> int:
                 native_import_matrix,
                 native_loader_activation,
                 str(failed),
+                runtime_root=runtime_root,
+                expected_launcher_locator_sha256=expected_launcher_locator_sha256,
+                observed_launcher_locator_sha256=observed_launcher_locator_sha256,
             )
         except _FailureFrameTooLarge:
             return EXIT_IMPORT_FAILURE_TOO_LARGE
@@ -492,7 +664,7 @@ def main() -> int:
     ]
     try:
         namespace = runpy.run_path(str(child_script), run_name="devfabric_windows_isolation_child")
-        guarded = namespace.get("_child_guarded_v6")
+        guarded = namespace.get("_child_guarded_v7")
         if not callable(guarded):
             raise RuntimeError("reviewed child entry point is unavailable")
     except BaseException as error:
@@ -503,6 +675,9 @@ def main() -> int:
                 error,
                 native_import_matrix,
                 native_loader_activation,
+                runtime_root=runtime_root,
+                expected_launcher_locator_sha256=expected_launcher_locator_sha256,
+                observed_launcher_locator_sha256=observed_launcher_locator_sha256,
             )
         except _FailureFrameTooLarge:
             return EXIT_IMPORT_FAILURE_TOO_LARGE
@@ -518,6 +693,7 @@ def main() -> int:
                 failure_path,
                 native_loader_activation,
                 native_import_matrix,
+                observed_launcher_locator_sha256,
             )
         )
     except BaseException as error:
@@ -528,6 +704,9 @@ def main() -> int:
                 error,
                 native_import_matrix,
                 native_loader_activation,
+                runtime_root=runtime_root,
+                expected_launcher_locator_sha256=expected_launcher_locator_sha256,
+                observed_launcher_locator_sha256=observed_launcher_locator_sha256,
             )
         except _FailureFrameTooLarge:
             return EXIT_INVOKE_FAILURE_TOO_LARGE

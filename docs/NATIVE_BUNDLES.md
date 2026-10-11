@@ -260,6 +260,22 @@ evidence and cannot establish the V8 bootstrap boundary. V8 remains a
 metadata-only diagnostic step: it does not change the allowlist, load flags,
 handles, file-identity or isolation policy, and it does not grant readiness.
 
+Forward V9 replaces child-side filesystem canonicalization of `sys.executable`
+with an exact host-bound lexical launcher authority. Profile V4 seals the already
+validated, drive-qualified local `python.exe` locator, its lexical SHA-256, its
+Windows volume/file identity and its immutable-bundle byte hash. The host passes
+that sealed locator and hash; the child rejects relative, UNC, device, slash-mixed
+and dot-segment forms, requires normalized equality with `sys.executable`, and
+returns only the bounded locator digest. Receipt/evidence V6 join that child
+observation to the V4 profile. Failure diagnostic V9 joins the same expected and
+observed digest without disclosing the path. Loader and imported-module paths must
+remain exact siblings of that launcher. This avoids traversing intentionally
+ungranted AppContainer ancestor directories while preserving the module hash,
+native helper sibling, open-handle and file-identity checks. No ancestor ACL is
+widened. V1-V8 failure receipts and earlier profile/evidence versions remain
+parseable historical evidence and cannot establish this V9 launcher boundary. V9
+remains metadata-only and does not grant readiness.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of

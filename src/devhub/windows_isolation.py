@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import ctypes
 import hashlib
+import ntpath
 import os
 import platform
 import re
@@ -96,6 +97,59 @@ class NativePathIdentityV1(Contract):
     locator: Annotated[str, Field(min_length=3, max_length=4096)]
     volume_serial_number: Annotated[int, Field(ge=0, le=0xFFFFFFFF)]
     file_index: Annotated[str, Field(pattern=r"^[a-f0-9]{16}$")]
+
+
+def normalized_windows_launcher_locator(value: str) -> str:
+    """Return one bounded lexical identity for a local ``python.exe`` locator."""
+
+    if (
+        not value
+        or "\x00" in value
+        or "/" in value
+        or value.startswith(("\\\\", "\\\\?\\", "\\\\.\\"))
+    ):
+        raise ValueError("Launcher locator must use a local drive-qualified path")
+    drive, tail = ntpath.splitdrive(value)
+    if (
+        len(drive) != 2
+        or drive[1] != ":"
+        or drive[0] not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        or not tail.startswith("\\")
+    ):
+        raise ValueError("Launcher locator must use a local drive-qualified path")
+    parts = tail.split("\\")[1:]
+    if not parts or any(
+        part in {"", ".", ".."} or ":" in part or part.rstrip(" .") != part for part in parts
+    ):
+        raise ValueError("Launcher locator contains a non-canonical path segment")
+    normalized = ntpath.normcase(ntpath.normpath(value))
+    if ntpath.basename(normalized) != "python.exe":
+        raise ValueError("Launcher locator must name python.exe")
+    return normalized
+
+
+def windows_launcher_locator_sha256(value: str) -> str:
+    """Hash the reviewed lexical launcher representation without traversing its ancestors."""
+
+    return hashlib.sha256(normalized_windows_launcher_locator(value).encode("utf-8")).hexdigest()
+
+
+class WindowsLauncherAuthorityV1(Contract):
+    """Host-owned locator, Windows file identity and bytes for the exact launcher."""
+
+    locator: Annotated[str, Field(min_length=10, max_length=4096)]
+    locator_sha256: Digest
+    path_identity: NativePathIdentityV1
+    executable_sha256: Digest
+
+    @model_validator(mode="after")
+    def exact_launcher_identity(self) -> WindowsLauncherAuthorityV1:
+        normalized = normalized_windows_launcher_locator(self.locator)
+        if normalized_windows_launcher_locator(self.path_identity.locator) != normalized:
+            raise ValueError("Launcher locator differs from its Windows file identity")
+        if windows_launcher_locator_sha256(self.locator) != self.locator_sha256:
+            raise ValueError("Launcher locator hash mismatch")
+        return self
 
 
 class WindowsJobLimitsV1(Contract):
@@ -283,6 +337,43 @@ class WindowsIsolationProfileV3(Contract):
         return self
 
 
+class WindowsIsolationProfilePayloadV4(WindowsIsolationProfilePayloadV3):
+    """Forward-only profile sealing the exact launcher locator and native file identity."""
+
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    launcher: WindowsLauncherAuthorityV1
+
+    @model_validator(mode="after")
+    def exact_launcher_authority(self) -> WindowsIsolationProfilePayloadV4:
+        if self.launcher.executable_sha256 != self.launcher_executable_sha256:
+            raise ValueError("Launcher authority differs from immutable bundle bytes")
+        if len(self.read_only_roots) != 1 or not PureWindowsPath(
+            self.launcher.locator
+        ).is_relative_to(PureWindowsPath(self.read_only_roots[0].locator)):
+            raise ValueError("Launcher authority is outside the reviewed runtime root")
+        return self
+
+
+class WindowsIsolationProfileV4(Contract):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    windows_isolation_profile_id: Digest
+    payload: WindowsIsolationProfilePayloadV4
+
+    @classmethod
+    def create(cls, payload: WindowsIsolationProfilePayloadV4) -> WindowsIsolationProfileV4:
+        return cls(
+            windows_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationProfileV4:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.windows_isolation_profile_id != expected:
+            raise ValueError("Windows isolation profile hash mismatch")
+        return self
+
+
 class WindowsRuntimeAccessGrantPayloadV1(Contract):
     """Exact AppContainer filesystem grant for one disposable runtime tree."""
 
@@ -407,7 +498,7 @@ class WindowsPostCreateAclFailureV1(Contract):
 
 
 def windows_isolation_bootstrap_started_id(
-    profile: WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
+    profile: WindowsIsolationProfileV2 | WindowsIsolationProfileV3 | WindowsIsolationProfileV4,
 ) -> str:
     """Derive the exact marker ID that proves the reviewed child bootstrap started."""
 
@@ -671,6 +762,45 @@ class WindowsIsolationReceiptV5(Contract):
         return self
 
 
+class WindowsIsolationReceiptPayloadV6(WindowsIsolationReceiptPayloadV5):
+    """Success receipt joining the child launcher observation to the sealed V4 profile."""
+
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+    launcher: WindowsLauncherAuthorityV1
+    child_launcher_locator_sha256: Digest
+
+    @model_validator(mode="after")
+    def exact_launcher_observation(self) -> WindowsIsolationReceiptPayloadV6:
+        if self.child_launcher_locator_sha256 != self.launcher.locator_sha256:
+            raise ValueError("Child launcher observation differs from host authority")
+        if (
+            self.launcher.executable_sha256
+            != self.runtime_access_grant.payload.launcher_executable_sha256
+        ):
+            raise ValueError("Receipt launcher authority differs from immutable bundle bytes")
+        return self
+
+
+class WindowsIsolationReceiptV6(Contract):
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+    windows_isolation_receipt_id: Digest
+    payload: WindowsIsolationReceiptPayloadV6
+
+    @classmethod
+    def create(cls, payload: WindowsIsolationReceiptPayloadV6) -> WindowsIsolationReceiptV6:
+        return cls(
+            windows_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationReceiptV6:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.windows_isolation_receipt_id != expected:
+            raise ValueError("Windows isolation receipt hash mismatch")
+        return self
+
+
 class WindowsAccessDeniedObservationV1(Contract):
     denied: Literal[True]
     error_code: int
@@ -741,6 +871,11 @@ class WindowsIsolationChildResultV2(WindowsIsolationChildResultV1):
         ]:
             raise ValueError("Child native import matrix differs from reviewed V6 order")
         return self
+
+
+class WindowsIsolationChildResultV3(WindowsIsolationChildResultV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    launcher_locator_sha256: Digest
 
 
 class WindowsIsolationEvidenceV1(Contract):
@@ -1079,8 +1214,85 @@ class WindowsIsolationEvidenceV5(Contract):
         return self
 
 
+class WindowsIsolationEvidenceV6(Contract):
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+    windows_isolation_evidence_id: Digest
+    profile: WindowsIsolationProfileV4
+    sandbox_spec_base64: str
+    sandbox_spec_sha256: Digest
+    receipt: WindowsIsolationReceiptV6
+
+    @classmethod
+    def create(
+        cls,
+        profile: WindowsIsolationProfileV4,
+        sandbox_spec: bytes,
+        receipt: WindowsIsolationReceiptV6,
+    ) -> WindowsIsolationEvidenceV6:
+        encoded = base64.b64encode(sandbox_spec).decode("ascii")
+        sandbox_hash = digest(sandbox_spec)
+        payload: dict[str, JsonValue] = {
+            "schema_version": 6,
+            "profile": profile.model_dump(mode="json"),
+            "sandbox_spec_base64": encoded,
+            "sandbox_spec_sha256": sandbox_hash,
+            "receipt": receipt.model_dump(mode="json"),
+        }
+        return cls(
+            windows_isolation_evidence_id=digest(canonical(payload)),
+            profile=profile,
+            sandbox_spec_base64=encoded,
+            sandbox_spec_sha256=sandbox_hash,
+            receipt=receipt,
+        )
+
+    @model_validator(mode="after")
+    def strict_joins(self) -> WindowsIsolationEvidenceV6:
+        try:
+            spec = base64.b64decode(self.sandbox_spec_base64, validate=True)
+        except ValueError as error:
+            raise ValueError("SandboxSpec is not canonical base64") from error
+        if base64.b64encode(spec).decode("ascii") != self.sandbox_spec_base64:
+            raise ValueError("SandboxSpec is not canonical base64")
+        if spec != windows_sandbox_spec(self.profile) or digest(spec) != self.sandbox_spec_sha256:
+            raise ValueError("Retained SandboxSpec does not match the profile")
+        receipt = self.receipt.payload
+        profile = self.profile.payload
+        grant = receipt.runtime_access_grant.payload
+        if (
+            receipt.windows_isolation_profile_id != self.profile.windows_isolation_profile_id
+            or receipt.environment_instance_id != profile.environment_instance_id
+            or receipt.probe_sha256 != profile.probe_sha256
+            or receipt.child_bootstrap_sha256 != profile.child_bootstrap_sha256
+            or receipt.bootstrap_started_id != windows_isolation_bootstrap_started_id(self.profile)
+            or receipt.sandbox_spec_sha256 != self.sandbox_spec_sha256
+            or receipt.native_loader != profile.native_loader
+            or receipt.native_import_expectations != profile.native_import_expectations
+            or receipt.launcher != profile.launcher
+            or receipt.child_launcher_locator_sha256 != profile.launcher.locator_sha256
+            or grant.appcontainer_identity != profile.appcontainer_identity
+            or grant.root != profile.read_only_roots[0]
+            or grant.native_bundle_id != profile.native_bundle_id
+            or grant.launcher_executable_sha256 != profile.launcher.executable_sha256
+        ):
+            raise ValueError("Windows isolation receipt does not bind the retained V9 profile")
+        payload: dict[str, JsonValue] = {
+            "schema_version": self.schema_version,
+            "profile": self.profile.model_dump(mode="json"),
+            "sandbox_spec_base64": self.sandbox_spec_base64,
+            "sandbox_spec_sha256": self.sandbox_spec_sha256,
+            "receipt": self.receipt.model_dump(mode="json"),
+        }
+        if digest(canonical(payload)) != self.windows_isolation_evidence_id:
+            raise ValueError("Windows isolation evidence hash mismatch")
+        return self
+
+
 WindowsIsolationProfile = (
-    WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3
+    WindowsIsolationProfileV1
+    | WindowsIsolationProfileV2
+    | WindowsIsolationProfileV3
+    | WindowsIsolationProfileV4
 )
 
 
@@ -1452,6 +1664,36 @@ def _verify_profile_paths(profile: WindowsIsolationProfile) -> None:
     ):
         if windows_path_identity(Path(expected.locator)) != expected:
             raise ValueError("Isolation root identity changed")
+    if isinstance(profile, WindowsIsolationProfileV4):
+        launcher = profile.payload.launcher
+        if (
+            windows_path_identity(Path(launcher.locator), require_directory=False)
+            != launcher.path_identity
+        ):
+            raise ValueError("Isolation launcher identity changed")
+
+
+def _verify_launcher_authority(
+    profile: WindowsIsolationProfile,
+    executable: Path,
+    *,
+    phase: str,
+) -> None:
+    """Join the launch argument to the sealed locator, native identity, and bytes."""
+
+    if isinstance(profile, WindowsIsolationProfileV4):
+        launcher = profile.payload.launcher
+        observed_locator = normalized_windows_launcher_locator(str(executable))
+        expected_locator = normalized_windows_launcher_locator(launcher.locator)
+        if observed_locator != expected_locator:
+            raise ValueError(f"Isolated launcher locator changed {phase}")
+        if windows_path_identity(executable, require_directory=False) != launcher.path_identity:
+            raise ValueError(f"Isolated launcher identity changed {phase}")
+        expected_sha256 = launcher.executable_sha256
+    else:
+        expected_sha256 = profile.payload.launcher_executable_sha256
+    if _file_sha256(executable) != expected_sha256:
+        raise ValueError(f"Isolated launcher executable hash mismatch ({phase})")
 
 
 class WindowsIsolationLaunchError(RuntimeError):
@@ -1918,8 +2160,7 @@ def _install_appcontainer_runtime_access(
     root = Path(root_identity.locator)
     if windows_path_identity(root) != root_identity:
         raise ValueError("Disposable runtime root identity changed before ACL grant")
-    if _file_sha256(executable) != profile.payload.launcher_executable_sha256:
-        raise ValueError("Isolated launcher executable hash changed before ACL grant")
+    _verify_launcher_authority(profile, executable, phase="before ACL grant")
 
     planned = _planned_runtime_acl_entries(root, owned_profile.sid)
     ownership = _WindowsRuntimeAclOwnership(root_identity, owned_profile.sid, ())
@@ -1993,8 +2234,7 @@ def _verified_appcontainer_runtime_access(
         )
     if windows_path_identity(root) != root_identity:
         raise ValueError("Disposable runtime root identity changed after ACL grant")
-    if _file_sha256(executable) != profile.payload.launcher_executable_sha256:
-        raise ValueError("Isolated launcher executable changed after ACL grant")
+    _verify_launcher_authority(profile, executable, phase="after ACL grant")
     return WindowsRuntimeAccessGrantV1.create(
         WindowsRuntimeAccessGrantPayloadV1(
             appcontainer_identity=owned_profile.identity,
@@ -2034,8 +2274,7 @@ def _post_create_appcontainer_runtime_access(
             raise ValueError("Post-create ACL authority does not bind the suspended launch")
         if windows_path_identity(root) != ownership.root:
             raise ValueError("Disposable runtime root identity changed after process creation")
-        if _file_sha256(executable) != profile.payload.launcher_executable_sha256:
-            raise ValueError("Isolated launcher executable changed after process creation")
+        _verify_launcher_authority(profile, executable, phase="after process creation")
         if verify_runtime_bundle(root) != profile.payload.native_bundle_id:
             raise ValueError("Native bundle identity changed after process creation")
 
@@ -2089,8 +2328,7 @@ def _post_create_appcontainer_runtime_access(
             raise ValueError("Native bundle identity changed during post-create ACL gate")
         if windows_path_identity(root) != ownership.root:
             raise ValueError("Disposable runtime root changed during post-create ACL gate")
-        if _file_sha256(executable) != profile.payload.launcher_executable_sha256:
-            raise ValueError("Isolated launcher changed during post-create ACL gate")
+        _verify_launcher_authority(profile, executable, phase="during post-create ACL gate")
         return WindowsRuntimeAccessGrantV2.create(
             WindowsRuntimeAccessGrantPayloadV2(
                 appcontainer_identity=owned_profile.identity,
@@ -2381,8 +2619,7 @@ def launch_windows_isolated(
     writable = tuple(Path(item.locator) for item in profile.payload.writable_roots)
     if not executable.is_file() or not any(executable.is_relative_to(root) for root in read_only):
         raise ValueError("Isolated executable must belong to an exact read-only root")
-    if _file_sha256(executable) != profile.payload.launcher_executable_sha256:
-        raise ValueError("Isolated launcher executable hash mismatch")
+    _verify_launcher_authority(profile, executable, phase="before ACL installation")
     if not cwd.is_dir() or not any(cwd.is_relative_to(root) for root in writable):
         raise ValueError("Isolated cwd must belong to an exact writable root")
 
