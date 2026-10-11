@@ -19,15 +19,18 @@ from devhub.windows_native import (
     WindowsBuildProvenanceV3,
     WindowsBuildProvenanceV4,
     WindowsBuildProvenanceV5,
+    WindowsBuildProvenanceV6,
     WindowsHostProofSummaryV2,
     WindowsHostProofSummaryV3,
     WindowsNativeBinaryV2,
     WindowsNativeCodexBuildPayloadV3,
     WindowsNativeCodexBuildPayloadV4,
     WindowsNativeCodexBuildPayloadV5,
+    WindowsNativeCodexBuildPayloadV6,
     WindowsNativeCodexBuildV3,
     WindowsNativeCodexBuildV4,
     WindowsNativeCodexBuildV5,
+    WindowsNativeCodexBuildV6,
     WindowsPeIdentityV1,
 )
 
@@ -439,7 +442,7 @@ def test_validate_windows_codex_pair_artifact_binds_both_executables(tmp_path: P
         BUNDLE.validate_windows_codex_artifact(tmp_path, 42, 3)
 
 
-def test_validate_windows_codex_pair_accepts_forward_v4_v5_and_preserves_v3(
+def test_validate_windows_codex_pair_accepts_forward_v4_v5_v6_and_preserves_v3(
     tmp_path: Path,
 ) -> None:
     historical = _write_codex_pair_artifact(tmp_path)
@@ -481,6 +484,24 @@ def test_validate_windows_codex_pair_accepts_forward_v4_v5_and_preserves_v3(
 
     assert authority.build_id == "windows-build-006"
     assert authority.windows_native_codex_build_id == forward.windows_native_codex_build_id
+
+    latest_provenance = forward.payload.provenance.model_dump(mode="python")
+    latest_provenance["build_id"] = "windows-build-007"
+    latest = WindowsNativeCodexBuildV6.create(
+        WindowsNativeCodexBuildPayloadV6(
+            provenance=WindowsBuildProvenanceV6.model_validate(latest_provenance),
+            binaries=forward.payload.binaries,
+            process_proof=forward.payload.process_proof,
+        )
+    )
+    (tmp_path / "windows-native-codex-build.json").write_text(
+        latest.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+
+    authority = BUNDLE.validate_windows_codex_artifact(tmp_path, 42, 3)
+
+    assert authority.build_id == "windows-build-007"
+    assert authority.windows_native_codex_build_id == latest.windows_native_codex_build_id
 
 
 @pytest.mark.parametrize(("run_id", "attempt"), [(41, 3), (42, 2)])

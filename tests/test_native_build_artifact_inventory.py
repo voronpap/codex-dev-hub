@@ -16,11 +16,11 @@ from devhub.native_proof import (
     WindowsNativeBuildArtifactJoinV1,
 )
 from devhub.windows_native import (
-    WindowsBuildProvenanceV5,
+    WindowsBuildProvenanceV6,
     WindowsHostProofSummaryV3,
     WindowsNativeBinaryV2,
-    WindowsNativeCodexBuildPayloadV5,
-    WindowsNativeCodexBuildV5,
+    WindowsNativeCodexBuildPayloadV6,
+    WindowsNativeCodexBuildV6,
     WindowsPeIdentityV1,
 )
 
@@ -36,7 +36,7 @@ SPEC.loader.exec_module(INVENTORY)
 
 def _result(root: Path, *, status: str = "FAIL") -> None:
     (root / "windows-build-result.json").write_text(
-        json.dumps({"build_id": "windows-build-006", "status": status}), encoding="utf-8"
+        json.dumps({"build_id": "windows-build-007", "status": status}), encoding="utf-8"
     )
 
 
@@ -44,7 +44,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _pass_artifact(root: Path) -> WindowsNativeCodexBuildV5:
+def _pass_artifact(root: Path) -> WindowsNativeCodexBuildV6:
     binary = root / "binary"
     binary.mkdir()
     codex_path = binary / "codex.exe"
@@ -70,7 +70,7 @@ def _pass_artifact(root: Path) -> WindowsNativeCodexBuildV5:
         size=host_path.stat().st_size,
         pe=pe,
     )
-    provenance = WindowsBuildProvenanceV5(
+    provenance = WindowsBuildProvenanceV6(
         workflow_run_id=1,
         workflow_run_attempt=1,
         implementation_commit="a" * 40,
@@ -125,8 +125,8 @@ def _pass_artifact(root: Path) -> WindowsNativeCodexBuildV5:
         code_mode_host_sha256=host.sha256,
         code_mode_host_eof_receipt_sha256=_sha256(eof_path),
     )
-    receipt = WindowsNativeCodexBuildV5.create(
-        WindowsNativeCodexBuildPayloadV5(
+    receipt = WindowsNativeCodexBuildV6.create(
+        WindowsNativeCodexBuildPayloadV6(
             provenance=provenance,
             binaries=(codex, host),
             process_proof=proof,
@@ -138,7 +138,7 @@ def _pass_artifact(root: Path) -> WindowsNativeCodexBuildV5:
     (root / "windows-build-result.json").write_text(
         json.dumps(
             {
-                "build_id": "windows-build-006",
+                "build_id": "windows-build-007",
                 "status": "PASS",
                 "windows_native_codex_build_id": receipt.windows_native_codex_build_id,
                 "executable_sha256": codex.sha256,
@@ -157,7 +157,7 @@ def test_windows_build_inventory_is_sorted_content_bound_and_self_hashed(tmp_pat
     (tmp_path / "binary").mkdir()
     (tmp_path / "binary/codex.exe").write_bytes(b"codex")
 
-    receipt = INVENTORY.seal_windows(tmp_path, "windows-build-006")
+    receipt = INVENTORY.seal_windows(tmp_path, "windows-build-007")
 
     assert [item.relative_path for item in receipt.payload.files] == [
         "assets/z.json",
@@ -181,7 +181,7 @@ def test_windows_build_inventory_is_sorted_content_bound_and_self_hashed(tmp_pat
 def test_windows_pass_inventory_exactly_joins_pair_proof_and_result(tmp_path: Path) -> None:
     pair = _pass_artifact(tmp_path)
 
-    receipt = INVENTORY.seal_windows(tmp_path, "windows-build-006")
+    receipt = INVENTORY.seal_windows(tmp_path, "windows-build-007")
 
     assert receipt.payload.status == "PASS"
     assert receipt.payload.windows_pair is not None
@@ -202,7 +202,7 @@ def test_windows_pass_inventory_rejects_binary_substitution(tmp_path: Path) -> N
     (tmp_path / "binary/codex.exe").write_bytes(b"substituted")
 
     with pytest.raises(ValueError, match="exact binary pair"):
-        INVENTORY.seal_windows(tmp_path, "windows-build-006")
+        INVENTORY.seal_windows(tmp_path, "windows-build-007")
 
 
 def test_linux_inventory_rejects_windows_pair_authority() -> None:
@@ -236,7 +236,7 @@ def test_windows_build_inventory_rejects_unknown_root_entry(tmp_path: Path) -> N
     (tmp_path / "unexpected.txt").write_bytes(b"not allowlisted")
 
     with pytest.raises(ValueError, match="unknown root file"):
-        INVENTORY.seal_windows(tmp_path, "windows-build-006")
+        INVENTORY.seal_windows(tmp_path, "windows-build-007")
 
 
 def test_windows_build_inventory_rejects_linked_entry(tmp_path: Path) -> None:
@@ -251,7 +251,7 @@ def test_windows_build_inventory_rejects_linked_entry(tmp_path: Path) -> None:
         pytest.skip("current host cannot create test symlinks")
 
     with pytest.raises(ValueError, match="plain regular files"):
-        INVENTORY.seal_windows(tmp_path, "windows-build-006")
+        INVENTORY.seal_windows(tmp_path, "windows-build-007")
 
 
 def test_windows_build_inventory_rejects_linked_root(tmp_path: Path) -> None:
@@ -265,15 +265,15 @@ def test_windows_build_inventory_rejects_linked_root(tmp_path: Path) -> None:
         pytest.skip("current host cannot create test symlinks")
 
     with pytest.raises(ValueError, match="plain directory"):
-        INVENTORY.seal_windows(link, "windows-build-006")
+        INVENTORY.seal_windows(link, "windows-build-007")
 
 
 def test_windows_build_inventory_refuses_overwrite(tmp_path: Path) -> None:
     _result(tmp_path)
-    INVENTORY.seal_windows(tmp_path, "windows-build-006")
+    INVENTORY.seal_windows(tmp_path, "windows-build-007")
 
     with pytest.raises(FileExistsError):
-        INVENTORY.seal_windows(tmp_path, "windows-build-006")
+        INVENTORY.seal_windows(tmp_path, "windows-build-007")
 
 
 def test_windows_build_inventory_refuses_preexisting_link_destination(tmp_path: Path) -> None:
@@ -287,7 +287,7 @@ def test_windows_build_inventory_refuses_preexisting_link_destination(tmp_path: 
         pytest.skip("current host cannot create test symlinks")
 
     with pytest.raises(FileExistsError):
-        INVENTORY.seal_windows(tmp_path, "windows-build-006")
+        INVENTORY.seal_windows(tmp_path, "windows-build-007")
     assert outside.read_bytes() == b"do not replace"
 
 
@@ -301,7 +301,7 @@ def test_windows_build_inventory_atomic_failure_never_publishes_destination(
 
     monkeypatch.setattr("devhub.experiment_launch.os.replace", fail_replace)
     with pytest.raises(OSError, match="interrupted publish"):
-        INVENTORY.seal_windows(tmp_path, "windows-build-006")
+        INVENTORY.seal_windows(tmp_path, "windows-build-007")
     assert not (tmp_path / INVENTORY.INVENTORY_NAME).exists()
     assert (tmp_path / f"{INVENTORY.INVENTORY_NAME}.tmp").is_file()
 
@@ -311,7 +311,7 @@ def test_windows_failure_inventory_keeps_binary_classification_separate(tmp_path
     (tmp_path / "binary").mkdir()
     (tmp_path / "binary/codex.exe").write_bytes(b"failed proof binary")
 
-    receipt = INVENTORY.seal_windows(tmp_path, "windows-build-006")
+    receipt = INVENTORY.seal_windows(tmp_path, "windows-build-007")
 
     assert receipt.payload.status == "FAIL"
     assert tuple(item.kind for item in receipt.payload.files) == ("binary", "evidence")
@@ -342,7 +342,7 @@ def test_windows_evidence_projection_contains_every_hidden_inventory_member(
     lock = root / "process-proof/arm-a/codex home/tmp/arg0/session/.lock"
     lock.parent.mkdir(parents=True)
     lock.write_bytes(b"locked")
-    inventory = INVENTORY.seal_windows(root, "windows-build-006")
+    inventory = INVENTORY.seal_windows(root, "windows-build-007")
 
     projection = tmp_path / "projection"
     members = INVENTORY.project_windows_evidence(root, projection, inventory)
@@ -364,7 +364,7 @@ def test_windows_evidence_projection_rejects_missing_hidden_member(tmp_path: Pat
     hidden = root / "process-proof/default/codex home/.tmp/plugins.sync.lock"
     hidden.parent.mkdir(parents=True)
     hidden.write_bytes(b"hidden evidence")
-    inventory = INVENTORY.seal_windows(root, "windows-build-006")
+    inventory = INVENTORY.seal_windows(root, "windows-build-007")
     projection = tmp_path / "projection"
     INVENTORY.project_windows_evidence(root, projection, inventory)
     (projection / hidden.relative_to(root)).unlink()
@@ -382,7 +382,7 @@ def test_windows_evidence_projection_rejects_overlap_without_source_mutation(
     evidence = root / "process-proof/default/receipt.json"
     evidence.parent.mkdir(parents=True)
     evidence.write_bytes(b"sealed")
-    inventory = INVENTORY.seal_windows(root, "windows-build-006")
+    inventory = INVENTORY.seal_windows(root, "windows-build-007")
     before = INVENTORY.inventory_windows(root)
     destination = root / "projection"
 
@@ -397,7 +397,7 @@ def test_windows_evidence_projection_rejects_linked_parent(tmp_path: Path) -> No
     root = tmp_path / "sealed"
     root.mkdir()
     _result(root)
-    inventory = INVENTORY.seal_windows(root, "windows-build-006")
+    inventory = INVENTORY.seal_windows(root, "windows-build-007")
     real_parent = tmp_path / "real-parent"
     real_parent.mkdir()
     linked_parent = tmp_path / "linked-parent"
@@ -421,7 +421,7 @@ def test_windows_evidence_projection_failure_leaves_no_published_tree(
     root = tmp_path / "sealed"
     root.mkdir()
     _result(root)
-    inventory = INVENTORY.seal_windows(root, "windows-build-006")
+    inventory = INVENTORY.seal_windows(root, "windows-build-007")
     destination = tmp_path / "projection"
     original_verify = INVENTORY.verify_windows_evidence_projection
 
@@ -468,7 +468,7 @@ def test_windows_evidence_projection_reports_cleanup_failure(
     root = tmp_path / "sealed"
     root.mkdir()
     _result(root)
-    inventory = INVENTORY.seal_windows(root, "windows-build-006")
+    inventory = INVENTORY.seal_windows(root, "windows-build-007")
     destination = tmp_path / "projection"
     monkeypatch.setattr(
         INVENTORY.shutil,

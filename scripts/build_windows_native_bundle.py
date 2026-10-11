@@ -59,6 +59,7 @@ from devhub.windows_native import (
     WindowsNativeCodexBuildV3,
     WindowsNativeCodexBuildV4,
     WindowsNativeCodexBuildV5,
+    WindowsNativeCodexBuildV6,
 )
 
 PYTHON_ARCHIVE = "python-3.12.10-embed-amd64.zip"
@@ -652,17 +653,21 @@ def validate_windows_codex_pair_artifact(
         | WindowsNativeCodexBuildV3
         | WindowsNativeCodexBuildV4
         | WindowsNativeCodexBuildV5
+        | WindowsNativeCodexBuildV6
     )
     try:
-        receipt = WindowsNativeCodexBuildV5.model_validate_json(raw_receipt)
+        receipt = WindowsNativeCodexBuildV6.model_validate_json(raw_receipt)
     except ValueError:
         try:
-            receipt = WindowsNativeCodexBuildV4.model_validate_json(raw_receipt)
+            receipt = WindowsNativeCodexBuildV5.model_validate_json(raw_receipt)
         except ValueError:
             try:
-                receipt = WindowsNativeCodexBuildV3.model_validate_json(raw_receipt)
+                receipt = WindowsNativeCodexBuildV4.model_validate_json(raw_receipt)
             except ValueError:
-                receipt = WindowsNativeCodexBuildV2.model_validate_json(raw_receipt)
+                try:
+                    receipt = WindowsNativeCodexBuildV3.model_validate_json(raw_receipt)
+                except ValueError:
+                    receipt = WindowsNativeCodexBuildV2.model_validate_json(raw_receipt)
     payload = receipt.payload
     provenance = payload.provenance
     if (

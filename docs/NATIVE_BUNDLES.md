@@ -333,6 +333,18 @@ fallback.
    proof must use the exact colocated pair without a missing-host diagnostic; the
    host must also exit cleanly on stdio EOF. No inference or MCP tool execution
    occurs in this slice.
+   Run `38148646088` at commit
+   `3b70f932480b017c2a21c1a30c65143ae5d5ff0c` completed `windows-build-006`
+   and retained its complete exact pair, proof and inventory. That authority is
+   valid for its implementation commit, but the bundle verifier correctly rejects
+   replaying it into a bundle built from a later implementation commit. Forward-only
+   `windows-build-007` preserves the exact build-006 binary/proof/security contract
+   while producing a fresh pair bound to the current merged implementation commit;
+   historical build-002 through build-006 receipts remain strict and parseable.
+   Build-007 is reserved for one explicit `workflow_dispatch` on `refs/heads/main`
+   after the registration change merges, so a PR-head compilation cannot become
+   stale solely because the normal merge commit changes the implementation identity.
+   Ordinary PR validation remains in Offline Core and does not compile the pair.
 2. **Self-contained runtime directory.** Freeze one reviewed Windows CPython and
    non-editable DevFabric wheel environment, verify distribution metadata/RECORD,
    dependency lock, module origin and entrypoint, and bundle the accepted
@@ -374,8 +386,8 @@ fallback.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PENDING — `windows-build-005` compiled and proved the pair but retained an incomplete evidence projection; reviewed `windows-build-006` correction pending CI | PENDING — native profile/build required; OCI binary does not qualify it |
-| Same-binary host authority | PENDING reviewed `windows-build-006` Default/A/B, security and complete artifact proof | PENDING; historical OCI proof is profile-limited |
+| Exact native Codex | PARTIAL — accepted `windows-build-006` pair is bound to its historical implementation commit; forward-only `windows-build-007` is required for the current merged bundle | PENDING — native profile/build required; OCI binary does not qualify it |
+| Same-binary host authority | PARTIAL — `windows-build-006` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-007` pending | PENDING; historical OCI proof is profile-limited |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
