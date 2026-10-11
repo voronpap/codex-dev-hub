@@ -1,4 +1,4 @@
-"""Build and qualify one pinned patched native Windows Codex executable.
+"""Build and qualify the pinned patched native Windows Codex executable pair.
 
 This is a pre-sampling host-visibility proof. It never sends a model request,
 invokes an MCP tool, contacts a provider, or qualifies the Windows executor sandbox.
@@ -15,6 +15,7 @@ import os
 import platform
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -28,12 +29,39 @@ import build_stage3g_build009 as retained
 from derive_stage3g_production_lock import PRODUCTION_HOST_LOCK_SHA256
 from stage3g_schema_hash import read_schema_identity
 
-BUILD_ID = "windows-build-001"
+from devhub.native_bundle import git_blob_sha256
+from devhub.windows_native import (
+    WindowsBuildProvenanceV5,
+    WindowsHostProofSummaryV3,
+    WindowsNativeBinaryV2,
+    WindowsNativeCodexBuildPayloadV5,
+    WindowsNativeCodexBuildV5,
+    WindowsPeIdentityV1,
+)
+
+BUILD_ID = "windows-build-006"
 TARGET = "x86_64-pc-windows-msvc"
+V8_RELEASE_TAG = "rusty-v8-v150.4.0"
+V8_RELEASE_BASE = f"https://github.com/openai/codex/releases/download/{V8_RELEASE_TAG}"
+V8_ARCHIVE_NAME = "rusty_v8_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.lib.gz"
+V8_ARCHIVE_SHA256 = "732ec5da4243aa166799780c8519a5eea6f32f6e47657a323342794dc3c239d6"
+V8_BINDING_NAME = "src_binding_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.rs"
+V8_BINDING_SHA256 = "dabf78ba1faac127660db9862b1d0354175c71b8db2d4fcb5bacbd9c93576b16"
+V8_CHECKSUM_NAME = "rusty_v8_ptrcomp_sandbox_release_x86_64-pc-windows-msvc.sha256"
+V8_CHECKSUM_SHA256 = "a4d6221dddb4b5724b23411eaac47caf6095489fbf9d126f65b33cef96a0a8ef"
+CODEX_MODULE_BAZEL_SHA256 = "1a6c8685d241a5390ff94432581e842c2950cbe5262b47b27d8db467cebec4c2"
 SCHEMA_ENV = "DEVHUB_BUILD009_SCHEMA"
 MCP_PID_ENV = "DEVHUB_BUILD009_MCP_PID"
 DELEGATE = retained.DELEGATE
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
+CODE_MODE_FAILURE_TEXT = (
+    "host executable was not found",
+    "code mode is unavailable",
+    "failed to spawn code-mode host",
+    "failed to read code-mode host hello",
+    "failed to write code-mode host hello",
+    "code-mode host protocol",
+)
 WINDOWS_RUNNER_ASSETS = frozenset(
     {
         "build_stage3g_build009.py",
@@ -66,6 +94,136 @@ def canonical_sha256(value: object) -> str:
     return sha256_bytes(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     )
+
+
+def _download_exact(url: str, destination: Path, expected_sha256: str, limit: int) -> int:
+    """Download one immutable release asset with a hard byte ceiling."""
+
+    hasher = hashlib.sha256()
+    observed = 0
+    try:
+        with urllib.request.urlopen(url, timeout=120) as response, destination.open("xb") as stream:
+            content_length = response.headers.get("Content-Length")
+            if content_length is not None and int(content_length) > limit:
+                raise ValueError("V8 release asset exceeds its reviewed byte limit")
+            while block := response.read(min(1024 * 1024, limit - observed + 1)):
+                observed += len(block)
+                if observed > limit:
+                    raise ValueError("V8 release asset exceeds its reviewed byte limit")
+                hasher.update(block)
+                stream.write(block)
+        if hasher.hexdigest() != expected_sha256:
+            raise ValueError("V8 release asset SHA-256 mismatch")
+        return observed
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+
+
+def _verify_pinned_v8_authority(root: Path) -> str:
+    module = root.parent / "MODULE.bazel"
+    raw = module.read_bytes()
+    if sha256_bytes(raw) != CODEX_MODULE_BAZEL_SHA256:
+        raise ValueError("pinned Codex MODULE.bazel identity changed")
+    text = raw.decode("utf-8", errors="strict")
+    required = (
+        'crate = "v8"',
+        '"x86_64-pc-windows-msvc": ["v8_enable_sandbox"]',
+        'name = "v8_crate_150_4_0"',
+        'urls = ["https://static.crates.io/crates/v8/v8-150.4.0.crate"]',
+    )
+    if any(item not in text for item in required):
+        raise ValueError("pinned Codex V8 sandbox authority changed")
+    return CODEX_MODULE_BAZEL_SHA256
+
+
+def _v8_release_environment(root: Path, output: Path) -> tuple[dict[str, str], dict[str, object]]:
+    """Bind exact OpenAI sandbox archive/binding assets before Cargo starts."""
+
+    module_sha256 = _verify_pinned_v8_authority(root)
+    asset_dir = output / "v8-release"
+    asset_dir.mkdir()
+    authority = (
+        (V8_CHECKSUM_NAME, V8_CHECKSUM_SHA256, 4096),
+        (V8_ARCHIVE_NAME, V8_ARCHIVE_SHA256, 64 * 1024 * 1024),
+        (V8_BINDING_NAME, V8_BINDING_SHA256, 1024 * 1024),
+    )
+    try:
+        sizes = {
+            name: _download_exact(f"{V8_RELEASE_BASE}/{name}", asset_dir / name, sha256, limit)
+            for name, sha256, limit in authority
+        }
+        checksum_lines = (asset_dir / V8_CHECKSUM_NAME).read_text(encoding="ascii").splitlines()
+        if checksum_lines != [
+            f"{V8_ARCHIVE_SHA256}  {V8_ARCHIVE_NAME}",
+            f"{V8_BINDING_SHA256}  {V8_BINDING_NAME}",
+        ]:
+            raise ValueError("official V8 checksum manifest content mismatch")
+    except Exception:
+        shutil.rmtree(asset_dir)
+        raise
+    archive = (asset_dir / V8_ARCHIVE_NAME).resolve(strict=True)
+    binding = (asset_dir / V8_BINDING_NAME).resolve(strict=True)
+    environment = {
+        "RUSTY_V8_ARCHIVE": str(archive),
+        "RUSTY_V8_ARCHIVE_SHA256": V8_ARCHIVE_SHA256,
+        "RUSTY_V8_SRC_BINDING_PATH": str(binding),
+    }
+    observed: dict[str, object] = {
+        "release_tag": V8_RELEASE_TAG,
+        "module_bazel_sha256": module_sha256,
+        "sandbox_feature_enabled": True,
+        "archive_url": f"{V8_RELEASE_BASE}/{V8_ARCHIVE_NAME}",
+        "archive_sha256": V8_ARCHIVE_SHA256,
+        "binding_url": f"{V8_RELEASE_BASE}/{V8_BINDING_NAME}",
+        "binding_sha256": V8_BINDING_SHA256,
+        "checksum_url": f"{V8_RELEASE_BASE}/{V8_CHECKSUM_NAME}",
+        "checksum_sha256": V8_CHECKSUM_SHA256,
+        "sizes": sizes,
+    }
+    return environment, observed
+
+
+def _rehash_v8_assets(output: Path) -> dict[str, str]:
+    asset_dir = output / "v8-release"
+    observed = {
+        "archive_sha256": sha256_file(asset_dir / V8_ARCHIVE_NAME),
+        "binding_sha256": sha256_file(asset_dir / V8_BINDING_NAME),
+        "checksum_sha256": sha256_file(asset_dir / V8_CHECKSUM_NAME),
+    }
+    expected = {
+        "archive_sha256": V8_ARCHIVE_SHA256,
+        "binding_sha256": V8_BINDING_SHA256,
+        "checksum_sha256": V8_CHECKSUM_SHA256,
+    }
+    if observed != expected:
+        raise ValueError("V8 release asset changed during build")
+    return observed
+
+
+def _verify_post_build_v8_assets(receipt: dict[str, object], output: Path) -> dict[str, str]:
+    receipt["phase"] = "v8_release_post_build"
+    write_build_state(output, receipt)
+    observed = _rehash_v8_assets(output)
+    receipt["v8_release_post_build"] = observed
+    write_build_state(output, receipt)
+    return observed
+
+
+def committed_provenance_hashes(repo: Path, commit: str) -> dict[str, str]:
+    """Hash committed authority bytes without worktree line-ending filters."""
+
+    return {
+        "build_script_sha256": git_blob_sha256(
+            repo, commit, "scripts/build_windows_native_codex.py"
+        ),
+        "shared_proof_script_sha256": git_blob_sha256(
+            repo, commit, "scripts/build_stage3g_build009.py"
+        ),
+        "workflow_sha256": git_blob_sha256(
+            repo, commit, ".github/workflows/windows-native-qualification.yml"
+        ),
+    }
 
 
 def write_json(path: Path, value: object) -> None:
@@ -174,6 +332,13 @@ def write_build_state(output: Path, receipt: dict[str, object]) -> None:
 def record_build_failure(
     output: Path, receipt: dict[str, object], phase: str, error: BaseException
 ) -> None:
+    sealed_phase = receipt.get("phase")
+    if phase in {"cargo_start", "cargo_compile"} and sealed_phase in {
+        "cargo_start",
+        "cargo_compile",
+        "v8_release_post_build",
+    }:
+        phase = str(sealed_phase)
     receipt["status"] = "FAIL"
     receipt["phase"] = phase
     receipt["failure"] = {
@@ -182,6 +347,53 @@ def record_build_failure(
         "message": str(error),
     }
     write_build_state(output, receipt)
+
+
+def _run_cargo_build(
+    command: list[str],
+    *,
+    root: Path,
+    output: Path,
+    receipt: dict[str, object],
+    build_environment: dict[str, str],
+) -> int:
+    """Start Cargo before recording that a meaningful compilation began."""
+
+    receipt["build_command"] = command
+    receipt["phase"] = "cargo_start"
+    write_build_state(output, receipt)
+    started = time.monotonic()
+    with (
+        (output / "build.stdout").open("xb") as stdout,
+        (output / "build.stderr").open("xb") as stderr,
+    ):
+        child_environment = os.environ.copy()
+        child_environment.pop("V8_FROM_SOURCE", None)
+        child_environment.pop("RUSTY_V8_MIRROR", None)
+        child_environment.update(build_environment)
+        child_environment.update(
+            {
+                "CARGO_BUILD_JOBS": "2",
+                "CARGO_INCREMENTAL": "0",
+            }
+        )
+        build = subprocess.Popen(
+            command,
+            cwd=root,
+            env=child_environment,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        receipt["rust_compilation_started"] = True
+        receipt["phase"] = "cargo_compile"
+        receipt["status"] = "COMPILING"
+        write_build_state(output, receipt)
+        exit_code = build.wait()
+    receipt["build_duration_seconds"] = time.monotonic() - started
+    receipt["build_exit_code"] = exit_code
+    receipt["compilation"] = "PASS" if exit_code == 0 else "FAIL"
+    write_build_state(output, receipt)
+    return exit_code
 
 
 def _host_exec(
@@ -544,22 +756,150 @@ def process_proof(
     return result
 
 
+def inspect_pe(role: str, binary: Path) -> WindowsNativeBinaryV2:
+    raw = binary.read_bytes()
+    if len(raw) < 64 or raw[:2] != b"MZ":
+        raise ValueError(f"{role} is not a PE executable")
+    pe_offset = struct.unpack_from("<I", raw, 0x3C)[0]
+    optional_offset = pe_offset + 24
+    if pe_offset + 24 > len(raw) or raw[pe_offset : pe_offset + 4] != b"PE\0\0":
+        raise ValueError(f"{role} has an invalid PE signature")
+    machine = struct.unpack_from("<H", raw, pe_offset + 4)[0]
+    optional_size = struct.unpack_from("<H", raw, pe_offset + 20)[0]
+    if optional_size < 72 or optional_offset + optional_size > len(raw):
+        raise ValueError(f"{role} has an invalid PE optional header")
+    magic = struct.unpack_from("<H", raw, optional_offset)[0]
+    subsystem = struct.unpack_from("<H", raw, optional_offset + 68)[0]
+    dll_characteristics = struct.unpack_from("<H", raw, optional_offset + 70)[0]
+    if machine != 0x8664 or magic != 0x20B or subsystem != 3:
+        raise ValueError(f"{role} is not an x86_64 PE32+ console executable")
+    return WindowsNativeBinaryV2(
+        role=role,
+        relative_path=f"binary/{role}.exe",
+        sha256=sha256_file(binary),
+        size=len(raw),
+        pe=WindowsPeIdentityV1(dll_characteristics=dll_characteristics),
+    )
+
+
+def _tool_path(tool: str) -> Path:
+    raw = subprocess.check_output(
+        ["rustup", "which", "--toolchain", "1.95.0", tool], text=True
+    ).strip()
+    return Path(raw).resolve(strict=True)
+
+
+def _host_eof_proof(binary: Path, output: Path) -> dict[str, object]:
+    binary_sha256 = sha256_file(binary)
+    process = subprocess.Popen(
+        [str(binary), "--listen", "stdio"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+    )
+    timed_out = False
+    try:
+        stdout, stderr = process.communicate(b"", timeout=15)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+        )
+        stdout, stderr = process.communicate(timeout=10)
+    result = {
+        "schema_version": 1,
+        "binary_relative_path": "binary/codex-code-mode-host.exe",
+        "binary_sha256": binary_sha256,
+        "exit_code": None if timed_out else process.returncode,
+        "timed_out": timed_out,
+        "request_count": 0,
+        "stdin_bytes": 0,
+        "stdin_closed": True,
+        "stdout_sha256": sha256_bytes(stdout),
+        "stderr_sha256": sha256_bytes(stderr),
+        "process_exited": not _pid_is_active(process.pid),
+    }
+    write_json(output, result)
+    if timed_out or process.returncode != 0 or not result["process_exited"]:
+        raise ValueError("code-mode host did not terminate cleanly on stdio EOF")
+    return result
+
+
+def _proof_summary(
+    proof: dict[str, object],
+    proof_sha256: str,
+    eof: dict[str, object],
+    eof_receipt_sha256: str,
+    host_binary: WindowsNativeBinaryV2,
+) -> WindowsHostProofSummaryV3:
+    arms = proof["arms"]
+    default = proof["default"]
+    same = proof["same_binary"]
+    negatives = proof["negatives"]
+    assert isinstance(arms, dict) and isinstance(default, dict)
+    assert isinstance(same, dict) and isinstance(negatives, dict)
+    serialized = json.dumps(proof, sort_keys=True).lower()
+    observed_failures = tuple(text for text in CODE_MODE_FAILURE_TEXT if text in serialized)
+    if observed_failures:
+        raise ValueError(
+            "pre-sampling proof observed a code-mode host failure: " + ", ".join(observed_failures)
+        )
+    if (
+        host_binary.role != "codex-code-mode-host"
+        or host_binary.relative_path != "binary/codex-code-mode-host.exe"
+        or eof.get("binary_sha256") != host_binary.sha256
+        or eof.get("binary_relative_path") != host_binary.relative_path
+    ):
+        raise ValueError("EOF proof does not bind the exact sibling code-mode host")
+    return WindowsHostProofSummaryV3(
+        process_proof_sha256=proof_sha256,
+        code_mode_host_sha256=host_binary.sha256,
+        code_mode_host_eof_receipt_sha256=eof_receipt_sha256,
+        code_mode_host_eof_exit_code=eof["exit_code"],
+        code_mode_host_eof_timed_out=eof["timed_out"],
+        default_visible_tools=tuple(default["observer"]["visible_model_tools"]),
+        arm_a_visible_tools=tuple(arms["A"]["observer"]["visible_model_tools"]),
+        arm_b_visible_tools=tuple(arms["B"]["observer"]["visible_model_tools"]),
+        b_minus_a=tuple(same["b_minus_a"]),
+        a_minus_b=tuple(same["a_minus_b"]),
+        default_allowed_tools_ceiling_present=default["observer"]["allowed_tools_ceiling_present"],
+        arm_a_allowed_tools_ceiling_present=arms["A"]["observer"]["allowed_tools_ceiling_present"],
+        arm_b_allowed_tools_ceiling_present=arms["B"]["observer"]["allowed_tools_ceiling_present"],
+        approved_delegate_policy_arm_a=arms["A"]["observer"]["approved_delegate_policy_present"],
+        approved_delegate_policy_arm_b=arms["B"]["observer"]["approved_delegate_policy_present"],
+        code_mode_host_stdio_eof_passed=bool(eof["process_exited"]),
+        mcp_child_cleanup_passed=bool(arms["B"].get("mcp_child_exited")),
+        security_negatives_passed=all(bool(item.get("passed")) for item in negatives.values()),
+        model_requests=proof["model_requests"],
+        provider_sends=proof["provider_sends"],
+        mcp_tool_executions=proof["mcp_tool_executions"],
+        real_task_executions=proof["real_task_executions"],
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--build-id", choices=(BUILD_ID,), default=BUILD_ID)
     parser.add_argument("--expected-implementation-commit", required=True)
+    parser.add_argument("--workflow-run-id", required=True, type=int)
+    parser.add_argument("--workflow-run-attempt", required=True, type=int)
     args = parser.parse_args()
     if os.name != "nt" or platform.machine().upper() not in {"AMD64", "X86_64"}:
-        parser.error("windows-build-001 requires native Windows x64")
+        parser.error(f"{BUILD_ID} requires native Windows x64")
+    if args.workflow_run_id < 1 or args.workflow_run_attempt < 1:
+        parser.error("workflow run ID and attempt must be positive")
     repo = Path(__file__).resolve().parents[1]
     if args.workspace.exists() or args.output.exists():
         parser.error("workspace and output must not already exist")
     args.workspace.mkdir(parents=True)
     args.output.mkdir(parents=True)
     receipt: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "build_id": BUILD_ID,
         "expected_implementation_commit": args.expected_implementation_commit,
         "devfabric_implementation_commit": None,
@@ -643,7 +983,8 @@ def main() -> None:
             build_id=BUILD_ID,
         )
         phase = "toolchain_identity"
-        receipt["toolchain"] = retained._pinned_toolchain_identity(root, expected_host=TARGET)
+        toolchain = retained._pinned_toolchain_identity(root, expected_host=TARGET)
+        receipt["toolchain"] = toolchain
         phase = "locked_resolution"
         receipt["locked_resolution"] = retained._verify_locked_resolution(
             root, args.output, PRODUCTION_HOST_LOCK_SHA256, target=TARGET
@@ -669,6 +1010,9 @@ def main() -> None:
         if fmt.returncode != 0:
             raise ValueError("pinned patched source failed cargo fmt --check")
         receipt["formatting"] = "PASS"
+        phase = "v8_release_authority"
+        build_environment, v8_release = _v8_release_environment(root, args.output)
+        receipt["v8_release"] = v8_release
         verify_runner_assets(assets, asset_hashes)
         receipt["phase"] = "ready_for_cargo"
         receipt["status"] = "READY_FOR_COMPILE"
@@ -681,54 +1025,49 @@ def main() -> None:
             "build",
             "--release",
             "--locked",
+            "--target",
+            TARGET,
             "-p",
             "codex-cli",
             "--bin",
             "codex",
+            "-p",
+            "codex-code-mode-host",
+            "--bin",
+            "codex-code-mode-host",
         ]
-        receipt["build_command"] = command
         phase = "cargo_start"
-        started = time.monotonic()
-        with (
-            (args.output / "build.stdout").open("xb") as stdout,
-            (args.output / "build.stderr").open("xb") as stderr,
-        ):
-            build = subprocess.Popen(
-                command,
-                cwd=root,
-                env={**os.environ, "CARGO_BUILD_JOBS": "2", "CARGO_INCREMENTAL": "0"},
-                stdout=stdout,
-                stderr=stderr,
-            )
-            receipt["rust_compilation_started"] = True
-            receipt["phase"] = "cargo_compile"
-            receipt["status"] = "COMPILING"
-            write_build_state(args.output, receipt)
-            phase = "cargo_compile"
-            build_exit_code = build.wait()
-        receipt["build_duration_seconds"] = time.monotonic() - started
-        receipt["build_exit_code"] = build_exit_code
-        receipt["compilation"] = "PASS" if build_exit_code == 0 else "FAIL"
-        write_build_state(args.output, receipt)
+        build_exit_code = _run_cargo_build(
+            command,
+            root=root,
+            output=args.output,
+            receipt=receipt,
+            build_environment=build_environment,
+        )
+        phase = "cargo_compile"
         if build_exit_code != 0:
-            raise ValueError("windows-build-001 Rust compilation failed")
+            raise ValueError(f"{BUILD_ID} Rust compilation failed")
+        v8_release_post_build = _verify_post_build_v8_assets(receipt, args.output)
 
         phase = "binary_identity"
         binary_dir = args.output / "binary"
         binary_dir.mkdir()
+        target_dir = root / "target" / TARGET / "release"
+        for name in ("codex.exe", "codex-code-mode-host.exe"):
+            shutil.copy2(target_dir / name, binary_dir / name)
         binary = binary_dir / "codex.exe"
-        shutil.copy2(root / "target" / "release" / "codex.exe", binary)
+        host_binary_path = binary_dir / "codex-code-mode-host.exe"
         version = subprocess.run([binary, "--version"], capture_output=True, text=True, check=False)
         if version.returncode != 0 or "codex-cli 0.155.0-alpha.9.2" not in version.stdout:
             raise ValueError("native Windows Codex version identity mismatch")
-        binary_sha256 = sha256_file(binary)
-        receipt["executable"] = {
-            "relative_path": "binary/codex.exe",
-            "sha256": binary_sha256,
-            "bytes": binary.stat().st_size,
-            "version_stdout": version.stdout.strip(),
-            "version_stderr": version.stderr.strip(),
-        }
+        binaries = (
+            inspect_pe("codex", binary),
+            inspect_pe("codex-code-mode-host", host_binary_path),
+        )
+        binary_sha256 = binaries[0].sha256
+        receipt["executables"] = [item.model_dump(mode="json") for item in binaries]
+        receipt["version_stdout"] = version.stdout.strip()
+        receipt["version_stderr"] = version.stderr.strip()
         receipt["windows_environment"] = {
             "platform": platform.platform(),
             "win32_ver": list(platform.win32_ver()),
@@ -737,6 +1076,9 @@ def main() -> None:
             "runner_image_version": os.environ.get("ImageVersion"),
         }
 
+        phase = "code_mode_host_eof"
+        eof_path = args.output / "code-mode-host-eof.json"
+        eof = _host_eof_proof(host_binary_path, eof_path)
         phase = "process_proof"
         proof = process_proof(
             binary,
@@ -749,10 +1091,68 @@ def main() -> None:
         )
         if proof["final_binary_sha256"] != binary_sha256:
             raise ValueError("final proof binary identity does not match retained executable")
+        for item in binaries:
+            if sha256_file(args.output / item.relative_path) != item.sha256:
+                raise ValueError("native Windows binary changed during process proof")
+        proof_path = args.output / "windows-process-proof.json"
+        write_json(proof_path, proof)
+        summary = _proof_summary(
+            proof,
+            sha256_file(proof_path),
+            eof,
+            sha256_file(eof_path),
+            binaries[1],
+        )
         receipt["process_proof"] = proof
+        rustc = _tool_path("rustc")
+        cargo = _tool_path("cargo")
+        provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
+        preparation = receipt["source_preparation"]
+        assert isinstance(preparation, dict)
+        payload = WindowsNativeCodexBuildPayloadV5(
+            provenance=WindowsBuildProvenanceV5(
+                build_id=BUILD_ID,
+                implementation_commit=implementation_commit,
+                workflow_run_id=args.workflow_run_id,
+                workflow_run_attempt=args.workflow_run_attempt,
+                codex_source_commit=retained.SOURCE_COMMIT,
+                source_archive_sha256=retained.SOURCE_ARCHIVE_SHA256,
+                **identities,
+                canonical_schema_sha256=schema_identity.canonical_schema_sha256,
+                raw_schema_file_sha256=schema_identity.raw_file_sha256,
+                host_manifest_sha256=manifest_hash,
+                resolved_mcp_config_sha256=canonical_sha256(config),
+                original_cargo_lock_sha256=preparation["original_cargo_lock_sha256"],
+                derived_cargo_lock_sha256=preparation["proof_cargo_lock_sha256"],
+                rustc_version=toolchain["rustc"],
+                cargo_version=toolchain["cargo"],
+                rustc_sha256=sha256_file(rustc),
+                cargo_sha256=sha256_file(cargo),
+                codex_module_bazel_sha256=CODEX_MODULE_BAZEL_SHA256,
+                v8_archive_url=f"{V8_RELEASE_BASE}/{V8_ARCHIVE_NAME}",
+                v8_archive_sha256=V8_ARCHIVE_SHA256,
+                v8_binding_url=f"{V8_RELEASE_BASE}/{V8_BINDING_NAME}",
+                v8_binding_sha256=V8_BINDING_SHA256,
+                v8_checksum_url=f"{V8_RELEASE_BASE}/{V8_CHECKSUM_NAME}",
+                v8_checksum_sha256=V8_CHECKSUM_SHA256,
+                v8_archive_post_build_sha256=v8_release_post_build["archive_sha256"],
+                v8_binding_post_build_sha256=v8_release_post_build["binding_sha256"],
+                v8_checksum_post_build_sha256=v8_release_post_build["checksum_sha256"],
+                **provenance_hashes,
+            ),
+            binaries=binaries,
+            process_proof=summary,
+        )
+        final = WindowsNativeCodexBuildV5.create(payload)
+        (args.output / "windows-native-codex-build.json").write_text(
+            final.model_dump_json(indent=2) + "\n", encoding="utf-8"
+        )
         receipt["phase"] = "complete"
         receipt["status"] = "PASS"
-        receipt["qualification"] = "WINDOWS_PRODUCTION_HOST_QUALIFIED_PRE_SAMPLING"
+        receipt["qualification"] = "WINDOWS_NATIVE_CODEX_PAIR_AUTHORITY_PRE_SAMPLING"
+        receipt["windows_native_codex_build_id"] = final.windows_native_codex_build_id
+        receipt["executable_sha256"] = binaries[0].sha256
+        receipt["code_mode_host_sha256"] = binaries[1].sha256
         receipt["failure"] = None
         write_build_state(args.output, receipt)
     except Exception as error:
