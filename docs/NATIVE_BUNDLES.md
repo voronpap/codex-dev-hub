@@ -145,6 +145,31 @@ terminal paths remove the disposable directory fail-closed, then reverify the
 source bytes and owner/group/DACL inventory before publishing either success or
 failure evidence.
 
+After creating the fresh owned profile, the launcher grants only that profile's
+exact derived package SID (`S-1-15-2-` plus seven canonical 32-bit decimal
+subauthorities) read/traverse/execute (`0x001200A9`) on every entry in the closed
+disposable runtime inventory. Broad application-package identities and malformed
+or non-package SIDs fail before any ACL write. Directory entries retain
+`OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE`; existing files receive an exact
+non-inheritable ACE. The launcher intentionally grants the closed existing
+inventory entry by entry and does not depend on parent propagation; directory
+inheritance covers only entries created later. The launcher rejects protected descendant DACLs,
+pre-existing entries for that SID, broad application-package SIDs, missing
+entries, duplicate entries and any wider/write-capable mask. It reads every DACL
+back and hashes the canonical ACL inventory before process creation. The V3
+success receipt binds that self-hashed grant, SID, verified entry count,
+disposable root identity, native bundle identity and launcher hash while V1/V2
+remain parse-compatible historical contracts. The authoritative source bundle is
+never ACL-modified. A trusted full bundle verification runs after the recursive
+grant immediately before process creation, followed by root/executable identity
+checks. Installation retains an identity-bound ownership token containing only
+entries successfully modified by that launch. Preflight failures perform no ACL
+write or revocation; partial installation rolls back only that exact token.
+Every failed launch and normal close validates the complete token, revokes only
+its unchanged entries, and then deletes the owned profile. Substitution,
+revocation, or later tree cleanup failure remains terminal non-success and
+retains the profile when deletion would make exact cleanup authority ambiguous.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of

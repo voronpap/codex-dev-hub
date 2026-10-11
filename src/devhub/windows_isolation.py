@@ -15,6 +15,7 @@ import os
 import platform
 import re
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from typing import Annotated, Literal, cast
@@ -33,9 +34,23 @@ WINDOWS_X64 = "x86_64"
 NO_DIRECT_NETWORK = "appcontainer_no_capabilities"
 ISOLATED_REGISTRY = "appcontainer_private_no_registry_capability"
 NO_HANDLE_INHERITANCE = "inherit_handles_false"
+WINDOWS_RUNTIME_ACCESS_MASK = 0x001200A9
+WINDOWS_RUNTIME_ACCESS_INHERITANCE = 0x00000003
 
 _HEX_32 = re.compile(r"^[a-f0-9]{32}$")
 _PROFILE_NAME = re.compile(r"^devfabric_[a-f0-9]{32}$")
+_APPCONTAINER_PACKAGE_SID = re.compile(r"^S-1-15-2-(?:0|[1-9]\d{0,9})(?:-(?:0|[1-9]\d{0,9})){6}$")
+
+
+def validate_appcontainer_package_sid(value: str) -> str:
+    """Require one canonical package SID derived for a concrete AppContainer profile."""
+
+    if _APPCONTAINER_PACKAGE_SID.fullmatch(value) is None:
+        raise ValueError("AppContainer SID must be one exact derived package SID")
+    subauthorities = value.split("-")[4:]
+    if len(subauthorities) != 7 or any(int(item) > 0xFFFFFFFF for item in subauthorities):
+        raise ValueError("AppContainer SID contains an invalid package subauthority")
+    return value
 
 
 def _windows_last_error() -> int:
@@ -195,6 +210,46 @@ class WindowsIsolationProfileV2(ContractV2):
         return self
 
 
+class WindowsRuntimeAccessGrantPayloadV1(Contract):
+    """Exact AppContainer filesystem grant for one disposable runtime tree."""
+
+    appcontainer_identity: Annotated[str, Field(pattern=r"^devfabric_[a-f0-9]{32}$")]
+    appcontainer_sid: str
+    root: NativePathIdentityV1
+    access_mask: Literal[1179817] = 1179817
+    inheritance_flags: Literal[3] = 3
+    access_mode: Literal["grant_access"] = "grant_access"
+    native_bundle_id: Digest
+    launcher_executable_sha256: Digest
+    verified_entry_count: Annotated[int, Field(gt=0)]
+    acl_inventory_sha256: Digest
+    post_grant_bundle_verified: Literal[True] = True
+
+    @field_validator("appcontainer_sid")
+    @classmethod
+    def exact_package_sid(cls, value: str) -> str:
+        return validate_appcontainer_package_sid(value)
+
+
+class WindowsRuntimeAccessGrantV1(Contract):
+    runtime_access_grant_id: Digest
+    payload: WindowsRuntimeAccessGrantPayloadV1
+
+    @classmethod
+    def create(cls, payload: WindowsRuntimeAccessGrantPayloadV1) -> WindowsRuntimeAccessGrantV1:
+        return cls(
+            runtime_access_grant_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsRuntimeAccessGrantV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.runtime_access_grant_id != expected:
+            raise ValueError("Windows runtime access grant hash mismatch")
+        return self
+
+
 def windows_isolation_bootstrap_started_id(profile: WindowsIsolationProfileV2) -> str:
     """Derive the exact marker ID that proves the reviewed child bootstrap started."""
 
@@ -302,6 +357,31 @@ class WindowsIsolationReceiptV2(ContractV2):
 
     @model_validator(mode="after")
     def verified_id(self) -> WindowsIsolationReceiptV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.windows_isolation_receipt_id != expected:
+            raise ValueError("Windows isolation receipt hash mismatch")
+        return self
+
+
+class WindowsIsolationReceiptPayloadV3(WindowsIsolationReceiptPayloadV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    runtime_access_grant: WindowsRuntimeAccessGrantV1
+
+
+class WindowsIsolationReceiptV3(Contract):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    windows_isolation_receipt_id: Digest
+    payload: WindowsIsolationReceiptPayloadV3
+
+    @classmethod
+    def create(cls, payload: WindowsIsolationReceiptPayloadV3) -> WindowsIsolationReceiptV3:
+        return cls(
+            windows_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationReceiptV3:
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.windows_isolation_receipt_id != expected:
             raise ValueError("Windows isolation receipt hash mismatch")
@@ -483,6 +563,76 @@ class WindowsIsolationEvidenceV2(ContractV2):
         return self
 
 
+class WindowsIsolationEvidenceV3(Contract):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    windows_isolation_evidence_id: Digest
+    profile: WindowsIsolationProfileV2
+    sandbox_spec_base64: str
+    sandbox_spec_sha256: Digest
+    receipt: WindowsIsolationReceiptV3
+
+    @classmethod
+    def create(
+        cls,
+        profile: WindowsIsolationProfileV2,
+        sandbox_spec: bytes,
+        receipt: WindowsIsolationReceiptV3,
+    ) -> WindowsIsolationEvidenceV3:
+        encoded = base64.b64encode(sandbox_spec).decode("ascii")
+        sandbox_hash = digest(sandbox_spec)
+        payload: dict[str, JsonValue] = {
+            "schema_version": 3,
+            "profile": profile.model_dump(mode="json"),
+            "sandbox_spec_base64": encoded,
+            "sandbox_spec_sha256": sandbox_hash,
+            "receipt": receipt.model_dump(mode="json"),
+        }
+        return cls(
+            windows_isolation_evidence_id=digest(canonical(payload)),
+            profile=profile,
+            sandbox_spec_base64=encoded,
+            sandbox_spec_sha256=sandbox_hash,
+            receipt=receipt,
+        )
+
+    @model_validator(mode="after")
+    def strict_joins(self) -> WindowsIsolationEvidenceV3:
+        try:
+            spec = base64.b64decode(self.sandbox_spec_base64, validate=True)
+        except ValueError as error:
+            raise ValueError("SandboxSpec is not canonical base64") from error
+        if base64.b64encode(spec).decode("ascii") != self.sandbox_spec_base64:
+            raise ValueError("SandboxSpec is not canonical base64")
+        expected_spec = windows_sandbox_spec(self.profile)
+        if spec != expected_spec or digest(spec) != self.sandbox_spec_sha256:
+            raise ValueError("Retained SandboxSpec does not match the profile")
+        receipt = self.receipt.payload
+        grant = receipt.runtime_access_grant.payload
+        if (
+            receipt.windows_isolation_profile_id != self.profile.windows_isolation_profile_id
+            or receipt.environment_instance_id != self.profile.payload.environment_instance_id
+            or receipt.probe_sha256 != self.profile.payload.probe_sha256
+            or receipt.child_bootstrap_sha256 != self.profile.payload.child_bootstrap_sha256
+            or receipt.bootstrap_started_id != windows_isolation_bootstrap_started_id(self.profile)
+            or receipt.sandbox_spec_sha256 != self.sandbox_spec_sha256
+            or grant.appcontainer_identity != self.profile.payload.appcontainer_identity
+            or grant.root != self.profile.payload.read_only_roots[0]
+            or grant.native_bundle_id != self.profile.payload.native_bundle_id
+            or grant.launcher_executable_sha256 != self.profile.payload.launcher_executable_sha256
+        ):
+            raise ValueError("Windows isolation receipt does not bind the retained profile")
+        payload: dict[str, JsonValue] = {
+            "schema_version": self.schema_version,
+            "profile": self.profile.model_dump(mode="json"),
+            "sandbox_spec_base64": self.sandbox_spec_base64,
+            "sandbox_spec_sha256": self.sandbox_spec_sha256,
+            "receipt": self.receipt.model_dump(mode="json"),
+        }
+        if digest(canonical(payload)) != self.windows_isolation_evidence_id:
+            raise ValueError("Windows isolation evidence hash mismatch")
+        return self
+
+
 WindowsIsolationProfile = WindowsIsolationProfileV1 | WindowsIsolationProfileV2
 
 
@@ -593,10 +743,10 @@ def _reject_reparse_chain(path: Path, *, require_directory: bool = True) -> Path
     return absolute
 
 
-def windows_path_identity(path: Path) -> NativePathIdentityV1:
-    """Bind a directory locator to its Windows volume/file identity."""
+def windows_path_identity(path: Path, *, require_directory: bool = True) -> NativePathIdentityV1:
+    """Bind a path locator to its Windows volume/file identity."""
 
-    absolute = _reject_reparse_chain(path)
+    absolute = _reject_reparse_chain(path, require_directory=require_directory)
 
     class ByHandleFileInformation(ctypes.Structure):
         _fields_ = [
@@ -683,8 +833,11 @@ class WindowsSandboxProcess:
     launch_order: tuple[str, ...]
     appcontainer_sid: str | None = None
     local_app_data: Path | None = None
+    runtime_access_grant: WindowsRuntimeAccessGrantV1 | None = None
+    runtime_acl_ownership: _WindowsRuntimeAclOwnership | None = None
     appcontainer_profile_owned: bool = True
     _profile_deleted: bool = False
+    _runtime_acl_revoked: bool = False
     _terminal_cleanup_errors: tuple[Exception, ...] = ()
 
     def poll_exit_code(self) -> int | None:
@@ -761,6 +914,15 @@ class WindowsSandboxProcess:
                 setattr(self, field, 0)
             elif handle:
                 errors.append(OSError(_windows_last_error(), f"CloseHandle failed for {field}"))
+        if errors:
+            self._terminal_cleanup_errors = tuple(errors)
+            raise ExceptionGroup("Windows sandbox cleanup failed", errors)
+        if self.runtime_acl_ownership is not None and not self._runtime_acl_revoked:
+            try:
+                _revoke_appcontainer_runtime_access(self.runtime_acl_ownership)
+                self._runtime_acl_revoked = True
+            except Exception as error:
+                errors.append(error)
         if errors:
             self._terminal_cleanup_errors = tuple(errors)
             raise ExceptionGroup("Windows sandbox cleanup failed", errors)
@@ -860,6 +1022,576 @@ class OwnedAppContainerProfile:
     local_app_data: Path
 
 
+class _WindowsTrustee(ctypes.Structure):
+    pass
+
+
+_WindowsTrustee._fields_ = [
+    ("multiple_trustee", ctypes.POINTER(_WindowsTrustee)),
+    ("multiple_trustee_operation", ctypes.c_int),
+    ("trustee_form", ctypes.c_int),
+    ("trustee_type", ctypes.c_int),
+    ("name", ctypes.c_void_p),
+]
+
+
+class _WindowsExplicitAccess(ctypes.Structure):
+    _fields_ = [
+        ("access_permissions", ctypes.c_uint32),
+        ("access_mode", ctypes.c_int),
+        ("inheritance", ctypes.c_uint32),
+        ("trustee", _WindowsTrustee),
+    ]
+
+
+def _converted_sid(value: str) -> ctypes.c_void_p:
+    advapi = _windows_dll("advapi32.dll")
+    convert = advapi.ConvertStringSidToSidW
+    convert.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_void_p)]
+    convert.restype = ctypes.c_int
+    sid = ctypes.c_void_p()
+    if not convert(value, ctypes.byref(sid)) or not sid.value:
+        raise WindowsIsolationLaunchError(
+            "appcontainer_runtime_acl", _windows_last_error(), "SID conversion failed"
+        )
+    return sid
+
+
+def _free_local(pointer: ctypes.c_void_p) -> None:
+    if not pointer.value:
+        return
+    kernel = _windows_dll("kernel32.dll")
+    local_free = kernel.LocalFree
+    local_free.argtypes = [ctypes.c_void_p]
+    local_free.restype = ctypes.c_void_p
+    local_free(pointer)
+
+
+@dataclass(frozen=True)
+class _WindowsAclEntry:
+    sid: str
+    access_mask: int
+    access_mode: int
+    inheritance_flags: int
+
+
+@dataclass(frozen=True)
+class _WindowsAclSnapshot:
+    protected: bool
+    entries: tuple[_WindowsAclEntry, ...]
+
+
+def _windows_acl_snapshot(path: Path) -> _WindowsAclSnapshot:
+    """Read one exact Windows DACL without resolving names or broadening trustees."""
+
+    advapi = _windows_dll("advapi32.dll")
+    kernel = _windows_dll("kernel32.dll")
+    get_security = advapi.GetNamedSecurityInfoW
+    get_security.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_int,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    get_security.restype = ctypes.c_uint32
+    get_entries = advapi.GetExplicitEntriesFromAclW
+    get_entries.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.POINTER(_WindowsExplicitAccess)),
+    ]
+    get_entries.restype = ctypes.c_uint32
+    get_control = advapi.GetSecurityDescriptorControl
+    get_control.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint16),
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+    get_control.restype = ctypes.c_int
+    convert_sid = advapi.ConvertSidToStringSidW
+    convert_sid.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    convert_sid.restype = ctypes.c_int
+    local_free = kernel.LocalFree
+    local_free.argtypes = [ctypes.c_void_p]
+    local_free.restype = ctypes.c_void_p
+    dacl = ctypes.c_void_p()
+    descriptor = ctypes.c_void_p()
+    entries = ctypes.POINTER(_WindowsExplicitAccess)()
+    try:
+        result = int(
+            get_security(
+                str(path),
+                1,
+                0x00000004,
+                None,
+                None,
+                ctypes.byref(dacl),
+                None,
+                ctypes.byref(descriptor),
+            )
+        )
+        if result:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", result, "GetNamedSecurityInfoW failed"
+            )
+        if not dacl.value:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", 0, "Disposable runtime has a null DACL"
+            )
+        count = ctypes.c_uint32()
+        result = int(get_entries(dacl, ctypes.byref(count), ctypes.byref(entries)))
+        if result:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", result, "GetExplicitEntriesFromAclW failed"
+            )
+        control = ctypes.c_uint16()
+        revision = ctypes.c_uint32()
+        if not get_control(descriptor, ctypes.byref(control), ctypes.byref(revision)):
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl",
+                _windows_last_error(),
+                "GetSecurityDescriptorControl failed",
+            )
+        observed: list[_WindowsAclEntry] = []
+        for index in range(count.value):
+            entry = entries[index]
+            if entry.trustee.trustee_form != 0 or not entry.trustee.name:
+                raise WindowsIsolationLaunchError(
+                    "appcontainer_runtime_acl",
+                    0,
+                    "Runtime DACL contains a non-SID trustee",
+                )
+            sid_text = ctypes.c_void_p()
+            try:
+                if (
+                    not convert_sid(entry.trustee.name, ctypes.byref(sid_text))
+                    or not sid_text.value
+                ):
+                    raise WindowsIsolationLaunchError(
+                        "appcontainer_runtime_acl",
+                        _windows_last_error(),
+                        "Runtime DACL SID conversion failed",
+                    )
+                observed.append(
+                    _WindowsAclEntry(
+                        sid=ctypes.wstring_at(sid_text.value),
+                        access_mask=int(entry.access_permissions),
+                        access_mode=int(entry.access_mode),
+                        inheritance_flags=int(entry.inheritance),
+                    )
+                )
+            finally:
+                if sid_text.value:
+                    local_free(sid_text)
+        return _WindowsAclSnapshot(
+            protected=bool(control.value & 0x1000),
+            entries=tuple(observed),
+        )
+    finally:
+        if entries:
+            local_free(ctypes.cast(entries, ctypes.c_void_p))
+        if descriptor.value:
+            local_free(descriptor)
+
+
+def _set_windows_sid_acl_entry(
+    root: Path,
+    sid_text: str,
+    access_mask: int,
+    inheritance_flags: int,
+    *,
+    access_mode: int = 1,
+) -> None:
+    """Add one exact inheritable allow entry while preserving the existing DACL."""
+
+    advapi = _windows_dll("advapi32.dll")
+    kernel = _windows_dll("kernel32.dll")
+    get_security = advapi.GetNamedSecurityInfoW
+    get_security.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_int,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    get_security.restype = ctypes.c_uint32
+    set_entries = advapi.SetEntriesInAclW
+    set_entries.argtypes = [
+        ctypes.c_uint32,
+        ctypes.POINTER(_WindowsExplicitAccess),
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    set_entries.restype = ctypes.c_uint32
+    set_security = advapi.SetNamedSecurityInfoW
+    set_security.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_int,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    set_security.restype = ctypes.c_uint32
+    local_free = kernel.LocalFree
+    local_free.argtypes = [ctypes.c_void_p]
+    local_free.restype = ctypes.c_void_p
+    sid = _converted_sid(sid_text)
+    dacl = ctypes.c_void_p()
+    descriptor = ctypes.c_void_p()
+    new_acl = ctypes.c_void_p()
+    try:
+        result = int(
+            get_security(
+                str(root),
+                1,
+                0x00000004,
+                None,
+                None,
+                ctypes.byref(dacl),
+                None,
+                ctypes.byref(descriptor),
+            )
+        )
+        if result:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", result, "GetNamedSecurityInfoW failed"
+            )
+        if not dacl.value:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", 0, "Disposable runtime has a null DACL"
+            )
+        entry = _WindowsExplicitAccess(
+            access_permissions=access_mask,
+            access_mode=access_mode,
+            inheritance=inheritance_flags,
+            trustee=_WindowsTrustee(
+                multiple_trustee=None,
+                multiple_trustee_operation=0,
+                trustee_form=0,
+                trustee_type=0,
+                name=sid,
+            ),
+        )
+        result = int(set_entries(1, ctypes.byref(entry), dacl, ctypes.byref(new_acl)))
+        if result or not new_acl.value:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", result, "SetEntriesInAclW failed"
+            )
+        result = int(set_security(str(root), 1, 0x00000004, None, None, new_acl, None))
+        if result:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", result, "SetNamedSecurityInfoW failed"
+            )
+    finally:
+        if new_acl.value:
+            local_free(new_acl)
+        if descriptor.value:
+            local_free(descriptor)
+        _free_local(sid)
+
+
+def _runtime_acl_paths(root: Path) -> tuple[Path, ...]:
+    return (
+        root,
+        *tuple(sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix())),
+    )
+
+
+@dataclass(frozen=True)
+class _WindowsRuntimeAclOwnedEntry:
+    identity: NativePathIdentityV1
+    relative_path: str
+    kind: Literal["directory", "file"]
+    inheritance_flags: int
+
+
+@dataclass(frozen=True)
+class _WindowsRuntimeAclOwnership:
+    root: NativePathIdentityV1
+    sid: str
+    entries: tuple[_WindowsRuntimeAclOwnedEntry, ...]
+
+
+class WindowsRuntimeAclRollbackError(RuntimeError):
+    def __init__(
+        self,
+        ownership: _WindowsRuntimeAclOwnership,
+        installation_error: BaseException,
+        rollback_error: BaseException,
+    ) -> None:
+        super().__init__("Windows runtime ACL installation and exact rollback failed")
+        self.ownership = ownership
+        self.installation_error = installation_error
+        self.rollback_error = rollback_error
+
+
+def _planned_runtime_acl_entries(root: Path, sid: str) -> tuple[_WindowsRuntimeAclOwnedEntry, ...]:
+    """Validate the complete tree before any write and retain exact path identities."""
+
+    broad_sids = {"S-1-15-2-1", "S-1-15-2-2"}
+    planned: list[_WindowsRuntimeAclOwnedEntry] = []
+    for path in _runtime_acl_paths(root):
+        snapshot = _windows_acl_snapshot(path)
+        relative = "." if path == root else path.relative_to(root).as_posix()
+        if snapshot.protected and path != root:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", 0, f"Protected runtime DACL: {relative}"
+            )
+        if any(entry.sid in broad_sids for entry in snapshot.entries):
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl",
+                0,
+                f"Broad application-package runtime ACL: {relative}",
+            )
+        owned = tuple(entry for entry in snapshot.entries if entry.sid == sid)
+        if owned:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", 0, f"Unexpected owned runtime ACL: {relative}"
+            )
+        if path.is_dir():
+            kind: Literal["directory", "file"] = "directory"
+            inheritance = WINDOWS_RUNTIME_ACCESS_INHERITANCE
+        elif path.is_file():
+            kind = "file"
+            inheritance = 0
+        else:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl", 0, f"Unsupported runtime entry: {relative}"
+            )
+        planned.append(
+            _WindowsRuntimeAclOwnedEntry(
+                identity=windows_path_identity(path, require_directory=kind == "directory"),
+                relative_path=relative,
+                kind=kind,
+                inheritance_flags=inheritance,
+            )
+        )
+    for entry in planned:
+        if (
+            windows_path_identity(
+                Path(entry.identity.locator), require_directory=entry.kind == "directory"
+            )
+            != entry.identity
+        ):
+            raise ValueError("Runtime entry identity changed before ACL installation")
+    return tuple(planned)
+
+
+def _expected_runtime_acl(entry: _WindowsRuntimeAclOwnedEntry, sid: str) -> _WindowsAclEntry:
+    return _WindowsAclEntry(
+        sid=sid,
+        access_mask=WINDOWS_RUNTIME_ACCESS_MASK,
+        access_mode=1,
+        inheritance_flags=entry.inheritance_flags,
+    )
+
+
+def _verify_owned_runtime_acl(ownership: _WindowsRuntimeAclOwnership) -> tuple[int, str]:
+    """Verify only the identity-bound entries modified by this invocation."""
+
+    for entry in ownership.entries:
+        if (
+            windows_path_identity(
+                Path(entry.identity.locator), require_directory=entry.kind == "directory"
+            )
+            != entry.identity
+        ):
+            raise ValueError("Runtime entry identity changed after ACL installation")
+    records: list[JsonValue] = []
+    broad_sids = {"S-1-15-2-1", "S-1-15-2-2"}
+    root_locator = ownership.root.locator.casefold()
+    for entry in ownership.entries:
+        path = Path(entry.identity.locator)
+        snapshot = _windows_acl_snapshot(path)
+        if snapshot.protected and entry.identity.locator.casefold() != root_locator:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl",
+                0,
+                f"Protected runtime DACL: {entry.relative_path}",
+            )
+        if any(observed.sid in broad_sids for observed in snapshot.entries):
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl",
+                0,
+                f"Broad application-package runtime ACL: {entry.relative_path}",
+            )
+        owned = tuple(observed for observed in snapshot.entries if observed.sid == ownership.sid)
+        expected = _expected_runtime_acl(entry, ownership.sid)
+        if owned != (expected,):
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl",
+                0,
+                f"Runtime ACL verification failed: {entry.relative_path}",
+            )
+        records.append(
+            {
+                "relative_path": entry.relative_path,
+                "kind": entry.kind,
+                "sid": ownership.sid,
+                "access_mask": expected.access_mask,
+                "access_mode": expected.access_mode,
+                "inheritance_flags": expected.inheritance_flags,
+                "dacl_protected": snapshot.protected,
+            }
+        )
+    return len(records), digest(canonical(records))
+
+
+def _install_appcontainer_runtime_access(
+    profile: WindowsIsolationProfile,
+    owned_profile: OwnedAppContainerProfile,
+    executable: Path,
+) -> _WindowsRuntimeAclOwnership:
+    """Install one owned AppContainer SID RX ACE on the disposable runtime root."""
+
+    validate_appcontainer_package_sid(owned_profile.sid)
+    if len(profile.payload.read_only_roots) != 1:
+        raise ValueError("Windows runtime access requires one exact disposable read-only root")
+    root_identity = profile.payload.read_only_roots[0]
+    root = Path(root_identity.locator)
+    if windows_path_identity(root) != root_identity:
+        raise ValueError("Disposable runtime root identity changed before ACL grant")
+    if _file_sha256(executable) != profile.payload.launcher_executable_sha256:
+        raise ValueError("Isolated launcher executable hash changed before ACL grant")
+
+    planned = _planned_runtime_acl_entries(root, owned_profile.sid)
+    ownership = _WindowsRuntimeAclOwnership(root_identity, owned_profile.sid, ())
+    try:
+        for entry in planned:
+            path = Path(entry.identity.locator)
+            if (
+                windows_path_identity(path, require_directory=entry.kind == "directory")
+                != entry.identity
+            ):
+                raise ValueError("Runtime entry identity changed before ACL write")
+            _set_windows_sid_acl_entry(
+                path,
+                owned_profile.sid,
+                WINDOWS_RUNTIME_ACCESS_MASK,
+                entry.inheritance_flags,
+            )
+            ownership = _WindowsRuntimeAclOwnership(
+                root_identity,
+                owned_profile.sid,
+                (*ownership.entries, entry),
+            )
+            if (
+                windows_path_identity(path, require_directory=entry.kind == "directory")
+                != entry.identity
+            ):
+                raise ValueError("Runtime entry identity changed during ACL write")
+            observed = tuple(
+                value
+                for value in _windows_acl_snapshot(path).entries
+                if value.sid == owned_profile.sid
+            )
+            if observed != (_expected_runtime_acl(entry, owned_profile.sid),):
+                raise WindowsIsolationLaunchError(
+                    "appcontainer_runtime_acl",
+                    0,
+                    f"Runtime ACL write verification failed: {entry.relative_path}",
+                )
+        _verify_owned_runtime_acl(ownership)
+        return ownership
+    except BaseException as installation_error:
+        if not ownership.entries:
+            raise
+        try:
+            _revoke_appcontainer_runtime_access(ownership)
+        except BaseException as rollback_error:
+            raise WindowsRuntimeAclRollbackError(
+                ownership, installation_error, rollback_error
+            ) from installation_error
+        raise
+
+
+def _verified_appcontainer_runtime_access(
+    profile: WindowsIsolationProfile,
+    owned_profile: OwnedAppContainerProfile,
+    ownership: _WindowsRuntimeAclOwnership,
+    executable: Path,
+    verify_runtime_bundle: Callable[[Path], str],
+) -> WindowsRuntimeAccessGrantV1:
+    """Verify every inherited ACE and all bundle bytes immediately before launch."""
+
+    root_identity = profile.payload.read_only_roots[0]
+    if ownership.root != root_identity or ownership.sid != owned_profile.sid:
+        raise ValueError("Runtime ACL ownership token does not bind the launch profile")
+    root = Path(root_identity.locator)
+    count, inventory_sha256 = _verify_owned_runtime_acl(ownership)
+    observed_bundle_id = verify_runtime_bundle(root)
+    if observed_bundle_id != profile.payload.native_bundle_id:
+        raise WindowsIsolationLaunchError(
+            "appcontainer_runtime_acl", 0, "Post-grant native bundle identity mismatch"
+        )
+    if windows_path_identity(root) != root_identity:
+        raise ValueError("Disposable runtime root identity changed after ACL grant")
+    if _file_sha256(executable) != profile.payload.launcher_executable_sha256:
+        raise ValueError("Isolated launcher executable changed after ACL grant")
+    return WindowsRuntimeAccessGrantV1.create(
+        WindowsRuntimeAccessGrantPayloadV1(
+            appcontainer_identity=owned_profile.identity,
+            appcontainer_sid=owned_profile.sid,
+            root=root_identity,
+            native_bundle_id=profile.payload.native_bundle_id,
+            launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+            verified_entry_count=count,
+            acl_inventory_sha256=inventory_sha256,
+        )
+    )
+
+
+def _revoke_appcontainer_runtime_access(ownership: _WindowsRuntimeAclOwnership) -> None:
+    """Revoke only exact entries recorded as successfully written by this invocation."""
+
+    to_revoke: list[_WindowsRuntimeAclOwnedEntry] = []
+    for entry in ownership.entries:
+        path = Path(entry.identity.locator)
+        if (
+            windows_path_identity(path, require_directory=entry.kind == "directory")
+            != entry.identity
+        ):
+            raise ValueError("Runtime entry identity changed before ACL revocation")
+        owned = tuple(
+            value for value in _windows_acl_snapshot(path).entries if value.sid == ownership.sid
+        )
+        expected = _expected_runtime_acl(entry, ownership.sid)
+        if owned == (expected,):
+            to_revoke.append(entry)
+        elif owned:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl_cleanup",
+                0,
+                f"Owned runtime ACL changed before revocation: {entry.relative_path}",
+            )
+    for entry in reversed(to_revoke):
+        path = Path(entry.identity.locator)
+        _set_windows_sid_acl_entry(path, ownership.sid, 0, 0, access_mode=4)
+        if (
+            windows_path_identity(path, require_directory=entry.kind == "directory")
+            != entry.identity
+        ):
+            raise ValueError("Runtime entry identity changed during ACL revocation")
+        owned = tuple(
+            value for value in _windows_acl_snapshot(path).entries if value.sid == ownership.sid
+        )
+        if owned:
+            raise WindowsIsolationLaunchError(
+                "appcontainer_runtime_acl_cleanup",
+                0,
+                f"Owned runtime ACL remained after revocation: {entry.relative_path}",
+            )
+
+
 def _hresult_error_code(result: int) -> int:
     unsigned = result & 0xFFFFFFFF
     if unsigned & 0xFFFF0000 == 0x80070000:
@@ -945,7 +1677,7 @@ def _create_owned_appcontainer_profile(identity: str) -> OwnedAppContainerProfil
             raise WindowsIsolationLaunchError(
                 "appcontainer_sid_string", _windows_last_error(), "SID conversion failed"
             )
-        sid_text = ctypes.wstring_at(string_sid.value)
+        sid_text = validate_appcontainer_package_sid(ctypes.wstring_at(string_sid.value))
         folder = ctypes.c_void_p()
         folder_result = int(get_folder(sid_text, ctypes.byref(folder))) & 0xFFFFFFFF
         if folder_result or not folder.value:
@@ -1015,6 +1747,7 @@ def _cleanup_failed_launch(
     job_handle: int,
     appcontainer_identity: str,
     appcontainer_profile_owned: bool,
+    runtime_acl_ownership: _WindowsRuntimeAclOwnership | None,
 ) -> list[Exception]:
     errors: list[Exception] = []
     terminate_process = kernel.TerminateProcess
@@ -1037,6 +1770,11 @@ def _cleanup_failed_launch(
     ):
         if handle and not close_handle(handle):
             errors.append(OSError(_windows_last_error(), f"CloseHandle cleanup failed: {name}"))
+    if runtime_acl_ownership is not None:
+        try:
+            _revoke_appcontainer_runtime_access(runtime_acl_ownership)
+        except Exception as error:
+            errors.append(error)
     if appcontainer_profile_owned and not errors:
         try:
             if not _delete_appcontainer_profile(appcontainer_identity):
@@ -1057,6 +1795,7 @@ def launch_windows_isolated(
     *,
     cwd: Path,
     environment: dict[str, str],
+    verify_runtime_bundle: Callable[[Path], str],
 ) -> WindowsSandboxProcess:
     """Create one suspended AppContainer process and bind its complete child tree."""
 
@@ -1116,7 +1855,12 @@ def launch_windows_isolated(
     job = 0
     process_information = ProcessInformation()
     owned_profile = _create_owned_appcontainer_profile(profile.payload.appcontainer_identity)
+    runtime_access_grant: WindowsRuntimeAccessGrantV1 | None = None
+    runtime_acl_ownership: _WindowsRuntimeAclOwnership | None = None
     try:
+        runtime_acl_ownership = _install_appcontainer_runtime_access(
+            profile, owned_profile, executable
+        )
         isolated_environment = {
             **environment,
             "LOCALAPPDATA": str(owned_profile.local_app_data),
@@ -1157,6 +1901,13 @@ def launch_windows_isolated(
         startup = StartupInfo()
         startup.cb = ctypes.sizeof(startup)
         flags = 0x4 | 0x400 | 0x08000000
+        runtime_access_grant = _verified_appcontainer_runtime_access(
+            profile,
+            owned_profile,
+            runtime_acl_ownership,
+            executable,
+            verify_runtime_bundle,
+        )
         if not create(
             str(executable),
             command,
@@ -1196,9 +1947,13 @@ def launch_windows_isolated(
             launch_order=("created_suspended", "job_assigned", "thread_resumed"),
             appcontainer_sid=owned_profile.sid,
             local_app_data=owned_profile.local_app_data,
+            runtime_access_grant=runtime_access_grant,
+            runtime_acl_ownership=runtime_acl_ownership,
             appcontainer_profile_owned=True,
         )
     except Exception as launch_error:
+        if isinstance(launch_error, WindowsRuntimeAclRollbackError):
+            runtime_acl_ownership = launch_error.ownership
         cleanup_errors = _cleanup_failed_launch(
             kernel,
             process_handle=int(process_information.process or 0),
@@ -1206,6 +1961,7 @@ def launch_windows_isolated(
             job_handle=job,
             appcontainer_identity=owned_profile.identity,
             appcontainer_profile_owned=True,
+            runtime_acl_ownership=runtime_acl_ownership,
         )
         if cleanup_errors:
             raise ExceptionGroup(
