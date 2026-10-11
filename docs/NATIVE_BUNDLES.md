@@ -439,6 +439,34 @@ Build-020 and all OCI evidence remain immutable historical evidence.
    upgrade/rollback. Do not automatically synchronize state or implicitly reset
    ledger authority between platforms.
 
+## Native Linux directory authority
+
+The forward-only `linux-build-007` receipt adds the workflow run and attempt to
+the exact merged implementation identity.  It keeps all earlier Linux receipts
+strictly parseable and does not alter their hashes.  The manual main-only
+`linux-native-bundle.yml` workflow accepts only the successful build-007 pair
+from the same implementation commit.
+
+`LinuxNativeBundleV1` seals a closed directory containing the exact Codex pair,
+an exact copied CPython 3.12.10 runtime, a wheel built from the reviewed commit,
+all registry wheels selected from `uv.lock`, and two relative launchers.  The
+builder clears ambient `site-packages`, installs only reviewed wheels, verifies
+RECORD ownership, rejects external runtime symlinks, and repeats runtime
+inspection after relocating the complete release directory.  `PYTHONPATH`,
+`PYTHONHOME`, user-site state and editable installs cannot authorize imports.
+The published transport is one exact `tar.gz` plus its bundle manifest and a
+self-hashed archive receipt. Unix file and directory modes are part of the
+bundle identity. The trusted verifier requires that exact three-file release,
+joins the archive bytes to both receipts, extracts into a fresh root, repeats
+strict verification, and runs only the metadata-only `devfabric schema` smoke.
+
+The tested bundle is intentionally tied to Linux x86_64 and the exact host
+environment recorded by later qualification.  It does not claim support for
+every distribution.  Directory assembly alone leaves
+`native_executor_isolation_qualified=false` and `package_readiness=false`;
+native process/filesystem/network isolation and platform receipts remain
+mandatory before Linux readiness.
+
 ## Platform acceptance matrix
 
 `PENDING` means the requirement has no accepted native-package evidence yet.

@@ -92,6 +92,9 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+linux-bundle-build = [
+    { name = "pip" },
+]
 windows-bundle-build = [
     { name = "pip" },
 ]
@@ -111,6 +114,7 @@ dev = [
     { name = "pytest", specifier = "==8.4.2" },
     { name = "ruff", specifier = "==0.13.2" },
 ]
+linux-bundle-build = [{ name = "pip", specifier = "==26.2.1" }]
 windows-bundle-build = [{ name = "pip", specifier = "==26.2.1" }]
 
 [[package]]

@@ -18,6 +18,7 @@ from devhub.linux_native import (
     LinuxBuildProvenanceV4,
     LinuxBuildProvenanceV5,
     LinuxBuildProvenanceV6,
+    LinuxBuildProvenanceV7,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV1,
     LinuxHostProofSummaryV2,
@@ -29,12 +30,14 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildPayloadV4,
     LinuxNativeCodexBuildPayloadV5,
     LinuxNativeCodexBuildPayloadV6,
+    LinuxNativeCodexBuildPayloadV7,
     LinuxNativeCodexBuildV1,
     LinuxNativeCodexBuildV2,
     LinuxNativeCodexBuildV3,
     LinuxNativeCodexBuildV4,
     LinuxNativeCodexBuildV5,
     LinuxNativeCodexBuildV6,
+    LinuxNativeCodexBuildV7,
 )
 from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 
@@ -310,6 +313,26 @@ def test_linux_build_004_binds_ordinary_default_and_preserves_history() -> None:
     )
     assert merged_main.payload.provenance.build_id == "linux-build-006"
     assert LinuxNativeCodexBuildV6.model_validate_json(merged_main.model_dump_json()) == merged_main
+
+    bundled_main = LinuxNativeCodexBuildV7.create(
+        LinuxNativeCodexBuildPayloadV7(
+            provenance=LinuxBuildProvenanceV7(
+                **{
+                    **merged_main.payload.provenance.model_dump(mode="python"),
+                    "build_id": "linux-build-007",
+                    "workflow_run_id": 123,
+                    "workflow_run_attempt": 1,
+                }
+            ),
+            binaries=merged_main.payload.binaries,
+            process_proof=merged_main.payload.process_proof,
+        )
+    )
+    assert bundled_main.payload.provenance.build_id == "linux-build-007"
+    assert bundled_main.payload.provenance.workflow_run_id == 123
+    assert (
+        LinuxNativeCodexBuildV7.model_validate_json(bundled_main.model_dump_json()) == bundled_main
+    )
 
 
 @pytest.mark.parametrize(
@@ -631,23 +654,25 @@ def test_post_build_v8_failure_records_exact_phase_and_preserves_compile_state(
     assert observed["process_proof"] is None
 
 
-def test_linux_workflow_reserves_build_006_for_merged_main_dispatch() -> None:
+def test_linux_workflow_reserves_build_007_for_merged_main_dispatch() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
-    assert "devfabric-linux-build-006-evidence" in workflow
-    assert "devfabric-linux-build-006-binaries" in workflow
+    assert "devfabric-linux-build-007-evidence" in workflow
+    assert "devfabric-linux-build-007-binaries" in workflow
     assert "--platform linux" in workflow
-    assert "--build-id linux-build-006" in workflow
+    assert "--build-id linux-build-007" in workflow
     assert "pull_request:" not in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "ref: ${{ github.sha }}" in workflow
     assert "--expected-implementation-commit '${{ github.sha }}'" in workflow
+    assert "--workflow-run-id '${{ github.run_id }}'" in workflow
+    assert "--workflow-run-attempt '${{ github.run_attempt }}'" in workflow
     assert "include-hidden-files: true" in workflow
     assert "if: always() && steps.seal.outcome == 'success'" in workflow
     assert "if: success()" in workflow
     assert "devfabric-linux-build-005" not in workflow
 
 
-def test_linux_build_006_uses_complete_source_preparation(
+def test_linux_build_007_uses_complete_source_preparation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     checkout = tmp_path / "pinned-source"
@@ -687,7 +712,7 @@ new file mode 100644
         root,
         candidate_patch=candidate,
         host_patch=host,
-        build_id="linux-build-006",
+        build_id="linux-build-007",
     )
 
     assert (root / "candidate.txt").read_text(encoding="utf-8") == "candidate\n"
@@ -955,7 +980,7 @@ def test_process_summary_rejects_alternate_code_mode_failures(message: str) -> N
 
 
 def test_linux_builder_reuses_shared_source_and_process_authority() -> None:
-    assert LINUX_BUILD.BUILD_ID == "linux-build-006"
+    assert LINUX_BUILD.BUILD_ID == "linux-build-007"
     assert LINUX_BUILD.retained.prepare_build_source is not None
     signature = inspect.signature(LINUX_BUILD.shared.process_proof)
     assert {"capture", "wait_pid_exit", "proof_env", "platform_label"} <= set(signature.parameters)

@@ -16,6 +16,7 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildV4,
     LinuxNativeCodexBuildV5,
     LinuxNativeCodexBuildV6,
+    LinuxNativeCodexBuildV7,
 )
 from devhub.native_proof import (
     LinuxNativeBuildArtifactJoinV1,
@@ -484,7 +485,12 @@ def seal_linux(root: Path, build_id: str) -> NativeBuildArtifactInventoryV2:
     files = inventory_linux(root)
     linux_pair = None
     if status == "PASS":
-        if build_id not in {"linux-build-004", "linux-build-005", "linux-build-006"}:
+        if build_id not in {
+            "linux-build-004",
+            "linux-build-005",
+            "linux-build-006",
+            "linux-build-007",
+        }:
             raise ValueError("Linux native build inventory does not support this build ID")
         receipt_path = root / "linux-native-codex-build.json"
         receipt_stat = _plain_file(receipt_path)
@@ -494,6 +500,7 @@ def seal_linux(root: Path, build_id: str) -> NativeBuildArtifactInventoryV2:
             "linux-build-004": LinuxNativeCodexBuildV4,
             "linux-build-005": LinuxNativeCodexBuildV5,
             "linux-build-006": LinuxNativeCodexBuildV6,
+            "linux-build-007": LinuxNativeCodexBuildV7,
         }[build_id]
         receipt = receipt_model.model_validate_json(receipt_path.read_bytes())
         if receipt.payload.provenance.build_id != build_id:

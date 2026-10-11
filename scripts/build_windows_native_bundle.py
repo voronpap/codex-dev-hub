@@ -23,12 +23,10 @@ import sys
 import tarfile
 import tempfile
 import tomllib
-import urllib.parse
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from packaging.utils import parse_wheel_filename
 from pydantic import JsonValue
 
 from devhub.benchmark import canonical, digest, write_new
@@ -53,7 +51,12 @@ from devhub.native_bundle import (
     sanitize_installed_wheel_tree,
     verify_native_bundle,
 )
-from devhub.runtime_artifact import normalize_distribution_name
+from devhub.native_bundle import (
+    locked_wheel_authority as _locked_wheel_authority,
+)
+from devhub.native_bundle import (
+    review_dependency_wheels as _review_dependency_wheels,
+)
 from devhub.windows_native import (
     WindowsNativeCodexBuildV2,
     WindowsNativeCodexBuildV3,
@@ -766,51 +769,13 @@ def extract_embedded_python(archive: Path, destination: Path) -> str:
 
 
 def locked_wheel_authority(lock_path: Path) -> dict[tuple[str, str, str], str]:
-    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
-    result: dict[tuple[str, str, str], str] = {}
-    for package in lock.get("package", []):
-        if not isinstance(package, dict) or package.get("source", {}).get("registry") is None:
-            continue
-        name = normalize_distribution_name(str(package["name"]))
-        version = str(package["version"])
-        for wheel in package.get("wheels", []):
-            filename = Path(urllib.parse.unquote(urllib.parse.urlparse(wheel["url"]).path)).name
-            value = str(wheel["hash"])
-            if not value.startswith("sha256:") or SHA256.fullmatch(value[7:]) is None:
-                raise ValueError("uv.lock contains a malformed wheel identity")
-            result[(name, version, filename)] = value[7:]
-    return result
+    return _locked_wheel_authority(lock_path)
 
 
 def review_dependency_wheels(
     wheelhouse: Path, lock_path: Path
 ) -> tuple[NativeDependencyWheelV1, ...]:
-    allowed = locked_wheel_authority(lock_path)
-    reviewed: list[NativeDependencyWheelV1] = []
-    for wheel in sorted(wheelhouse.glob("*.whl")):
-        parsed_name, version, _, _ = parse_wheel_filename(wheel.name)
-        name = normalize_distribution_name(str(parsed_name))
-        key = (name, str(version), wheel.name)
-        observed = file_sha256(wheel)
-        if allowed.get(key) != observed:
-            raise ValueError(
-                f"Selected dependency wheel is absent or mismatched in uv.lock: {wheel.name}"
-            )
-        reviewed.append(
-            NativeDependencyWheelV1(
-                name=name,
-                version=str(version),
-                filename=wheel.name,
-                sha256=observed,
-            )
-        )
-    if not reviewed:
-        raise ValueError("No dependency wheels were selected")
-    names = [item.name for item in reviewed]
-    if len(names) != len(set(names)):
-        raise ValueError("Dependency resolution selected duplicate distributions")
-    reviewed.sort(key=lambda item: item.name)
-    return tuple(reviewed)
+    return _review_dependency_wheels(wheelhouse, lock_path)
 
 
 def reject_build_locators(root: Path, locators: tuple[Path, ...]) -> None:

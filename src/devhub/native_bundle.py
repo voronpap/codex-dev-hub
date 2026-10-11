@@ -17,12 +17,15 @@ import platform
 import stat
 import subprocess
 import sys
+import tomllib
 import unicodedata
+import urllib.parse
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal, cast
 
+from packaging.utils import parse_wheel_filename
 from pydantic import Field, JsonValue, field_validator, model_validator
 
 from devhub.benchmark import Digest, canonical, digest
@@ -395,6 +398,61 @@ class NativeDependencyWheelV1(Contract):
     version: str = Field(min_length=1, max_length=128)
     filename: str = Field(min_length=1, max_length=255, pattern=r"^[^/\\]+\.whl$")
     sha256: Digest
+
+
+def locked_wheel_authority(lock_path: Path) -> dict[tuple[str, str, str], str]:
+    """Map every registry wheel in ``uv.lock`` to its exact SHA-256."""
+
+    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    result: dict[tuple[str, str, str], str] = {}
+    for package in lock.get("package", []):
+        if not isinstance(package, dict) or package.get("source", {}).get("registry") is None:
+            continue
+        name = normalize_distribution_name(str(package["name"]))
+        version = str(package["version"])
+        for wheel in package.get("wheels", []):
+            filename = Path(urllib.parse.unquote(urllib.parse.urlparse(wheel["url"]).path)).name
+            value = str(wheel["hash"])
+            if not value.startswith("sha256:") or len(value) != 71:
+                raise ValueError("uv.lock contains a malformed wheel identity")
+            try:
+                bytes.fromhex(value[7:])
+            except ValueError as exc:
+                raise ValueError("uv.lock contains a malformed wheel identity") from exc
+            result[(name, version, filename)] = value[7:]
+    return result
+
+
+def review_dependency_wheels(
+    wheelhouse: Path, lock_path: Path
+) -> tuple[NativeDependencyWheelV1, ...]:
+    """Verify the selected platform wheels against exact ``uv.lock`` entries."""
+
+    allowed = locked_wheel_authority(lock_path)
+    reviewed: list[NativeDependencyWheelV1] = []
+    for wheel in sorted(wheelhouse.glob("*.whl")):
+        parsed_name, version, _, _ = parse_wheel_filename(wheel.name)
+        name = normalize_distribution_name(str(parsed_name))
+        observed = file_sha256(wheel)
+        if allowed.get((name, str(version), wheel.name)) != observed:
+            raise ValueError(
+                f"Selected dependency wheel is absent or mismatched in uv.lock: {wheel.name}"
+            )
+        reviewed.append(
+            NativeDependencyWheelV1(
+                name=name,
+                version=str(version),
+                filename=wheel.name,
+                sha256=observed,
+            )
+        )
+    if not reviewed:
+        raise ValueError("No dependency wheels were selected")
+    names = [item.name for item in reviewed]
+    if len(names) != len(set(names)):
+        raise ValueError("Dependency resolution selected duplicate distributions")
+    reviewed.sort(key=lambda item: item.name)
+    return tuple(reviewed)
 
 
 class NativeModuleOriginV1(Contract):
