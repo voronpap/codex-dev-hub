@@ -25,6 +25,7 @@ from pydantic import Field, JsonValue, field_validator, model_validator
 
 from devhub.benchmark import Digest, canonical, digest
 from devhub.models import Contract, ContractV2
+from devhub.native_bundle import NativeLoaderAuthorityV1
 
 WINDOWS_SANDBOX_SPEC_VERSION = "0.1.0"
 WINDOWS_SANDBOX_FILE_IDENTIFIER = b"SBOX"
@@ -210,6 +211,78 @@ class WindowsIsolationProfileV2(ContractV2):
         return self
 
 
+class WindowsNativeImportExpectationV1(Contract):
+    """Immutable bundle authority for one reviewed V6 native import."""
+
+    module: Literal["_ctypes", "_socket", "_overlapped", "select", "_hashlib", "_ssl"]
+    relative_path: Literal[
+        "python/_ctypes.pyd",
+        "python/_socket.pyd",
+        "python/_overlapped.pyd",
+        "python/select.pyd",
+        "python/_hashlib.pyd",
+        "python/_ssl.pyd",
+    ]
+    expected_sha256: Digest
+
+    @model_validator(mode="after")
+    def exact_module_path(self) -> WindowsNativeImportExpectationV1:
+        expected = {
+            "_ctypes": "python/_ctypes.pyd",
+            "_socket": "python/_socket.pyd",
+            "_overlapped": "python/_overlapped.pyd",
+            "select": "python/select.pyd",
+            "_hashlib": "python/_hashlib.pyd",
+            "_ssl": "python/_ssl.pyd",
+        }
+        if self.relative_path != expected[self.module]:
+            raise ValueError("Native import expectation differs from its reviewed file")
+        return self
+
+
+class WindowsIsolationProfilePayloadV3(WindowsIsolationProfilePayloadV2):
+    """Forward-only native-loader-bound Windows isolation authority."""
+
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    native_loader: NativeLoaderAuthorityV1
+    native_import_expectations: Annotated[
+        tuple[WindowsNativeImportExpectationV1, ...], Field(min_length=6, max_length=6)
+    ]
+
+    @model_validator(mode="after")
+    def exact_native_import_expectations(self) -> WindowsIsolationProfilePayloadV3:
+        if [item.module for item in self.native_import_expectations] != [
+            "_ctypes",
+            "_socket",
+            "_overlapped",
+            "select",
+            "_hashlib",
+            "_ssl",
+        ]:
+            raise ValueError("Native import expectations differ from reviewed V6 order")
+        return self
+
+
+class WindowsIsolationProfileV3(Contract):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    windows_isolation_profile_id: Digest
+    payload: WindowsIsolationProfilePayloadV3
+
+    @classmethod
+    def create(cls, payload: WindowsIsolationProfilePayloadV3) -> WindowsIsolationProfileV3:
+        return cls(
+            windows_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationProfileV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.windows_isolation_profile_id != expected:
+            raise ValueError("Windows isolation profile hash mismatch")
+        return self
+
+
 class WindowsRuntimeAccessGrantPayloadV1(Contract):
     """Exact AppContainer filesystem grant for one disposable runtime tree."""
 
@@ -333,7 +406,9 @@ class WindowsPostCreateAclFailureV1(Contract):
         return self
 
 
-def windows_isolation_bootstrap_started_id(profile: WindowsIsolationProfileV2) -> str:
+def windows_isolation_bootstrap_started_id(
+    profile: WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
+) -> str:
     """Derive the exact marker ID that proves the reviewed child bootstrap started."""
 
     payload: dict[str, JsonValue] = {
@@ -496,6 +571,106 @@ class WindowsIsolationReceiptV4(Contract):
         return self
 
 
+class WindowsNativeLoaderActivationV1(Contract):
+    """Bounded child observation of the fixed native loader activation contract."""
+
+    module_path: Literal["python/_devfabric_native_loader.pyd"] = (
+        "python/_devfabric_native_loader.pyd"
+    )
+    module_sha256: Digest
+    activated_dependencies: tuple[
+        Literal["libffi-8.dll"],
+        Literal["libcrypto-3.dll"],
+        Literal["libssl-3.dll"],
+    ] = ("libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll")
+
+
+class WindowsNativeImportSuccessV1(Contract):
+    module: Literal["_ctypes", "_socket", "_overlapped", "select", "_hashlib", "_ssl"]
+    relative_path: Literal[
+        "python/_ctypes.pyd",
+        "python/_socket.pyd",
+        "python/_overlapped.pyd",
+        "python/select.pyd",
+        "python/_hashlib.pyd",
+        "python/_ssl.pyd",
+    ]
+    observed_sha256: Digest
+
+    @model_validator(mode="after")
+    def exact_module_path(self) -> WindowsNativeImportSuccessV1:
+        expected = {
+            "_ctypes": "python/_ctypes.pyd",
+            "_socket": "python/_socket.pyd",
+            "_overlapped": "python/_overlapped.pyd",
+            "select": "python/select.pyd",
+            "_hashlib": "python/_hashlib.pyd",
+            "_ssl": "python/_ssl.pyd",
+        }
+        if self.relative_path != expected[self.module]:
+            raise ValueError("Native import module differs from its reviewed file")
+        return self
+
+
+class WindowsIsolationReceiptPayloadV5(WindowsIsolationReceiptPayloadV4):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    native_loader: NativeLoaderAuthorityV1
+    native_loader_activation: WindowsNativeLoaderActivationV1
+    native_import_expectations: Annotated[
+        tuple[WindowsNativeImportExpectationV1, ...], Field(min_length=6, max_length=6)
+    ]
+    native_import_matrix: Annotated[
+        tuple[WindowsNativeImportSuccessV1, ...], Field(min_length=6, max_length=6)
+    ]
+
+    @model_validator(mode="after")
+    def exact_native_loader_authority(self) -> WindowsIsolationReceiptPayloadV5:
+        if self.native_loader_activation.module_sha256 != self.native_loader.binary_sha256:
+            raise ValueError("Native loader activation differs from reviewed binary")
+        expected_modules = [
+            "_ctypes",
+            "_socket",
+            "_overlapped",
+            "select",
+            "_hashlib",
+            "_ssl",
+        ]
+        if [item.module for item in self.native_import_expectations] != expected_modules:
+            raise ValueError("Native import expectations differ from reviewed V6 order")
+        if [item.module for item in self.native_import_matrix] != expected_modules:
+            raise ValueError("Native import matrix differs from reviewed V6 order")
+        for expected, observed in zip(
+            self.native_import_expectations, self.native_import_matrix, strict=True
+        ):
+            if (
+                expected.module != observed.module
+                or expected.relative_path != observed.relative_path
+                or expected.expected_sha256 != observed.observed_sha256
+            ):
+                raise ValueError("Native import result differs from immutable bundle authority")
+        return self
+
+
+class WindowsIsolationReceiptV5(Contract):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    windows_isolation_receipt_id: Digest
+    payload: WindowsIsolationReceiptPayloadV5
+
+    @classmethod
+    def create(cls, payload: WindowsIsolationReceiptPayloadV5) -> WindowsIsolationReceiptV5:
+        return cls(
+            windows_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationReceiptV5:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.windows_isolation_receipt_id != expected:
+            raise ValueError("Windows isolation receipt hash mismatch")
+        return self
+
+
 class WindowsAccessDeniedObservationV1(Contract):
     denied: Literal[True]
     error_code: int
@@ -544,6 +719,27 @@ class WindowsIsolationChildResultV1(Contract):
                 raise ValueError("Successful private registry write cannot report an error")
         elif self.registry_error_code not in {5, 13}:
             raise ValueError("Registry denial must be an access-denied error")
+        return self
+
+
+class WindowsIsolationChildResultV2(WindowsIsolationChildResultV1):
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    native_loader_activation: WindowsNativeLoaderActivationV1
+    native_import_matrix: Annotated[
+        tuple[WindowsNativeImportSuccessV1, ...], Field(min_length=6, max_length=6)
+    ]
+
+    @model_validator(mode="after")
+    def exact_native_matrix(self) -> WindowsIsolationChildResultV2:
+        if [item.module for item in self.native_import_matrix] != [
+            "_ctypes",
+            "_socket",
+            "_overlapped",
+            "select",
+            "_hashlib",
+            "_ssl",
+        ]:
+            raise ValueError("Child native import matrix differs from reviewed V6 order")
         return self
 
 
@@ -811,7 +1007,81 @@ class WindowsIsolationEvidenceV4(Contract):
         return self
 
 
-WindowsIsolationProfile = WindowsIsolationProfileV1 | WindowsIsolationProfileV2
+class WindowsIsolationEvidenceV5(Contract):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    windows_isolation_evidence_id: Digest
+    profile: WindowsIsolationProfileV3
+    sandbox_spec_base64: str
+    sandbox_spec_sha256: Digest
+    receipt: WindowsIsolationReceiptV5
+
+    @classmethod
+    def create(
+        cls,
+        profile: WindowsIsolationProfileV3,
+        sandbox_spec: bytes,
+        receipt: WindowsIsolationReceiptV5,
+    ) -> WindowsIsolationEvidenceV5:
+        encoded = base64.b64encode(sandbox_spec).decode("ascii")
+        sandbox_hash = digest(sandbox_spec)
+        payload: dict[str, JsonValue] = {
+            "schema_version": 5,
+            "profile": profile.model_dump(mode="json"),
+            "sandbox_spec_base64": encoded,
+            "sandbox_spec_sha256": sandbox_hash,
+            "receipt": receipt.model_dump(mode="json"),
+        }
+        return cls(
+            windows_isolation_evidence_id=digest(canonical(payload)),
+            profile=profile,
+            sandbox_spec_base64=encoded,
+            sandbox_spec_sha256=sandbox_hash,
+            receipt=receipt,
+        )
+
+    @model_validator(mode="after")
+    def strict_joins(self) -> WindowsIsolationEvidenceV5:
+        try:
+            spec = base64.b64decode(self.sandbox_spec_base64, validate=True)
+        except ValueError as error:
+            raise ValueError("SandboxSpec is not canonical base64") from error
+        if base64.b64encode(spec).decode("ascii") != self.sandbox_spec_base64:
+            raise ValueError("SandboxSpec is not canonical base64")
+        if spec != windows_sandbox_spec(self.profile) or digest(spec) != self.sandbox_spec_sha256:
+            raise ValueError("Retained SandboxSpec does not match the profile")
+        receipt = self.receipt.payload
+        profile = self.profile.payload
+        grant = receipt.runtime_access_grant.payload
+        if (
+            receipt.windows_isolation_profile_id != self.profile.windows_isolation_profile_id
+            or receipt.environment_instance_id != profile.environment_instance_id
+            or receipt.probe_sha256 != profile.probe_sha256
+            or receipt.child_bootstrap_sha256 != profile.child_bootstrap_sha256
+            or receipt.bootstrap_started_id != windows_isolation_bootstrap_started_id(self.profile)
+            or receipt.sandbox_spec_sha256 != self.sandbox_spec_sha256
+            or receipt.native_loader != profile.native_loader
+            or receipt.native_import_expectations != profile.native_import_expectations
+            or grant.appcontainer_identity != profile.appcontainer_identity
+            or grant.root != profile.read_only_roots[0]
+            or grant.native_bundle_id != profile.native_bundle_id
+            or grant.launcher_executable_sha256 != profile.launcher_executable_sha256
+        ):
+            raise ValueError("Windows isolation receipt does not bind the retained V6 profile")
+        payload: dict[str, JsonValue] = {
+            "schema_version": self.schema_version,
+            "profile": self.profile.model_dump(mode="json"),
+            "sandbox_spec_base64": self.sandbox_spec_base64,
+            "sandbox_spec_sha256": self.sandbox_spec_sha256,
+            "receipt": self.receipt.model_dump(mode="json"),
+        }
+        if digest(canonical(payload)) != self.windows_isolation_evidence_id:
+            raise ValueError("Windows isolation evidence hash mismatch")
+        return self
+
+
+WindowsIsolationProfile = (
+    WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3
+)
 
 
 def _string_vector(builder: flatbuffers.Builder, values: tuple[str, ...]) -> int:

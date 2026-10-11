@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 import devhub.windows_isolation as isolation
 from devhub.benchmark import canonical, digest
+from devhub.native_bundle import NativeLoaderAuthorityV1, NativeLoaderDependencyV1
 from devhub.windows_isolation import (
     WINDOWS_RUNTIME_ACCESS_INHERITANCE,
     WINDOWS_RUNTIME_ACCESS_MASK,
@@ -29,10 +30,13 @@ from devhub.windows_isolation import (
     WindowsIsolationEvidenceV2,
     WindowsIsolationEvidenceV3,
     WindowsIsolationEvidenceV4,
+    WindowsIsolationEvidenceV5,
     WindowsIsolationProfilePayloadV1,
     WindowsIsolationProfilePayloadV2,
+    WindowsIsolationProfilePayloadV3,
     WindowsIsolationProfileV1,
     WindowsIsolationProfileV2,
+    WindowsIsolationProfileV3,
     WindowsIsolationReceiptPayloadV1,
     WindowsIsolationReceiptPayloadV2,
     WindowsIsolationReceiptPayloadV3,
@@ -41,6 +45,7 @@ from devhub.windows_isolation import (
     WindowsIsolationReceiptV2,
     WindowsIsolationReceiptV3,
     WindowsIsolationReceiptV4,
+    WindowsNativeImportExpectationV1,
     WindowsRuntimeAccessGrantPayloadV1,
     WindowsRuntimeAccessGrantPayloadV2,
     WindowsRuntimeAccessGrantV1,
@@ -215,7 +220,7 @@ def profile_payload() -> WindowsIsolationProfilePayloadV1:
 
 
 def receipt_payload(
-    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2,
+    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
 ) -> dict[str, object]:
     return {
         "windows_isolation_profile_id": profile.windows_isolation_profile_id,
@@ -260,7 +265,7 @@ def receipt_payload_v2(profile: WindowsIsolationProfileV2) -> dict[str, object]:
 
 
 def runtime_access_grant(
-    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2,
+    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
     sid: str = PACKAGE_SID,
 ) -> WindowsRuntimeAccessGrantV1:
     return WindowsRuntimeAccessGrantV1.create(
@@ -277,7 +282,7 @@ def runtime_access_grant(
 
 
 def runtime_access_grant_v2(
-    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2,
+    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
     sid: str = PACKAGE_SID,
     *,
     repaired: bool = False,
@@ -297,11 +302,61 @@ def runtime_access_grant_v2(
     )
 
 
+def native_loader_authority() -> NativeLoaderAuthorityV1:
+    return NativeLoaderAuthorityV1(
+        build_receipt_sha256="4" * 64,
+        native_loader_build_id="5" * 64,
+        accepted_workflow_run_id=123,
+        accepted_workflow_run_attempt=1,
+        implementation_commit=IMPLEMENTATION_COMMIT,
+        source_sha256="6" * 64,
+        binary_sha256="7" * 64,
+        dependencies=tuple(
+            NativeLoaderDependencyV1(filename=filename, sha256=character * 64)
+            for filename, character in (
+                ("libffi-8.dll", "9"),
+                ("libcrypto-3.dll", "f"),
+                ("libssl-3.dll", "0"),
+            )
+        ),
+    )
+
+
+def native_import_expectations() -> tuple[WindowsNativeImportExpectationV1, ...]:
+    return tuple(
+        WindowsNativeImportExpectationV1(
+            module=module,
+            relative_path=relative_path,
+            expected_sha256=character * 64,
+        )
+        for module, relative_path, character in (
+            ("_ctypes", "python/_ctypes.pyd", "8"),
+            ("_socket", "python/_socket.pyd", "a"),
+            ("_overlapped", "python/_overlapped.pyd", "b"),
+            ("select", "python/select.pyd", "c"),
+            ("_hashlib", "python/_hashlib.pyd", "e"),
+            ("_ssl", "python/_ssl.pyd", "d"),
+        )
+    )
+
+
+def profile_payload_v3() -> WindowsIsolationProfilePayloadV3:
+    payload = profile_payload_v2().model_dump(mode="python")
+    payload["schema_version"] = 3
+    return WindowsIsolationProfilePayloadV3(
+        **payload,
+        native_loader=native_loader_authority(),
+        native_import_expectations=native_import_expectations(),
+    )
+
+
 def native_loader_bundle() -> SimpleNamespace:
     return SimpleNamespace(
         bundle_id=H,
         payload=SimpleNamespace(
+            native_loader=native_loader_authority(),
             files=(
+                SimpleNamespace(path="python/_devfabric_native_loader.pyd", sha256="7" * 64),
                 SimpleNamespace(path="python/_ctypes.pyd", sha256="8" * 64),
                 SimpleNamespace(path="python/libffi-8.dll", sha256="9" * 64),
                 SimpleNamespace(path="python/_socket.pyd", sha256="a" * 64),
@@ -311,7 +366,7 @@ def native_loader_bundle() -> SimpleNamespace:
                 SimpleNamespace(path="python/_hashlib.pyd", sha256="e" * 64),
                 SimpleNamespace(path="python/libcrypto-3.dll", sha256="f" * 64),
                 SimpleNamespace(path="python/libssl-3.dll", sha256="0" * 64),
-            )
+            ),
         ),
     )
 
@@ -393,8 +448,44 @@ def v5_crypto_observations(probe: Any) -> tuple[Any, ...]:
     )
 
 
+def v6_child_matrix(
+    probe: Any,
+    statuses: tuple[str, str, str, str, str, str] = (
+        "imported",
+        "imported",
+        "imported",
+        "imported",
+        "imported",
+        "imported",
+    ),
+) -> tuple[Any, ...]:
+    return tuple(
+        probe.WindowsNativeImportMatrixObservationV3(
+            module=module,
+            file=probe.WindowsNativeMatrixFileObservationV3(
+                relative_path=path,
+                status="readable",
+                observed_sha256=character * 64,
+            ),
+            import_status=status,
+        )
+        for (module, path, character), status in zip(
+            (
+                ("_ctypes", "python/_ctypes.pyd", "8"),
+                ("_socket", "python/_socket.pyd", "a"),
+                ("_overlapped", "python/_overlapped.pyd", "b"),
+                ("select", "python/select.pyd", "c"),
+                ("_hashlib", "python/_hashlib.pyd", "e"),
+                ("_ssl", "python/_ssl.pyd", "d"),
+            ),
+            statuses,
+            strict=True,
+        )
+    )
+
+
 def runtime_acl_ownership(
-    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2,
+    profile: WindowsIsolationProfileV1 | WindowsIsolationProfileV2 | WindowsIsolationProfileV3,
     sid: str = PACKAGE_SID,
 ) -> isolation._WindowsRuntimeAclOwnership:
     root = profile.payload.read_only_roots[0]
@@ -2682,6 +2773,7 @@ def _bootstrap_argv(
             ENVIRONMENT,
             "7" * 64,
             probe_sha,
+            "7" * 64,
         ],
         result,
         failure,
@@ -2696,11 +2788,14 @@ def _successful_native_matrix() -> list[dict[str, object]]:
             "file": {
                 "observed_sha256": character * 64,
                 "relative_path": path,
+                "schema_version": 3,
                 "status": "readable",
             },
             "import_status": "imported",
+            "schema_version": 3,
         }
         for module, path, character in (
+            ("_ctypes", "python/_ctypes.pyd", "8"),
             ("_socket", "python/_socket.pyd", "a"),
             ("_overlapped", "python/_overlapped.pyd", "b"),
             ("select", "python/select.pyd", "c"),
@@ -2710,26 +2805,30 @@ def _successful_native_matrix() -> list[dict[str, object]]:
     ]
 
 
-def _allow_dll_activation(module: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    handle = SimpleNamespace(close=lambda: None)
+def _allow_native_loader_activation(module: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         module,
-        "_activate_launcher_dll_directory",
-        lambda: (
+        "_activate_native_loader",
+        lambda expected_sha256: (
             {
-                "schema_version": 1,
-                "directory_kind": "launcher_parent",
-                "status": "active",
+                "activated_dependencies": [
+                    "libffi-8.dll",
+                    "libcrypto-3.dll",
+                    "libssl-3.dll",
+                ],
                 "error_code": None,
+                "module_path": "python/_devfabric_native_loader.pyd",
+                "module_sha256": expected_sha256,
+                "schema_version": 2,
+                "status": "active",
             },
-            handle,
             None,
         ),
     )
 
 
 def _allow_native_matrix(module: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    _allow_dll_activation(module, monkeypatch)
+    _allow_native_loader_activation(module, monkeypatch)
     monkeypatch.setattr(
         module,
         "_run_native_import_matrix",
@@ -2737,139 +2836,120 @@ def _allow_native_matrix(module: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_stdlib_bootstrap_binds_only_launcher_parent_and_retains_handle(
+def test_stdlib_bootstrap_activates_only_reviewed_interpreter_sibling_loader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_dll_directory_test")
-    lifetime_bootstrap = load_bootstrap_module("windows_isolation_bootstrap_handle_lifetime_test")
-    repository_root = Path.cwd()
-    captured: list[str] = []
-
-    class Handle:
-        closed = False
-
-        def close(self) -> None:
-            self.closed = True
-
-    handle = Handle()
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("PATH", str(tmp_path / "ambient-dlls"))
-    monkeypatch.delitem(sys.modules, "_hashlib", raising=False)
-    monkeypatch.delitem(sys.modules, "_ssl", raising=False)
-    monkeypatch.setattr(
-        bootstrap.os,
-        "add_dll_directory",
-        lambda path: captured.append(path) or handle,
-        raising=False,
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_native_loader_test")
+    runtime = tmp_path / "python"
+    runtime.mkdir()
+    python = runtime / "python.exe"
+    python.write_bytes(b"MZ-python")
+    loader_path = runtime / "_devfabric_native_loader.pyd"
+    loader_path.write_bytes(b"reviewed-loader")
+    loader_hash = digest(loader_path.read_bytes())
+    calls: list[tuple[object, ...]] = []
+    loader = SimpleNamespace(
+        __file__=str(loader_path),
+        activate=lambda *args: calls.append(args) or bootstrap.NATIVE_LOADER_DEPENDENCIES,
     )
-    activation, retained, error = bootstrap._activate_launcher_dll_directory()
+    monkeypatch.setattr(bootstrap.sys, "executable", str(python))
+    monkeypatch.setattr(
+        bootstrap.importlib,
+        "import_module",
+        lambda name: loader
+        if name == "_devfabric_native_loader"
+        else pytest.fail(f"unexpected import before activation: {name}"),
+    )
+    for module, *_ in bootstrap.NATIVE_IMPORT_MATRIX:
+        monkeypatch.delitem(sys.modules, module, raising=False)
+
+    activation, error = bootstrap._activate_native_loader(loader_hash)
     assert error is None
-    assert retained is handle
-    assert captured == [str(Path(sys.executable).resolve(strict=True).parent)]
-    assert str(tmp_path) not in captured
+    assert calls == [()]
     assert activation == {
-        "schema_version": 1,
-        "directory_kind": "launcher_parent",
-        "status": "active",
+        "activated_dependencies": ["libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll"],
         "error_code": None,
+        "module_path": "python/_devfabric_native_loader.pyd",
+        "module_sha256": loader_hash,
+        "schema_version": 2,
+        "status": "active",
     }
-    monkeypatch.setitem(sys.modules, "_hashlib", object())
-    blocked_activation, blocked_handle, blocked_error = bootstrap._activate_launcher_dll_directory()
-    assert blocked_activation["status"] == "failed"
-    assert blocked_handle is None
-    assert isinstance(blocked_error, RuntimeError)
-    assert captured == [str(Path(sys.executable).resolve(strict=True).parent)]
-    monkeypatch.delitem(sys.modules, "_hashlib")
 
-    monkeypatch.chdir(repository_root)
-    argv, result, failure, _ = _bootstrap_argv(tmp_path / "lifetime", "pass\n")
-    guarded_handle = Handle()
+    wrong_hash, wrong_hash_error = bootstrap._activate_native_loader("f" * 64)
+    assert wrong_hash["status"] == "failed"
+    assert isinstance(wrong_hash_error, RuntimeError)
+    assert calls == [()]
 
-    def activate() -> tuple[dict[str, object], Handle, None]:
-        assert "_hashlib" not in sys.modules
-        assert "_ssl" not in sys.modules
-        return activation, guarded_handle, None
-
-    monkeypatch.setattr(
-        lifetime_bootstrap,
-        "_activate_launcher_dll_directory",
-        activate,
+    outside = tmp_path / "outside" / "_devfabric_native_loader.pyd"
+    outside.parent.mkdir()
+    outside.write_bytes(b"unreviewed-loader")
+    wrong_origin_loader = SimpleNamespace(
+        __file__=str(outside),
+        activate=lambda *args: calls.append(args) or bootstrap.NATIVE_LOADER_DEPENDENCIES,
     )
-    hashes = {
-        "_socket.pyd": "a" * 64,
-        "_overlapped.pyd": "b" * 64,
-        "select.pyd": "c" * 64,
-        "_hashlib.pyd": "e" * 64,
-        "_ssl.pyd": "d" * 64,
-    }
     monkeypatch.setattr(
-        lifetime_bootstrap,
-        "_native_file_observation",
-        lambda relative_path, filename: {
-            "observed_sha256": hashes[filename],
-            "relative_path": relative_path,
-            "status": "readable",
-        },
+        bootstrap.importlib,
+        "import_module",
+        lambda _name: wrong_origin_loader,
     )
-    imported: list[str] = []
+    wrong_origin, wrong_origin_error = bootstrap._activate_native_loader(loader_hash)
+    assert wrong_origin["status"] == "failed"
+    assert isinstance(wrong_origin_error, RuntimeError)
+    assert calls == [()]
 
-    def import_module(module: str) -> object:
-        assert guarded_handle.closed is False
-        if module in {"_hashlib", "_ssl"}:
-            assert module not in sys.modules
-        imported.append(module)
-        return object()
-
-    monkeypatch.setattr(lifetime_bootstrap.importlib, "import_module", import_module)
-
-    def guarded(*_: object) -> int:
-        assert guarded_handle.closed is False
-        assert imported == ["_socket", "_overlapped", "select", "_hashlib", "_ssl"]
-        result.write_bytes(b"{}")
-        return 0
-
+    wrong_result_loader = SimpleNamespace(
+        __file__=str(loader_path),
+        activate=lambda *args: calls.append(args)
+        or tuple(reversed(bootstrap.NATIVE_LOADER_DEPENDENCIES)),
+    )
     monkeypatch.setattr(
-        lifetime_bootstrap.runpy,
-        "run_path",
-        lambda *_args, **_kwargs: {"_child_guarded": guarded},
+        bootstrap.importlib,
+        "import_module",
+        lambda _name: wrong_result_loader,
     )
-    monkeypatch.setattr(sys, "argv", argv)
-    assert lifetime_bootstrap.main() == 0
-    assert guarded_handle.closed is True
-    assert result.read_bytes() == b"{}"
-    assert not failure.exists()
+    wrong_result, wrong_result_error = bootstrap._activate_native_loader(loader_hash)
+    assert wrong_result["status"] == "failed"
+    assert isinstance(wrong_result_error, RuntimeError)
+    assert calls == [(), ()]
+
+    monkeypatch.setitem(sys.modules, "_ctypes", object())
+    preloaded, preloaded_error = bootstrap._activate_native_loader(loader_hash)
+    assert preloaded["status"] == "failed"
+    assert isinstance(preloaded_error, RuntimeError)
+    assert calls == [(), ()]
 
 
-def test_stdlib_bootstrap_fails_closed_when_dll_directory_binding_fails(
+def test_stdlib_bootstrap_fails_closed_when_native_loader_activation_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bootstrap = load_bootstrap_module("windows_isolation_bootstrap_dll_failure_test")
     argv, _, failure, status = _bootstrap_argv(tmp_path, "pass\n")
-    binding_error = OSError(5, "sensitive loader path")
+    activation_error = OSError(5, "sensitive loader path")
     monkeypatch.setattr(
         bootstrap,
-        "_activate_launcher_dll_directory",
-        lambda: (
+        "_activate_native_loader",
+        lambda _expected_sha256: (
             {
-                "schema_version": 1,
-                "directory_kind": "launcher_parent",
-                "status": "failed",
+                "activated_dependencies": [],
                 "error_code": 5,
+                "module_path": "python/_devfabric_native_loader.pyd",
+                "module_sha256": None,
+                "schema_version": 2,
+                "status": "failed",
             },
-            None,
-            binding_error,
+            activation_error,
         ),
     )
     monkeypatch.setattr(sys, "argv", argv)
-    assert bootstrap.main() == bootstrap.EXIT_DLL_DIRECTORY_BINDING
+    assert bootstrap.main() == bootstrap.EXIT_NATIVE_LOADER_ACTIVATION
     assert status.is_file()
     observed = json.loads(failure.read_bytes())
-    assert observed["schema_version"] == 5
-    assert observed["phase"] == "bootstrap_dll_directory"
-    assert observed["dll_directory_activation"]["status"] == "failed"
+    assert observed["schema_version"] == 6
+    assert observed["phase"] == "bootstrap_native_loader"
+    assert observed["native_loader_activation"]["status"] == "failed"
     assert [item["import_status"] for item in observed["native_import_matrix"]] == [
         "not_attempted"
-    ] * 5
+    ] * 6
     assert b"sensitive" not in failure.read_bytes()
 
 
@@ -2880,7 +2960,7 @@ def test_stdlib_bootstrap_writes_bound_started_frame_before_valid_child(
     _allow_native_matrix(bootstrap, monkeypatch)
     argv, result, failure, status = _bootstrap_argv(
         tmp_path,
-        "def _child_guarded(request, result, failure, activation, matrix):\n"
+        "def _child_guarded_v6(request, result, failure, activation, matrix):\n"
         "    result.write_bytes(b'{}')\n"
         "    return 0\n",
     )
@@ -2925,10 +3005,10 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     bootstrap = load_bootstrap_module("windows_isolation_bootstrap_matrix_failure_test")
     argv, _, failure, status = _bootstrap_argv(tmp_path, "pass\n")
     observations = _successful_native_matrix()
-    observations[1]["import_status"] = "failed"
-    observations[2]["import_status"] = "not_attempted"
+    observations[2]["import_status"] = "failed"
     observations[3]["import_status"] = "not_attempted"
     observations[4]["import_status"] = "not_attempted"
+    observations[5]["import_status"] = "not_attempted"
     error = ImportError(
         "DLL load failed while importing _overlapped: C:\\private\\secret.dll",
         name="_overlapped",
@@ -2938,13 +3018,13 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
         "_run_native_import_matrix",
         lambda: (observations, error, bootstrap.EXIT_MATRIX_OVERLAPPED),
     )
-    _allow_dll_activation(bootstrap, monkeypatch)
+    _allow_native_loader_activation(bootstrap, monkeypatch)
     monkeypatch.setattr(sys, "argv", argv)
 
     assert bootstrap.main() == bootstrap.EXIT_MATRIX_OVERLAPPED
     assert status.is_file()
     observed = json.loads(failure.read_bytes())
-    assert observed["schema_version"] == 5
+    assert observed["schema_version"] == 6
     assert observed["phase"] == "bootstrap_native_matrix"
     assert observed["failed_matrix_module"] == "_overlapped"
     assert observed["loader_reason"] == "unknown"
@@ -2960,37 +3040,25 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     argv, _, failure, status = _bootstrap_argv(
         import_root, "raise ImportError('sensitive import detail')\n"
     )
-    native_observations = [
-        {
-            "observed_sha256": "8" * 64,
-            "relative_path": "python/_ctypes.pyd",
-            "status": "readable",
-        },
-        {
-            "observed_sha256": "9" * 64,
-            "relative_path": "python/libffi-8.dll",
-            "status": "readable",
-        },
-    ]
-    monkeypatch.setattr(import_failed, "_native_loader_observations", lambda: native_observations)
     monkeypatch.setattr(sys, "argv", argv)
     assert import_failed.main() == import_failed.EXIT_IMPORT_UNKNOWN
     assert status.is_file()
     observed = json.loads(failure.read_bytes())
-    assert observed["schema_version"] == 5
+    assert observed["schema_version"] == 6
     assert observed["phase"] == "bootstrap_import"
     assert observed["exception_class"] == "ImportError"
     assert observed["import_boundary"] == "unknown"
     assert observed["loader_reason"] == "unknown"
     assert observed["loader_code"] is None
-    assert observed["dll_directory_activation"] == {
-        "schema_version": 1,
-        "directory_kind": "launcher_parent",
-        "status": "active",
+    assert observed["native_loader_activation"] == {
+        "activated_dependencies": ["libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll"],
         "error_code": None,
+        "module_path": "python/_devfabric_native_loader.pyd",
+        "module_sha256": "7" * 64,
+        "schema_version": 2,
+        "status": "active",
     }
     assert observed["native_import_matrix"] == _successful_native_matrix()
-    assert observed["native_loader_observations"] == native_observations
     assert [item["relative_path"] for item in observed["native_crypto_observations"]] == [
         "python/_hashlib.pyd",
         "python/_ssl.pyd",
@@ -3063,6 +3131,60 @@ def test_stdlib_bootstrap_records_ordered_native_matrix_failure_without_raw_deta
     assert not failure.exists()
 
 
+@pytest.mark.windows_smoke
+def test_stdlib_bootstrap_v6_failure_round_trips_through_host_reader(tmp_path: Path) -> None:
+    bootstrap = load_bootstrap_module("windows_isolation_bootstrap_v6_round_trip_test")
+    failure = tmp_path / "child-failure.json"
+    matrix = _successful_native_matrix()
+    matrix[2]["import_status"] = "failed"
+    for observation in matrix[3:]:
+        observation["import_status"] = "not_attempted"
+    loader = {
+        "activated_dependencies": ["libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll"],
+        "error_code": None,
+        "module_path": "python/_devfabric_native_loader.pyd",
+        "module_sha256": "7" * 64,
+        "schema_version": 2,
+        "status": "active",
+    }
+
+    bootstrap._write_failure(
+        failure,
+        "bootstrap_native_matrix",
+        ImportError("unreviewed diagnostic detail", name="_overlapped"),
+        matrix,
+        loader,
+        "_overlapped",
+    )
+
+    raw = json.loads(failure.read_bytes())
+    assert [item["schema_version"] for item in raw["native_import_matrix"]] == [3] * 6
+    assert [item["file"]["schema_version"] for item in raw["native_import_matrix"]] == [3] * 6
+    assert [item["schema_version"] for item in raw["native_crypto_observations"]] == [1] * 4
+    if os.name != "nt":
+        return
+    probe = load_probe_module("windows_isolation_probe_v6_round_trip_test")
+    status, observed = probe._read_child_failure_v6(failure)
+    assert status == "validated"
+    assert observed is not None
+    assert observed.native_loader_activation.status == "active"
+    assert observed.failed_matrix_module == "_overlapped"
+    assert [item.import_status for item in observed.native_import_matrix] == [
+        "imported",
+        "imported",
+        "failed",
+        "not_attempted",
+        "not_attempted",
+        "not_attempted",
+    ]
+    assert [item.relative_path for item in observed.native_crypto_observations] == [
+        "python/_hashlib.pyd",
+        "python/_ssl.pyd",
+        "python/libcrypto-3.dll",
+        "python/libssl-3.dll",
+    ]
+
+
 def test_stdlib_bootstrap_distinguishes_invoke_failure_and_self_tampering(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3070,7 +3192,7 @@ def test_stdlib_bootstrap_distinguishes_invoke_failure_and_self_tampering(
     _allow_native_matrix(bootstrap, monkeypatch)
     argv, _, failure, status = _bootstrap_argv(
         tmp_path,
-        "def _child_guarded(request, result, failure, activation, matrix):\n"
+        "def _child_guarded_v6(request, result, failure, activation, matrix):\n"
         "    raise RuntimeError('sensitive invocation detail')\n",
     )
     monkeypatch.setattr(sys, "argv", argv)
@@ -3111,7 +3233,7 @@ def test_stdlib_bootstrap_bounds_failure_before_writing_and_reserves_exit_codes(
     argv, _, failure, status = _bootstrap_argv(
         tmp_path,
         f"Oversized = type({oversized_name!r}, (Exception,), {{}})\n"
-        "def _child_guarded(request, result, failure, activation, matrix):\n"
+        "def _child_guarded_v6(request, result, failure, activation, matrix):\n"
         "    raise Oversized()\n",
     )
     monkeypatch.setattr(sys, "argv", argv)
@@ -3142,9 +3264,11 @@ def test_stdlib_bootstrap_bounds_failure_before_writing_and_reserves_exit_codes(
         bootstrap.EXIT_DLL_DIRECTORY_BINDING,
         bootstrap.EXIT_MATRIX_HASHLIB_V5,
         bootstrap.EXIT_MATRIX_SSL_V5,
+        bootstrap.EXIT_NATIVE_LOADER_ACTIVATION,
+        bootstrap.EXIT_MATRIX_CTYPES_V6,
     }
-    assert len(exit_codes) == 22
-    assert exit_codes == set(range(189, 211))
+    assert len(exit_codes) == 24
+    assert exit_codes == set(range(189, 213))
 
 
 def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malformed_data(
@@ -3244,6 +3368,203 @@ def test_child_exit_diagnostic_distinguishes_ntstatus_python_failure_and_malform
             process, result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
         )
     assert invalid_started.value.diagnostic.payload.bootstrap_started_status == "invalid"
+
+
+def test_v6_child_exit_diagnostic_binds_loader_matrix_crypto_and_exit_code(
+    tmp_path: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows child diagnostic path")
+    probe = load_probe_module("windows_isolation_child_failure_v6_test")
+    profile = WindowsIsolationProfileV3.create(profile_payload_v3())
+    result = tmp_path / "child-result.json"
+    failure = tmp_path / "child-failure.json"
+    bootstrap = tmp_path / "bootstrap-started.json"
+    started_payload = probe.WindowsIsolationBootstrapStartedPayloadV1(
+        child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
+        environment_instance_id=ENVIRONMENT,
+        windows_isolation_profile_id=profile.windows_isolation_profile_id,
+        probe_sha256=profile.payload.probe_sha256,
+    )
+    started = probe.WindowsIsolationBootstrapStartedV1(
+        bootstrap_started_id=digest(canonical(started_payload.model_dump(mode="json"))),
+        payload=started_payload,
+    )
+    bootstrap.write_bytes(canonical(started.model_dump(mode="json")))
+    base_failure = {
+        "schema_version": 6,
+        "phase": "bootstrap_native_matrix",
+        "exception_class": "ImportError",
+        "winerror": None,
+        "errno": None,
+        "native_loader_activation": {
+            "schema_version": 2,
+            "module_path": "python/_devfabric_native_loader.pyd",
+            "status": "active",
+            "module_sha256": "7" * 64,
+            "activated_dependencies": [
+                "libffi-8.dll",
+                "libcrypto-3.dll",
+                "libssl-3.dll",
+            ],
+            "error_code": None,
+        },
+        "failed_matrix_module": "_ctypes",
+        "import_boundary": None,
+        "loader_code": None,
+        "loader_reason": "unknown",
+        "native_import_matrix": [
+            item.model_dump(mode="json")
+            for item in v6_child_matrix(
+                probe,
+                (
+                    "failed",
+                    "not_attempted",
+                    "not_attempted",
+                    "not_attempted",
+                    "not_attempted",
+                    "not_attempted",
+                ),
+            )
+        ],
+        "native_crypto_observations": [
+            item.model_dump(mode="json") for item in v5_crypto_observations(probe)
+        ],
+    }
+
+    def process(exit_code: int) -> SimpleNamespace:
+        return SimpleNamespace(
+            poll_exit_code=lambda: exit_code,
+            runtime_access_grant=runtime_access_grant_v2(profile),
+        )
+
+    def write_failure(value: dict[str, object]) -> None:
+        failure.write_bytes(canonical(value))
+
+    write_failure(base_failure)
+    with pytest.raises(probe.WindowsIsolationChildExitError) as exited:
+        probe._raise_if_child_exited(
+            process(212), result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+    diagnostic = exited.value.diagnostic
+    assert isinstance(diagnostic, probe.WindowsIsolationFailureDiagnosticV6)
+    assert diagnostic.payload.child_failure_status == "validated"
+    assert diagnostic.payload.process_exit_code == 212
+    assert diagnostic.payload.native_loader_activation.module_sha256 == "7" * 64
+    assert [item.expected_sha256 for item in diagnostic.payload.native_import_matrix] == [
+        item.expected_sha256 for item in native_import_expectations()
+    ]
+
+    def rehash_diagnostic(raw: dict[str, object]) -> None:
+        payload = raw["payload"]
+        assert isinstance(payload, dict)
+        raw["diagnostic_id"] = digest(canonical(payload))
+
+    paired_matrix_tamper = diagnostic.model_dump(mode="json")
+    paired_matrix_tamper["payload"]["native_import_matrix"][0]["expected_sha256"] = "f" * 64
+    paired_matrix_tamper["payload"]["native_import_matrix"][0]["child_observed_sha256"] = "f" * 64
+    paired_matrix_tamper["payload"]["child_failure"]["native_import_matrix"][0]["file"][
+        "observed_sha256"
+    ] = "f" * 64
+    rehash_diagnostic(paired_matrix_tamper)
+    with pytest.raises(ValidationError, match="matrix differs from V6 profile authority"):
+        probe.WindowsIsolationFailureDiagnosticV6.model_validate_json(
+            canonical(paired_matrix_tamper)
+        )
+
+    paired_crypto_tamper = diagnostic.model_dump(mode="json")
+    paired_crypto_tamper["payload"]["native_crypto_files"][0]["expected_sha256"] = "f" * 64
+    paired_crypto_tamper["payload"]["native_crypto_files"][0]["child_observed_sha256"] = "f" * 64
+    paired_crypto_tamper["payload"]["child_failure"]["native_crypto_observations"][0][
+        "observed_sha256"
+    ] = "f" * 64
+    rehash_diagnostic(paired_crypto_tamper)
+    with pytest.raises(ValidationError, match="crypto differs from V6 profile authority"):
+        probe.WindowsIsolationFailureDiagnosticV6.model_validate_json(
+            canonical(paired_crypto_tamper)
+        )
+
+    paired_dependency_tamper = diagnostic.model_dump(mode="json")
+    paired_dependency_tamper["payload"]["native_crypto_files"][2]["expected_sha256"] = "a" * 64
+    paired_dependency_tamper["payload"]["native_crypto_files"][2]["child_observed_sha256"] = (
+        "a" * 64
+    )
+    paired_dependency_tamper["payload"]["child_failure"]["native_crypto_observations"][2][
+        "observed_sha256"
+    ] = "a" * 64
+    rehash_diagnostic(paired_dependency_tamper)
+    with pytest.raises(ValidationError, match="crypto differs from V6 profile authority"):
+        probe.WindowsIsolationFailureDiagnosticV6.model_validate_json(
+            canonical(paired_dependency_tamper)
+        )
+
+    with pytest.raises(ValidationError, match="exit code"):
+        probe._raise_if_child_exited(
+            process(204), result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+
+    loader_tamper = copy.deepcopy(base_failure)
+    loader_tamper["native_loader_activation"]["module_sha256"] = "f" * 64
+    write_failure(loader_tamper)
+    with pytest.raises(ValidationError, match="outside reviewed authority"):
+        probe._raise_if_child_exited(
+            process(212), result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+
+    matrix_tamper = copy.deepcopy(base_failure)
+    matrix_tamper["native_import_matrix"][0]["file"]["observed_sha256"] = "f" * 64
+    write_failure(matrix_tamper)
+    with pytest.raises(ValidationError, match="immutable manifest"):
+        probe._raise_if_child_exited(
+            process(212), result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+
+    crypto_tamper = copy.deepcopy(base_failure)
+    crypto_tamper["native_crypto_observations"][0]["observed_sha256"] = "f" * 64
+    write_failure(crypto_tamper)
+    with pytest.raises(ValidationError, match="immutable manifest"):
+        probe._raise_if_child_exited(
+            process(212), result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+
+    order_tamper = copy.deepcopy(base_failure)
+    order_tamper["native_import_matrix"][0], order_tamper["native_import_matrix"][1] = (
+        order_tamper["native_import_matrix"][1],
+        order_tamper["native_import_matrix"][0],
+    )
+    write_failure(order_tamper)
+    with pytest.raises(probe.WindowsIsolationChildExitError) as invalid:
+        probe._raise_if_child_exited(
+            process(212), result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+    assert invalid.value.diagnostic.payload.child_failure_status == "invalid"
+    assert invalid.value.diagnostic.payload.native_loader_activation is None
+    assert all(
+        item.child_file_status == "not_observed"
+        for item in invalid.value.diagnostic.payload.native_import_matrix
+    )
+
+    failure.unlink()
+    with pytest.raises(probe.WindowsIsolationChildExitError) as absent:
+        probe._raise_if_child_exited(
+            process(212), result, failure, bootstrap, profile, ENVIRONMENT, native_loader_bundle()
+        )
+    assert absent.value.diagnostic.payload.child_failure_status == "absent"
+    assert absent.value.diagnostic.payload.native_loader_activation is None
+    absent_tamper = absent.value.diagnostic.model_dump(mode="json")
+    absent_tamper["payload"]["native_import_matrix"][0]["expected_sha256"] = "f" * 64
+    rehash_diagnostic(absent_tamper)
+    with pytest.raises(ValidationError, match="matrix differs from V6 profile authority"):
+        probe.WindowsIsolationFailureDiagnosticV6.model_validate_json(canonical(absent_tamper))
+    failure_output = tmp_path / "failure-evidence.json"
+    with pytest.raises(ExceptionGroup, match="cleanup failed"):
+        probe._raise_after_cleanup(
+            absent.value,
+            [OSError("cleanup failed")],
+            absent.value.diagnostic,
+            failure_output,
+        )
+    assert not failure_output.exists()
 
 
 @pytest.mark.parametrize(
@@ -3933,6 +4254,8 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         payload=SimpleNamespace(
             implementation_commit=IMPLEMENTATION_COMMIT,
             codex=SimpleNamespace(executable_sha256="3" * 64),
+            files=native_loader_bundle().payload.files,
+            native_loader=native_loader_authority(),
             python=SimpleNamespace(
                 executable_path="python/python.exe",
                 executable_sha256=digest(python.read_bytes()),
@@ -3965,6 +4288,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
             pass
 
     child = {
+        "schema_version": 2,
         "allowed_root_read_write": True,
         "inherited_handles_blocked": True,
         "inherited_handle_error_code": 6,
@@ -3980,6 +4304,25 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         "breakaway_blocked": True,
         "breakaway_error_code": 5,
         "breakaway_pid": None,
+        "native_loader_activation": {
+            "activated_dependencies": [
+                "libffi-8.dll",
+                "libcrypto-3.dll",
+                "libssl-3.dll",
+            ],
+            "module_path": "python/_devfabric_native_loader.pyd",
+            "module_sha256": "7" * 64,
+            "schema_version": 1,
+        },
+        "native_import_matrix": [
+            {
+                "module": item["module"],
+                "observed_sha256": item["file"]["observed_sha256"],
+                "relative_path": item["file"]["relative_path"],
+                "schema_version": 1,
+            }
+            for item in _successful_native_matrix()
+        ],
     }
 
     class Process:
@@ -4007,7 +4350,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
 
     def launch(*args: object, **kwargs: object) -> Process:
         profile = args[0]
-        assert isinstance(profile, WindowsIsolationProfileV2)
+        assert isinstance(profile, WindowsIsolationProfileV3)
         execution_bundle = Path(profile.payload.read_only_roots[0].locator)
         assert execution_bundle.name.endswith(".execution-bundle")
         assert Path(args[1]).is_relative_to(execution_bundle)
@@ -4029,6 +4372,7 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
         verifier = kwargs["verify_runtime_bundle"]
         assert callable(verifier)
         assert verifier(execution_bundle) == profile.payload.native_bundle_id
+        assert arguments[12] == profile.payload.native_loader.binary_sha256
         bootstrap_payload = probe.WindowsIsolationBootstrapStartedPayloadV1(
             child_bootstrap_sha256=arguments[8],
             environment_instance_id=arguments[9],
@@ -4079,11 +4423,58 @@ def test_qualify_retains_strict_profile_spec_and_receipt(tmp_path: Path, monkeyp
     evidence = probe.qualify(
         bundle_root, manifest, scratch, output, ENVIRONMENT, IMPLEMENTATION_COMMIT
     )
-    retained = WindowsIsolationEvidenceV4.model_validate_json(output.read_bytes())
+    retained = WindowsIsolationEvidenceV5.model_validate_json(output.read_bytes())
     assert retained == evidence
     assert retained.receipt.payload.no_direct_network_baseline_qualified is True
     assert retained.receipt.payload.native_executor_isolation_qualified is False
     assert retained.receipt.payload.package_readiness is False
+    assert retained.profile.payload.native_import_expectations == native_import_expectations()
+    assert (
+        retained.receipt.payload.native_import_expectations
+        == retained.profile.payload.native_import_expectations
+    )
+
+    def rehash_evidence(raw: dict[str, object]) -> None:
+        receipt = raw["receipt"]
+        assert isinstance(receipt, dict)
+        receipt_payload = receipt["payload"]
+        assert isinstance(receipt_payload, dict)
+        receipt["windows_isolation_receipt_id"] = digest(canonical(receipt_payload))
+        raw["windows_isolation_evidence_id"] = digest(
+            canonical(
+                {
+                    "profile": raw["profile"],
+                    "receipt": raw["receipt"],
+                    "sandbox_spec_base64": raw["sandbox_spec_base64"],
+                    "sandbox_spec_sha256": raw["sandbox_spec_sha256"],
+                    "schema_version": raw["schema_version"],
+                }
+            )
+        )
+
+    observed_tamper = retained.model_dump(mode="json")
+    observed_tamper["receipt"]["payload"]["native_import_matrix"][0]["observed_sha256"] = "f" * 64
+    rehash_evidence(observed_tamper)
+    with pytest.raises(ValidationError, match="immutable bundle authority"):
+        WindowsIsolationEvidenceV5.model_validate_json(canonical(observed_tamper))
+
+    expectation_tamper = retained.model_dump(mode="json")
+    expectation_tamper["receipt"]["payload"]["native_import_expectations"][0]["expected_sha256"] = (
+        "f" * 64
+    )
+    expectation_tamper["receipt"]["payload"]["native_import_matrix"][0]["observed_sha256"] = (
+        "f" * 64
+    )
+    rehash_evidence(expectation_tamper)
+    with pytest.raises(ValidationError, match="retained V6 profile"):
+        WindowsIsolationEvidenceV5.model_validate_json(canonical(expectation_tamper))
+
+    loader_tamper = retained.model_dump(mode="json")
+    loader_tamper["receipt"]["payload"]["native_loader"]["binary_sha256"] = "f" * 64
+    loader_tamper["receipt"]["payload"]["native_loader_activation"]["module_sha256"] = "f" * 64
+    rehash_evidence(loader_tamper)
+    with pytest.raises(ValidationError, match="retained V6 profile"):
+        WindowsIsolationEvidenceV5.model_validate_json(canonical(loader_tamper))
     assert not scratch.exists()
     assert not scratch.with_name(scratch.name + ".execution-bundle").exists()
     assert python.read_bytes() == b"MZ-native-python"
@@ -4172,7 +4563,12 @@ def test_qualify_cleans_every_early_acquisition_failure(
     scratch = tmp_path / "scratch"
     output = tmp_path / "evidence.json"
     bundle = SimpleNamespace(
-        bundle_id=H, payload=SimpleNamespace(implementation_commit=IMPLEMENTATION_COMMIT)
+        bundle_id=H,
+        payload=SimpleNamespace(
+            implementation_commit=IMPLEMENTATION_COMMIT,
+            files=native_loader_bundle().payload.files,
+            native_loader=native_loader_authority(),
+        ),
     )
 
     class BundleParser:
