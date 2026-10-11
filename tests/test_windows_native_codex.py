@@ -51,6 +51,7 @@ def test_windows_build_reuses_retained_source_preparation(tmp_path, monkeypatch)
     checkout = tmp_path / "pinned-source"
     root = checkout / "codex-rs"
     root.mkdir(parents=True)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(checkout.parent))
     original = b"original lock\n"
     derived = b"complete production lock\n"
     (root / "Cargo.lock").write_bytes(original)

@@ -625,6 +625,57 @@ def test_linux_workflow_names_forward_only_build_005_artifacts() -> None:
     assert "devfabric-linux-build-004" not in workflow
 
 
+def test_linux_build_005_uses_complete_source_preparation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "pinned-source"
+    root = checkout / "codex-rs"
+    root.mkdir(parents=True)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(checkout.parent))
+    original = b"original lock\n"
+    derived = b"complete production lock\n"
+    (root / "Cargo.lock").write_bytes(original)
+    candidate = b"""diff --git a/codex-rs/candidate.txt b/codex-rs/candidate.txt
+new file mode 100644
+--- /dev/null
++++ b/codex-rs/candidate.txt
+@@ -0,0 +1 @@
++candidate
+"""
+    host = b"""diff --git a/host.txt b/host.txt
+new file mode 100644
+--- /dev/null
++++ b/host.txt
+@@ -0,0 +1 @@
++host
+"""
+    monkeypatch.setattr(LINUX_BUILD.retained, "ORIGINAL", hashlib.sha256(original).hexdigest())
+    monkeypatch.setattr(
+        LINUX_BUILD.retained,
+        "PRODUCTION_HOST_LOCK_SHA256",
+        hashlib.sha256(derived).hexdigest(),
+    )
+    monkeypatch.setattr(
+        LINUX_BUILD.retained,
+        "derive_production_host_lock",
+        lambda candidate_root: (derived, [{"source": str(candidate_root)}]),
+    )
+
+    result = LINUX_BUILD.retained.prepare_build_source(
+        root,
+        candidate_patch=candidate,
+        host_patch=host,
+        build_id="linux-build-005",
+    )
+
+    assert (root / "candidate.txt").read_text(encoding="utf-8") == "candidate\n"
+    assert (root / "host.txt").read_text(encoding="utf-8") == "host\n"
+    assert result["candidate_patch_applied"] is True
+    assert result["host_patch_applied"] is True
+    assert result["lock_strategy"] == "complete_patched_manifest_bound_derived_lock"
+    assert result["proof_cargo_lock_sha256"] == hashlib.sha256(derived).hexdigest()
+
+
 def test_cargo_receives_reviewed_v8_release_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

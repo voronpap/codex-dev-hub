@@ -305,6 +305,9 @@ output, and pinned Codex creates Unix arg0 symlinks there. Its immutable classif
 `linux-build-005` keeps each proof `CODEX_HOME` in a fresh sibling runtime-scratch
 root outside sealed output, requires exhaustive cleanup, and binds the successful
 cleanup into its proof receipt. The strict recursive evidence inventory is unchanged.
+Run `38165368199` is retained as a pre-compilation registration failure: source
+preparation rejected the previously unregistered `linux-build-005` identifier, so
+Rust compilation and process proof did not start.
 
 Its strict self-hashed receipt binds both executable hashes, ELF class/machine,
 program interpreter, `DT_NEEDED`, absence of embedded RPATH/RUNPATH, required
