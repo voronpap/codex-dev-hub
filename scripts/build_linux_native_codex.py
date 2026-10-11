@@ -30,16 +30,16 @@ from derive_stage3g_production_lock import PRODUCTION_HOST_LOCK_SHA256
 from stage3g_schema_hash import read_schema_identity
 
 from devhub.linux_native import (
-    LinuxBuildProvenanceV4,
+    LinuxBuildProvenanceV5,
     LinuxElfIdentityV1,
-    LinuxHostProofSummaryV2,
+    LinuxHostProofSummaryV3,
     LinuxNativeBinaryV1,
-    LinuxNativeCodexBuildPayloadV4,
-    LinuxNativeCodexBuildV4,
+    LinuxNativeCodexBuildPayloadV5,
+    LinuxNativeCodexBuildV5,
 )
 from devhub.native_bundle import git_blob_sha256
 
-BUILD_ID = "linux-build-004"
+BUILD_ID = "linux-build-005"
 TARGET = "x86_64-unknown-linux-gnu"
 V8_RELEASE_TAG = "rusty-v8-v150.4.0"
 V8_RELEASE_BASE = f"https://github.com/openai/codex/releases/download/{V8_RELEASE_TAG}"
@@ -371,7 +371,7 @@ def _proof_summary(
     eof: dict[str, object],
     eof_receipt_sha256: str,
     host_binary: LinuxNativeBinaryV1,
-) -> LinuxHostProofSummaryV2:
+) -> LinuxHostProofSummaryV3:
     arms = proof["arms"]
     default = proof["default"]
     same = proof["same_binary"]
@@ -394,7 +394,7 @@ def _proof_summary(
         or eof.get("binary_relative_path") != host_binary.relative_path
     ):
         raise ValueError("EOF proof does not bind the exact sibling code-mode host")
-    return LinuxHostProofSummaryV2(
+    return LinuxHostProofSummaryV3(
         process_proof_sha256=proof_sha256,
         code_mode_host_sha256=host_binary.sha256,
         code_mode_host_eof_receipt_sha256=eof_receipt_sha256,
@@ -417,7 +417,60 @@ def _proof_summary(
         provider_sends=proof["provider_sends"],
         mcp_tool_executions=proof["mcp_tool_executions"],
         real_task_executions=proof["real_task_executions"],
+        runtime_scratch_cleanup_passed=proof["runtime_scratch_cleanup_passed"],
     )
+
+
+def _process_proof_with_runtime_scratch(
+    *,
+    runtime_scratch: Path,
+    output: Path,
+    process_proof: Any = shared.process_proof,
+    **kwargs: object,
+) -> dict[str, object]:
+    """Run proof with transient homes outside output and prove complete cleanup."""
+
+    runtime_scratch = runtime_scratch.absolute()
+    output = output.absolute()
+    if runtime_scratch.exists() or runtime_scratch.is_symlink():
+        raise FileExistsError(runtime_scratch)
+    if os.path.commonpath((str(output), str(runtime_scratch))) in {
+        str(output),
+        str(runtime_scratch),
+    }:
+        raise ValueError("Linux process-proof runtime scratch overlaps sealed output")
+    runtime_scratch.mkdir()
+    proof: dict[str, object] | None = None
+    primary: BaseException | None = None
+    try:
+        proof = process_proof(
+            output=output,
+            runtime_home_root=runtime_scratch,
+            **kwargs,
+        )
+    except BaseException as error:
+        primary = error
+    cleanup: BaseException | None = None
+    try:
+        if runtime_scratch.is_symlink() or not runtime_scratch.is_dir():
+            raise RuntimeError("Linux process-proof runtime scratch identity changed")
+        shutil.rmtree(runtime_scratch)
+        if runtime_scratch.exists() or runtime_scratch.is_symlink():
+            raise RuntimeError("Linux process-proof runtime scratch cleanup was incomplete")
+    except BaseException as error:
+        cleanup = error
+    if primary is not None and cleanup is not None:
+        raise BaseExceptionGroup(
+            "Linux process proof and runtime cleanup failed", (primary, cleanup)
+        )
+    if cleanup is not None:
+        raise cleanup
+    if primary is not None:
+        raise primary
+    if proof is None:
+        raise AssertionError("Linux process proof returned no result")
+    proof["runtime_scratch_cleanup_passed"] = True
+    return proof
 
 
 def _run_cargo_build(
@@ -603,8 +656,16 @@ def main() -> None:
     args = parser.parse_args()
     if platform.system() != "Linux" or platform.machine().lower() != "x86_64":
         parser.error(f"{BUILD_ID} requires native Linux x86_64")
-    if args.workspace.exists() or args.output.exists():
-        parser.error("workspace and output must not already exist")
+    runtime_scratch = args.output.with_name(args.output.name + ".runtime-scratch")
+    if (
+        args.workspace.exists()
+        or args.workspace.is_symlink()
+        or args.output.exists()
+        or args.output.is_symlink()
+        or runtime_scratch.exists()
+        or runtime_scratch.is_symlink()
+    ):
+        parser.error("workspace, output, and runtime scratch must not already exist")
     repo = Path(__file__).resolve().parents[1]
     args.workspace.mkdir(parents=True)
     args.output.mkdir(parents=True)
@@ -769,8 +830,9 @@ def main() -> None:
         eof_path = args.output / "code-mode-host-eof.json"
         eof = _host_eof_proof(binary_dir / "codex-code-mode-host", eof_path)
         _seal_phase(state, state_path, "process_proof")
-        proof = shared.process_proof(
-            binary_dir / "codex",
+        proof = _process_proof_with_runtime_scratch(
+            runtime_scratch=runtime_scratch,
+            binary=binary_dir / "codex",
             output=args.output,
             manifest=manifest,
             manifest_sha256=manifest_hash,
@@ -800,8 +862,8 @@ def main() -> None:
         rustc = _tool_path("rustc")
         cargo = _tool_path("cargo")
         provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
-        payload = LinuxNativeCodexBuildPayloadV4(
-            provenance=LinuxBuildProvenanceV4(
+        payload = LinuxNativeCodexBuildPayloadV5(
+            provenance=LinuxBuildProvenanceV5(
                 implementation_commit=implementation_commit,
                 codex_source_commit=retained.SOURCE_COMMIT,
                 source_archive_sha256=retained.SOURCE_ARCHIVE_SHA256,
@@ -831,7 +893,7 @@ def main() -> None:
             binaries=binaries,
             process_proof=summary,
         )
-        final = LinuxNativeCodexBuildV4.create(payload)
+        final = LinuxNativeCodexBuildV5.create(payload)
         (args.output / "linux-native-codex-build.json").write_text(
             final.model_dump_json(indent=2) + "\n", encoding="utf-8"
         )

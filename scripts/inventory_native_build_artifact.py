@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 from devhub.experiment_launch import durable_publish
-from devhub.linux_native import LinuxNativeCodexBuildV4
+from devhub.linux_native import LinuxNativeCodexBuildV4, LinuxNativeCodexBuildV5
 from devhub.native_proof import (
     LinuxNativeBuildArtifactJoinV1,
     NativeBuildArtifactEntryV1,
@@ -77,11 +77,22 @@ def _sha256(path: Path) -> str:
     return value.hexdigest()
 
 
-def _plain_file(path: Path) -> os.stat_result:
+def _safe_path_diagnostic(relative_path: str) -> str:
+    """Return a bounded ASCII-only label for an untrusted filesystem name."""
+
+    escaped = relative_path.encode("unicode_escape", errors="backslashreplace").decode("ascii")
+    if len(escaped) <= 160:
+        return escaped
+    identity = hashlib.sha256(relative_path.encode("utf-8", errors="surrogatepass")).hexdigest()
+    return f"{escaped[:80]}...[path_sha256={identity}]"
+
+
+def _plain_file(path: Path, *, relative_path: str | None = None) -> os.stat_result:
     result = path.lstat()
     reparse = getattr(result, "st_file_attributes", 0) & 0x400
     if path.is_symlink() or reparse or not stat.S_ISREG(result.st_mode):
-        raise ValueError("Native build artifact entries must be plain regular files")
+        suffix = f": {_safe_path_diagnostic(relative_path)}" if relative_path is not None else ""
+        raise ValueError(f"Native build artifact entries must be plain regular files{suffix}")
     return result
 
 
@@ -182,7 +193,7 @@ def _inventory_native(
             raise ValueError(
                 f"{platform_label} native build artifact contains an unknown file tree"
             )
-        result = _plain_file(path)
+        result = _plain_file(path, relative_path=relative)
         entries.append(
             NativeBuildArtifactEntryV1(
                 relative_path=relative,
@@ -463,13 +474,16 @@ def seal_linux(root: Path, build_id: str) -> NativeBuildArtifactInventoryV2:
     files = inventory_linux(root)
     linux_pair = None
     if status == "PASS":
-        if build_id != "linux-build-004":
+        if build_id not in {"linux-build-004", "linux-build-005"}:
             raise ValueError("Linux native build inventory does not support this build ID")
         receipt_path = root / "linux-native-codex-build.json"
         receipt_stat = _plain_file(receipt_path)
         if receipt_stat.st_size > 256 * 1024:
             raise ValueError("Linux native build receipt exceeds its size bound")
-        receipt = LinuxNativeCodexBuildV4.model_validate_json(receipt_path.read_bytes())
+        receipt_model = (
+            LinuxNativeCodexBuildV5 if build_id == "linux-build-005" else LinuxNativeCodexBuildV4
+        )
+        receipt = receipt_model.model_validate_json(receipt_path.read_bytes())
         if receipt.payload.provenance.build_id != build_id:
             raise ValueError("Linux native build receipt identity differs")
         binary_by_role = {item.role: item for item in receipt.payload.binaries}

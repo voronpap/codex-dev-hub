@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -10,12 +11,12 @@ import pytest
 from pydantic import ValidationError
 
 from devhub.linux_native import (
-    LinuxBuildProvenanceV4,
+    LinuxBuildProvenanceV5,
     LinuxElfIdentityV1,
-    LinuxHostProofSummaryV2,
+    LinuxHostProofSummaryV3,
     LinuxNativeBinaryV1,
-    LinuxNativeCodexBuildPayloadV4,
-    LinuxNativeCodexBuildV4,
+    LinuxNativeCodexBuildPayloadV5,
+    LinuxNativeCodexBuildV5,
 )
 from devhub.native_proof import (
     LinuxNativeBuildArtifactJoinV1,
@@ -53,7 +54,7 @@ def _result(root: Path, *, status: str = "FAIL") -> None:
 
 def _linux_result(root: Path, *, status: str = "FAIL") -> None:
     (root / "linux-build-result.json").write_text(
-        json.dumps({"build_id": "linux-build-004", "status": status}), encoding="utf-8"
+        json.dumps({"build_id": "linux-build-005", "status": status}), encoding="utf-8"
     )
 
 
@@ -167,7 +168,7 @@ def _pass_artifact(root: Path) -> WindowsNativeCodexBuildV5:
     return receipt
 
 
-def _linux_pass_artifact(root: Path) -> LinuxNativeCodexBuildV4:
+def _linux_pass_artifact(root: Path) -> LinuxNativeCodexBuildV5:
     binary = root / "binary"
     binary.mkdir()
     codex_path = binary / "codex"
@@ -199,7 +200,7 @@ def _linux_pass_artifact(root: Path) -> LinuxNativeCodexBuildV4:
         elf=elf,
         identity_output_sha256="2" * 64,
     )
-    provenance = LinuxBuildProvenanceV4(
+    provenance = LinuxBuildProvenanceV5(
         implementation_commit="a" * 40,
         codex_source_commit="b" * 40,
         source_archive_sha256="1" * 64,
@@ -247,13 +248,13 @@ def _linux_pass_artifact(root: Path) -> LinuxNativeCodexBuildV4:
             "6774b42c9424c098c72a805c08d4e94be17c591cf02b1dc2633060255a8a61be"
         ),
     )
-    proof = LinuxHostProofSummaryV2(
+    proof = LinuxHostProofSummaryV3(
         process_proof_sha256=_sha256(proof_path),
         code_mode_host_sha256=host.sha256,
         code_mode_host_eof_receipt_sha256=_sha256(eof_path),
     )
-    receipt = LinuxNativeCodexBuildV4.create(
-        LinuxNativeCodexBuildPayloadV4(
+    receipt = LinuxNativeCodexBuildV5.create(
+        LinuxNativeCodexBuildPayloadV5(
             provenance=provenance,
             binaries=(codex, host),
             process_proof=proof,
@@ -265,7 +266,7 @@ def _linux_pass_artifact(root: Path) -> LinuxNativeCodexBuildV4:
     (root / "linux-build-result.json").write_text(
         json.dumps(
             {
-                "build_id": "linux-build-004",
+                "build_id": "linux-build-005",
                 "status": "PASS",
                 "linux_native_codex_build_id": receipt.linux_native_codex_build_id,
                 "executable_sha256": codex.sha256,
@@ -335,7 +336,7 @@ def test_windows_pass_inventory_rejects_binary_substitution(tmp_path: Path) -> N
 def test_linux_pass_inventory_exactly_joins_pair_proof_and_result(tmp_path: Path) -> None:
     pair = _linux_pass_artifact(tmp_path)
 
-    receipt = INVENTORY.seal_linux(tmp_path, "linux-build-004")
+    receipt = INVENTORY.seal_linux(tmp_path, "linux-build-005")
 
     assert receipt.payload.status == "PASS"
     assert receipt.payload.linux_pair is not None
@@ -361,7 +362,7 @@ def test_linux_pass_inventory_rejects_binary_substitution(tmp_path: Path) -> Non
     (tmp_path / "binary/codex").write_bytes(b"substituted")
 
     with pytest.raises(ValueError, match="exact binary pair"):
-        INVENTORY.seal_linux(tmp_path, "linux-build-004")
+        INVENTORY.seal_linux(tmp_path, "linux-build-005")
 
 
 def test_linux_failure_projection_retains_hidden_evidence_and_excludes_binary(
@@ -372,14 +373,14 @@ def test_linux_failure_projection_retains_hidden_evidence_and_excludes_binary(
     _linux_result(root)
     (root / "binary").mkdir()
     (root / "binary/codex").write_bytes(b"failed proof binary")
-    hidden = root / "process-proof/arm-a/codex home/skills/.system/SKILL.md"
+    hidden = root / "process-proof/arm-a/observer/.hidden-state.json"
     hidden.parent.mkdir(parents=True)
     hidden.write_bytes(b"hidden evidence")
-    lock = root / "process-proof/arm-a/codex home/tmp/arg0/session/.lock"
-    lock.parent.mkdir(parents=True)
+    lock = root / "process-proof/arm-a/observer/.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_bytes(b"locked")
 
-    inventory = INVENTORY.seal_linux(root, "linux-build-004")
+    inventory = INVENTORY.seal_linux(root, "linux-build-005")
     projection = tmp_path / "projection"
     members = INVENTORY.project_linux_evidence(root, projection, inventory)
 
@@ -388,8 +389,8 @@ def test_linux_failure_projection_retains_hidden_evidence_and_excludes_binary(
     assert members == (
         "linux-build-result.json",
         INVENTORY.INVENTORY_NAME,
-        "process-proof/arm-a/codex home/skills/.system/SKILL.md",
-        "process-proof/arm-a/codex home/tmp/arg0/session/.lock",
+        "process-proof/arm-a/observer/.hidden-state.json",
+        "process-proof/arm-a/observer/.lock",
     )
     assert not (projection / "binary/codex").exists()
     assert INVENTORY.verify_linux_evidence_projection(projection, inventory) == members
@@ -488,6 +489,36 @@ def test_windows_build_inventory_rejects_linked_entry(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="plain regular files"):
         INVENTORY.seal_windows(tmp_path, "windows-build-006")
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation requires Unix")
+def test_linux_build_inventory_rejects_special_file_with_bounded_path(tmp_path: Path) -> None:
+    _linux_result(tmp_path)
+    (tmp_path / "process-proof").mkdir()
+    fifo = tmp_path / "process-proof/runtime.pipe"
+    os.mkfifo(fifo)
+
+    with pytest.raises(
+        ValueError,
+        match=r"plain regular files: process-proof/runtime\.pipe$",
+    ):
+        INVENTORY.seal_linux(tmp_path, "linux-build-005")
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation requires Unix")
+def test_nonplain_path_diagnostic_is_ascii_escaped_and_bounded(tmp_path: Path) -> None:
+    special = tmp_path / ("line\nbreak-" + "x" * 180)
+    os.mkfifo(special)
+
+    with pytest.raises(ValueError) as caught:
+        INVENTORY._plain_file(special, relative_path=special.name)
+
+    message = str(caught.value)
+    assert "line\\nbreak" in message
+    assert "\n" not in message
+    assert "path_sha256=" in message
+    assert message.isascii()
+    assert len(message) <= 220
 
 
 def test_windows_build_inventory_rejects_linked_root(tmp_path: Path) -> None:

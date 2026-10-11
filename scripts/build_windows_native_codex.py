@@ -559,9 +559,29 @@ def process_proof(
     platform_label: str = "Windows",
     scope: str = "native Windows Codex host construction and finalized pre-sampling visibility",
     isolation_field: str = "windows_executor_isolation_qualified",
+    runtime_home_root: Path | None = None,
 ) -> dict[str, object]:
     root = output / "process-proof"
     root.mkdir(exist_ok=False)
+    if runtime_home_root is not None:
+        runtime_home_root = runtime_home_root.absolute()
+        if (
+            runtime_home_root.is_symlink()
+            or not runtime_home_root.is_dir()
+            or any(runtime_home_root.iterdir())
+        ):
+            raise ValueError("Process-proof runtime home root must be a fresh plain directory")
+        if os.path.commonpath((str(output.absolute()), str(runtime_home_root))) in {
+            str(output.absolute()),
+            str(runtime_home_root),
+        }:
+            raise ValueError("Process-proof runtime home root must not overlap sealed output")
+
+    def runtime_home(label: str, legacy_home: Path) -> Path:
+        home = legacy_home if runtime_home_root is None else runtime_home_root / label
+        home.mkdir()
+        return home
+
     work = root / "робочий каталог with spaces"
     work.mkdir()
     receipt = root / "mcp-receipt.jsonl"
@@ -572,8 +592,7 @@ def process_proof(
     for arm in ("a", "b"):
         run_dir = root / f"arm-{arm}"
         run_dir.mkdir()
-        home = run_dir / "codex home"
-        home.mkdir()
+        home = runtime_home(f"arm-{arm}", run_dir / "codex home")
         observer = run_dir / "observer.json"
         mcp_pid = run_dir / "mcp.pid"
         run = capture(
@@ -615,8 +634,7 @@ def process_proof(
 
     default_dir = root / "default"
     default_dir.mkdir()
-    default_home = default_dir / "codex home"
-    default_home.mkdir()
+    default_home = runtime_home("default", default_dir / "codex home")
     default_observer = default_dir / "observer.json"
     default = capture(
         [str(binary), *retained._default_exec(work, default_observer)],
@@ -695,8 +713,7 @@ def process_proof(
         )
     negatives: dict[str, object] = {}
     for label, args, expected in negative_specs:
-        home = root / f"negative-{label}-home"
-        home.mkdir()
+        home = runtime_home(f"negative-{label}", root / f"negative-{label}-home")
         negatives[label] = _negative(
             binary,
             binary_sha256,
@@ -710,8 +727,7 @@ def process_proof(
         if not negatives[label]["passed"]:  # type: ignore[index]
             raise ValueError(f"{platform_label} negative proof failed: {label}")
 
-    lookalike_home = root / "lookalike-home"
-    lookalike_home.mkdir()
+    lookalike_home = runtime_home("lookalike", root / "lookalike-home")
     lookalike_observer = root / "lookalike.observer.json"
     lookalike = capture(
         [

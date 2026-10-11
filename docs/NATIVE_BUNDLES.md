@@ -296,7 +296,15 @@ Default authority already accepted for Windows while retaining Arm A `{}`, Arm B
 exactly the delegate, all security negatives and zero execution counters. It also
 seals the complete build output and creates a separate inventory-bound evidence
 projection that explicitly includes hidden files. V1-V3 receipts remain strict
-historical contracts.
+historical contracts. Run `38159406760` compiled and proved that exact pair, then
+failed closed when the artifact inventory encountered a non-regular process-proof
+runtime entry. The retained failure did not record the offending pathname;
+`CODEX_HOME` was the only unbounded subprocess-mutated tree in the retained
+output, and pinned Codex creates Unix arg0 symlinks there. Its immutable classification is
+`POSTPROOF_NONPLAIN_RUNTIME_SCRATCH_INVENTORY_FAILURE`. Forward-only
+`linux-build-005` keeps each proof `CODEX_HOME` in a fresh sibling runtime-scratch
+root outside sealed output, requires exhaustive cleanup, and binds the successful
+cleanup into its proof receipt. The strict recursive evidence inventory is unchanged.
 
 Its strict self-hashed receipt binds both executable hashes, ELF class/machine,
 program interpreter, `DT_NEEDED`, absence of embedded RPATH/RUNPATH, required
@@ -407,8 +415,8 @@ Build-020 and all OCI evidence remain immutable historical evidence.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PASS — reviewed `windows-build-006` pair and complete retained artifact inventory | PENDING — reviewed `linux-build-004` forward correction requires exact-head CI; OCI binary does not qualify it |
-| Same-binary host authority | PASS — `windows-build-006` exact Default/A/B, security, EOF and complete artifact proof | PENDING — `linux-build-003` compiled/proved but its historical receipt rejected the ordinary Default representation; `linux-build-004` pending CI |
+| Exact native Codex | PASS — reviewed `windows-build-006` pair and complete retained artifact inventory | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` pending CI; OCI binary does not qualify it |
+| Same-binary host authority | PASS — `windows-build-006` exact Default/A/B, security, EOF and complete artifact proof | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` pending CI |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
@@ -419,7 +427,7 @@ Build-020 and all OCI evidence remain immutable historical evidence.
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PENDING directory/launcher/file manifest |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for the `windows-build-006` native executable-pair authority slice; later package gates remain separate | Native Linux `linux-build-004` executable-pair workflow/review pending |
+| CI/review | PASS for the `windows-build-006` native executable-pair authority slice; later package gates remain separate | Native Linux `linux-build-005` executable-pair workflow/review pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant
