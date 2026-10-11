@@ -7,13 +7,19 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 from devhub.windows_native import (
     WindowsBuildProvenanceV2,
     WindowsBuildProvenanceV3,
+    WindowsBuildProvenanceV4,
+    WindowsHostProofSummaryV2,
+    WindowsHostProofSummaryV3,
     WindowsNativeCodexBuildPayloadV2,
     WindowsNativeCodexBuildPayloadV3,
+    WindowsNativeCodexBuildPayloadV4,
     WindowsNativeCodexBuildV2,
     WindowsNativeCodexBuildV3,
+    WindowsNativeCodexBuildV4,
 )
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -33,7 +39,7 @@ def test_windows_build_reuses_exact_reviewed_identities() -> None:
     candidate = (repo / "patches/stage3g-approved-call/candidate.patch").read_bytes()
     host = (repo / "patches/stage3g-approved-call/host-integration.patch").read_bytes()
 
-    assert WINDOWS_BUILD.BUILD_ID == "windows-build-004"
+    assert WINDOWS_BUILD.BUILD_ID == "windows-build-005"
     assert WINDOWS_BUILD.TARGET == "x86_64-pc-windows-msvc"
     assert hashlib.sha256(candidate).hexdigest() == retained.CANDIDATE_SHA256
     assert hashlib.sha256(host).hexdigest() == retained.HOST_SHA256
@@ -247,11 +253,16 @@ def test_workflow_binds_pull_request_head_and_never_cancels_build() -> None:
     assert "cancel-in-progress: false" in workflow
     assert "$workspace = 'C:\\dfw003\\s'" in workflow
     assert "$output = 'C:\\dfw003\\e'" in workflow
-    assert "--build-id windows-build-004" in workflow
+    assert "--build-id windows-build-005" in workflow
     assert "--workflow-run-id '${{ github.run_id }}'" in workflow
     assert "--workflow-run-attempt '${{ github.run_attempt }}'" in workflow
-    assert "name: devfabric-windows-build-004" in workflow
-    assert "path: C:\\dfw003\\e" in workflow
+    assert "name: devfabric-windows-build-005-evidence" in workflow
+    assert "name: devfabric-windows-build-005-binaries" in workflow
+    assert "scripts/inventory_native_build_artifact.py" in workflow
+    assert "!C:/dfw003/e/binary/**" in workflow
+    assert "C:/dfw003/e/windows-process-proof.json" in workflow
+    assert "C:/dfw003/e/code-mode-host-eof.json" in workflow
+    assert "if: success()" in workflow
 
 
 def _pe64_console() -> bytes:
@@ -328,7 +339,13 @@ def _proof_fixture() -> dict[str, object]:
                 "mcp_child_exited": True,
             },
         },
-        "default": {"observer": observer([], ceiling=False, policy=False)},
+        "default": {
+            "observer": observer(
+                list(ORDINARY_DEFAULT_VISIBLE_TOOLS_V1),
+                ceiling=False,
+                policy=False,
+            )
+        },
         "same_binary": {
             "b_minus_a": ["mcp__devhub_delegate.devhub_delegate"],
             "a_minus_b": [],
@@ -446,7 +463,7 @@ def test_pair_contract_rejects_reordering_and_forged_self_hash(tmp_path) -> None
             workflow_sha256="f" * 64,
         ),
         binaries=(codex, host),
-        process_proof=WINDOWS_BUILD.WindowsHostProofSummaryV2(
+        process_proof=WindowsHostProofSummaryV2(
             process_proof_sha256="1" * 64,
             code_mode_host_sha256=host.sha256,
             code_mode_host_eof_receipt_sha256="2" * 64,
@@ -529,7 +546,7 @@ def test_windows_build_004_binds_official_sandbox_release() -> None:
             v8_checksum_post_build_sha256=WINDOWS_BUILD.V8_CHECKSUM_SHA256,
         ),
         binaries=(codex, host),
-        process_proof=WINDOWS_BUILD.WindowsHostProofSummaryV2(
+        process_proof=WindowsHostProofSummaryV2(
             process_proof_sha256="3" * 64,
             code_mode_host_sha256=host.sha256,
             code_mode_host_eof_receipt_sha256="4" * 64,
@@ -540,6 +557,78 @@ def test_windows_build_004_binds_official_sandbox_release() -> None:
     assert receipt.payload.provenance.build_id == "windows-build-004"
     assert receipt.payload.provenance.v8_sandbox_feature_enabled is True
     assert WindowsNativeCodexBuildV3.model_validate_json(receipt.model_dump_json()) == receipt
+
+
+def test_windows_build_005_binds_exact_ordinary_default_surface() -> None:
+    codex = WINDOWS_BUILD.WindowsNativeBinaryV2(
+        role="codex",
+        relative_path="binary/codex.exe",
+        sha256="1" * 64,
+        size=1,
+        pe=WINDOWS_BUILD.WindowsPeIdentityV1(dll_characteristics=0x8160),
+    )
+    host = WINDOWS_BUILD.WindowsNativeBinaryV2(
+        role="codex-code-mode-host",
+        relative_path="binary/codex-code-mode-host.exe",
+        sha256="2" * 64,
+        size=1,
+        pe=WINDOWS_BUILD.WindowsPeIdentityV1(dll_characteristics=0x8160),
+    )
+    provenance = WindowsBuildProvenanceV4(
+        workflow_run_id=1,
+        workflow_run_attempt=1,
+        implementation_commit="a" * 40,
+        codex_source_commit="b" * 40,
+        source_archive_sha256="3" * 64,
+        candidate_b_base_patch_sha256="4" * 64,
+        host_integration_patch_sha256="5" * 64,
+        combined_patchset_sha256="6" * 64,
+        canonical_schema_sha256="7" * 64,
+        raw_schema_file_sha256="8" * 64,
+        host_manifest_sha256="9" * 64,
+        resolved_mcp_config_sha256="a" * 64,
+        original_cargo_lock_sha256="b" * 64,
+        derived_cargo_lock_sha256="c" * 64,
+        rustc_version="rustc 1.95.0",
+        cargo_version="cargo 1.95.0",
+        rustc_sha256="d" * 64,
+        cargo_sha256="e" * 64,
+        build_script_sha256="f" * 64,
+        shared_proof_script_sha256="1" * 64,
+        workflow_sha256="2" * 64,
+        codex_module_bazel_sha256=WINDOWS_BUILD.CODEX_MODULE_BAZEL_SHA256,
+        v8_archive_url=f"{WINDOWS_BUILD.V8_RELEASE_BASE}/{WINDOWS_BUILD.V8_ARCHIVE_NAME}",
+        v8_archive_sha256=WINDOWS_BUILD.V8_ARCHIVE_SHA256,
+        v8_binding_url=f"{WINDOWS_BUILD.V8_RELEASE_BASE}/{WINDOWS_BUILD.V8_BINDING_NAME}",
+        v8_binding_sha256=WINDOWS_BUILD.V8_BINDING_SHA256,
+        v8_checksum_url=f"{WINDOWS_BUILD.V8_RELEASE_BASE}/{WINDOWS_BUILD.V8_CHECKSUM_NAME}",
+        v8_checksum_sha256=WINDOWS_BUILD.V8_CHECKSUM_SHA256,
+        v8_archive_post_build_sha256=WINDOWS_BUILD.V8_ARCHIVE_SHA256,
+        v8_binding_post_build_sha256=WINDOWS_BUILD.V8_BINDING_SHA256,
+        v8_checksum_post_build_sha256=WINDOWS_BUILD.V8_CHECKSUM_SHA256,
+    )
+    proof = WindowsHostProofSummaryV3(
+        process_proof_sha256="3" * 64,
+        code_mode_host_sha256=host.sha256,
+        code_mode_host_eof_receipt_sha256="4" * 64,
+    )
+    receipt = WindowsNativeCodexBuildV4.create(
+        WindowsNativeCodexBuildPayloadV4(
+            provenance=provenance,
+            binaries=(codex, host),
+            process_proof=proof,
+        )
+    )
+    assert receipt.payload.process_proof.default_visible_tools == (
+        ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
+    )
+
+    changed = receipt.payload.model_dump(mode="python")
+    changed["process_proof"]["default_visible_tools"] = tuple(
+        ORDINARY_DEFAULT_VISIBLE_TOOLS_V1[:-1]
+    )
+    with pytest.raises(ValidationError, match="literal_error|tuple_type|Field required"):
+        WindowsNativeCodexBuildPayloadV4.model_validate(changed)
 
 
 def test_download_exact_rejects_overflow_and_removes_partial_file(tmp_path, monkeypatch) -> None:

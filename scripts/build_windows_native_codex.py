@@ -30,15 +30,15 @@ from stage3g_schema_hash import read_schema_identity
 
 from devhub.native_bundle import git_blob_sha256
 from devhub.windows_native import (
-    WindowsBuildProvenanceV3,
-    WindowsHostProofSummaryV2,
+    WindowsBuildProvenanceV4,
+    WindowsHostProofSummaryV3,
     WindowsNativeBinaryV2,
-    WindowsNativeCodexBuildPayloadV3,
-    WindowsNativeCodexBuildV3,
+    WindowsNativeCodexBuildPayloadV4,
+    WindowsNativeCodexBuildV4,
     WindowsPeIdentityV1,
 )
 
-BUILD_ID = "windows-build-004"
+BUILD_ID = "windows-build-005"
 TARGET = "x86_64-pc-windows-msvc"
 V8_RELEASE_TAG = "rusty-v8-v150.4.0"
 V8_RELEASE_BASE = f"https://github.com/openai/codex/releases/download/{V8_RELEASE_TAG}"
@@ -812,7 +812,7 @@ def _proof_summary(
     eof: dict[str, object],
     eof_receipt_sha256: str,
     host_binary: WindowsNativeBinaryV2,
-) -> WindowsHostProofSummaryV2:
+) -> WindowsHostProofSummaryV3:
     arms = proof["arms"]
     default = proof["default"]
     same = proof["same_binary"]
@@ -832,7 +832,7 @@ def _proof_summary(
         or eof.get("binary_relative_path") != host_binary.relative_path
     ):
         raise ValueError("EOF proof does not bind the exact sibling code-mode host")
-    return WindowsHostProofSummaryV2(
+    return WindowsHostProofSummaryV3(
         process_proof_sha256=proof_sha256,
         code_mode_host_sha256=host_binary.sha256,
         code_mode_host_eof_receipt_sha256=eof_receipt_sha256,
@@ -1087,8 +1087,8 @@ def main() -> None:
         provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
         preparation = receipt["source_preparation"]
         assert isinstance(preparation, dict)
-        payload = WindowsNativeCodexBuildPayloadV3(
-            provenance=WindowsBuildProvenanceV3(
+        payload = WindowsNativeCodexBuildPayloadV4(
+            provenance=WindowsBuildProvenanceV4(
                 build_id=BUILD_ID,
                 implementation_commit=implementation_commit,
                 workflow_run_id=args.workflow_run_id,
@@ -1121,7 +1121,7 @@ def main() -> None:
             binaries=binaries,
             process_proof=summary,
         )
-        final = WindowsNativeCodexBuildV3.create(payload)
+        final = WindowsNativeCodexBuildV4.create(payload)
         (args.output / "windows-native-codex-build.json").write_text(
             final.model_dump_json(indent=2) + "\n", encoding="utf-8"
         )

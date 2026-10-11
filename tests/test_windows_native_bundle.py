@@ -14,12 +14,17 @@ from types import SimpleNamespace
 import pytest
 
 from devhub.native_bundle import NativeCodexAuthorityV2, installed_wheel_plan
+from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 from devhub.windows_native import (
     WindowsBuildProvenanceV3,
+    WindowsBuildProvenanceV4,
     WindowsHostProofSummaryV2,
+    WindowsHostProofSummaryV3,
     WindowsNativeBinaryV2,
     WindowsNativeCodexBuildPayloadV3,
+    WindowsNativeCodexBuildPayloadV4,
     WindowsNativeCodexBuildV3,
+    WindowsNativeCodexBuildV4,
     WindowsPeIdentityV1,
 )
 
@@ -31,6 +36,7 @@ assert SPEC is not None and SPEC.loader is not None
 BUNDLE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = BUNDLE
 SPEC.loader.exec_module(BUNDLE)
+sys.path.insert(0, str(SCRIPTS))
 BUILD_SPEC = importlib.util.spec_from_file_location(
     "build_windows_native_codex_for_bundle_test", SCRIPTS / "build_windows_native_codex.py"
 )
@@ -38,6 +44,7 @@ assert BUILD_SPEC is not None and BUILD_SPEC.loader is not None
 WINDOWS_BUILD = importlib.util.module_from_spec(BUILD_SPEC)
 sys.modules[BUILD_SPEC.name] = WINDOWS_BUILD
 BUILD_SPEC.loader.exec_module(WINDOWS_BUILD)
+sys.path.pop(0)
 
 
 def test_bundle_and_codex_builder_share_exact_v8_authority() -> None:
@@ -427,6 +434,30 @@ def test_validate_windows_codex_pair_artifact_binds_both_executables(tmp_path: P
     (tmp_path / "binary/codex-code-mode-host.exe").write_bytes(b"tampered")
     with pytest.raises(ValueError, match="binary differs"):
         BUNDLE.validate_windows_codex_artifact(tmp_path, 42, 3)
+
+
+def test_validate_windows_codex_pair_accepts_forward_v4_and_preserves_v3(tmp_path: Path) -> None:
+    historical = _write_codex_pair_artifact(tmp_path)
+    provenance = historical.payload.provenance.model_dump(mode="python")
+    provenance["build_id"] = "windows-build-005"
+    old_proof = historical.payload.process_proof.model_dump(mode="python")
+    old_proof["default_visible_tools"] = ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
+    proof = WindowsHostProofSummaryV3.model_validate(old_proof)
+    current = WindowsNativeCodexBuildV4.create(
+        WindowsNativeCodexBuildPayloadV4(
+            provenance=WindowsBuildProvenanceV4.model_validate(provenance),
+            binaries=historical.payload.binaries,
+            process_proof=proof,
+        )
+    )
+    (tmp_path / "windows-native-codex-build.json").write_text(
+        current.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+
+    authority = BUNDLE.validate_windows_codex_artifact(tmp_path, 42, 3)
+
+    assert authority.build_id == "windows-build-005"
+    assert authority.windows_native_codex_build_id == current.windows_native_codex_build_id
 
 
 @pytest.mark.parametrize(("run_id", "attempt"), [(41, 3), (42, 2)])

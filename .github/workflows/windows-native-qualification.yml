@@ -10,12 +10,16 @@ on:
       - 'patches/stage3g-approved-call/**'
       - 'scripts/build_stage3g_build009.py'
       - 'scripts/build_windows_native_codex.py'
+      - 'scripts/inventory_native_build_artifact.py'
       - 'scripts/derive_router_build_lock.py'
       - 'scripts/derive_stage3g_production_lock.py'
       - 'scripts/stage3g_build009_mcp.py'
       - 'scripts/stage3g_schema_hash.py'
       - 'src/devhub/windows_native.py'
+      - 'src/devhub/native_proof.py'
       - 'src/devhub/native_bundle.py'
+      - 'tests/test_native_build_artifact_inventory.py'
+      - 'tests/test_windows_native_bundle.py'
       - 'tests/test_windows_native_codex.py'
 
 concurrency:
@@ -51,6 +55,8 @@ jobs:
       - name: Cheap Windows build/proof regressions
         run: >-
           uv run --locked pytest -q
+          tests/test_native_build_artifact_inventory.py
+          tests/test_windows_native_bundle.py
           tests/test_windows_native_codex.py
           tests/test_stage3g_build009_preparation.py
           tests/test_host_process_visibility.py
@@ -62,15 +68,40 @@ jobs:
           uv run --locked python scripts/build_windows_native_codex.py `
             --workspace $workspace `
             --output $output `
-            --build-id windows-build-004 `
+            --build-id windows-build-005 `
             --expected-implementation-commit '${{ github.event.pull_request.head.sha || github.sha }}' `
             --workflow-run-id '${{ github.run_id }}' `
             --workflow-run-attempt '${{ github.run_attempt }}'
-      - name: Upload exact Windows executable and evidence
+      - name: Seal exact Windows build artifact inventory
+        id: seal
         if: always()
+        shell: pwsh
+        run: >-
+          uv run --locked python scripts/inventory_native_build_artifact.py
+          --platform windows
+          --root C:\dfw003\e
+          --build-id windows-build-005
+      - name: Upload exact Windows build evidence
+        if: always() && steps.seal.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: devfabric-windows-build-004
-          path: C:\dfw003\e
+          name: devfabric-windows-build-005-evidence
+          path: |
+            C:/dfw003/e/**
+            !C:/dfw003/e/binary/**
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload exact successful Windows executable pair
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: devfabric-windows-build-005-binaries
+          path: |
+            C:/dfw003/e/binary/**
+            C:/dfw003/e/native-build-artifact-inventory.json
+            C:/dfw003/e/windows-build-result.json
+            C:/dfw003/e/windows-native-codex-build.json
+            C:/dfw003/e/windows-process-proof.json
+            C:/dfw003/e/code-mode-host-eof.json
           if-no-files-found: error
           retention-days: 14

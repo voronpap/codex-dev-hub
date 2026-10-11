@@ -13,10 +13,13 @@ from pydantic import Field, JsonValue, field_validator, model_validator
 
 from devhub.benchmark import Digest, canonical, digest
 from devhub.models import Contract
+from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1, OrdinaryDefaultVisibleToolsV1
 from devhub.qualification import GitCommit
 
 WindowsBinaryRole = Literal["codex", "codex-code-mode-host"]
-WindowsBuildId = Literal["windows-build-002", "windows-build-003", "windows-build-004"]
+WindowsBuildId = Literal[
+    "windows-build-002", "windows-build-003", "windows-build-004", "windows-build-005"
+]
 
 
 class WindowsPeIdentityV1(Contract):
@@ -127,6 +130,12 @@ class WindowsBuildProvenanceV3(Contract):
     ]
 
 
+class WindowsBuildProvenanceV4(WindowsBuildProvenanceV3):
+    """Forward build identity for the corrected ordinary Default observation."""
+
+    build_id: Literal["windows-build-005"] = "windows-build-005"  # type: ignore[assignment]
+
+
 class WindowsHostProofSummaryV2(Contract):
     process_proof_sha256: Digest
     code_mode_host_sha256: Digest
@@ -158,6 +167,12 @@ class WindowsHostProofSummaryV2(Contract):
     provider_sends: Literal[0] = 0
     mcp_tool_executions: Literal[0] = 0
     real_task_executions: Literal[0] = 0
+
+
+class WindowsHostProofSummaryV3(WindowsHostProofSummaryV2):
+    """Forward proof binds the observed ordinary Default catalog exactly."""
+
+    default_visible_tools: OrdinaryDefaultVisibleToolsV1 = ORDINARY_DEFAULT_VISIBLE_TOOLS_V1  # type: ignore[assignment]
 
 
 class WindowsNativeCodexBuildPayloadV2(Contract):
@@ -264,6 +279,34 @@ class WindowsNativeCodexBuildV3(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> WindowsNativeCodexBuildV3:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.windows_native_codex_build_id != expected:
+            raise ValueError("Windows native Codex build ID mismatch")
+        return self
+
+
+class WindowsNativeCodexBuildPayloadV4(WindowsNativeCodexBuildPayloadV3):
+    """Forward payload for windows-build-005 without altering pair/security semantics."""
+
+    provenance: WindowsBuildProvenanceV4
+    process_proof: WindowsHostProofSummaryV3
+
+
+class WindowsNativeCodexBuildV4(Contract):
+    windows_native_codex_build_id: Digest
+    payload: WindowsNativeCodexBuildPayloadV4
+
+    @classmethod
+    def create(cls, payload: WindowsNativeCodexBuildPayloadV4) -> WindowsNativeCodexBuildV4:
+        return cls(
+            windows_native_codex_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> WindowsNativeCodexBuildV4:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.windows_native_codex_build_id != expected:
             raise ValueError("Windows native Codex build ID mismatch")
