@@ -1,0 +1,73 @@
+name: Native Linux Codex authority
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/linux-native-codex.yml'
+      - 'benchmarks/stage3g-host-manifest-v2.json'
+      - 'docs/evidence/stage3g-production-router/delegate-input-schema.json'
+      - 'patches/stage3g-approved-call/**'
+      - 'scripts/build_linux_native_codex.py'
+      - 'scripts/build_stage3g_build009.py'
+      - 'scripts/build_windows_native_codex.py'
+      - 'scripts/derive_router_build_lock.py'
+      - 'scripts/derive_stage3g_production_lock.py'
+      - 'scripts/stage3g_build009_mcp.py'
+      - 'scripts/stage3g_schema_hash.py'
+      - 'src/devhub/linux_native.py'
+      - 'src/devhub/native_bundle.py'
+      - 'tests/test_linux_native_codex.py'
+
+concurrency:
+  group: native-linux-codex-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux-build-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install locked Python tooling and native inspection prerequisites
+        run: |
+          python -m pip install uv==0.12.10
+          uv sync --locked
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends binutils build-essential libasound2-dev libcap-dev pkg-config
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install 1.95.0 --component rustfmt --target x86_64-unknown-linux-gnu
+          rustup run 1.95.0 rustc -vV
+          rustup run 1.95.0 cargo --version --verbose
+          rustup run 1.95.0 rustfmt --version
+      - name: Focused authority regressions
+        run: >-
+          uv run --locked pytest -q
+          tests/test_linux_native_codex.py
+          tests/test_windows_native_codex.py
+          tests/test_stage3g_build009_preparation.py
+          tests/test_host_process_visibility.py
+      - name: Build exact native Linux executable pair and prove host surfaces
+        run: |
+          uv run --locked python scripts/build_linux_native_codex.py \
+            --workspace "$RUNNER_TEMP/linux-native-codex-source" \
+            --output "$RUNNER_TEMP/linux-native-codex-evidence" \
+            --expected-implementation-commit '${{ github.event.pull_request.head.sha || github.sha }}'
+      - name: Upload exact Linux executables and evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: devfabric-linux-build-001
+          path: ${{ runner.temp }}/linux-native-codex-evidence
+          if-no-files-found: error
+          retention-days: 14

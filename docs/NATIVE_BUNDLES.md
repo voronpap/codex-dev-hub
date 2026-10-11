@@ -259,6 +259,30 @@ packaged executor boundary are later gates. An unsupported API, OS build,
 path/ACL semantic or cleanup observation fails closed; there is no unrestricted
 fallback.
 
+### Native Linux Codex build authority
+
+The first Linux-native slice is `linux-build-001`. It builds the exact sibling
+`codex` and `codex-code-mode-host` executables together from the pinned Codex
+source, reviewed Candidate B and host-integration patches, complete derived lock,
+Rust 1.95.0 and target `x86_64-unknown-linux-gnu`. It reuses the reviewed source
+preparation and Default/A/B observer rather than defining a second patch, lock or
+tool-surface authority.
+
+Its strict self-hashed receipt binds both executable hashes, ELF class/machine,
+program interpreter, `DT_NEEDED`, absence of embedded RPATH/RUNPATH, required
+symbol versions, toolchain binaries, workflow and build/proof scripts. The
+pre-sampling proof requires Default `{}`, Arm A `{}`, Arm B exactly
+`{mcp__devhub_delegate.devhub_delegate}`, the existing security negatives, no
+missing sibling-host warning, clean MCP-child shutdown and zero model, provider,
+MCP-tool and real-task counters. A separate stdio EOF check requires the exact
+code-mode host to exit cleanly without a request.
+
+This receipt establishes only native Linux executable/build authority. It keeps
+`native_bundle_qualified=false`, `native_executor_isolation_qualified=false` and
+`execution_ready=false`; Python packaging, Linux isolation, secrets, mutable data,
+Ollama/accounting joins and the final platform qualification remain later gates.
+Build-020 and all OCI evidence remain immutable historical evidence.
+
 ## Delivery order
 
 1. **Windows native Codex identity and host proof.** Build `windows-build-001` for

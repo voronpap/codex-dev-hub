@@ -20,6 +20,7 @@ import sys
 import tarfile
 import time
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -77,7 +78,7 @@ def _toml(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def windows_mcp_config(python: Path, server: Path) -> dict[str, object]:
+def native_mcp_config(python: Path, server: Path) -> dict[str, object]:
     return {
         "args": [str(server), "mcp"],
         "command": str(python),
@@ -91,11 +92,23 @@ def windows_mcp_config(python: Path, server: Path) -> dict[str, object]:
     }
 
 
-def windows_host_manifest(source: Path, destination: Path, config_hash: str) -> str:
+def windows_mcp_config(python: Path, server: Path) -> dict[str, object]:
+    """Compatibility name for the platform-neutral reviewed MCP config shape."""
+
+    return native_mcp_config(python, server)
+
+
+def native_host_manifest(source: Path, destination: Path, config_hash: str) -> str:
     value = json.loads(source.read_bytes())
     value["arms"]["arm_b"]["approved_delegate"]["expected_mcp_server_config_sha256"] = config_hash
     write_json(destination, value)
     return sha256_file(destination)
+
+
+def windows_host_manifest(source: Path, destination: Path, config_hash: str) -> str:
+    """Compatibility name for the platform-neutral reviewed manifest binding."""
+
+    return native_host_manifest(source, destination, config_hash)
 
 
 def validate_implementation_head(repo: Path, expected: str) -> str:
@@ -308,8 +321,9 @@ def _negative(
     expected: str,
     root: Path,
     env: dict[str, str],
+    capture: Callable[..., dict[str, Any]] = _capture,
 ) -> dict[str, object]:
-    result = _capture([str(binary), *args], cwd=root, env=env, timeout=90)
+    result = capture([str(binary), *args], cwd=root, env=env, timeout=90)
     combined = str(result["stdout"]) + str(result["stderr"])
     result["expected_rejection"] = expected
     result["passed"] = result["exit_code"] not in (None, 0) and expected in combined
@@ -327,6 +341,12 @@ def process_proof(
     schema: Path,
     python: Path,
     server: Path,
+    capture: Callable[..., dict[str, Any]] = _capture,
+    wait_pid_exit: Callable[[int, float], bool] = _wait_pid_exit,
+    proof_env: Callable[[Path, Path, Path, Path], dict[str, str]] = _proof_env,
+    platform_label: str = "Windows",
+    scope: str = "native Windows Codex host construction and finalized pre-sampling visibility",
+    isolation_field: str = "windows_executor_isolation_qualified",
 ) -> dict[str, object]:
     root = output / "process-proof"
     root.mkdir(exist_ok=False)
@@ -334,7 +354,7 @@ def process_proof(
     work.mkdir()
     receipt = root / "mcp-receipt.jsonl"
     receipt.touch()
-    config = windows_mcp_config(python, server)
+    config = native_mcp_config(python, server)
     binary_sha256 = sha256_file(binary)
     arms: dict[str, object] = {}
     for arm in ("a", "b"):
@@ -344,10 +364,10 @@ def process_proof(
         home.mkdir()
         observer = run_dir / "observer.json"
         mcp_pid = run_dir / "mcp.pid"
-        run = _capture(
+        run = capture(
             [str(binary), *_host_exec(work, manifest, observer, arm, config)],
             cwd=work,
-            env=_proof_env(home, receipt, schema, mcp_pid),
+            env=proof_env(home, receipt, schema, mcp_pid),
             timeout=120,
         )
         run["observer"] = retained._verify_observer(
@@ -356,15 +376,15 @@ def process_proof(
         run["observer_sha256"] = sha256_file(observer)
         run["passed"] = retained._proof_stopped(run)
         if not run["passed"]:
-            raise ValueError(f"Windows Arm {arm} did not stop before sampling")
+            raise ValueError(f"{platform_label} Arm {arm} did not stop before sampling")
         if arm == "b":
             if not mcp_pid.is_file():
-                raise ValueError("Windows Arm B did not record its catalog child PID")
+                raise ValueError(f"{platform_label} Arm B did not record its catalog child PID")
             child_pid = int(mcp_pid.read_text(encoding="ascii").strip())
             run["mcp_child_pid"] = child_pid
-            run["mcp_child_exited"] = _wait_pid_exit(child_pid)
+            run["mcp_child_exited"] = wait_pid_exit(child_pid, 5.0)
             if not run["mcp_child_exited"]:
-                raise ValueError("Windows catalog MCP child survived parent proof exit")
+                raise ValueError(f"{platform_label} catalog MCP child survived parent proof exit")
         arms[arm.upper()] = run
         if sha256_file(binary) != binary_sha256:
             raise ValueError("compiled binary changed between arm proofs")
@@ -379,24 +399,24 @@ def process_proof(
         "passed": b_visible - a_visible == {DELEGATE} and not (a_visible - b_visible),
     }
     if not same_binary["passed"]:
-        raise ValueError("Windows A/B surface difference changed")
+        raise ValueError(f"{platform_label} A/B surface difference changed")
 
     default_dir = root / "default"
     default_dir.mkdir()
     default_home = default_dir / "codex home"
     default_home.mkdir()
     default_observer = default_dir / "observer.json"
-    default = _capture(
+    default = capture(
         [str(binary), *retained._default_exec(work, default_observer)],
         cwd=work,
-        env=_proof_env(default_home, receipt, schema, default_dir / "unused-mcp.pid"),
+        env=proof_env(default_home, receipt, schema, default_dir / "unused-mcp.pid"),
         timeout=120,
     )
     default["observer"] = retained._verify_default_observer(default_observer)
     default["observer_sha256"] = sha256_file(default_observer)
     default["passed"] = retained._proof_stopped(default)
     if not default["passed"]:
-        raise ValueError("Windows default host proof did not stop before sampling")
+        raise ValueError(f"{platform_label} default host proof did not stop before sampling")
 
     mutations = root / "mutations"
     mutations.mkdir()
@@ -472,15 +492,16 @@ def process_proof(
             args,
             expected,
             work,
-            _proof_env(home, receipt, schema, root / f"negative-{label}.mcp.pid"),
+            proof_env(home, receipt, schema, root / f"negative-{label}.mcp.pid"),
+            capture,
         )
         if not negatives[label]["passed"]:  # type: ignore[index]
-            raise ValueError(f"Windows negative proof failed: {label}")
+            raise ValueError(f"{platform_label} negative proof failed: {label}")
 
     lookalike_home = root / "lookalike-home"
     lookalike_home.mkdir()
     lookalike_observer = root / "lookalike.observer.json"
-    lookalike = _capture(
+    lookalike = capture(
         [
             str(binary),
             *retained._default_exec(
@@ -490,20 +511,19 @@ def process_proof(
             ),
         ],
         cwd=work,
-        env=_proof_env(lookalike_home, receipt, schema, root / "lookalike-unused-mcp.pid"),
+        env=proof_env(lookalike_home, receipt, schema, root / "lookalike-unused-mcp.pid"),
         timeout=120,
     )
     lookalike["observer"] = retained._verify_default_observer(lookalike_observer)
     lookalike["passed"] = retained._proof_stopped(lookalike)
     if not lookalike["passed"]:
-        raise ValueError("task lookalike changed Windows host authority")
+        raise ValueError(f"task lookalike changed {platform_label} host authority")
     negatives["task_lookalike_cannot_authorize"] = lookalike
 
     final_binary_sha256 = verify_binary_identity(binary, binary_sha256)
 
-    return {
-        "scope": "native Windows Codex host construction and finalized pre-sampling visibility",
-        "windows_executor_isolation_qualified": False,
+    result: dict[str, object] = {
+        "scope": scope,
         "arms": arms,
         "default": default,
         "same_binary": same_binary,
@@ -520,6 +540,8 @@ def process_proof(
         "mcp_tool_executions": 0,
         "real_task_executions": 0,
     }
+    result[isolation_field] = False
+    return result
 
 
 def main() -> None:
