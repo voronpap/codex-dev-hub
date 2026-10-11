@@ -21,11 +21,12 @@ from pydantic import JsonValue
 
 from devhub.benchmark import canonical, digest, write_new
 from devhub.native_bundle import (
-    NativeLoaderBuildPayloadV1,
-    NativeLoaderBuildV1,
+    NativeLoaderBuildPayloadV2,
+    NativeLoaderBuildV2,
     NativeLoaderDependencyName,
     NativeLoaderDependencyV1,
-    NativeLoaderPostBuildProofV1,
+    NativeLoaderFailureV1,
+    NativeLoaderPostBuildProofV2,
     NativeLoaderWorkflowV1,
     file_sha256,
     git_blob_bytes,
@@ -129,30 +130,45 @@ def _copy_runtime(source: Path, target: Path, binary: Path) -> None:
     shutil.copy2(binary, target / BINARY)
 
 
-def _post_build_proof(
-    runtime_root: Path, binary: Path, scratch: Path
-) -> NativeLoaderPostBuildProofV1:
-    positive = scratch / "relocated-positive"
-    _copy_runtime(runtime_root, positive, binary)
-    hostile = scratch / "hostile-path"
-    hostile.mkdir()
-    for name in DEPENDENCIES:
-        (hostile / name).write_bytes(b"MZ-hostile")
-    positive_code = (
+def _positive_proof_code() -> str:
+    """Return the proof whose first successful activation is concurrent."""
+
+    return (
         "import importlib,json,pathlib,sys;"
         "assert '_ctypes' not in sys.modules and '_hashlib' not in sys.modules "
         "and '_ssl' not in sys.modules;"
         "loader=importlib.import_module('_devfabric_native_loader');"
         "origin=pathlib.Path(loader.__file__).resolve();"
         "assert origin.parent==pathlib.Path(sys.executable).resolve().parent;"
-        "assert loader.activate()==('libffi-8.dll','libcrypto-3.dll','libssl-3.dll');"
         "rejected=False;"
         "\ntry: loader.activate('ambient')\nexcept TypeError: rejected=True\n"
         "assert rejected;"
+        "import concurrent.futures,threading;"
+        "barrier=threading.Barrier(8);"
+        "\ndef first_activate(_index):\n"
+        " barrier.wait()\n"
+        " return loader.activate()\n"
+        "\nwith concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:\n"
+        " results=list(pool.map(first_activate,range(8)))\n"
+        "assert all(item==('libffi-8.dll','libcrypto-3.dll','libssl-3.dll') for item in results);"
+        "assert all(loader.activate()==('libffi-8.dll','libcrypto-3.dll','libssl-3.dll') "
+        "for _index in range(64));"
         "modules=['_ctypes','_socket','_overlapped','select','_hashlib','_ssl'];"
         "[importlib.import_module(name) for name in modules];"
         "print(json.dumps({'modules':modules,'sibling':True},sort_keys=True))"
     )
+
+
+def _post_build_proof(
+    runtime_root: Path, binary: Path, scratch: Path
+) -> NativeLoaderPostBuildProofV2:
+    positive = scratch / "relocated-positive"
+    _copy_runtime(runtime_root, positive, binary)
+    hostile = scratch / "hostile-path"
+    hostile.mkdir()
+    for name in DEPENDENCIES:
+        (hostile / name).write_bytes(b"MZ-hostile")
+    positive_code = _positive_proof_code()
     compile(positive_code, "<native-loader-positive-proof>", "exec")
     observed = json.loads(_run_isolated(positive, positive_code, hostile_path=hostile))
     if observed != {
@@ -165,19 +181,25 @@ def _post_build_proof(
     _copy_runtime(runtime_root, missing, binary)
     (missing / "libffi-8.dll").unlink()
     rejection_code = (
-        "import _devfabric_native_loader as loader;ok=False;"
-        "\ntry: loader.activate()\nexcept OSError: ok=True\n"
-        "assert ok;print('rejected')"
+        "import _devfabric_native_loader as loader,json;observed=None;"
+        "\ntry: loader.activate()\n"
+        "except OSError as error:\n"
+        " observed={'stage':getattr(error,'devfabric_failure_stage',None),"
+        "'dependency':getattr(error,'devfabric_failure_dependency',None),"
+        "'winerror':getattr(error,'winerror',None)}\n"
+        "assert observed is not None;print(json.dumps(observed,sort_keys=True))"
     )
     compile(rejection_code, "<native-loader-rejection-proof>", "exec")
-    if _run_isolated(missing, rejection_code) != "rejected":
-        raise ValueError("Missing native-loader dependency was not rejected")
+    missing_failure = NativeLoaderFailureV1.model_validate_json(
+        _run_isolated(missing, rejection_code)
+    )
 
     invalid = scratch / "invalid-dependency"
     _copy_runtime(runtime_root, invalid, binary)
     (invalid / "libffi-8.dll").write_bytes(b"MZ-invalid")
-    if _run_isolated(invalid, rejection_code) != "rejected":
-        raise ValueError("Invalid native-loader dependency was not rejected")
+    invalid_failure = NativeLoaderFailureV1.model_validate_json(
+        _run_isolated(invalid, rejection_code)
+    )
 
     wrong_directory = scratch / "wrong-module-directory"
     shutil.copytree(runtime_root, wrong_directory)
@@ -185,18 +207,23 @@ def _post_build_proof(
     module_dir.mkdir()
     shutil.copy2(binary, module_dir / BINARY)
     wrong_code = (
-        "import importlib.util,pathlib;"
+        "import importlib.util,json,pathlib;"
         "path=pathlib.Path('extension/_devfabric_native_loader.pyd').resolve();"
         "spec=importlib.util.spec_from_file_location('_devfabric_native_loader',path);"
         "assert spec and spec.loader;loader=importlib.util.module_from_spec(spec);"
         "spec.loader.exec_module(loader);"
-        "ok=False;"
-        "\ntry: loader.activate()\nexcept OSError: ok=True\n"
-        "assert ok;print('rejected')"
+        "observed=None;"
+        "\ntry: loader.activate()\n"
+        "except OSError as error:\n"
+        " observed={'stage':getattr(error,'devfabric_failure_stage',None),"
+        "'dependency':getattr(error,'devfabric_failure_dependency',None),"
+        "'winerror':getattr(error,'winerror',None)}\n"
+        "assert observed is not None;print(json.dumps(observed,sort_keys=True))"
     )
     compile(wrong_code, "<native-loader-wrong-directory-proof>", "exec")
-    if _run_isolated(wrong_directory, wrong_code) != "rejected":
-        raise ValueError("Wrong-directory native loader was not rejected")
+    wrong_directory_failure = NativeLoaderFailureV1.model_validate_json(
+        _run_isolated(wrong_directory, wrong_code)
+    )
 
     partial = scratch / "partial-load"
     _copy_runtime(runtime_root, partial, binary)
@@ -204,16 +231,27 @@ def _post_build_proof(
     shutil.copy2(partial / "libssl-3.dll", backup)
     (partial / "libssl-3.dll").write_bytes(b"MZ-invalid")
     partial_code = (
-        "import _devfabric_native_loader as loader,shutil;ok=False;"
-        "\ntry: loader.activate()\nexcept OSError: ok=True\n"
-        "assert ok;shutil.copyfile('libssl-3.dll.reviewed','libssl-3.dll');"
+        "import _devfabric_native_loader as loader,json,shutil;observed=None;"
+        "\ntry: loader.activate()\n"
+        "except OSError as error:\n"
+        " observed={'stage':getattr(error,'devfabric_failure_stage',None),"
+        "'dependency':getattr(error,'devfabric_failure_dependency',None),"
+        "'winerror':getattr(error,'winerror',None)}\n"
+        "assert observed is not None;shutil.copyfile('libssl-3.dll.reviewed','libssl-3.dll');"
         "assert loader.activate()==('libffi-8.dll','libcrypto-3.dll','libssl-3.dll');"
-        "print('recovered')"
+        "print(json.dumps(observed,sort_keys=True))"
     )
     compile(partial_code, "<native-loader-partial-cleanup-proof>", "exec")
-    if _run_isolated(partial, partial_code) != "recovered":
-        raise ValueError("Native-loader partial-load cleanup was not verified")
-    return NativeLoaderPostBuildProofV1(final_binary_sha256=file_sha256(binary))
+    partial_failure = NativeLoaderFailureV1.model_validate_json(
+        _run_isolated(partial, partial_code)
+    )
+    return NativeLoaderPostBuildProofV2(
+        final_binary_sha256=file_sha256(binary),
+        missing_dependency_failure=missing_failure,
+        invalid_dependency_failure=invalid_failure,
+        wrong_module_directory_failure=wrong_directory_failure,
+        partial_load_failure=partial_failure,
+    )
 
 
 def build(
@@ -223,7 +261,7 @@ def build(
     expected_commit: str,
     workflow_run_id: int,
     workflow_run_attempt: int,
-) -> NativeLoaderBuildV1:
+) -> NativeLoaderBuildV2:
     repo = repo.resolve(strict=True)
     runtime_root = runtime_root.resolve(strict=True)
     commit = _clean_commit(repo, expected_commit)
@@ -275,7 +313,7 @@ def build(
             raise ValueError("Native-loader build did not produce its exact extension")
         pe_machine = _pe_machine(binary)
         post_build_proof = _post_build_proof(runtime_root, binary, stage / "proof")
-        payload = NativeLoaderBuildPayloadV1(
+        payload = NativeLoaderBuildPayloadV2(
             implementation_commit=commit,
             source_sha256=source_sha256,
             binary_sha256=file_sha256(binary),
@@ -301,7 +339,7 @@ def build(
             ),
             post_build_proof=post_build_proof,
         )
-        receipt = NativeLoaderBuildV1.create(payload)
+        receipt = NativeLoaderBuildV2.create(payload)
         receipt_path = stage / "native-loader-build.json"
         write_new(receipt_path, canonical(cast(JsonValue, receipt.model_dump(mode="json"))))
         output.mkdir()

@@ -403,6 +403,24 @@ class NativeModuleOriginV1(Contract):
 
 
 NativeLoaderDependencyName = Literal["libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll"]
+NativeLoaderFailureStage = Literal[
+    "module_interpreter_sibling_identity",
+    "directory_open_validation",
+    "dependency_preopen",
+    "dependency_load",
+    "loaded_path_query",
+    "loaded_file_reopen",
+    "file_identity_compare",
+]
+NATIVE_LOADER_FAILURE_STAGES: tuple[NativeLoaderFailureStage, ...] = (
+    "module_interpreter_sibling_identity",
+    "directory_open_validation",
+    "dependency_preopen",
+    "dependency_load",
+    "loaded_path_query",
+    "loaded_file_reopen",
+    "file_identity_compare",
+)
 
 
 class NativeLoaderDependencyV1(Contract):
@@ -441,6 +459,55 @@ class NativeLoaderPostBuildProofV1(Contract):
     invalid_dependency_rejected: Literal[True] = True
     wrong_module_directory_rejected: Literal[True] = True
     partial_load_cleanup_verified: Literal[True] = True
+
+
+class NativeLoaderFailureV1(Contract):
+    schema_version: Literal[1] = 1
+    stage: NativeLoaderFailureStage
+    dependency: NativeLoaderDependencyName | None = None
+    winerror: Annotated[int, Field(ge=1, le=0xFFFFFFFF)]
+
+    @model_validator(mode="after")
+    def exact_dependency_scope(self) -> NativeLoaderFailureV1:
+        dependency_stage = self.stage in {
+            "dependency_preopen",
+            "dependency_load",
+            "loaded_path_query",
+            "loaded_file_reopen",
+            "file_identity_compare",
+        }
+        if (self.dependency is not None) != dependency_stage:
+            raise ValueError("Native-loader failure dependency differs from its stage")
+        return self
+
+
+class NativeLoaderPostBuildProofV2(NativeLoaderPostBuildProofV1):
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    missing_dependency_failure: NativeLoaderFailureV1
+    invalid_dependency_failure: NativeLoaderFailureV1
+    wrong_module_directory_failure: NativeLoaderFailureV1
+    partial_load_failure: NativeLoaderFailureV1
+    concurrent_activation_verified: Literal[True] = True
+
+    @model_validator(mode="after")
+    def exact_negative_proofs(self) -> NativeLoaderPostBuildProofV2:
+        expected = (
+            NativeLoaderFailureV1(
+                stage="dependency_preopen", dependency="libffi-8.dll", winerror=2
+            ),
+            NativeLoaderFailureV1(stage="dependency_load", dependency="libffi-8.dll", winerror=193),
+            NativeLoaderFailureV1(stage="module_interpreter_sibling_identity", winerror=5),
+            NativeLoaderFailureV1(stage="dependency_load", dependency="libssl-3.dll", winerror=193),
+        )
+        observed = (
+            self.missing_dependency_failure,
+            self.invalid_dependency_failure,
+            self.wrong_module_directory_failure,
+            self.partial_load_failure,
+        )
+        if observed != expected:
+            raise ValueError("Native-loader negative proof differs from reviewed stages")
+        return self
 
 
 class NativeLoaderBuildPayloadV1(Contract):
@@ -519,6 +586,54 @@ class NativeLoaderBuildV1(Contract):
         return self
 
 
+class NativeLoaderBuildPayloadV2(NativeLoaderBuildPayloadV1):
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    failure_stages: tuple[NativeLoaderFailureStage, ...] = NATIVE_LOADER_FAILURE_STAGES
+    post_build_proof: NativeLoaderPostBuildProofV2
+
+    @model_validator(mode="after")
+    def exact_failure_taxonomy(self) -> NativeLoaderBuildPayloadV2:
+        if self.failure_stages != NATIVE_LOADER_FAILURE_STAGES:
+            raise ValueError("Native-loader failure taxonomy differs from reviewed stages")
+        return self
+
+
+class NativeLoaderBuildV2(Contract):
+    native_loader_build_id: Digest
+    payload: NativeLoaderBuildPayloadV2
+
+    @classmethod
+    def create(cls, payload: NativeLoaderBuildPayloadV2) -> NativeLoaderBuildV2:
+        return cls(
+            native_loader_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> NativeLoaderBuildV2:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.native_loader_build_id != expected:
+            raise ValueError("Native-loader build ID mismatch")
+        return self
+
+
+NativeLoaderBuild = NativeLoaderBuildV1 | NativeLoaderBuildV2
+
+
+def parse_native_loader_build(raw: bytes) -> NativeLoaderBuild:
+    """Parse either immutable historical V1 or forward diagnostic V2 receipts."""
+
+    errors: list[ValueError] = []
+    for contract in (NativeLoaderBuildV2, NativeLoaderBuildV1):
+        try:
+            return contract.model_validate_json(raw)
+        except ValueError as error:
+            errors.append(error)
+    raise ValueError("Native-loader build receipt is invalid") from errors[0]
+
+
 class NativeLoaderAuthorityV1(Contract):
     module_path: Literal["python/_devfabric_native_loader.pyd"] = (
         "python/_devfabric_native_loader.pyd"
@@ -543,6 +658,20 @@ class NativeLoaderAuthorityV1(Contract):
             "libssl-3.dll",
         ]:
             raise ValueError("Native-loader authority dependency set differs from reviewed order")
+        return self
+
+
+class NativeLoaderAuthorityV2(NativeLoaderAuthorityV1):
+    """Current authority binding the exact V2 build receipt and stage taxonomy."""
+
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    build_receipt_schema_version: Literal[2] = 2
+    failure_stages: tuple[NativeLoaderFailureStage, ...] = NATIVE_LOADER_FAILURE_STAGES
+
+    @model_validator(mode="after")
+    def exact_failure_taxonomy(self) -> NativeLoaderAuthorityV2:
+        if self.failure_stages != NATIVE_LOADER_FAILURE_STAGES:
+            raise ValueError("Native-loader authority failure taxonomy differs from V2")
         return self
 
 
@@ -708,7 +837,7 @@ class NativeBundlePayloadV1(Contract):
     python: EmbeddedPythonAuthorityV1
     codex: NativeCodexAuthorityV1
     launcher: NativeLauncherV1
-    native_loader: NativeLoaderAuthorityV1 | None = None
+    native_loader: NativeLoaderAuthorityV2 | NativeLoaderAuthorityV1 | None = None
     files: tuple[NativeBundleFileV1, ...] = Field(min_length=1)
     trusted_prelaunch_verifier_required: Literal[True] = True
     native_executor_isolation_qualified: Literal[False] = False
@@ -1046,9 +1175,21 @@ def verify_native_bundle(
         if receipt_path.stat().st_size > 64 * 1024:
             raise ValueError("Native-loader build receipt exceeds its size bound")
         try:
-            receipt = NativeLoaderBuildV1.model_validate_json(receipt_path.read_bytes())
+            receipt = parse_native_loader_build(receipt_path.read_bytes())
         except (OSError, ValueError) as exc:
             raise ValueError("Native-loader build receipt is invalid") from exc
+        if file_sha256(receipt_path) != native_loader.build_receipt_sha256:
+            raise ValueError("Native-loader build receipt hash differs from bundle authority")
+        if isinstance(native_loader, NativeLoaderAuthorityV2):
+            if not isinstance(receipt, NativeLoaderBuildV2):
+                raise ValueError("Current native-loader authority requires a V2 build receipt")
+            if (
+                native_loader.build_receipt_schema_version != receipt.payload.schema_version
+                or native_loader.failure_stages != receipt.payload.failure_stages
+            ):
+                raise ValueError("Native-loader V2 receipt contract differs from bundle authority")
+        elif not isinstance(receipt, NativeLoaderBuildV1):
+            raise ValueError("Historical native-loader authority requires a V1 build receipt")
         payload = receipt.payload
         if (
             receipt.native_loader_build_id != native_loader.native_loader_build_id

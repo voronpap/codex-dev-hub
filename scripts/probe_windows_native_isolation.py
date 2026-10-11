@@ -22,7 +22,12 @@ from pydantic import Field, JsonValue, model_validator
 from devhub.benchmark import Digest, canonical, digest
 from devhub.experiment_launch import durable_publish
 from devhub.models import Contract, ContractV2
-from devhub.native_bundle import NativeBundleV1, verify_native_bundle
+from devhub.native_bundle import (
+    NativeBundleV1,
+    NativeLoaderAuthorityV2,
+    NativeLoaderFailureV1,
+    verify_native_bundle,
+)
 from devhub.windows_isolation import (
     WindowsIsolationChildResultV2,
     WindowsIsolationEvidenceV5,
@@ -600,6 +605,29 @@ class WindowsIsolationChildFailureV6(Contract):
                 raise ValueError("Native loader code differs from its bounded reason")
         elif self.loader_reason is not None or self.loader_code is not None:
             raise ValueError("Loader classification requires an import failure")
+        return self
+
+
+class WindowsIsolationChildFailureV7(WindowsIsolationChildFailureV6):
+    """Forward-only child failure with bounded native-loader stage evidence."""
+
+    schema_version: Literal[7] = 7  # type: ignore[assignment]
+    native_loader_failure: NativeLoaderFailureV1 | None = None
+
+    @model_validator(mode="after")
+    def exact_native_loader_failure(self) -> WindowsIsolationChildFailureV7:
+        if self.phase == "bootstrap_native_loader":
+            failure = self.native_loader_failure
+            if failure is None:
+                raise ValueError("Native-loader bootstrap failure lacks its bounded stage")
+            if (
+                self.native_loader_activation.status != "failed"
+                or self.native_loader_activation.error_code != failure.winerror
+                or self.winerror != failure.winerror
+            ):
+                raise ValueError("Native-loader stage differs from the activation failure")
+        elif self.native_loader_failure is not None:
+            raise ValueError("Native-loader stage requires a native-loader bootstrap failure")
         return self
 
 
@@ -1494,6 +1522,25 @@ class WindowsIsolationFailureDiagnosticPayloadV6(Contract):
         return self
 
 
+class WindowsIsolationFailureDiagnosticPayloadV7(WindowsIsolationFailureDiagnosticPayloadV6):
+    """Forward-only diagnostic joining the helper's bounded failure stage."""
+
+    schema_version: Literal[7] = 7  # type: ignore[assignment]
+    child_failure: WindowsIsolationChildFailureV7 | None = None  # type: ignore[assignment]
+    native_loader_failure: NativeLoaderFailureV1 | None = None
+
+    @model_validator(mode="after")
+    def exact_native_loader_failure_join(self) -> WindowsIsolationFailureDiagnosticPayloadV7:
+        if not isinstance(self.profile.payload.native_loader, NativeLoaderAuthorityV2):
+            raise ValueError("V7 diagnostics require V2 native-loader authority")
+        expected = (
+            self.child_failure.native_loader_failure if self.child_failure is not None else None
+        )
+        if self.native_loader_failure != expected:
+            raise ValueError("Native-loader failure stage differs from validated child evidence")
+        return self
+
+
 class WindowsIsolationFailureDiagnosticV6(Contract):
     schema_version: Literal[6] = 6
     diagnostic_id: Digest
@@ -1515,6 +1562,27 @@ class WindowsIsolationFailureDiagnosticV6(Contract):
         return self
 
 
+class WindowsIsolationFailureDiagnosticV7(Contract):
+    schema_version: Literal[7] = 7
+    diagnostic_id: Digest
+    payload: WindowsIsolationFailureDiagnosticPayloadV7
+
+    @classmethod
+    def create(
+        cls, payload: WindowsIsolationFailureDiagnosticPayloadV7
+    ) -> WindowsIsolationFailureDiagnosticV7:
+        return cls(
+            diagnostic_id=digest(canonical(payload.model_dump(mode="json"))), payload=payload
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationFailureDiagnosticV7:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.diagnostic_id != expected:
+            raise ValueError("Windows isolation failure diagnostic hash mismatch")
+        return self
+
+
 class WindowsIsolationChildExitError(RuntimeError):
     phase = "child_before_evidence"
 
@@ -1526,6 +1594,7 @@ class WindowsIsolationChildExitError(RuntimeError):
             | WindowsIsolationFailureDiagnosticV4
             | WindowsIsolationFailureDiagnosticV5
             | WindowsIsolationFailureDiagnosticV6
+            | WindowsIsolationFailureDiagnosticV7
         ),
     ) -> None:
         self.diagnostic = diagnostic
@@ -1881,6 +1950,22 @@ def _read_child_failure_v6(
         return "invalid", None
 
 
+def _read_child_failure_v7(
+    failure_path: Path,
+) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV7 | None]:
+    if not failure_path.is_file():
+        return "absent", None
+    try:
+        _reject_reparse_chain(failure_path, require_directory=False)
+        with failure_path.open("rb") as stream:
+            encoded = stream.read(MAX_CHILD_FAILURE_BYTES + 1)
+        if len(encoded) > MAX_CHILD_FAILURE_BYTES:
+            return "invalid", None
+        return "validated", WindowsIsolationChildFailureV7.model_validate_json(encoded)
+    except (OSError, ValueError):
+        return "invalid", None
+
+
 def _read_bootstrap_started(
     status_path: Path,
 ) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationBootstrapStartedV1 | None]:
@@ -2064,7 +2149,7 @@ def _native_import_matrix_evidence_v5(
 
 def _native_import_matrix_evidence_v6(
     bundle: NativeBundleV1,
-    child_failure: WindowsIsolationChildFailureV6 | None,
+    child_failure: WindowsIsolationChildFailureV6 | WindowsIsolationChildFailureV7 | None,
 ) -> tuple[
     WindowsNativeImportMatrixEvidenceV3,
     WindowsNativeImportMatrixEvidenceV3,
@@ -2162,7 +2247,12 @@ def _native_import_expectations_v6(
 
 def _native_crypto_file_evidence(
     bundle: NativeBundleV1,
-    child_failure: WindowsIsolationChildFailureV5 | WindowsIsolationChildFailureV6 | None,
+    child_failure: (
+        WindowsIsolationChildFailureV5
+        | WindowsIsolationChildFailureV6
+        | WindowsIsolationChildFailureV7
+        | None
+    ),
 ) -> tuple[
     WindowsNativeCryptoFileEvidenceV1,
     WindowsNativeCryptoFileEvidenceV1,
@@ -2266,14 +2356,14 @@ def _raise_if_child_exited(
     bootstrap_started_status, validated_bootstrap_started = _read_bound_bootstrap_started(
         bootstrap_status, profile, environment_instance_id
     )
-    child_failure_status, validated_child_failure = _read_child_failure_v6(child_failure)
+    child_failure_status, validated_child_failure = _read_child_failure_v7(child_failure)
     runtime_access_grant = process.runtime_access_grant
     if not isinstance(runtime_access_grant, WindowsRuntimeAccessGrantV2):
         raise RuntimeError("Failed child lacks the reviewed post-create runtime ACL grant")
     native_import_matrix = _native_import_matrix_evidence_v6(bundle, validated_child_failure)
     native_crypto_files = _native_crypto_file_evidence(bundle, validated_child_failure)
-    diagnostic = WindowsIsolationFailureDiagnosticV6.create(
-        WindowsIsolationFailureDiagnosticPayloadV6(
+    diagnostic = WindowsIsolationFailureDiagnosticV7.create(
+        WindowsIsolationFailureDiagnosticPayloadV7(
             environment_instance_id=environment_instance_id,
             windows_isolation_profile_id=profile.windows_isolation_profile_id,
             profile=profile,
@@ -2300,6 +2390,11 @@ def _raise_if_child_exited(
             loader_code=(
                 validated_child_failure.loader_code if validated_child_failure is not None else None
             ),
+            native_loader_failure=(
+                validated_child_failure.native_loader_failure
+                if validated_child_failure is not None
+                else None
+            ),
             native_import_matrix=native_import_matrix,
             native_crypto_files=native_crypto_files,
         )
@@ -2316,6 +2411,7 @@ def _raise_after_cleanup(
         | WindowsIsolationFailureDiagnosticV4
         | WindowsIsolationFailureDiagnosticV5
         | WindowsIsolationFailureDiagnosticV6
+        | WindowsIsolationFailureDiagnosticV7
         | WindowsPostCreateAclFailureV1
         | None
     ),
@@ -2593,8 +2689,8 @@ def qualify(
         )
     if bundle.payload.implementation_commit != expected_implementation_commit:
         raise ValueError("Native bundle implementation commit differs from expected authority")
-    if bundle.payload.native_loader is None:
-        raise ValueError("V6 Windows isolation requires reviewed native-loader authority")
+    if not isinstance(bundle.payload.native_loader, NativeLoaderAuthorityV2):
+        raise ValueError("V7 Windows isolation requires reviewed V2 native-loader authority")
     native_import_expectations = _native_import_expectations_v6(bundle)
     source_security_descriptor_sha256 = _security_descriptor_inventory_sha256(bundle_root)
     registry_path = rf"Software\DevFabric\IsolationProbe\{environment_instance_id}"
@@ -2609,6 +2705,7 @@ def qualify(
         | WindowsIsolationFailureDiagnosticV4
         | WindowsIsolationFailureDiagnosticV5
         | WindowsIsolationFailureDiagnosticV6
+        | WindowsIsolationFailureDiagnosticV7
         | WindowsPostCreateAclFailureV1
         | None
     ) = None

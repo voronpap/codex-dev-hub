@@ -233,6 +233,21 @@ V6 is still a metadata-only, non-readiness qualification step. It keeps
 `native_executor_isolation_qualified=false` and `package_readiness=false`; the
 metadata-only AppContainer probe cannot promote Windows readiness.
 
+Forward V7 adds a bounded failure-stage diagnostic to that same helper boundary.
+The helper can report only the reviewed stage taxonomy (interpreter-sibling
+identity, directory validation, dependency pre-open/load, loaded-path query,
+loaded-file reopen or file-identity comparison), one of the three fixed dependency
+labels where the stage is dependency-specific, and the numeric Win32 error. Raw
+paths, loader messages and caller-controlled labels are excluded. The child and
+host failure receipts strictly join the stage, dependency and error code to the
+failed activation; malformed or unknown values are treated as invalid evidence.
+The loader build receipt also binds negative proofs for missing/invalid/wrong-path
+and partial-load cleanup plus concurrent activation. V1-V6 receipts remain
+parseable historical evidence and cannot establish the V7 diagnostic boundary.
+V7 changes diagnostics only: the fixed DLL allowlist, load flags, held handles,
+file-identity checks, ACLs, isolation policy and non-readiness classification are
+unchanged.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of

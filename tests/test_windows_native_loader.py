@@ -11,10 +11,16 @@ import pytest
 
 import devhub.native_bundle as NATIVE_BUNDLE
 from devhub.native_bundle import (
+    NATIVE_LOADER_FAILURE_STAGES,
+    NativeLoaderAuthorityV2,
     NativeLoaderBuildPayloadV1,
+    NativeLoaderBuildPayloadV2,
     NativeLoaderBuildV1,
+    NativeLoaderBuildV2,
     NativeLoaderDependencyV1,
+    NativeLoaderFailureV1,
     NativeLoaderPostBuildProofV1,
+    NativeLoaderPostBuildProofV2,
     NativeLoaderWorkflowV1,
     git_blob_bytes,
     git_blob_sha256,
@@ -68,6 +74,26 @@ def _payload() -> NativeLoaderBuildPayloadV1:
     )
 
 
+def _failure(stage: str, dependency: str | None, winerror: int) -> NativeLoaderFailureV1:
+    return NativeLoaderFailureV1.model_validate(
+        {"stage": stage, "dependency": dependency, "winerror": winerror}
+    )
+
+
+def _payload_v2() -> NativeLoaderBuildPayloadV2:
+    raw = _payload().model_dump()
+    raw["schema_version"] = 2
+    raw["failure_stages"] = NATIVE_LOADER_FAILURE_STAGES
+    raw["post_build_proof"] = NativeLoaderPostBuildProofV2(
+        final_binary_sha256="c" * 64,
+        missing_dependency_failure=_failure("dependency_preopen", "libffi-8.dll", 2),
+        invalid_dependency_failure=_failure("dependency_load", "libffi-8.dll", 193),
+        wrong_module_directory_failure=_failure("module_interpreter_sibling_identity", None, 5),
+        partial_load_failure=_failure("dependency_load", "libssl-3.dll", 193),
+    )
+    return NativeLoaderBuildPayloadV2.model_validate(raw)
+
+
 def test_native_loader_build_receipt_is_self_hashing_and_strict() -> None:
     receipt = NativeLoaderBuildV1.create(_payload())
     assert NativeLoaderBuildV1.model_validate_json(receipt.model_dump_json()) == receipt
@@ -81,6 +107,95 @@ def test_native_loader_build_receipt_is_self_hashing_and_strict() -> None:
     raw["payload"]["unreviewed"] = True
     with pytest.raises(ValueError, match="Extra inputs"):
         NativeLoaderBuildV1.model_validate_json(json.dumps(raw))
+
+
+def test_native_loader_v2_receipt_binds_exact_failure_taxonomy_and_proofs() -> None:
+    receipt = NativeLoaderBuildV2.create(_payload_v2())
+    assert NativeLoaderBuildV2.model_validate_json(receipt.model_dump_json()) == receipt
+    assert receipt.payload.failure_stages == NATIVE_LOADER_FAILURE_STAGES
+    assert receipt.payload.post_build_proof.concurrent_activation_verified is True
+
+    tampered = json.loads(receipt.model_dump_json())
+    tampered["payload"]["failure_stages"].reverse()
+    with pytest.raises(ValueError, match="failure taxonomy"):
+        NativeLoaderBuildPayloadV2.model_validate_json(json.dumps(tampered["payload"]))
+
+    tampered = json.loads(receipt.model_dump_json())
+    tampered["payload"]["post_build_proof"]["missing_dependency_failure"]["winerror"] = 5
+    with pytest.raises(ValueError, match="negative proof"):
+        NativeLoaderPostBuildProofV2.model_validate_json(
+            json.dumps(tampered["payload"]["post_build_proof"])
+        )
+
+
+@pytest.mark.parametrize(
+    ("stage", "dependency"),
+    [
+        ("module_interpreter_sibling_identity", None),
+        ("directory_open_validation", None),
+        ("dependency_preopen", "libffi-8.dll"),
+        ("dependency_load", "libcrypto-3.dll"),
+        ("loaded_path_query", "libssl-3.dll"),
+        ("loaded_file_reopen", "libffi-8.dll"),
+        ("file_identity_compare", "libcrypto-3.dll"),
+    ],
+)
+def test_native_loader_failure_contract_accepts_each_reviewed_stage(
+    stage: str, dependency: str | None
+) -> None:
+    observed = _failure(stage, dependency, 5)
+    assert observed.stage == stage
+    assert observed.dependency == dependency
+
+
+@pytest.mark.parametrize(
+    ("stage", "dependency"),
+    [
+        ("unreviewed", None),
+        ("directory_open_validation", "libffi-8.dll"),
+        ("dependency_load", None),
+        ("dependency_load", "ambient.dll"),
+    ],
+)
+def test_native_loader_failure_contract_rejects_unknown_or_misscoped_values(
+    stage: str, dependency: str | None
+) -> None:
+    with pytest.raises(ValueError):
+        _failure(stage, dependency, 5)
+
+
+def test_native_loader_failure_contract_rejects_zero_winerror() -> None:
+    with pytest.raises(ValueError):
+        _failure("directory_open_validation", None, 0)
+
+
+def test_native_loader_v2_authority_rejects_failure_taxonomy_substitution() -> None:
+    payload = _payload_v2()
+    fields = {
+        "build_receipt_sha256": "4" * 64,
+        "native_loader_build_id": "5" * 64,
+        "accepted_workflow_run_id": 123,
+        "accepted_workflow_run_attempt": 1,
+        "implementation_commit": "a" * 40,
+        "source_sha256": "6" * 64,
+        "binary_sha256": "7" * 64,
+        "dependencies": payload.dependencies,
+    }
+    authority = NativeLoaderAuthorityV2(**fields)
+    assert authority.failure_stages == NATIVE_LOADER_FAILURE_STAGES
+    with pytest.raises(ValueError, match="failure taxonomy"):
+        NativeLoaderAuthorityV2(
+            **fields, failure_stages=tuple(reversed(NATIVE_LOADER_FAILURE_STAGES))
+        )
+
+
+def test_first_successful_loader_activation_is_concurrent() -> None:
+    code = LOADER_BUILDER._positive_proof_code()
+    compile(code, "<native-loader-positive-proof-test>", "exec")
+    pool = code.index("with concurrent.futures.ThreadPoolExecutor")
+    assert code.index("return loader.activate()") < pool
+    assert "barrier=threading.Barrier(8)" in code
+    assert code.index("assert all(loader.activate()==") > pool
 
 
 @pytest.mark.parametrize("mutation", ["dependency", "compile_flags", "link_flags"])
@@ -99,12 +214,17 @@ def test_native_loader_contract_rejects_authority_widening(mutation: str) -> Non
 def test_native_loader_source_has_closed_path_name_and_flag_authority() -> None:
     source = SOURCE.read_text(encoding="utf-8")
     for name in ("libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll"):
-        assert source.count(name) == 1
+        assert source.count(f'L"{name}"') == 1
+        assert source.count(f'"{name}"') == 2
     assert "METH_NOARGS" in source
     assert "LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32" in source
     assert "LoadLibraryExW(expected_path, NULL, DEVFABRIC_LOAD_FLAGS)" in source
     assert "GetModuleFileNameW(NULL, python_path" in source
-    assert "same_file_identity(expected_file, loaded_file)" in source
+    assert "same_file_identity(expected_file, loaded_file, &failure_error)" in source
+    for stage in NATIVE_LOADER_FAILURE_STAGES:
+        assert f'"{stage}"' in source
+    assert '"devfabric_failure_stage"' in source
+    assert '"devfabric_failure_dependency"' in source
     assert "FILE_SHARE_READ," in source
     assert "FILE_SHARE_DELETE" not in source
     assert "open_plain_directory(directory)" in source
@@ -138,7 +258,7 @@ def test_bundle_loader_artifact_review_rejects_substitution_and_extra_files(
     artifact.mkdir()
     binary = artifact / "_devfabric_native_loader.pyd"
     binary.write_bytes(b"native-loader")
-    payload = _payload().model_copy(
+    payload = _payload_v2().model_copy(
         update={
             "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
             "source_sha256": hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
@@ -149,12 +269,12 @@ def test_bundle_loader_artifact_review_rejects_substitution_and_extra_files(
                 run_id=123,
                 run_attempt=1,
             ),
-            "post_build_proof": NativeLoaderPostBuildProofV1(
-                final_binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest()
+            "post_build_proof": _payload_v2().post_build_proof.model_copy(
+                update={"final_binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest()}
             ),
         }
     )
-    receipt = NativeLoaderBuildV1.create(payload)
+    receipt = NativeLoaderBuildV2.create(payload)
     (artifact / "native-loader-build.json").write_text(receipt.model_dump_json(), encoding="utf-8")
     monkeypatch.setattr(
         BUNDLE_BUILDER,
@@ -181,6 +301,22 @@ def test_bundle_loader_artifact_review_rejects_substitution_and_extra_files(
         BUNDLE_BUILDER._review_native_loader_artifact(ROOT, artifact, "a" * 40, 123, 1)
 
 
+def test_historical_v1_receipt_remains_parseable_but_cannot_authorize_current_bundle(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "loader"
+    artifact.mkdir()
+    (artifact / "_devfabric_native_loader.pyd").write_bytes(b"native-loader")
+    receipt = NativeLoaderBuildV1.create(_payload())
+    (artifact / "native-loader-build.json").write_text(receipt.model_dump_json(), encoding="utf-8")
+    assert isinstance(
+        NATIVE_BUNDLE.parse_native_loader_build(receipt.model_dump_json().encode()),
+        NativeLoaderBuildV1,
+    )
+    with pytest.raises(ValueError, match="requires a V2"):
+        BUNDLE_BUILDER._review_native_loader_artifact(ROOT, artifact, "a" * 40, 123, 1)
+
+
 @pytest.mark.parametrize("mutation", ["source", "workflow", "run", "attempt"])
 def test_bundle_loader_artifact_review_rejects_forged_self_hashed_provenance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
@@ -200,8 +336,8 @@ def test_bundle_loader_artifact_review_rejects_forged_self_hashed_provenance(
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
         "source_sha256": hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
         "workflow": workflow,
-        "post_build_proof": NativeLoaderPostBuildProofV1(
-            final_binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest()
+        "post_build_proof": _payload_v2().post_build_proof.model_copy(
+            update={"final_binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest()}
         ),
     }
     if mutation == "source":
@@ -212,7 +348,7 @@ def test_bundle_loader_artifact_review_rejects_forged_self_hashed_provenance(
         updates["workflow"] = workflow.model_copy(update={"run_id": 999})
     else:
         updates["workflow"] = workflow.model_copy(update={"run_attempt": 2})
-    receipt = NativeLoaderBuildV1.create(_payload().model_copy(update=updates))
+    receipt = NativeLoaderBuildV2.create(_payload_v2().model_copy(update=updates))
     (artifact / "native-loader-build.json").write_text(receipt.model_dump_json(), encoding="utf-8")
     monkeypatch.setattr(
         BUNDLE_BUILDER,
@@ -277,7 +413,7 @@ def test_bundle_loader_runtime_rejects_interpreter_or_dependency_mismatch(
     }
     for name, raw in files.items():
         (runtime / name).write_bytes(raw)
-    payload = _payload().model_copy(
+    payload = _payload_v2().model_copy(
         update={
             "runtime_python_executable_sha256": hashlib.sha256(files["python.exe"]).hexdigest(),
             "dependencies": tuple(
@@ -289,7 +425,7 @@ def test_bundle_loader_runtime_rejects_interpreter_or_dependency_mismatch(
             ),
         }
     )
-    receipt = NativeLoaderBuildV1.create(payload)
+    receipt = NativeLoaderBuildV2.create(payload)
     if mutation == "python":
         (runtime / "python.exe").write_bytes(b"wrong")
     elif mutation == "missing":
@@ -407,7 +543,7 @@ def test_bundle_review_uses_blob_authority_and_rejects_changed_blob(tmp_path: Pa
     binary = artifact / "_devfabric_native_loader.pyd"
     binary.write_bytes(b"native-loader")
     binary_sha256 = hashlib.sha256(binary.read_bytes()).hexdigest()
-    payload = _payload().model_copy(
+    payload = _payload_v2().model_copy(
         update={
             "implementation_commit": commit,
             "source_sha256": git_blob_sha256(repo, commit, source_path),
@@ -417,10 +553,12 @@ def test_bundle_review_uses_blob_authority_and_rejects_changed_blob(tmp_path: Pa
                 run_id=123,
                 run_attempt=1,
             ),
-            "post_build_proof": NativeLoaderPostBuildProofV1(final_binary_sha256=binary_sha256),
+            "post_build_proof": _payload_v2().post_build_proof.model_copy(
+                update={"final_binary_sha256": binary_sha256}
+            ),
         }
     )
-    receipt = NativeLoaderBuildV1.create(payload)
+    receipt = NativeLoaderBuildV2.create(payload)
     receipt_path = artifact / "native-loader-build.json"
     receipt_path.write_text(receipt.model_dump_json(), encoding="utf-8")
     assert BUNDLE_BUILDER._review_native_loader_artifact(repo, artifact, commit, 123, 1) == receipt
@@ -429,7 +567,7 @@ def test_bundle_review_uses_blob_authority_and_rejects_changed_blob(tmp_path: Pa
     _git(repo, "add", source_path)
     _git(repo, "commit", "-m", "semantic change")
     changed = _git(repo, "rev-parse", "HEAD")
-    forged = NativeLoaderBuildV1.create(
+    forged = NativeLoaderBuildV2.create(
         payload.model_copy(update={"implementation_commit": changed})
     )
     receipt_path.write_text(forged.model_dump_json(), encoding="utf-8")
