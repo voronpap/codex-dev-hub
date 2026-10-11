@@ -19,7 +19,10 @@ patterns = (
     "pyproject.toml",
     "uv.lock",
     "scripts/*windows*.py",
+    "native/windows_loader/**",
+    "src/devhub/native_bundle.py",
     ".github/workflows/windows-native-qualification.yml",
+    ".github/workflows/windows-native-loader.yml",
     "docs/NATIVE_BUNDLES.md",
 )
 base = os.environ.get("BASE_SHA")

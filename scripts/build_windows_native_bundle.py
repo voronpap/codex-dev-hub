@@ -39,8 +39,11 @@ from devhub.native_bundle import (
     NativeCodexAuthorityV1,
     NativeDependencyWheelV1,
     NativeLauncherV1,
+    NativeLoaderAuthorityV1,
+    NativeLoaderBuildV1,
     embedded_archive_members_sha256,
     file_sha256,
+    git_blob_sha256,
     inspect_embedded_windows_runtime,
     installed_wheel_plan,
     inventory_native_bundle,
@@ -194,6 +197,61 @@ def _uv_timestamp(value: object) -> bool:
         and not isinstance(nanos, bool)
         and 0 <= nanos < 1_000_000_000
     )
+
+
+def _review_native_loader_artifact(
+    repo: Path,
+    artifact: Path,
+    expected_commit: str,
+    accepted_run_id: int,
+    accepted_run_attempt: int,
+) -> NativeLoaderBuildV1:
+    artifact = artifact.resolve(strict=True)
+    root_stat = artifact.lstat()
+    if artifact.is_symlink() or (
+        getattr(root_stat, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT
+    ):
+        raise ValueError("Native-loader artifact root must not be a symlink/reparse point")
+    binary = artifact / "_devfabric_native_loader.pyd"
+    receipt_path = artifact / "native-loader-build.json"
+    entries = tuple(artifact.iterdir())
+    if {item.name for item in entries} != {binary.name, receipt_path.name}:
+        raise ValueError("Native-loader artifact has an unexpected layout")
+    for item in entries:
+        result = item.lstat()
+        if (
+            item.is_symlink()
+            or getattr(result, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT
+            or not stat.S_ISREG(result.st_mode)
+        ):
+            raise ValueError("Native-loader artifact entries must be plain regular files")
+    if receipt_path.stat().st_size > 64 * 1024:
+        raise ValueError("Native-loader build receipt exceeds its size bound")
+    try:
+        receipt = NativeLoaderBuildV1.model_validate_json(receipt_path.read_bytes())
+    except (OSError, ValueError) as exc:
+        raise ValueError("Native-loader build receipt is invalid") from exc
+    if (
+        receipt.payload.implementation_commit != expected_commit
+        or file_sha256(binary) != receipt.payload.binary_sha256
+        or receipt.payload.source_sha256
+        != git_blob_sha256(repo, expected_commit, "native/windows_loader/devfabric_native_loader.c")
+        or receipt.payload.workflow.workflow_sha256
+        != git_blob_sha256(repo, expected_commit, ".github/workflows/windows-native-loader.yml")
+        or receipt.payload.workflow.run_id != accepted_run_id
+        or receipt.payload.workflow.run_attempt != accepted_run_attempt
+    ):
+        raise ValueError("Native-loader artifact differs from the reviewed implementation")
+    return receipt
+
+
+def _review_native_loader_runtime(receipt: NativeLoaderBuildV1, runtime_root: Path) -> None:
+    if receipt.payload.runtime_python_executable_sha256 != file_sha256(runtime_root / "python.exe"):
+        raise ValueError("Native-loader runtime interpreter differs from embedded Python")
+    for dependency in receipt.payload.dependencies:
+        target = runtime_root / dependency.filename
+        if not target.is_file() or file_sha256(target) != dependency.sha256:
+            raise ValueError("Native-loader dependency differs from embedded Python")
 
 
 def _strict_json(raw: bytes) -> object:
@@ -684,6 +742,9 @@ def _assemble_bundle(
     codex_artifact: Path,
     accepted_run_id: int,
     pip_interpreter: Path,
+    native_loader_artifact: Path | None,
+    accepted_native_loader_run_id: int | None,
+    accepted_native_loader_run_attempt: int | None,
 ) -> NativeBundleV1:
     repo = repo.resolve(strict=True)
     commit = reviewed_commit(repo, expected_commit)
@@ -694,6 +755,22 @@ def _assemble_bundle(
     if file_sha256(python_sbom) != PYTHON_SBOM_SHA256:
         raise ValueError("CPython SPDX document differs from the reviewed release asset")
     codex = validate_windows_codex_artifact(codex_artifact, accepted_run_id)
+    if (
+        native_loader_artifact is None
+        or accepted_native_loader_run_id is None
+        or accepted_native_loader_run_attempt is None
+    ):
+        raise ValueError("Reviewed native-loader artifact is required")
+    native_loader_artifact = native_loader_artifact.resolve(strict=True)
+    loader_binary_source = native_loader_artifact / "_devfabric_native_loader.pyd"
+    loader_receipt_source = native_loader_artifact / "native-loader-build.json"
+    loader_receipt = _review_native_loader_artifact(
+        repo,
+        native_loader_artifact,
+        commit,
+        accepted_native_loader_run_id,
+        accepted_native_loader_run_attempt,
+    )
     uv_name = "uv.exe" if os.name == "nt" else "uv"
     uv_value = shutil.which(uv_name)
     if uv_value is None:
@@ -737,6 +814,9 @@ def _assemble_bundle(
         archive_members = extract_embedded_python(
             authority / PYTHON_ARCHIVE, bundle_root / "python"
         )
+        _review_native_loader_runtime(loader_receipt, bundle_root / "python")
+        shutil.copy2(loader_binary_source, bundle_root / "python/_devfabric_native_loader.pyd")
+        shutil.copy2(loader_receipt_source, authority / "native-loader-build.json")
         site_packages = bundle_root / "python/site-packages"
         _run(
             [
@@ -798,6 +878,16 @@ def _assemble_bundle(
         dependency_wheels=dependencies,
         runtime=runtime,
     )
+    native_loader = NativeLoaderAuthorityV1(
+        build_receipt_sha256=file_sha256(authority / "native-loader-build.json"),
+        native_loader_build_id=loader_receipt.native_loader_build_id,
+        accepted_workflow_run_id=loader_receipt.payload.workflow.run_id,
+        accepted_workflow_run_attempt=loader_receipt.payload.workflow.run_attempt,
+        implementation_commit=loader_receipt.payload.implementation_commit,
+        source_sha256=loader_receipt.payload.source_sha256,
+        binary_sha256=loader_receipt.payload.binary_sha256,
+        dependencies=loader_receipt.payload.dependencies,
+    )
     bundle = NativeBundleV1.create(
         NativeBundlePayloadV1(
             platform="windows",
@@ -806,6 +896,7 @@ def _assemble_bundle(
             python=python,
             codex=codex,
             launcher=NativeLauncherV1(),
+            native_loader=native_loader,
             files=inventory_native_bundle(bundle_root),
         )
     )
@@ -824,6 +915,9 @@ def build(
     python_sbom: Path,
     codex_artifact: Path,
     accepted_run_id: int,
+    native_loader_artifact: Path | None = None,
+    accepted_native_loader_run_id: int | None = None,
+    accepted_native_loader_run_attempt: int | None = None,
 ) -> NativeBundleV1:
     """Assemble and verify privately, then atomically publish one release root."""
 
@@ -848,6 +942,9 @@ def build(
             codex_artifact,
             accepted_run_id,
             pip_interpreter,
+            native_loader_artifact,
+            accepted_native_loader_run_id,
+            accepted_native_loader_run_attempt,
         )
         os.replace(publication, release_root)
     return bundle
@@ -861,6 +958,9 @@ def main() -> None:
     parser.add_argument("--python-sbom", required=True, type=Path)
     parser.add_argument("--codex-artifact", required=True, type=Path)
     parser.add_argument("--accepted-run-id", required=True, type=int)
+    parser.add_argument("--native-loader-artifact", required=True, type=Path)
+    parser.add_argument("--accepted-native-loader-run-id", required=True, type=int)
+    parser.add_argument("--accepted-native-loader-run-attempt", required=True, type=int)
     args = parser.parse_args()
     bundle = build(
         Path(__file__).resolve().parents[1],
@@ -870,6 +970,9 @@ def main() -> None:
         args.python_sbom.resolve(strict=True),
         args.codex_artifact.resolve(strict=True),
         args.accepted_run_id,
+        args.native_loader_artifact.resolve(strict=True),
+        args.accepted_native_loader_run_id,
+        args.accepted_native_loader_run_attempt,
     )
     print(json.dumps(bundle.model_dump(mode="json"), sort_keys=True))
 

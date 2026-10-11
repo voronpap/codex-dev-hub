@@ -123,6 +123,32 @@ def file_sha256(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def git_blob_bytes(repo: Path, commit: str, path: str) -> bytes:
+    """Read exact committed bytes without worktree filters or line-ending conversion."""
+    member = PurePosixPath(path)
+    if (
+        len(commit) != 40
+        or any(character not in "0123456789abcdef" for character in commit)
+        or member.is_absolute()
+        or ".." in member.parts
+        or "\\" in path
+    ):
+        raise ValueError("Git blob authority has an invalid commit or path")
+    result = subprocess.run(
+        ["git", "--no-replace-objects", "cat-file", "blob", f"{commit}:{path}"],
+        cwd=repo,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError("Git blob authority is unavailable")
+    return result.stdout
+
+
+def git_blob_sha256(repo: Path, commit: str, path: str) -> str:
+    return hashlib.sha256(git_blob_bytes(repo, commit, path)).hexdigest()
+
+
 def embedded_archive_members_sha256(raw: bytes) -> str:
     records: list[dict[str, JsonValue]] = []
     names: set[str] = set()
@@ -376,6 +402,150 @@ class NativeModuleOriginV1(Contract):
         return value
 
 
+NativeLoaderDependencyName = Literal["libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll"]
+
+
+class NativeLoaderDependencyV1(Contract):
+    filename: NativeLoaderDependencyName
+    sha256: Digest
+
+
+class NativeLoaderWorkflowV1(Contract):
+    repository: Literal["voronpap/codex-dev-hub"] = "voronpap/codex-dev-hub"
+    workflow_name: Literal["Native Windows loader qualification"] = (
+        "Native Windows loader qualification"
+    )
+    workflow_path: Literal[".github/workflows/windows-native-loader.yml"] = (
+        ".github/workflows/windows-native-loader.yml"
+    )
+    workflow_sha256: Digest
+    run_id: Annotated[int, Field(ge=1)]
+    run_attempt: Annotated[int, Field(ge=1)]
+    artifact_name: Literal["devfabric-windows-native-loader"] = "devfabric-windows-native-loader"
+
+
+class NativeLoaderPostBuildProofV1(Contract):
+    relocated_runtime: Literal[True] = True
+    final_binary_sha256: Digest
+    module_origin_is_interpreter_sibling: Literal[True] = True
+    imported_modules: tuple[
+        Literal["_ctypes"],
+        Literal["_socket"],
+        Literal["_overlapped"],
+        Literal["select"],
+        Literal["_hashlib"],
+        Literal["_ssl"],
+    ] = ("_ctypes", "_socket", "_overlapped", "select", "_hashlib", "_ssl")
+    arbitrary_arguments_rejected: Literal[True] = True
+    missing_dependency_rejected: Literal[True] = True
+    invalid_dependency_rejected: Literal[True] = True
+    wrong_module_directory_rejected: Literal[True] = True
+    partial_load_cleanup_verified: Literal[True] = True
+
+
+class NativeLoaderBuildPayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    implementation_commit: GitCommit
+    module_name: Literal["_devfabric_native_loader"] = "_devfabric_native_loader"
+    source_path: Literal["native/windows_loader/devfabric_native_loader.c"] = (
+        "native/windows_loader/devfabric_native_loader.c"
+    )
+    source_sha256: Digest
+    binary_filename: Literal["_devfabric_native_loader.pyd"] = "_devfabric_native_loader.pyd"
+    binary_sha256: Digest
+    target: Literal["x86_64-pc-windows-msvc"] = "x86_64-pc-windows-msvc"
+    python_version: Literal["3.12.10"] = "3.12.10"
+    python_cache_tag: Literal["cpython-312"] = "cpython-312"
+    python_executable_sha256: Digest
+    runtime_python_executable_sha256: Digest
+    python_import_library_sha256: Digest
+    python_headers_sha256: Digest
+    python_header_count: Annotated[int, Field(ge=1)]
+    compiler_path_sha256: Digest
+    compiler_version: str = Field(min_length=1, max_length=512)
+    linker_path_sha256: Digest
+    linker_version: str = Field(min_length=1, max_length=512)
+    pe_machine: Literal["0x8664"] = "0x8664"
+    compile_flags: tuple[str, ...] = Field(min_length=1, max_length=32)
+    link_flags: tuple[str, ...] = Field(min_length=1, max_length=16)
+    dependencies: tuple[NativeLoaderDependencyV1, ...] = Field(min_length=3, max_length=3)
+    workflow: NativeLoaderWorkflowV1
+    post_build_proof: NativeLoaderPostBuildProofV1
+
+    @model_validator(mode="after")
+    def closed_build_contract(self) -> NativeLoaderBuildPayloadV1:
+        if [item.filename for item in self.dependencies] != [
+            "libffi-8.dll",
+            "libcrypto-3.dll",
+            "libssl-3.dll",
+        ]:
+            raise ValueError("Native-loader dependency set differs from the reviewed order")
+        if self.compile_flags != (
+            "/nologo",
+            "/LD",
+            "/O2",
+            "/GS",
+            "/guard:cf",
+            "/sdl",
+            "/W3",
+            "/WX",
+        ):
+            raise ValueError("Native-loader compiler flags differ from the reviewed contract")
+        if self.link_flags != ("/DYNAMICBASE", "/NXCOMPAT"):
+            raise ValueError("Native-loader linker flags differ from the reviewed contract")
+        if self.post_build_proof.final_binary_sha256 != self.binary_sha256:
+            raise ValueError("Native-loader post-build proof differs from the exact binary")
+        return self
+
+
+class NativeLoaderBuildV1(Contract):
+    native_loader_build_id: Digest
+    payload: NativeLoaderBuildPayloadV1
+
+    @classmethod
+    def create(cls, payload: NativeLoaderBuildPayloadV1) -> NativeLoaderBuildV1:
+        return cls(
+            native_loader_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> NativeLoaderBuildV1:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.native_loader_build_id != expected:
+            raise ValueError("Native-loader build ID mismatch")
+        return self
+
+
+class NativeLoaderAuthorityV1(Contract):
+    module_path: Literal["python/_devfabric_native_loader.pyd"] = (
+        "python/_devfabric_native_loader.pyd"
+    )
+    build_receipt_path: Literal["authority/native-loader-build.json"] = (
+        "authority/native-loader-build.json"
+    )
+    build_receipt_sha256: Digest
+    native_loader_build_id: Digest
+    accepted_workflow_run_id: Annotated[int, Field(ge=1)]
+    accepted_workflow_run_attempt: Annotated[int, Field(ge=1)]
+    implementation_commit: GitCommit
+    source_sha256: Digest
+    binary_sha256: Digest
+    dependencies: tuple[NativeLoaderDependencyV1, ...] = Field(min_length=3, max_length=3)
+
+    @model_validator(mode="after")
+    def closed_dependencies(self) -> NativeLoaderAuthorityV1:
+        if [item.filename for item in self.dependencies] != [
+            "libffi-8.dll",
+            "libcrypto-3.dll",
+            "libssl-3.dll",
+        ]:
+            raise ValueError("Native-loader authority dependency set differs from reviewed order")
+        return self
+
+
 class NativePythonRuntimePayloadV1(Contract):
     python_implementation: Literal["CPython"] = "CPython"
     python_version: Literal["3.12.10"] = "3.12.10"
@@ -538,6 +708,7 @@ class NativeBundlePayloadV1(Contract):
     python: EmbeddedPythonAuthorityV1
     codex: NativeCodexAuthorityV1
     launcher: NativeLauncherV1
+    native_loader: NativeLoaderAuthorityV1 | None = None
     files: tuple[NativeBundleFileV1, ...] = Field(min_length=1)
     trusted_prelaunch_verifier_required: Literal[True] = True
     native_executor_isolation_qualified: Literal[False] = False
@@ -563,6 +734,13 @@ class NativeBundlePayloadV1(Contract):
             self.codex.build_receipt_path: self.codex.build_receipt_sha256,
             self.codex.executable_path: self.codex.executable_sha256,
         }
+        if self.native_loader is not None:
+            required.update(
+                {
+                    self.native_loader.module_path: self.native_loader.binary_sha256,
+                    self.native_loader.build_receipt_path: self.native_loader.build_receipt_sha256,
+                }
+            )
         required.update(
             {
                 f"authority/wheels/{wheel.filename}": wheel.sha256
@@ -587,6 +765,8 @@ class NativeBundlePayloadV1(Contract):
             self.codex.build_receipt_path,
             *(f"authority/wheels/{wheel.filename}" for wheel in self.python.dependency_wheels),
         }
+        if self.native_loader is not None:
+            expected_authority.add(self.native_loader.build_receipt_path)
         observed_authority = {path for path in paths if path.startswith("authority/")}
         if observed_authority != expected_authority:
             raise ValueError("Native bundle authority directory differs from the closed layout")
@@ -597,18 +777,27 @@ class NativeBundlePayloadV1(Contract):
         return self
 
 
+def _native_bundle_payload_json(payload: NativeBundlePayloadV1) -> JsonValue:
+    """Preserve the historical V1 hash when the forward-only loader field is absent."""
+
+    raw = payload.model_dump(mode="json")
+    if payload.native_loader is None:
+        del raw["native_loader"]
+    return cast(JsonValue, raw)
+
+
 class NativeBundleV1(Contract):
     bundle_id: Digest
     payload: NativeBundlePayloadV1
 
     @classmethod
     def create(cls, payload: NativeBundlePayloadV1) -> NativeBundleV1:
-        identifier = digest(canonical(cast(JsonValue, payload.model_dump(mode="json"))))
+        identifier = digest(canonical(_native_bundle_payload_json(payload)))
         return cls(bundle_id=identifier, payload=payload)
 
     @model_validator(mode="after")
     def canonical_id(self) -> NativeBundleV1:
-        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        expected = digest(canonical(_native_bundle_payload_json(self.payload)))
         if self.bundle_id != expected:
             raise ValueError("Native bundle ID mismatch")
         return self
@@ -850,6 +1039,33 @@ def verify_native_bundle(
                 raise ValueError("Extracted CPython layout differs from its retained archive")
             if file_sha256(target) != hashlib.sha256(raw).hexdigest():
                 raise ValueError("Extracted CPython file differs from its retained archive")
+    native_loader = bundle.payload.native_loader
+    if native_loader is not None:
+        expected_archive_files.add(native_loader.module_path)
+        receipt_path = root.joinpath(*PurePosixPath(native_loader.build_receipt_path).parts)
+        if receipt_path.stat().st_size > 64 * 1024:
+            raise ValueError("Native-loader build receipt exceeds its size bound")
+        try:
+            receipt = NativeLoaderBuildV1.model_validate_json(receipt_path.read_bytes())
+        except (OSError, ValueError) as exc:
+            raise ValueError("Native-loader build receipt is invalid") from exc
+        payload = receipt.payload
+        if (
+            receipt.native_loader_build_id != native_loader.native_loader_build_id
+            or payload.workflow.run_id != native_loader.accepted_workflow_run_id
+            or payload.workflow.run_attempt != native_loader.accepted_workflow_run_attempt
+            or payload.implementation_commit != native_loader.implementation_commit
+            or payload.implementation_commit != bundle.payload.implementation_commit
+            or payload.source_sha256 != native_loader.source_sha256
+            or payload.binary_sha256 != native_loader.binary_sha256
+            or payload.dependencies != native_loader.dependencies
+            or payload.runtime_python_executable_sha256 != bundle.payload.python.executable_sha256
+        ):
+            raise ValueError("Native-loader build authority differs from the bundle manifest")
+        for dependency in native_loader.dependencies:
+            target = root / "python" / dependency.filename
+            if not target.is_file() or file_sha256(target) != dependency.sha256:
+                raise ValueError("Native-loader dependency differs from the exact bundle file")
     observed_python_base = {
         item.path
         for item in observed
