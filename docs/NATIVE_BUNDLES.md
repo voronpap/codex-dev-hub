@@ -277,7 +277,7 @@ The first Linux-native attempt, `linux-build-001`, is retained as failed evidenc
 `v8_enable_sandbox` feature intentionally has no generic upstream prebuilt archive. The
 second attempt, `linux-build-002`, is also retained as failed evidence: the crates.io
 `v8-150.4.0` source package omits required ICU source data, so its source build cannot
-complete. The forward-only `linux-build-003` consumes the exact sandbox archive and
+complete. The forward-only `linux-build-003` consumed the exact sandbox archive and
 matching generated binding from OpenAI's reviewed `rusty-v8-v150.4.0` Codex release.
 Both assets, the release checksum manifest, the pinned source `MODULE.bazel`, the
 `v8_enable_sandbox` feature and post-build rehashes are receipt-bound. It builds the exact sibling
@@ -285,12 +285,23 @@ Both assets, the release checksum manifest, the pinned source `MODULE.bazel`, th
 source, reviewed Candidate B and host-integration patches, complete derived lock,
 Rust 1.95.0 and target `x86_64-unknown-linux-gnu`. It reuses the reviewed source
 preparation and Default/A/B observer rather than defining a second patch, lock or
-tool-surface authority.
+tool-surface authority. Run `38129490280` compiled that exact pair and completed
+the observed host proof, then failed closed while serializing the build receipt:
+the historical V1 proof contract required ordinary `AllowedTools=None` Default
+to be empty, while the observer correctly reported the accepted eleven ordinary
+tools. Its immutable classification is
+`POSTCOMPILATION_DEFAULT_SURFACE_CONTRACT_REPRESENTATION_FAILURE`; it is not an
+Arm A/B ceiling failure. Forward-only `linux-build-004` uses the shared ordinary
+Default authority already accepted for Windows while retaining Arm A `{}`, Arm B
+exactly the delegate, all security negatives and zero execution counters. It also
+seals the complete build output and creates a separate inventory-bound evidence
+projection that explicitly includes hidden files. V1-V3 receipts remain strict
+historical contracts.
 
 Its strict self-hashed receipt binds both executable hashes, ELF class/machine,
 program interpreter, `DT_NEEDED`, absence of embedded RPATH/RUNPATH, required
 symbol versions, toolchain binaries, workflow and build/proof scripts. The
-pre-sampling proof requires Default `{}`, Arm A `{}`, Arm B exactly
+current pre-sampling proof requires the exact ordinary eleven-tool Default, Arm A `{}`, Arm B exactly
 `{mcp__devhub_delegate.devhub_delegate}`, the existing security negatives, no
 missing sibling-host warning, clean MCP-child shutdown and zero model, provider,
 MCP-tool and real-task counters. A separate stdio EOF check requires the exact
@@ -347,7 +358,14 @@ Build-020 and all OCI evidence remain immutable historical evidence.
    Historical receipts remain strict and parseable. Default/A/B
    proof must use the exact colocated pair without a missing-host diagnostic; the
    host must also exit cleanly on stdio EOF. No inference or MCP tool execution
-   occurs in this slice.
+   occurs in this slice. Run `38148646088` at accepted commit
+   `3b70f932480b017c2a21c1a30c65143ae5d5ff0c` passed that complete slice. The
+   exact `codex.exe` SHA-256 is
+   `45b0a10199a596d6ef7b7a25c4e4396597a42b3082f36403061233dbbdfa69b3`
+   and the exact sibling host SHA-256 is
+   `c06bf0d26ed4b28f8aaa336cc5813817fe33f2b883540a3a189440ffe390663d`.
+   This establishes the Windows executable-pair authority only; it does not
+   promote package or native-executor readiness.
 2. **Self-contained runtime directory.** Freeze one reviewed Windows CPython and
    non-editable DevFabric wheel environment, verify distribution metadata/RECORD,
    dependency lock, module origin and entrypoint, and bundle the accepted
@@ -389,8 +407,8 @@ Build-020 and all OCI evidence remain immutable historical evidence.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PENDING — `windows-build-005` compiled and proved the pair but retained an incomplete evidence projection; reviewed `windows-build-006` correction pending CI | PENDING — native profile/build required; OCI binary does not qualify it |
-| Same-binary host authority | PENDING reviewed `windows-build-006` Default/A/B, security and complete artifact proof | PENDING; historical OCI proof is profile-limited |
+| Exact native Codex | PASS — reviewed `windows-build-006` pair and complete retained artifact inventory | PENDING — reviewed `linux-build-004` forward correction requires exact-head CI; OCI binary does not qualify it |
+| Same-binary host authority | PASS — `windows-build-006` exact Default/A/B, security, EOF and complete artifact proof | PENDING — `linux-build-003` compiled/proved but its historical receipt rejected the ordinary Default representation; `linux-build-004` pending CI |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
@@ -401,7 +419,7 @@ Build-020 and all OCI evidence remain immutable historical evidence.
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PENDING directory/launcher/file manifest |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | Windows native workflow plus shared CI pending | Native Linux workflow plus shared CI pending |
+| CI/review | PASS for the `windows-build-006` native executable-pair authority slice; later package gates remain separate | Native Linux `linux-build-004` executable-pair workflow/review pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

@@ -30,16 +30,16 @@ from derive_stage3g_production_lock import PRODUCTION_HOST_LOCK_SHA256
 from stage3g_schema_hash import read_schema_identity
 
 from devhub.linux_native import (
-    LinuxBuildProvenanceV3,
+    LinuxBuildProvenanceV4,
     LinuxElfIdentityV1,
-    LinuxHostProofSummaryV1,
+    LinuxHostProofSummaryV2,
     LinuxNativeBinaryV1,
-    LinuxNativeCodexBuildPayloadV3,
-    LinuxNativeCodexBuildV3,
+    LinuxNativeCodexBuildPayloadV4,
+    LinuxNativeCodexBuildV4,
 )
 from devhub.native_bundle import git_blob_sha256
 
-BUILD_ID = "linux-build-003"
+BUILD_ID = "linux-build-004"
 TARGET = "x86_64-unknown-linux-gnu"
 V8_RELEASE_TAG = "rusty-v8-v150.4.0"
 V8_RELEASE_BASE = f"https://github.com/openai/codex/releases/download/{V8_RELEASE_TAG}"
@@ -371,7 +371,7 @@ def _proof_summary(
     eof: dict[str, object],
     eof_receipt_sha256: str,
     host_binary: LinuxNativeBinaryV1,
-) -> LinuxHostProofSummaryV1:
+) -> LinuxHostProofSummaryV2:
     arms = proof["arms"]
     default = proof["default"]
     same = proof["same_binary"]
@@ -394,7 +394,7 @@ def _proof_summary(
         or eof.get("binary_relative_path") != host_binary.relative_path
     ):
         raise ValueError("EOF proof does not bind the exact sibling code-mode host")
-    return LinuxHostProofSummaryV1(
+    return LinuxHostProofSummaryV2(
         process_proof_sha256=proof_sha256,
         code_mode_host_sha256=host_binary.sha256,
         code_mode_host_eof_receipt_sha256=eof_receipt_sha256,
@@ -800,8 +800,8 @@ def main() -> None:
         rustc = _tool_path("rustc")
         cargo = _tool_path("cargo")
         provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
-        payload = LinuxNativeCodexBuildPayloadV3(
-            provenance=LinuxBuildProvenanceV3(
+        payload = LinuxNativeCodexBuildPayloadV4(
+            provenance=LinuxBuildProvenanceV4(
                 implementation_commit=implementation_commit,
                 codex_source_commit=retained.SOURCE_COMMIT,
                 source_archive_sha256=retained.SOURCE_ARCHIVE_SHA256,
@@ -831,7 +831,7 @@ def main() -> None:
             binaries=binaries,
             process_proof=summary,
         )
-        final = LinuxNativeCodexBuildV3.create(payload)
+        final = LinuxNativeCodexBuildV4.create(payload)
         (args.output / "linux-native-codex-build.json").write_text(
             final.model_dump_json(indent=2) + "\n", encoding="utf-8"
         )

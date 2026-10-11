@@ -9,10 +9,21 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from devhub.linux_native import (
+    LinuxBuildProvenanceV4,
+    LinuxElfIdentityV1,
+    LinuxHostProofSummaryV2,
+    LinuxNativeBinaryV1,
+    LinuxNativeCodexBuildPayloadV4,
+    LinuxNativeCodexBuildV4,
+)
 from devhub.native_proof import (
+    LinuxNativeBuildArtifactJoinV1,
     NativeBuildArtifactEntryV1,
     NativeBuildArtifactInventoryPayloadV1,
+    NativeBuildArtifactInventoryPayloadV2,
     NativeBuildArtifactInventoryV1,
+    NativeBuildArtifactInventoryV2,
     WindowsNativeBuildArtifactJoinV1,
 )
 from devhub.windows_native import (
@@ -37,6 +48,12 @@ SPEC.loader.exec_module(INVENTORY)
 def _result(root: Path, *, status: str = "FAIL") -> None:
     (root / "windows-build-result.json").write_text(
         json.dumps({"build_id": "windows-build-006", "status": status}), encoding="utf-8"
+    )
+
+
+def _linux_result(root: Path, *, status: str = "FAIL") -> None:
+    (root / "linux-build-result.json").write_text(
+        json.dumps({"build_id": "linux-build-004", "status": status}), encoding="utf-8"
     )
 
 
@@ -150,6 +167,116 @@ def _pass_artifact(root: Path) -> WindowsNativeCodexBuildV5:
     return receipt
 
 
+def _linux_pass_artifact(root: Path) -> LinuxNativeCodexBuildV4:
+    binary = root / "binary"
+    binary.mkdir()
+    codex_path = binary / "codex"
+    host_path = binary / "codex-code-mode-host"
+    codex_path.write_bytes(b"exact linux codex")
+    host_path.write_bytes(b"exact linux code mode host")
+    proof_path = root / "linux-process-proof.json"
+    eof_path = root / "code-mode-host-eof.json"
+    proof_path.write_bytes(b'{"proof":"pass"}\n')
+    eof_path.write_bytes(b'{"eof":"pass"}\n')
+    elf = LinuxElfIdentityV1(
+        interpreter="/lib64/ld-linux-x86-64.so.2",
+        needed=("libc.so.6",),
+        required_symbol_versions=("GLIBC_2.34",),
+    )
+    codex = LinuxNativeBinaryV1(
+        role="codex",
+        relative_path="binary/codex",
+        sha256=_sha256(codex_path),
+        size=codex_path.stat().st_size,
+        elf=elf,
+        identity_output_sha256="1" * 64,
+    )
+    host = LinuxNativeBinaryV1(
+        role="codex-code-mode-host",
+        relative_path="binary/codex-code-mode-host",
+        sha256=_sha256(host_path),
+        size=host_path.stat().st_size,
+        elf=elf,
+        identity_output_sha256="2" * 64,
+    )
+    provenance = LinuxBuildProvenanceV4(
+        implementation_commit="a" * 40,
+        codex_source_commit="b" * 40,
+        source_archive_sha256="1" * 64,
+        candidate_b_base_patch_sha256="2" * 64,
+        host_integration_patch_sha256="3" * 64,
+        combined_patchset_sha256="4" * 64,
+        canonical_schema_sha256="5" * 64,
+        raw_schema_file_sha256="6" * 64,
+        host_manifest_sha256="7" * 64,
+        resolved_mcp_config_sha256="8" * 64,
+        original_cargo_lock_sha256="9" * 64,
+        derived_cargo_lock_sha256="a" * 64,
+        rustc_version="rustc 1.95.0",
+        cargo_version="cargo 1.95.0",
+        rustc_sha256="b" * 64,
+        cargo_sha256="c" * 64,
+        build_script_sha256="d" * 64,
+        shared_proof_script_sha256="e" * 64,
+        workflow_sha256="f" * 64,
+        codex_module_bazel_sha256=(
+            "1a6c8685d241a5390ff94432581e842c2950cbe5262b47b27d8db467cebec4c2"
+        ),
+        v8_archive_url=(
+            "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/"
+            "librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz"
+        ),
+        v8_archive_sha256="a35c75d1f26e6a983885a45b33490a4ebe54f05050568b32b89cfb421b30b583",
+        v8_binding_url=(
+            "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/"
+            "src_binding_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.rs"
+        ),
+        v8_binding_sha256="7727826ae479bdb645e807239fb12d1f8e2e23de7a6cf16f5ee592690d1d8506",
+        v8_checksum_url=(
+            "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/"
+            "rusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.sha256"
+        ),
+        v8_checksum_sha256="6774b42c9424c098c72a805c08d4e94be17c591cf02b1dc2633060255a8a61be",
+        v8_archive_post_build_sha256=(
+            "a35c75d1f26e6a983885a45b33490a4ebe54f05050568b32b89cfb421b30b583"
+        ),
+        v8_binding_post_build_sha256=(
+            "7727826ae479bdb645e807239fb12d1f8e2e23de7a6cf16f5ee592690d1d8506"
+        ),
+        v8_checksum_post_build_sha256=(
+            "6774b42c9424c098c72a805c08d4e94be17c591cf02b1dc2633060255a8a61be"
+        ),
+    )
+    proof = LinuxHostProofSummaryV2(
+        process_proof_sha256=_sha256(proof_path),
+        code_mode_host_sha256=host.sha256,
+        code_mode_host_eof_receipt_sha256=_sha256(eof_path),
+    )
+    receipt = LinuxNativeCodexBuildV4.create(
+        LinuxNativeCodexBuildPayloadV4(
+            provenance=provenance,
+            binaries=(codex, host),
+            process_proof=proof,
+        )
+    )
+    (root / "linux-native-codex-build.json").write_text(
+        receipt.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+    (root / "linux-build-result.json").write_text(
+        json.dumps(
+            {
+                "build_id": "linux-build-004",
+                "status": "PASS",
+                "linux_native_codex_build_id": receipt.linux_native_codex_build_id,
+                "executable_sha256": codex.sha256,
+                "code_mode_host_sha256": host.sha256,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return receipt
+
+
 def test_windows_build_inventory_is_sorted_content_bound_and_self_hashed(tmp_path: Path) -> None:
     _result(tmp_path)
     (tmp_path / "assets").mkdir()
@@ -203,6 +330,115 @@ def test_windows_pass_inventory_rejects_binary_substitution(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="exact binary pair"):
         INVENTORY.seal_windows(tmp_path, "windows-build-006")
+
+
+def test_linux_pass_inventory_exactly_joins_pair_proof_and_result(tmp_path: Path) -> None:
+    pair = _linux_pass_artifact(tmp_path)
+
+    receipt = INVENTORY.seal_linux(tmp_path, "linux-build-004")
+
+    assert receipt.payload.status == "PASS"
+    assert receipt.payload.linux_pair is not None
+    assert (
+        receipt.payload.linux_pair.linux_native_codex_build_id == pair.linux_native_codex_build_id
+    )
+    assert receipt.payload.linux_pair.codex_sha256 == pair.payload.binaries[0].sha256
+    assert receipt.payload.linux_pair.code_mode_host_sha256 == pair.payload.binaries[1].sha256
+    assert tuple(item.relative_path for item in receipt.payload.files if item.kind == "binary") == (
+        "binary/codex",
+        "binary/codex-code-mode-host",
+    )
+    assert (
+        NativeBuildArtifactInventoryV2.model_validate_json(
+            (tmp_path / INVENTORY.INVENTORY_NAME).read_bytes()
+        )
+        == receipt
+    )
+
+
+def test_linux_pass_inventory_rejects_binary_substitution(tmp_path: Path) -> None:
+    _linux_pass_artifact(tmp_path)
+    (tmp_path / "binary/codex").write_bytes(b"substituted")
+
+    with pytest.raises(ValueError, match="exact binary pair"):
+        INVENTORY.seal_linux(tmp_path, "linux-build-004")
+
+
+def test_linux_failure_projection_retains_hidden_evidence_and_excludes_binary(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sealed"
+    root.mkdir()
+    _linux_result(root)
+    (root / "binary").mkdir()
+    (root / "binary/codex").write_bytes(b"failed proof binary")
+    hidden = root / "process-proof/arm-a/codex home/skills/.system/SKILL.md"
+    hidden.parent.mkdir(parents=True)
+    hidden.write_bytes(b"hidden evidence")
+    lock = root / "process-proof/arm-a/codex home/tmp/arg0/session/.lock"
+    lock.parent.mkdir(parents=True)
+    lock.write_bytes(b"locked")
+
+    inventory = INVENTORY.seal_linux(root, "linux-build-004")
+    projection = tmp_path / "projection"
+    members = INVENTORY.project_linux_evidence(root, projection, inventory)
+
+    assert inventory.payload.status == "FAIL"
+    assert inventory.payload.linux_pair is None
+    assert members == (
+        "linux-build-result.json",
+        INVENTORY.INVENTORY_NAME,
+        "process-proof/arm-a/codex home/skills/.system/SKILL.md",
+        "process-proof/arm-a/codex home/tmp/arg0/session/.lock",
+    )
+    assert not (projection / "binary/codex").exists()
+    assert INVENTORY.verify_linux_evidence_projection(projection, inventory) == members
+
+
+def test_inventory_v2_rejects_cross_platform_pair_authority() -> None:
+    entry = NativeBuildArtifactEntryV1(
+        relative_path="linux-build-result.json",
+        kind="evidence",
+        size=1,
+        sha256="8" * 64,
+    )
+    windows_pair = WindowsNativeBuildArtifactJoinV1(
+        build_receipt_sha256="2" * 64,
+        windows_native_codex_build_id="3" * 64,
+        codex_sha256="4" * 64,
+        code_mode_host_sha256="5" * 64,
+        process_proof_sha256="6" * 64,
+        code_mode_host_eof_receipt_sha256="7" * 64,
+    )
+    linux_pair = LinuxNativeBuildArtifactJoinV1(
+        build_receipt_sha256="2" * 64,
+        linux_native_codex_build_id="3" * 64,
+        codex_sha256="4" * 64,
+        code_mode_host_sha256="5" * 64,
+        process_proof_sha256="6" * 64,
+        code_mode_host_eof_receipt_sha256="7" * 64,
+    )
+
+    with pytest.raises(ValidationError, match="Windows pair authority cannot be used by Linux"):
+        NativeBuildArtifactInventoryPayloadV2(
+            platform="linux",
+            build_id="linux-build-004",
+            status="PASS",
+            build_result_sha256="1" * 64,
+            windows_pair=windows_pair,
+            linux_pair=linux_pair,
+            files=(entry,),
+        )
+    with pytest.raises(ValidationError, match="Linux pair authority cannot be used by Windows"):
+        NativeBuildArtifactInventoryPayloadV2(
+            platform="windows",
+            build_id="windows-build-006",
+            status="PASS",
+            build_result_sha256="1" * 64,
+            windows_pair=windows_pair,
+            linux_pair=linux_pair,
+            files=(entry.model_copy(update={"relative_path": "windows-build-result.json"}),),
+        )
 
 
 def test_linux_inventory_rejects_windows_pair_authority() -> None:

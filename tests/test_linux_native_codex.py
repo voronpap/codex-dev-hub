@@ -15,16 +15,21 @@ from devhub.linux_native import (
     LinuxBuildProvenanceV1,
     LinuxBuildProvenanceV2,
     LinuxBuildProvenanceV3,
+    LinuxBuildProvenanceV4,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV1,
+    LinuxHostProofSummaryV2,
     LinuxNativeBinaryV1,
     LinuxNativeCodexBuildPayloadV1,
     LinuxNativeCodexBuildPayloadV2,
     LinuxNativeCodexBuildPayloadV3,
+    LinuxNativeCodexBuildPayloadV4,
     LinuxNativeCodexBuildV1,
     LinuxNativeCodexBuildV2,
     LinuxNativeCodexBuildV3,
+    LinuxNativeCodexBuildV4,
 )
+from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -63,6 +68,14 @@ def binary(role: str, sha256: str) -> LinuxNativeBinaryV1:
 
 def proof(host_sha256: str = OTHER_HASH) -> LinuxHostProofSummaryV1:
     return LinuxHostProofSummaryV1(
+        process_proof_sha256=HASH,
+        code_mode_host_sha256=host_sha256,
+        code_mode_host_eof_receipt_sha256=HASH,
+    )
+
+
+def proof_v2(host_sha256: str = OTHER_HASH) -> LinuxHostProofSummaryV2:
+    return LinuxHostProofSummaryV2(
         process_proof_sha256=HASH,
         code_mode_host_sha256=host_sha256,
         code_mode_host_eof_receipt_sha256=HASH,
@@ -121,7 +134,13 @@ def process_proof_raw(message: str = "") -> dict[str, object]:
                 "mcp_child_exited": True,
             },
         },
-        "default": {"observer": observer, "stderr": message},
+        "default": {
+            "observer": {
+                **observer,
+                "visible_model_tools": list(ORDINARY_DEFAULT_VISIBLE_TOOLS_V1),
+            },
+            "stderr": message,
+        },
         "same_binary": {
             "b_minus_a": ["mcp__devhub_delegate.devhub_delegate"],
             "a_minus_b": [],
@@ -206,6 +225,48 @@ def test_linux_build_003_binds_official_sandbox_release_and_preserves_history() 
     assert current.payload.provenance.build_id == "linux-build-003"
     assert current.payload.provenance.v8_sandbox_feature_enabled is True
     assert LinuxNativeCodexBuildV3.model_validate_json(current.model_dump_json()) == current
+    assert receipt().payload.provenance.build_id == "linux-build-001"
+
+
+def test_linux_build_004_binds_ordinary_default_and_preserves_history() -> None:
+    current = LinuxNativeCodexBuildV4.create(
+        LinuxNativeCodexBuildPayloadV4(
+            provenance=LinuxBuildProvenanceV4(
+                **{
+                    **provenance().model_dump(mode="python"),
+                    "build_id": "linux-build-004",
+                    "v8_crate_version": "150.4.0",
+                    "v8_build_mode": "official_openai_sandbox_release",
+                    "v8_release_tag": LINUX_BUILD.V8_RELEASE_TAG,
+                    "codex_module_bazel_sha256": LINUX_BUILD.CODEX_MODULE_BAZEL_SHA256,
+                    "v8_sandbox_feature_enabled": True,
+                    "v8_archive_url": (
+                        f"{LINUX_BUILD.V8_RELEASE_BASE}/{LINUX_BUILD.V8_ARCHIVE_NAME}"
+                    ),
+                    "v8_archive_sha256": LINUX_BUILD.V8_ARCHIVE_SHA256,
+                    "v8_binding_url": (
+                        f"{LINUX_BUILD.V8_RELEASE_BASE}/{LINUX_BUILD.V8_BINDING_NAME}"
+                    ),
+                    "v8_binding_sha256": LINUX_BUILD.V8_BINDING_SHA256,
+                    "v8_checksum_url": (
+                        f"{LINUX_BUILD.V8_RELEASE_BASE}/{LINUX_BUILD.V8_CHECKSUM_NAME}"
+                    ),
+                    "v8_checksum_sha256": LINUX_BUILD.V8_CHECKSUM_SHA256,
+                    "v8_archive_post_build_sha256": LINUX_BUILD.V8_ARCHIVE_SHA256,
+                    "v8_binding_post_build_sha256": LINUX_BUILD.V8_BINDING_SHA256,
+                    "v8_checksum_post_build_sha256": LINUX_BUILD.V8_CHECKSUM_SHA256,
+                }
+            ),
+            binaries=(binary("codex", HASH), binary("codex-code-mode-host", OTHER_HASH)),
+            process_proof=proof_v2(),
+        )
+    )
+
+    assert current.payload.provenance.build_id == "linux-build-004"
+    assert current.payload.process_proof.default_visible_tools == (
+        ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
+    )
+    assert LinuxNativeCodexBuildV4.model_validate_json(current.model_dump_json()) == current
     assert receipt().payload.provenance.build_id == "linux-build-001"
 
 
@@ -528,9 +589,16 @@ def test_post_build_v8_failure_records_exact_phase_and_preserves_compile_state(
     assert observed["process_proof"] is None
 
 
-def test_linux_workflow_names_forward_only_build_003_artifact() -> None:
+def test_linux_workflow_names_forward_only_build_004_artifacts() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
-    assert "devfabric-linux-build-003" in workflow
+    assert "devfabric-linux-build-004-evidence" in workflow
+    assert "devfabric-linux-build-004-binaries" in workflow
+    assert "--platform linux" in workflow
+    assert "--build-id linux-build-004" in workflow
+    assert "include-hidden-files: true" in workflow
+    assert "if: always() && steps.seal.outcome == 'success'" in workflow
+    assert "if: success()" in workflow
+    assert "devfabric-linux-build-003" not in workflow
     assert "devfabric-linux-build-002" not in workflow
 
 
@@ -620,6 +688,7 @@ def test_process_summary_binds_exact_eof_receipt_and_sibling_host() -> None:
     summary = LINUX_BUILD._proof_summary(process_proof_raw(), HASH, eof, "d" * 64, host)
     assert summary.code_mode_host_sha256 == host.sha256
     assert summary.code_mode_host_eof_receipt_sha256 == "d" * 64
+    assert summary.default_visible_tools == ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
     with pytest.raises(ValueError, match="exact sibling code-mode host"):
         LINUX_BUILD._proof_summary(
             process_proof_raw(),
@@ -688,6 +757,7 @@ def test_process_summary_rejects_alternate_code_mode_failures(message: str) -> N
 
 
 def test_linux_builder_reuses_shared_source_and_process_authority() -> None:
+    assert LINUX_BUILD.BUILD_ID == "linux-build-004"
     assert LINUX_BUILD.retained.prepare_build_source is not None
     signature = inspect.signature(LINUX_BUILD.shared.process_proof)
     assert {"capture", "wait_pid_exit", "proof_env", "platform_label"} <= set(signature.parameters)

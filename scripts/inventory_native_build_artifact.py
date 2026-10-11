@@ -8,13 +8,18 @@ import json
 import os
 import shutil
 import stat
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 from devhub.experiment_launch import durable_publish
+from devhub.linux_native import LinuxNativeCodexBuildV4
 from devhub.native_proof import (
+    LinuxNativeBuildArtifactJoinV1,
     NativeBuildArtifactEntryV1,
     NativeBuildArtifactInventoryPayloadV1,
+    NativeBuildArtifactInventoryPayloadV2,
     NativeBuildArtifactInventoryV1,
+    NativeBuildArtifactInventoryV2,
     WindowsNativeBuildArtifactJoinV1,
 )
 from devhub.windows_native import WindowsNativeCodexBuildV4, WindowsNativeCodexBuildV5
@@ -41,6 +46,27 @@ WINDOWS_ROOT_FILES = frozenset(
     }
 )
 WINDOWS_ROOT_DIRECTORIES = frozenset({"assets", "binary", "process-proof", "v8-release"})
+LINUX_ROOT_FILES = frozenset(
+    {
+        "build.stderr",
+        "build.stdout",
+        "cargo-fetch.stderr",
+        "cargo-fetch.stdout",
+        "cargo-fmt.stderr",
+        "cargo-fmt.stdout",
+        "cargo-metadata.stderr",
+        "cargo-metadata.stdout",
+        "Cargo.lock.original",
+        "Cargo.lock.proof",
+        "code-mode-host-eof.json",
+        "derived-lock-manifest-bindings.json",
+        "linux-build-result.json",
+        "linux-native-codex-build.json",
+        "linux-process-proof.json",
+        "runner-manifest.json",
+    }
+)
+LINUX_ROOT_DIRECTORIES = frozenset({"assets", "binary", "elf", "process-proof", "v8-release"})
 
 
 def _sha256(path: Path) -> str:
@@ -125,7 +151,13 @@ def _remove_projection_tree(path: Path) -> None:
     raise RuntimeError("Windows evidence projection cleanup did not remove the tree")
 
 
-def inventory_windows(root: Path) -> tuple[NativeBuildArtifactEntryV1, ...]:
+def _inventory_native(
+    root: Path,
+    *,
+    root_files: frozenset[str],
+    root_directories: frozenset[str],
+    platform_label: str,
+) -> tuple[NativeBuildArtifactEntryV1, ...]:
     root = _validate_root(root)
     entries: list[NativeBuildArtifactEntryV1] = []
     for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
@@ -135,15 +167,21 @@ def inventory_windows(root: Path) -> tuple[NativeBuildArtifactEntryV1, ...]:
             result = path.lstat()
             if path.is_symlink() or getattr(result, "st_file_attributes", 0) & 0x400:
                 raise ValueError("Native build artifact contains a linked directory")
-            if top not in WINDOWS_ROOT_DIRECTORIES:
-                raise ValueError("Windows native build artifact contains an unknown directory")
+            if top not in root_directories:
+                raise ValueError(
+                    f"{platform_label} native build artifact contains an unknown directory"
+                )
             continue
         if relative == INVENTORY_NAME:
             continue
-        if "/" not in relative and relative not in WINDOWS_ROOT_FILES:
-            raise ValueError("Windows native build artifact contains an unknown root file")
-        if "/" in relative and top not in WINDOWS_ROOT_DIRECTORIES:
-            raise ValueError("Windows native build artifact contains an unknown file tree")
+        if "/" not in relative and relative not in root_files:
+            raise ValueError(
+                f"{platform_label} native build artifact contains an unknown root file"
+            )
+        if "/" in relative and top not in root_directories:
+            raise ValueError(
+                f"{platform_label} native build artifact contains an unknown file tree"
+            )
         result = _plain_file(path)
         entries.append(
             NativeBuildArtifactEntryV1(
@@ -156,17 +194,40 @@ def inventory_windows(root: Path) -> tuple[NativeBuildArtifactEntryV1, ...]:
     return tuple(entries)
 
 
-def verify_windows_evidence_projection(
-    projection: Path, inventory: NativeBuildArtifactInventoryV1
+def inventory_windows(root: Path) -> tuple[NativeBuildArtifactEntryV1, ...]:
+    return _inventory_native(
+        root,
+        root_files=WINDOWS_ROOT_FILES,
+        root_directories=WINDOWS_ROOT_DIRECTORIES,
+        platform_label="Windows",
+    )
+
+
+def inventory_linux(root: Path) -> tuple[NativeBuildArtifactEntryV1, ...]:
+    return _inventory_native(
+        root,
+        root_files=LINUX_ROOT_FILES,
+        root_directories=LINUX_ROOT_DIRECTORIES,
+        platform_label="Linux",
+    )
+
+
+NativeInventory = NativeBuildArtifactInventoryV1 | NativeBuildArtifactInventoryV2
+
+
+def _verify_evidence_projection(
+    projection: Path,
+    inventory: NativeInventory,
+    *,
+    inventory_model: type[NativeBuildArtifactInventoryV1] | type[NativeBuildArtifactInventoryV2],
+    platform_label: str,
 ) -> tuple[str, ...]:
     projection = _validate_root(projection)
     inventory_path = projection / INVENTORY_NAME
     _plain_file(inventory_path)
-    observed_inventory = NativeBuildArtifactInventoryV1.model_validate_json(
-        inventory_path.read_bytes()
-    )
+    observed_inventory = inventory_model.model_validate_json(inventory_path.read_bytes())
     if observed_inventory != inventory:
-        raise ValueError("Windows evidence projection inventory differs")
+        raise ValueError(f"{platform_label} evidence projection inventory differs")
     expected_entries = {
         item.relative_path: item for item in inventory.payload.files if item.kind == "evidence"
     }
@@ -176,31 +237,65 @@ def verify_windows_evidence_projection(
         if path.is_dir():
             result = path.lstat()
             if path.is_symlink() or getattr(result, "st_file_attributes", 0) & 0x400:
-                raise ValueError("Windows evidence projection contains a linked directory")
+                raise ValueError(
+                    f"{platform_label} evidence projection contains a linked directory"
+                )
             continue
         result = _plain_file(path)
         relative = path.relative_to(projection).as_posix()
         observed_paths.add(relative)
         entry = expected_entries.get(relative)
         if entry is not None and (result.st_size != entry.size or _sha256(path) != entry.sha256):
-            raise ValueError("Windows evidence projection entry differs from inventory")
+            raise ValueError(f"{platform_label} evidence projection entry differs from inventory")
     if observed_paths != expected_paths:
-        raise ValueError("Windows evidence projection member set differs from inventory")
+        raise ValueError(f"{platform_label} evidence projection member set differs from inventory")
     return tuple(sorted(observed_paths))
 
 
-def project_windows_evidence(
-    root: Path, destination: Path, inventory: NativeBuildArtifactInventoryV1
+def verify_windows_evidence_projection(
+    projection: Path, inventory: NativeBuildArtifactInventoryV1
+) -> tuple[str, ...]:
+    return _verify_evidence_projection(
+        projection,
+        inventory,
+        inventory_model=NativeBuildArtifactInventoryV1,
+        platform_label="Windows",
+    )
+
+
+def verify_linux_evidence_projection(
+    projection: Path, inventory: NativeBuildArtifactInventoryV2
+) -> tuple[str, ...]:
+    return _verify_evidence_projection(
+        projection,
+        inventory,
+        inventory_model=NativeBuildArtifactInventoryV2,
+        platform_label="Linux",
+    )
+
+
+def _project_evidence(
+    root: Path,
+    destination: Path,
+    inventory: NativeInventory,
+    *,
+    inventory_files: Callable[[Path], tuple[NativeBuildArtifactEntryV1, ...]],
+    verify_projection: Callable[..., tuple[str, ...]],
+    platform_label: str,
 ) -> tuple[str, ...]:
     root = _validate_root(root)
     destination = destination.absolute()
     if _paths_overlap(root, destination):
-        raise ValueError("Windows evidence projection must be outside the sealed build root")
+        raise ValueError(
+            f"{platform_label} evidence projection must be outside the sealed build root"
+        )
     _validate_existing_directory_chain(destination.parent)
     parent = _create_plain_directory_chain(destination.parent)
     destination = parent / destination.name
     if _paths_overlap(root, destination):
-        raise ValueError("Windows evidence projection must be outside the sealed build root")
+        raise ValueError(
+            f"{platform_label} evidence projection must be outside the sealed build root"
+        )
     temporary = destination.with_name(destination.name + ".tmp")
     for unpublished in (destination, temporary):
         try:
@@ -208,8 +303,8 @@ def project_windows_evidence(
         except FileNotFoundError:
             continue
         raise FileExistsError(unpublished)
-    if inventory_windows(root) != inventory.payload.files:
-        raise ValueError("Windows evidence source tree differs from sealed inventory")
+    if inventory_files(root) != inventory.payload.files:
+        raise ValueError(f"{platform_label} evidence source tree differs from sealed inventory")
     temporary.mkdir()
     published = False
     try:
@@ -219,24 +314,50 @@ def project_windows_evidence(
             source = root.joinpath(*PurePosixPath(entry.relative_path).parts)
             result = _plain_file(source)
             if result.st_size != entry.size or _sha256(source) != entry.sha256:
-                raise ValueError("Windows evidence source differs from sealed inventory")
+                raise ValueError(f"{platform_label} evidence source differs from sealed inventory")
             target = temporary.joinpath(*PurePosixPath(entry.relative_path).parts)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
         shutil.copyfile(root / INVENTORY_NAME, temporary / INVENTORY_NAME)
-        verify_windows_evidence_projection(temporary, inventory)
+        verify_projection(temporary, inventory)
         os.replace(temporary, destination)
         published = True
-        return verify_windows_evidence_projection(destination, inventory)
+        return verify_projection(destination, inventory)
     except Exception as primary:
         cleanup_target = destination if published else temporary
         try:
             _remove_projection_tree(cleanup_target)
         except Exception as cleanup:
-            raise RuntimeError("Windows evidence projection cleanup failed") from ExceptionGroup(
-                "projection and cleanup failures", (primary, cleanup)
-            )
+            raise RuntimeError(
+                f"{platform_label} evidence projection cleanup failed"
+            ) from ExceptionGroup("projection and cleanup failures", (primary, cleanup))
         raise
+
+
+def project_windows_evidence(
+    root: Path, destination: Path, inventory: NativeBuildArtifactInventoryV1
+) -> tuple[str, ...]:
+    return _project_evidence(
+        root,
+        destination,
+        inventory,
+        inventory_files=inventory_windows,
+        verify_projection=verify_windows_evidence_projection,
+        platform_label="Windows",
+    )
+
+
+def project_linux_evidence(
+    root: Path, destination: Path, inventory: NativeBuildArtifactInventoryV2
+) -> tuple[str, ...]:
+    return _project_evidence(
+        root,
+        destination,
+        inventory,
+        inventory_files=inventory_linux,
+        verify_projection=verify_linux_evidence_projection,
+        platform_label="Linux",
+    )
 
 
 def seal_windows(root: Path, build_id: str) -> NativeBuildArtifactInventoryV1:
@@ -319,16 +440,97 @@ def seal_windows(root: Path, build_id: str) -> NativeBuildArtifactInventoryV1:
     return inventory
 
 
+def seal_linux(root: Path, build_id: str) -> NativeBuildArtifactInventoryV2:
+    root = _validate_root(root)
+    destination = root / INVENTORY_NAME
+    temporary = destination.with_name(destination.name + ".tmp")
+    for unpublished in (destination, temporary):
+        try:
+            unpublished.lstat()
+        except FileNotFoundError:
+            continue
+        raise FileExistsError(unpublished)
+    result_path = root / "linux-build-result.json"
+    result_stat = _plain_file(result_path)
+    if result_stat.st_size > 1024 * 1024:
+        raise ValueError("Linux native build result exceeds its size bound")
+    result = json.loads(result_path.read_bytes())
+    if not isinstance(result, dict) or result.get("build_id") != build_id:
+        raise ValueError("Linux native build result identity differs")
+    status = result.get("status")
+    if status not in {"PASS", "FAIL"}:
+        raise ValueError("Linux native build result is not terminal")
+    files = inventory_linux(root)
+    linux_pair = None
+    if status == "PASS":
+        if build_id != "linux-build-004":
+            raise ValueError("Linux native build inventory does not support this build ID")
+        receipt_path = root / "linux-native-codex-build.json"
+        receipt_stat = _plain_file(receipt_path)
+        if receipt_stat.st_size > 256 * 1024:
+            raise ValueError("Linux native build receipt exceeds its size bound")
+        receipt = LinuxNativeCodexBuildV4.model_validate_json(receipt_path.read_bytes())
+        if receipt.payload.provenance.build_id != build_id:
+            raise ValueError("Linux native build receipt identity differs")
+        binary_by_role = {item.role: item for item in receipt.payload.binaries}
+        codex = binary_by_role["codex"]
+        host = binary_by_role["codex-code-mode-host"]
+        expected_binaries = {
+            codex.relative_path: (codex.size, codex.sha256),
+            host.relative_path: (host.size, host.sha256),
+        }
+        observed_binaries = {
+            item.relative_path: (item.size, item.sha256) for item in files if item.kind == "binary"
+        }
+        if observed_binaries != expected_binaries:
+            raise ValueError("Linux native build inventory differs from the exact binary pair")
+        proof = receipt.payload.process_proof
+        proof_path = root / "linux-process-proof.json"
+        eof_path = root / "code-mode-host-eof.json"
+        if (
+            _sha256(proof_path) != proof.process_proof_sha256
+            or _sha256(eof_path) != proof.code_mode_host_eof_receipt_sha256
+            or result.get("linux_native_codex_build_id") != receipt.linux_native_codex_build_id
+            or result.get("executable_sha256") != codex.sha256
+            or result.get("code_mode_host_sha256") != host.sha256
+        ):
+            raise ValueError("Linux native build result/proof join differs")
+        linux_pair = LinuxNativeBuildArtifactJoinV1(
+            build_receipt_sha256=_sha256(receipt_path),
+            linux_native_codex_build_id=receipt.linux_native_codex_build_id,
+            codex_sha256=codex.sha256,
+            code_mode_host_sha256=host.sha256,
+            process_proof_sha256=proof.process_proof_sha256,
+            code_mode_host_eof_receipt_sha256=proof.code_mode_host_eof_receipt_sha256,
+        )
+    payload = NativeBuildArtifactInventoryPayloadV2(
+        platform="linux",
+        build_id=build_id,
+        status=status,
+        build_result_sha256=_sha256(result_path),
+        linux_pair=linux_pair,
+        files=files,
+    )
+    inventory = NativeBuildArtifactInventoryV2.create(payload)
+    durable_publish(destination, (inventory.model_dump_json(indent=2) + "\n").encode())
+    return inventory
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--platform", choices=("windows",), required=True)
+    parser.add_argument("--platform", choices=("windows", "linux"), required=True)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--build-id", required=True)
     parser.add_argument("--evidence-projection", type=Path)
     args = parser.parse_args()
-    inventory = seal_windows(args.root, args.build_id)
-    if args.evidence_projection is not None:
-        project_windows_evidence(args.root, args.evidence_projection, inventory)
+    if args.platform == "windows":
+        windows_inventory = seal_windows(args.root, args.build_id)
+        if args.evidence_projection is not None:
+            project_windows_evidence(args.root, args.evidence_projection, windows_inventory)
+    else:
+        linux_inventory = seal_linux(args.root, args.build_id)
+        if args.evidence_projection is not None:
+            project_linux_evidence(args.root, args.evidence_projection, linux_inventory)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ on:
       - 'docs/evidence/stage3g-production-router/delegate-input-schema.json'
       - 'patches/stage3g-approved-call/**'
       - 'scripts/build_linux_native_codex.py'
+      - 'scripts/inventory_native_build_artifact.py'
       - 'scripts/build_stage3g_build009.py'
       - 'scripts/build_windows_native_codex.py'
       - 'scripts/derive_router_build_lock.py'
@@ -17,7 +18,9 @@ on:
       - 'scripts/stage3g_schema_hash.py'
       - 'src/devhub/linux_native.py'
       - 'src/devhub/native_bundle.py'
+      - 'src/devhub/native_proof.py'
       - 'tests/test_linux_native_codex.py'
+      - 'tests/test_native_build_artifact_inventory.py'
 
 concurrency:
   group: native-linux-codex-${{ github.event.pull_request.number || github.ref }}
@@ -54,6 +57,7 @@ jobs:
         run: >-
           uv run --locked pytest -q
           tests/test_linux_native_codex.py
+          tests/test_native_build_artifact_inventory.py
           tests/test_windows_native_codex.py
           tests/test_stage3g_build009_preparation.py
           tests/test_host_process_visibility.py
@@ -63,11 +67,35 @@ jobs:
             --workspace "$RUNNER_TEMP/linux-native-codex-source" \
             --output "$RUNNER_TEMP/linux-native-codex-evidence" \
             --expected-implementation-commit '${{ github.event.pull_request.head.sha || github.sha }}'
-      - name: Upload exact Linux executables and evidence
+      - name: Seal exact Linux build artifact inventory
+        id: seal
         if: always()
+        run: >-
+          uv run --locked python scripts/inventory_native_build_artifact.py
+          --platform linux
+          --root "$RUNNER_TEMP/linux-native-codex-evidence"
+          --build-id linux-build-004
+          --evidence-projection "$RUNNER_TEMP/linux-native-codex-upload/evidence"
+      - name: Upload exact Linux build evidence
+        if: always() && steps.seal.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: devfabric-linux-build-003
-          path: ${{ runner.temp }}/linux-native-codex-evidence
+          name: devfabric-linux-build-004-evidence
+          path: ${{ runner.temp }}/linux-native-codex-upload/evidence/**
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
+      - name: Upload exact successful Linux executable pair
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: devfabric-linux-build-004-binaries
+          path: |
+            ${{ runner.temp }}/linux-native-codex-evidence/binary/**
+            ${{ runner.temp }}/linux-native-codex-evidence/native-build-artifact-inventory.json
+            ${{ runner.temp }}/linux-native-codex-evidence/linux-build-result.json
+            ${{ runner.temp }}/linux-native-codex-evidence/linux-native-codex-build.json
+            ${{ runner.temp }}/linux-native-codex-evidence/linux-process-proof.json
+            ${{ runner.temp }}/linux-native-codex-evidence/code-mode-host-eof.json
           if-no-files-found: error
           retention-days: 14

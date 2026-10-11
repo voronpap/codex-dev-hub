@@ -74,6 +74,17 @@ class WindowsNativeBuildArtifactJoinV1(Contract):
     code_mode_host_eof_receipt_sha256: Digest
 
 
+class LinuxNativeBuildArtifactJoinV1(Contract):
+    """Exact join from a successful inventory to the Linux pair authority."""
+
+    build_receipt_sha256: Digest
+    linux_native_codex_build_id: Digest
+    codex_sha256: Digest
+    code_mode_host_sha256: Digest
+    process_proof_sha256: Digest
+    code_mode_host_eof_receipt_sha256: Digest
+
+
 class NativeBuildArtifactInventoryPayloadV1(Contract):
     """Closed, sorted inventory; the inventory file itself is excluded to avoid a hash cycle."""
 
@@ -118,6 +129,60 @@ class NativeBuildArtifactInventoryV1(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> NativeBuildArtifactInventoryV1:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.native_build_artifact_inventory_id != expected:
+            raise ValueError("Native build artifact inventory ID mismatch")
+        return self
+
+
+class NativeBuildArtifactInventoryPayloadV2(Contract):
+    """Forward inventory adds an exact Linux pair join without changing V1 receipts."""
+
+    platform: Literal["windows", "linux"]
+    build_id: str = Field(pattern=r"^(windows|linux)-build-[0-9]{3}$")
+    status: Literal["PASS", "FAIL"]
+    build_result_sha256: Digest
+    windows_pair: WindowsNativeBuildArtifactJoinV1 | None = None
+    linux_pair: LinuxNativeBuildArtifactJoinV1 | None = None
+    files: tuple[NativeBuildArtifactEntryV1, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def sorted_unique_files(self) -> NativeBuildArtifactInventoryPayloadV2:
+        paths = tuple(item.relative_path for item in self.files)
+        if paths != tuple(sorted(paths)) or len(paths) != len(set(paths)):
+            raise ValueError("Native build artifact inventory must be unique and sorted")
+        if not self.build_id.startswith(f"{self.platform}-build-"):
+            raise ValueError("Native build artifact ID differs from its platform")
+        if self.platform == "windows":
+            if (self.status == "PASS") != (self.windows_pair is not None):
+                raise ValueError("Successful Windows inventory requires its exact pair authority")
+            if self.linux_pair is not None:
+                raise ValueError("Linux pair authority cannot be used by Windows")
+        else:
+            if (self.status == "PASS") != (self.linux_pair is not None):
+                raise ValueError("Successful Linux inventory requires its exact pair authority")
+            if self.windows_pair is not None:
+                raise ValueError("Windows pair authority cannot be used by Linux")
+        return self
+
+
+class NativeBuildArtifactInventoryV2(Contract):
+    native_build_artifact_inventory_id: Digest
+    payload: NativeBuildArtifactInventoryPayloadV2
+
+    @classmethod
+    def create(
+        cls, payload: NativeBuildArtifactInventoryPayloadV2
+    ) -> NativeBuildArtifactInventoryV2:
+        return cls(
+            native_build_artifact_inventory_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> NativeBuildArtifactInventoryV2:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.native_build_artifact_inventory_id != expected:
             raise ValueError("Native build artifact inventory ID mismatch")

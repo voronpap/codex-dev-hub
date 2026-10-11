@@ -13,6 +13,7 @@ from pydantic import Field, JsonValue, field_validator, model_validator
 
 from devhub.benchmark import Digest, canonical, digest
 from devhub.models import Contract
+from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1, OrdinaryDefaultVisibleToolsV1
 from devhub.qualification import GitCommit
 
 LinuxBinaryRole = Literal["codex", "codex-code-mode-host"]
@@ -166,6 +167,12 @@ class LinuxBuildProvenanceV3(Contract):
     ]
 
 
+class LinuxBuildProvenanceV4(LinuxBuildProvenanceV3):
+    """Forward build identity for ordinary Default and complete artifact retention."""
+
+    build_id: Literal["linux-build-004"] = "linux-build-004"  # type: ignore[assignment]
+
+
 class LinuxHostProofSummaryV1(Contract):
     process_proof_sha256: Digest
     code_mode_host_sha256: Digest
@@ -197,6 +204,12 @@ class LinuxHostProofSummaryV1(Contract):
     provider_sends: Literal[0] = 0
     mcp_tool_executions: Literal[0] = 0
     real_task_executions: Literal[0] = 0
+
+
+class LinuxHostProofSummaryV2(LinuxHostProofSummaryV1):
+    """Forward proof binds the observed ordinary Default catalog exactly."""
+
+    default_visible_tools: OrdinaryDefaultVisibleToolsV1 = ORDINARY_DEFAULT_VISIBLE_TOOLS_V1  # type: ignore[assignment]
 
 
 class LinuxNativeCodexBuildPayloadV1(Contract):
@@ -301,6 +314,11 @@ class LinuxNativeCodexBuildPayloadV3(Contract):
         return self
 
 
+class LinuxNativeCodexBuildPayloadV4(LinuxNativeCodexBuildPayloadV3):
+    provenance: LinuxBuildProvenanceV4
+    process_proof: LinuxHostProofSummaryV2
+
+
 class LinuxNativeCodexBuildV1(Contract):
     linux_native_codex_build_id: Digest
     payload: LinuxNativeCodexBuildPayloadV1
@@ -358,6 +376,27 @@ class LinuxNativeCodexBuildV3(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> LinuxNativeCodexBuildV3:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_codex_build_id != expected:
+            raise ValueError("Linux native Codex build ID mismatch")
+        return self
+
+
+class LinuxNativeCodexBuildV4(Contract):
+    linux_native_codex_build_id: Digest
+    payload: LinuxNativeCodexBuildPayloadV4
+
+    @classmethod
+    def create(cls, payload: LinuxNativeCodexBuildPayloadV4) -> LinuxNativeCodexBuildV4:
+        return cls(
+            linux_native_codex_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeCodexBuildV4:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_codex_build_id != expected:
             raise ValueError("Linux native Codex build ID mismatch")
