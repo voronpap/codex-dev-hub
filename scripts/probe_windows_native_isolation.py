@@ -61,6 +61,79 @@ class WindowsIsolationChildFailureV2(ContractV2):
     errno: int | None = None
 
 
+NativeLoaderReason = Literal[
+    "access_denied",
+    "dependency_not_found",
+    "bad_image",
+    "procedure_not_found",
+    "unknown",
+]
+NativeImportBoundary = Literal["ctypes", "socket", "pydantic_core", "devhub", "unknown"]
+NativeLoaderPath = Literal["python/_ctypes.pyd", "python/libffi-8.dll"]
+NativeLoaderStatus = Literal["readable", "missing", "access_denied", "other_error"]
+NativeLoaderEvidenceStatus = Literal[
+    "readable", "missing", "access_denied", "other_error", "not_observed"
+]
+
+
+class WindowsNativeLoaderObservationV1(Contract):
+    relative_path: NativeLoaderPath
+    status: NativeLoaderStatus
+    observed_sha256: Digest | None = None
+
+    @model_validator(mode="after")
+    def exact_hash_presence(self) -> WindowsNativeLoaderObservationV1:
+        if (self.observed_sha256 is not None) != (self.status == "readable"):
+            raise ValueError("Native loader observation hash does not match readability")
+        return self
+
+
+class WindowsIsolationChildFailureV3(Contract):
+    schema_version: Literal[3] = 3
+    phase: Literal["bootstrap_import", "bootstrap_invoke", "child_probe"] = "child_probe"
+    exception_class: Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")]
+    winerror: int | None = None
+    errno: int | None = None
+    import_boundary: NativeImportBoundary | None = None
+    loader_reason: NativeLoaderReason | None = None
+    native_loader_observations: Annotated[
+        tuple[WindowsNativeLoaderObservationV1, ...], Field(max_length=2)
+    ] = ()
+
+    @model_validator(mode="after")
+    def strict_import_observation(self) -> WindowsIsolationChildFailureV3:
+        is_import = self.phase == "bootstrap_import"
+        if (self.import_boundary is not None) != is_import or (
+            (self.loader_reason is not None) != is_import
+        ):
+            raise ValueError("Native loader category must exist only for bootstrap import")
+        if is_import:
+            paths = [item.relative_path for item in self.native_loader_observations]
+            if paths != ["python/_ctypes.pyd", "python/libffi-8.dll"]:
+                raise ValueError("Native loader observations must use the exact reviewed files")
+        elif self.native_loader_observations:
+            raise ValueError("Native loader observations require a bootstrap import failure")
+        return self
+
+
+class WindowsNativeLoaderFileEvidenceV1(Contract):
+    relative_path: NativeLoaderPath
+    expected_sha256: Digest
+    child_status: NativeLoaderEvidenceStatus
+    child_observed_sha256: Digest | None = None
+
+    @model_validator(mode="after")
+    def exact_manifest_join(self) -> WindowsNativeLoaderFileEvidenceV1:
+        if (self.child_observed_sha256 is not None) != (self.child_status == "readable"):
+            raise ValueError("Native loader evidence hash does not match readability")
+        if (
+            self.child_observed_sha256 is not None
+            and self.child_observed_sha256 != self.expected_sha256
+        ):
+            raise ValueError("Native loader child hash differs from immutable manifest")
+        return self
+
+
 class WindowsIsolationBootstrapStartedPayloadV1(Contract):
     schema_version: Literal[1] = 1
     phase: Literal["bootstrap_started"] = "bootstrap_started"
@@ -171,10 +244,129 @@ class WindowsIsolationFailureDiagnosticV2(ContractV2):
         return self
 
 
+class WindowsIsolationFailureDiagnosticPayloadV3(Contract):
+    schema_version: Literal[3] = 3
+    failure_kind: Literal["child_before_evidence"] = "child_before_evidence"
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    windows_isolation_profile_id: Digest
+    profile: WindowsIsolationProfileV2
+    native_bundle_id: Digest
+    launcher_executable_sha256: Digest
+    runtime_access_grant: WindowsRuntimeAccessGrantV2
+    probe_sha256: Digest
+    child_bootstrap_sha256: Digest
+    process_exit_code: Annotated[int, Field(ge=0, le=0xFFFFFFFF)]
+    bootstrap_started_status: Literal["absent", "validated", "invalid"]
+    bootstrap_started: WindowsIsolationBootstrapStartedV1 | None = None
+    child_failure_status: Literal["absent", "validated", "invalid"]
+    child_failure: WindowsIsolationChildFailureV3 | None = None
+    loader_reason: NativeLoaderReason | None = None
+    native_loader_files: Annotated[
+        tuple[WindowsNativeLoaderFileEvidenceV1, ...], Field(min_length=2, max_length=2)
+    ]
+    success_evidence_published: Literal[False] = False
+
+    @model_validator(mode="after")
+    def strict_authority_joins(self) -> WindowsIsolationFailureDiagnosticPayloadV3:
+        if (self.bootstrap_started is not None) != (self.bootstrap_started_status == "validated"):
+            raise ValueError("Bootstrap-started status does not match the validated frame")
+        if (self.child_failure is not None) != (self.child_failure_status == "validated"):
+            raise ValueError("Child failure status does not match the validated diagnostic")
+        profile = self.profile
+        expected_profile_id = profile.windows_isolation_profile_id
+        if self.windows_isolation_profile_id != expected_profile_id:
+            raise ValueError("Failure diagnostic profile identity mismatch")
+        profile_payload = profile.payload
+        if (
+            self.environment_instance_id != profile_payload.environment_instance_id
+            or self.native_bundle_id != profile_payload.native_bundle_id
+            or self.launcher_executable_sha256 != profile_payload.launcher_executable_sha256
+            or self.probe_sha256 != profile_payload.probe_sha256
+            or self.child_bootstrap_sha256 != profile_payload.child_bootstrap_sha256
+        ):
+            raise ValueError("Failure diagnostic authority differs from isolation profile")
+        grant = self.runtime_access_grant.payload
+        if (
+            grant.appcontainer_identity != profile_payload.appcontainer_identity
+            or grant.native_bundle_id != self.native_bundle_id
+            or grant.launcher_executable_sha256 != self.launcher_executable_sha256
+            or len(profile_payload.read_only_roots) != 1
+            or grant.root != profile_payload.read_only_roots[0]
+        ):
+            raise ValueError("Failure diagnostic runtime grant differs from isolation profile")
+        if self.bootstrap_started is not None:
+            started = self.bootstrap_started.payload
+            if (
+                started.child_bootstrap_sha256 != self.child_bootstrap_sha256
+                or started.environment_instance_id != self.environment_instance_id
+                or started.windows_isolation_profile_id != self.windows_isolation_profile_id
+                or started.probe_sha256 != self.probe_sha256
+            ):
+                raise ValueError("Bootstrap-started frame does not bind the failed child")
+        paths = [item.relative_path for item in self.native_loader_files]
+        if paths != ["python/_ctypes.pyd", "python/libffi-8.dll"]:
+            raise ValueError("Failure diagnostic native loader files differ from reviewed set")
+        if self.child_failure is None:
+            if self.loader_reason is not None:
+                raise ValueError("Loader reason requires a validated child failure")
+        else:
+            failure = self.child_failure
+            if self.loader_reason != failure.loader_reason:
+                raise ValueError("Loader reason differs from validated child failure")
+            if failure.phase == "bootstrap_import":
+                boundary = failure.import_boundary
+                if boundary is None:
+                    raise ValueError("Bootstrap import failure lacks an import boundary")
+                exit_codes = {
+                    "ctypes": 199,
+                    "socket": 200,
+                    "pydantic_core": 201,
+                    "devhub": 202,
+                    "unknown": 203,
+                }
+                if self.process_exit_code != exit_codes[boundary]:
+                    raise ValueError("Process exit code differs from import boundary")
+                observations = {
+                    item.relative_path: item for item in failure.native_loader_observations
+                }
+                for item in self.native_loader_files:
+                    child = observations[item.relative_path]
+                    if (
+                        item.child_status != child.status
+                        or item.child_observed_sha256 != child.observed_sha256
+                    ):
+                        raise ValueError("Native loader evidence differs from child observation")
+        return self
+
+
+class WindowsIsolationFailureDiagnosticV3(Contract):
+    schema_version: Literal[3] = 3
+    diagnostic_id: Digest
+    payload: WindowsIsolationFailureDiagnosticPayloadV3
+
+    @classmethod
+    def create(
+        cls, payload: WindowsIsolationFailureDiagnosticPayloadV3
+    ) -> WindowsIsolationFailureDiagnosticV3:
+        return cls(
+            diagnostic_id=digest(canonical(payload.model_dump(mode="json"))), payload=payload
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> WindowsIsolationFailureDiagnosticV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.diagnostic_id != expected:
+            raise ValueError("Windows isolation failure diagnostic hash mismatch")
+        return self
+
+
 class WindowsIsolationChildExitError(RuntimeError):
     phase = "child_before_evidence"
 
-    def __init__(self, diagnostic: WindowsIsolationFailureDiagnosticV2) -> None:
+    def __init__(
+        self,
+        diagnostic: WindowsIsolationFailureDiagnosticV2 | WindowsIsolationFailureDiagnosticV3,
+    ) -> None:
         self.diagnostic = diagnostic
         self.exit_code = diagnostic.payload.process_exit_code
         super().__init__(
@@ -305,10 +497,14 @@ def _child_guarded(request_path: Path, result_path: Path, failure_path: Path) ->
     try:
         return _child(request_path, result_path)
     except BaseException as error:
-        failure = WindowsIsolationChildFailureV2(
+        failure = WindowsIsolationChildFailureV3(
+            phase="child_probe",
             exception_class=type(error).__name__,
             winerror=getattr(error, "winerror", None),
             errno=getattr(error, "errno", None),
+            import_boundary=None,
+            loader_reason=None,
+            native_loader_observations=(),
         )
         encoded = canonical(failure.model_dump(mode="json"))
         if len(encoded) > MAX_CHILD_FAILURE_BYTES:
@@ -321,7 +517,7 @@ def _child_guarded(request_path: Path, result_path: Path, failure_path: Path) ->
 
 def _read_child_failure(
     failure_path: Path,
-) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV2 | None]:
+) -> tuple[Literal["absent", "validated", "invalid"], WindowsIsolationChildFailureV3 | None]:
     if not failure_path.is_file():
         return "absent", None
     try:
@@ -330,7 +526,7 @@ def _read_child_failure(
             encoded = stream.read(MAX_CHILD_FAILURE_BYTES + 1)
         if len(encoded) > MAX_CHILD_FAILURE_BYTES:
             return "invalid", None
-        return "validated", WindowsIsolationChildFailureV2.model_validate_json(encoded)
+        return "validated", WindowsIsolationChildFailureV3.model_validate_json(encoded)
     except (OSError, ValueError):
         return "invalid", None
 
@@ -381,6 +577,39 @@ def _require_bootstrap_started(
     return started
 
 
+def _native_loader_file_evidence(
+    bundle: NativeBundleV1,
+    child_failure: WindowsIsolationChildFailureV3 | None,
+) -> tuple[WindowsNativeLoaderFileEvidenceV1, WindowsNativeLoaderFileEvidenceV1]:
+    expected_paths: tuple[NativeLoaderPath, NativeLoaderPath] = (
+        "python/_ctypes.pyd",
+        "python/libffi-8.dll",
+    )
+    inventory = {item.path: item.sha256 for item in bundle.payload.files}
+    if any(path not in inventory for path in expected_paths):
+        raise ValueError("Immutable bundle lacks a reviewed native loader file")
+    observed = (
+        {item.relative_path: item for item in child_failure.native_loader_observations}
+        if child_failure is not None and child_failure.phase == "bootstrap_import"
+        else {}
+    )
+    evidence: list[WindowsNativeLoaderFileEvidenceV1] = []
+    for path in expected_paths:
+        item = observed.get(path)
+        evidence.append(
+            WindowsNativeLoaderFileEvidenceV1(
+                relative_path=path,
+                expected_sha256=inventory[path],
+                child_status=item.status if item is not None else "not_observed",
+                child_observed_sha256=(item.observed_sha256 if item is not None else None),
+            )
+        )
+    return cast(
+        tuple[WindowsNativeLoaderFileEvidenceV1, WindowsNativeLoaderFileEvidenceV1],
+        tuple(evidence),
+    )
+
+
 def _raise_if_child_exited(
     process: Any,
     child_result: Path,
@@ -388,6 +617,7 @@ def _raise_if_child_exited(
     bootstrap_status: Path,
     profile: WindowsIsolationProfileV2,
     environment_instance_id: str,
+    bundle: NativeBundleV1,
 ) -> None:
     if child_result.is_file():
         return
@@ -398,10 +628,18 @@ def _raise_if_child_exited(
         bootstrap_status, profile, environment_instance_id
     )
     child_failure_status, validated_child_failure = _read_child_failure(child_failure)
-    diagnostic = WindowsIsolationFailureDiagnosticV2.create(
-        WindowsIsolationFailureDiagnosticPayloadV2(
+    runtime_access_grant = process.runtime_access_grant
+    if not isinstance(runtime_access_grant, WindowsRuntimeAccessGrantV2):
+        raise RuntimeError("Failed child lacks the reviewed post-create runtime ACL grant")
+    native_loader_files = _native_loader_file_evidence(bundle, validated_child_failure)
+    diagnostic = WindowsIsolationFailureDiagnosticV3.create(
+        WindowsIsolationFailureDiagnosticPayloadV3(
             environment_instance_id=environment_instance_id,
             windows_isolation_profile_id=profile.windows_isolation_profile_id,
+            profile=profile,
+            native_bundle_id=bundle.bundle_id,
+            launcher_executable_sha256=profile.payload.launcher_executable_sha256,
+            runtime_access_grant=runtime_access_grant,
             probe_sha256=profile.payload.probe_sha256,
             child_bootstrap_sha256=profile.payload.child_bootstrap_sha256,
             process_exit_code=exit_code,
@@ -409,6 +647,12 @@ def _raise_if_child_exited(
             bootstrap_started=validated_bootstrap_started,
             child_failure_status=child_failure_status,
             child_failure=validated_child_failure,
+            loader_reason=(
+                validated_child_failure.loader_reason
+                if validated_child_failure is not None
+                else None
+            ),
+            native_loader_files=native_loader_files,
         )
     )
     raise WindowsIsolationChildExitError(diagnostic)
@@ -417,7 +661,12 @@ def _raise_if_child_exited(
 def _raise_after_cleanup(
     primary_error: BaseException,
     cleanup_errors: list[Exception],
-    failure_diagnostic: WindowsIsolationFailureDiagnosticV2 | WindowsPostCreateAclFailureV1 | None,
+    failure_diagnostic: (
+        WindowsIsolationFailureDiagnosticV2
+        | WindowsIsolationFailureDiagnosticV3
+        | WindowsPostCreateAclFailureV1
+        | None
+    ),
     failure_output: Path,
 ) -> NoReturn:
     if cleanup_errors:
@@ -700,7 +949,10 @@ def qualify(
     evidence: WindowsIsolationEvidenceV4 | None = None
     primary_error: BaseException | None = None
     failure_diagnostic: (
-        WindowsIsolationFailureDiagnosticV2 | WindowsPostCreateAclFailureV1 | None
+        WindowsIsolationFailureDiagnosticV2
+        | WindowsIsolationFailureDiagnosticV3
+        | WindowsPostCreateAclFailureV1
+        | None
     ) = None
     try:
         shutil.copytree(bundle_root, execution_bundle)
@@ -815,6 +1067,7 @@ def qualify(
                     bootstrap_status,
                     profile,
                     environment_instance_id,
+                    bundle,
                 )
             except WindowsIsolationChildExitError as error:
                 failure_diagnostic = error.diagnostic

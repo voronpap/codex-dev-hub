@@ -183,6 +183,17 @@ A self-hashed post-create failure diagnostic can be published only after clean
 process, ACL and profile cleanup; V3 remains parseable historical evidence and
 cannot satisfy the V4 post-create gate.
 
+If a V4 child exits after that gate but before success evidence, the forward
+failure diagnostic retains the exact V2 runtime-access grant, full self-hashed
+profile and their bundle/launcher/environment joins. The stdlib bootstrap records
+only an allowlisted native-loader reason and bounded hash/readability observations
+for the manifest-bound `python/_ctypes.pyd` and `python/libffi-8.dll`; raw loader
+messages and filesystem paths are never retained. Historical V1/V2 failure
+diagnostics remain strictly parseable but cannot establish this newer diagnostic
+authority. As with every failure artifact, publication occurs only after complete
+process/profile/runtime-ACL cleanup and source-bundle re-verification, and it does
+not grant readiness.
+
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,
 handle inheritance, child-tree termination, breakaway denial and denial of

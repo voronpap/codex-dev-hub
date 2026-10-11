@@ -30,6 +30,10 @@ EXIT_IMPORT_PYDANTIC_CORE = 201
 EXIT_IMPORT_DEVHUB = 202
 EXIT_IMPORT_UNKNOWN = 203
 MAX_FAILURE_BYTES = 4096
+NATIVE_LOADER_FILES = (
+    ("python/_ctypes.pyd", "_ctypes.pyd"),
+    ("python/libffi-8.dll", "libffi-8.dll"),
+)
 
 
 class _FailureFrameTooLarge(Exception):
@@ -51,6 +55,65 @@ def _classified_import_exit(error: BaseException) -> int:
     if name == "devhub" or (isinstance(name, str) and name.startswith("devhub.")):
         return EXIT_IMPORT_DEVHUB
     return EXIT_IMPORT_UNKNOWN
+
+
+def _import_boundary(error: BaseException) -> str:
+    if not isinstance(error, ImportError):
+        return "unknown"
+    name = error.name
+    if name == "_ctypes":
+        return "ctypes"
+    if name == "_socket":
+        return "socket"
+    if name == "pydantic_core" or (isinstance(name, str) and name.startswith("pydantic_core.")):
+        return "pydantic_core"
+    if name == "devhub" or (isinstance(name, str) and name.startswith("devhub.")):
+        return "devhub"
+    return "unknown"
+
+
+def _loader_reason(error: BaseException) -> str:
+    """Map loader text to a bounded category without retaining the text or paths."""
+
+    if not isinstance(error, ImportError):
+        return "unknown"
+    message = str(error).casefold()
+    if "access is denied" in message or "permission denied" in message or "winerror 5" in message:
+        return "access_denied"
+    if "specified module could not be found" in message or "no such file" in message:
+        return "dependency_not_found"
+    if "not a valid win32 application" in message or "bad image" in message:
+        return "bad_image"
+    if "specified procedure could not be found" in message:
+        return "procedure_not_found"
+    return "unknown"
+
+
+def _native_loader_observations() -> list[dict[str, object]]:
+    runtime_root = Path(sys.executable).resolve().parent
+    observations: list[dict[str, object]] = []
+    for relative_path, filename in NATIVE_LOADER_FILES:
+        target = runtime_root / filename
+        try:
+            observed_sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+            status = "readable"
+        except FileNotFoundError:
+            observed_sha256 = None
+            status = "missing"
+        except PermissionError:
+            observed_sha256 = None
+            status = "access_denied"
+        except OSError:
+            observed_sha256 = None
+            status = "other_error"
+        observations.append(
+            {
+                "observed_sha256": observed_sha256,
+                "relative_path": relative_path,
+                "status": status,
+            }
+        )
+    return observations
 
 
 def _canonical(value: object) -> bytes:
@@ -87,12 +150,18 @@ def _write_failure(path: Path, phase: str, error: BaseException) -> None:
         or not exception_class.isidentifier()
     ):
         raise _FailureFrameTooLarge
+    bootstrap_import = phase == "bootstrap_import"
     encoded = _canonical(
         {
             "errno": _numeric_code(error, "errno"),
             "exception_class": exception_class,
+            "import_boundary": _import_boundary(error) if bootstrap_import else None,
+            "loader_reason": _loader_reason(error) if bootstrap_import else None,
+            "native_loader_observations": (
+                _native_loader_observations() if bootstrap_import else []
+            ),
             "phase": phase,
-            "schema_version": 2,
+            "schema_version": 3,
             "winerror": _numeric_code(error, "winerror"),
         }
     )
