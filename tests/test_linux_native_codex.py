@@ -14,13 +14,16 @@ from pydantic import ValidationError
 from devhub.linux_native import (
     LinuxBuildProvenanceV1,
     LinuxBuildProvenanceV2,
+    LinuxBuildProvenanceV3,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV1,
     LinuxNativeBinaryV1,
     LinuxNativeCodexBuildPayloadV1,
     LinuxNativeCodexBuildPayloadV2,
+    LinuxNativeCodexBuildPayloadV3,
     LinuxNativeCodexBuildV1,
     LinuxNativeCodexBuildV2,
+    LinuxNativeCodexBuildV3,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -166,6 +169,46 @@ def test_linux_build_002_records_sandboxed_v8_source_build() -> None:
     assert receipt().payload.provenance.build_id == "linux-build-001"
 
 
+def test_linux_build_003_binds_official_sandbox_release_and_preserves_history() -> None:
+    current = LinuxNativeCodexBuildV3.create(
+        LinuxNativeCodexBuildPayloadV3(
+            provenance=LinuxBuildProvenanceV3(
+                **{
+                    **provenance().model_dump(mode="python"),
+                    "build_id": "linux-build-003",
+                    "v8_crate_version": "150.4.0",
+                    "v8_build_mode": "official_openai_sandbox_release",
+                    "v8_release_tag": LINUX_BUILD.V8_RELEASE_TAG,
+                    "codex_module_bazel_sha256": LINUX_BUILD.CODEX_MODULE_BAZEL_SHA256,
+                    "v8_sandbox_feature_enabled": True,
+                    "v8_archive_url": (
+                        f"{LINUX_BUILD.V8_RELEASE_BASE}/{LINUX_BUILD.V8_ARCHIVE_NAME}"
+                    ),
+                    "v8_archive_sha256": LINUX_BUILD.V8_ARCHIVE_SHA256,
+                    "v8_binding_url": (
+                        f"{LINUX_BUILD.V8_RELEASE_BASE}/{LINUX_BUILD.V8_BINDING_NAME}"
+                    ),
+                    "v8_binding_sha256": LINUX_BUILD.V8_BINDING_SHA256,
+                    "v8_checksum_url": (
+                        f"{LINUX_BUILD.V8_RELEASE_BASE}/{LINUX_BUILD.V8_CHECKSUM_NAME}"
+                    ),
+                    "v8_checksum_sha256": LINUX_BUILD.V8_CHECKSUM_SHA256,
+                    "v8_archive_post_build_sha256": LINUX_BUILD.V8_ARCHIVE_SHA256,
+                    "v8_binding_post_build_sha256": LINUX_BUILD.V8_BINDING_SHA256,
+                    "v8_checksum_post_build_sha256": LINUX_BUILD.V8_CHECKSUM_SHA256,
+                }
+            ),
+            binaries=(binary("codex", HASH), binary("codex-code-mode-host", OTHER_HASH)),
+            process_proof=proof(),
+        )
+    )
+
+    assert current.payload.provenance.build_id == "linux-build-003"
+    assert current.payload.provenance.v8_sandbox_feature_enabled is True
+    assert LinuxNativeCodexBuildV3.model_validate_json(current.model_dump_json()) == current
+    assert receipt().payload.provenance.build_id == "linux-build-001"
+
+
 @pytest.mark.parametrize(
     ("roles", "message"),
     [
@@ -278,7 +321,7 @@ def test_cargo_spawn_failure_remains_precompilation(
             output=tmp_path,
             state=state,
             state_path=state_path,
-            build_environment={"V8_FROM_SOURCE": "1"},
+            build_environment={"RUSTY_V8_ARCHIVE": "/tmp/v8.a.gz"},
         )
     observed = json.loads(state_path.read_bytes())
     assert observed["phase"] == "cargo_start"
@@ -287,85 +330,211 @@ def test_cargo_spawn_failure_remains_precompilation(
     assert observed["process_proof"] is None
 
 
-def test_v8_source_build_environment_requires_and_records_exact_prerequisites(
+def test_pinned_v8_authority_requires_exact_module_and_sandbox_feature(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    tools = {}
-    for name in ("python3", "curl", "pkg-config", "llvm-config-19"):
-        path = tmp_path / name
-        path.write_bytes(b"tool")
-        tools[name] = str(path)
-    llvm_lib = tmp_path / "llvm-19" / "lib"
-    llvm_lib.mkdir(parents=True)
-    (llvm_lib / "libclang.so.19").write_bytes(b"clang")
-    monkeypatch.setattr(LINUX_BUILD.shutil, "which", tools.get)
-
-    def fake_run(command, **_kwargs):
-        if command[1:] == ["--modversion", "glib-2.0"]:
-            return subprocess.CompletedProcess(command, 0, "2.80.0\n", "")
-        if command[1:] == ["--libdir"]:
-            return subprocess.CompletedProcess(command, 0, f"{llvm_lib}\n", "")
-        raise AssertionError(command)
-
-    monkeypatch.setattr(LINUX_BUILD.subprocess, "run", fake_run)
-
-    environment, observed = LINUX_BUILD._v8_source_build_environment()
-
-    assert environment == {
-        "V8_FROM_SOURCE": "1",
-        "PYTHON": str((tmp_path / "python3").resolve()),
-        "LIBCLANG_PATH": str(llvm_lib.resolve()),
-    }
-    assert observed == {
-        "v8_crate_version": "150.4.0",
-        "v8_build_mode": "from_source",
-        "python": environment["PYTHON"],
-        "libclang_path": environment["LIBCLANG_PATH"],
-        "glib_version": "2.80.0",
-    }
+    root = tmp_path / "codex-rs"
+    root.mkdir()
+    module = tmp_path / "MODULE.bazel"
+    content = (
+        b'crate = "v8"\n'
+        b'"x86_64-unknown-linux-gnu": ["v8_enable_sandbox"]\n'
+        b'name = "v8_crate_150_4_0"\n'
+        b'urls = ["https://static.crates.io/crates/v8/v8-150.4.0.crate"]\n'
+    )
+    module.write_bytes(content)
+    monkeypatch.setattr(
+        LINUX_BUILD, "CODEX_MODULE_BAZEL_SHA256", hashlib.sha256(content).hexdigest()
+    )
+    assert LINUX_BUILD._verify_pinned_v8_authority(root) == hashlib.sha256(content).hexdigest()
+    module.write_bytes(content.replace(b"v8_enable_sandbox", b"v8_disable_sandbox"))
+    monkeypatch.setattr(
+        LINUX_BUILD, "CODEX_MODULE_BAZEL_SHA256", hashlib.sha256(module.read_bytes()).hexdigest()
+    )
+    with pytest.raises(ValueError, match="sandbox authority"):
+        LINUX_BUILD._verify_pinned_v8_authority(root)
 
 
-def test_missing_llvm_config_fails_before_cargo_and_preserves_prebuild_state(
-    monkeypatch: pytest.MonkeyPatch,
+def test_exact_v8_download_is_bounded_and_hash_verified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    state = {
-        "rust_compilation_started": False,
-        "compilation": "NOT_RUN",
-        "process_proof": None,
-    }
-    tools = {
-        "python3": "/usr/bin/python3",
-        "curl": "/usr/bin/curl",
-        "pkg-config": "/usr/bin/pkg-config",
-        "llvm-config-19": None,
-    }
-    monkeypatch.setattr(LINUX_BUILD.shutil, "which", tools.get)
+    raw = b"reviewed sandbox asset"
+
+    class Response:
+        def __init__(self, value: bytes, *, content_length: bool = True) -> None:
+            self.remaining = value
+            self.headers = {"Content-Length": str(len(value))} if content_length else {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, size: int) -> bytes:
+            value, self.remaining = self.remaining[:size], self.remaining[size:]
+            return value
+
+    monkeypatch.setattr(
+        LINUX_BUILD.urllib.request, "urlopen", lambda *_args, **_kwargs: Response(raw)
+    )
+    target = tmp_path / "asset"
+    assert LINUX_BUILD._download_exact(
+        "https://example.invalid/asset", target, hashlib.sha256(raw).hexdigest(), 64
+    ) == len(raw)
+    assert target.read_bytes() == raw
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        LINUX_BUILD._download_exact("https://example.invalid/asset", tmp_path / "bad", HASH, 64)
+    assert not (tmp_path / "bad").exists()
+    monkeypatch.setattr(
+        LINUX_BUILD.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(b"x" * 65, content_length=False),
+    )
+    with pytest.raises(ValueError, match="byte limit"):
+        LINUX_BUILD._download_exact(
+            "https://example.invalid/asset", tmp_path / "overflow", HASH, 64
+        )
+    assert not (tmp_path / "overflow").exists()
+
+
+def test_v8_release_environment_requires_exact_three_assets_and_checksum_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source" / "codex-rs"
+    root.mkdir(parents=True)
+    output = tmp_path / "evidence"
+    output.mkdir()
+    monkeypatch.setattr(
+        LINUX_BUILD,
+        "_verify_pinned_v8_authority",
+        lambda _root: LINUX_BUILD.CODEX_MODULE_BAZEL_SHA256,
+    )
+    calls: list[tuple[str, str, str, int]] = []
+
+    def fake_download(url: str, destination: Path, sha256: str, limit: int) -> int:
+        calls.append((url, destination.name, sha256, limit))
+        if destination.name == LINUX_BUILD.V8_CHECKSUM_NAME:
+            raw = (
+                f"{LINUX_BUILD.V8_ARCHIVE_SHA256}  {LINUX_BUILD.V8_ARCHIVE_NAME}\n"
+                f"{LINUX_BUILD.V8_BINDING_SHA256}  {LINUX_BUILD.V8_BINDING_NAME}\n"
+            ).encode()
+        else:
+            raw = destination.name.encode()
+        destination.write_bytes(raw)
+        return len(raw)
+
+    monkeypatch.setattr(LINUX_BUILD, "_download_exact", fake_download)
+    environment, observed = LINUX_BUILD._v8_release_environment(root, output)
+
+    assert [item[1] for item in calls] == [
+        LINUX_BUILD.V8_CHECKSUM_NAME,
+        LINUX_BUILD.V8_ARCHIVE_NAME,
+        LINUX_BUILD.V8_BINDING_NAME,
+    ]
+    assert [item[2] for item in calls] == [
+        LINUX_BUILD.V8_CHECKSUM_SHA256,
+        LINUX_BUILD.V8_ARCHIVE_SHA256,
+        LINUX_BUILD.V8_BINDING_SHA256,
+    ]
+    assert "V8_FROM_SOURCE" not in environment
+    assert environment["RUSTY_V8_ARCHIVE_SHA256"] == LINUX_BUILD.V8_ARCHIVE_SHA256
+    assert observed["sandbox_feature_enabled"] is True
+
+
+def test_v8_release_environment_removes_assets_on_checksum_content_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source" / "codex-rs"
+    root.mkdir(parents=True)
+    output = tmp_path / "evidence"
+    output.mkdir()
+    monkeypatch.setattr(LINUX_BUILD, "_verify_pinned_v8_authority", lambda _root: HASH)
+
+    def fake_download(_url: str, destination: Path, _sha256: str, _limit: int) -> int:
+        destination.write_bytes(b"not the reviewed checksum manifest")
+        return destination.stat().st_size
+
+    monkeypatch.setattr(LINUX_BUILD, "_download_exact", fake_download)
     monkeypatch.setattr(
         LINUX_BUILD.subprocess,
         "Popen",
-        lambda *_args, **_kwargs: pytest.fail("Cargo must not start without llvm-config-19"),
+        lambda *_args, **_kwargs: pytest.fail("Cargo must not start after checksum mismatch"),
     )
+    with pytest.raises(ValueError, match="checksum manifest content mismatch"):
+        LINUX_BUILD._v8_release_environment(root, output)
+    assert not (output / "v8-release").exists()
 
-    with pytest.raises(ValueError, match="prerequisites are incomplete"):
-        LINUX_BUILD._v8_source_build_environment()
 
-    assert state == {
-        "rust_compilation_started": False,
-        "compilation": "NOT_RUN",
+@pytest.mark.parametrize(
+    "mutated_name",
+    (LINUX_BUILD.V8_ARCHIVE_NAME, LINUX_BUILD.V8_BINDING_NAME, LINUX_BUILD.V8_CHECKSUM_NAME),
+)
+def test_post_build_v8_rehash_rejects_each_mutated_asset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutated_name: str
+) -> None:
+    asset_dir = tmp_path / "v8-release"
+    asset_dir.mkdir()
+    contents = {
+        LINUX_BUILD.V8_ARCHIVE_NAME: b"archive",
+        LINUX_BUILD.V8_BINDING_NAME: b"binding",
+        LINUX_BUILD.V8_CHECKSUM_NAME: b"checksum",
+    }
+    monkeypatch.setattr(
+        LINUX_BUILD,
+        "V8_ARCHIVE_SHA256",
+        hashlib.sha256(contents[LINUX_BUILD.V8_ARCHIVE_NAME]).hexdigest(),
+    )
+    monkeypatch.setattr(
+        LINUX_BUILD,
+        "V8_BINDING_SHA256",
+        hashlib.sha256(contents[LINUX_BUILD.V8_BINDING_NAME]).hexdigest(),
+    )
+    monkeypatch.setattr(
+        LINUX_BUILD,
+        "V8_CHECKSUM_SHA256",
+        hashlib.sha256(contents[LINUX_BUILD.V8_CHECKSUM_NAME]).hexdigest(),
+    )
+    for name, value in contents.items():
+        (asset_dir / name).write_bytes(value + (b"tampered" if name == mutated_name else b""))
+    with pytest.raises(ValueError, match="changed during build"):
+        LINUX_BUILD._rehash_v8_assets(tmp_path)
+
+
+def test_post_build_v8_failure_records_exact_phase_and_preserves_compile_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state: dict[str, object] = {
+        "status": "COMPILING",
+        "phase": "cargo_compile",
+        "rust_compilation_started": True,
+        "compilation": "PASS",
         "process_proof": None,
     }
+    state_path = tmp_path / "linux-build-result.json"
+
+    def fail_rehash(_output: Path) -> dict[str, str]:
+        raise ValueError("V8 release asset changed during build")
+
+    monkeypatch.setattr(LINUX_BUILD, "_rehash_v8_assets", fail_rehash)
+    try:
+        LINUX_BUILD._verify_post_build_v8_assets(state, state_path, tmp_path)
+    except ValueError as error:
+        LINUX_BUILD._record_failure(state, state_path, error)
+    observed = json.loads(state_path.read_bytes())
+    assert observed["phase"] == observed["failure"]["phase"] == "v8_release_post_build"
+    assert observed["rust_compilation_started"] is True
+    assert observed["compilation"] == "PASS"
+    assert observed["process_proof"] is None
 
 
-def test_linux_workflow_installs_complete_v8_source_build_prerequisites() -> None:
+def test_linux_workflow_names_forward_only_build_003_artifact() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
-
-    assert "libclang-19-dev" in workflow
-    assert "llvm-19-dev" in workflow
-    assert "libglib2.0-dev" in workflow
-    assert "devfabric-linux-build-002" in workflow
+    assert "devfabric-linux-build-003" in workflow
+    assert "devfabric-linux-build-002" not in workflow
 
 
-def test_cargo_receives_reviewed_v8_source_build_environment(
+def test_cargo_receives_reviewed_v8_release_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: dict[str, object] = {}
@@ -395,18 +564,19 @@ def test_cargo_receives_reviewed_v8_source_build_environment(
             state=state,
             state_path=state_path,
             build_environment={
-                "V8_FROM_SOURCE": "1",
-                "PYTHON": "/usr/bin/python3",
-                "LIBCLANG_PATH": "/usr/lib/llvm-19/lib",
+                "RUSTY_V8_ARCHIVE": "/tmp/v8.a.gz",
+                "RUSTY_V8_ARCHIVE_SHA256": LINUX_BUILD.V8_ARCHIVE_SHA256,
+                "RUSTY_V8_SRC_BINDING_PATH": "/tmp/binding.rs",
             },
         )
         == 0
     )
     environment = captured["environment"]
     assert isinstance(environment, dict)
-    assert environment["V8_FROM_SOURCE"] == "1"
-    assert environment["PYTHON"] == "/usr/bin/python3"
-    assert environment["LIBCLANG_PATH"] == "/usr/lib/llvm-19/lib"
+    assert "V8_FROM_SOURCE" not in environment
+    assert environment["RUSTY_V8_ARCHIVE"] == "/tmp/v8.a.gz"
+    assert environment["RUSTY_V8_ARCHIVE_SHA256"] == LINUX_BUILD.V8_ARCHIVE_SHA256
+    assert environment["RUSTY_V8_SRC_BINDING_PATH"] == "/tmp/binding.rs"
 
 
 @pytest.mark.parametrize(

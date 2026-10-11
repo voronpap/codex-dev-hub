@@ -274,8 +274,13 @@ fallback.
 ### Native Linux Codex build authority
 
 The first Linux-native attempt, `linux-build-001`, is retained as failed evidence: the
-`v8_enable_sandbox` feature intentionally has no upstream prebuilt archive. The corrected
-`linux-build-002` builds V8 from source with the sandbox feature preserved. It builds the exact sibling
+`v8_enable_sandbox` feature intentionally has no generic upstream prebuilt archive. The
+second attempt, `linux-build-002`, is also retained as failed evidence: the crates.io
+`v8-150.4.0` source package omits required ICU source data, so its source build cannot
+complete. The forward-only `linux-build-003` consumes the exact sandbox archive and
+matching generated binding from OpenAI's reviewed `rusty-v8-v150.4.0` Codex release.
+Both assets, the release checksum manifest, the pinned source `MODULE.bazel`, the
+`v8_enable_sandbox` feature and post-build rehashes are receipt-bound. It builds the exact sibling
 `codex` and `codex-code-mode-host` executables together from the pinned Codex
 source, reviewed Candidate B and host-integration patches, complete derived lock,
 Rust 1.95.0 and target `x86_64-unknown-linux-gnu`. It reuses the reviewed source

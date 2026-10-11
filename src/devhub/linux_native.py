@@ -110,6 +110,62 @@ class LinuxBuildProvenanceV2(Contract):
     v8_build_mode: Literal["from_source"] = "from_source"
 
 
+class LinuxBuildProvenanceV3(Contract):
+    repository: Literal["voronpap/codex-dev-hub"] = "voronpap/codex-dev-hub"
+    build_id: Literal["linux-build-003"] = "linux-build-003"
+    implementation_commit: GitCommit
+    codex_source_commit: GitCommit
+    source_archive_sha256: Digest
+    candidate_b_base_patch_sha256: Digest
+    host_integration_patch_sha256: Digest
+    combined_patchset_sha256: Digest
+    canonical_schema_sha256: Digest
+    raw_schema_file_sha256: Digest
+    host_manifest_sha256: Digest
+    resolved_mcp_config_sha256: Digest
+    original_cargo_lock_sha256: Digest
+    derived_cargo_lock_sha256: Digest
+    target: Literal["x86_64-unknown-linux-gnu"] = "x86_64-unknown-linux-gnu"
+    rustc_version: str = Field(min_length=1, max_length=4096)
+    cargo_version: str = Field(min_length=1, max_length=4096)
+    rustc_sha256: Digest
+    cargo_sha256: Digest
+    build_script_sha256: Digest
+    shared_proof_script_sha256: Digest
+    workflow_sha256: Digest
+    v8_crate_version: Literal["150.4.0"] = "150.4.0"
+    v8_build_mode: Literal["official_openai_sandbox_release"] = "official_openai_sandbox_release"
+    v8_release_tag: Literal["rusty-v8-v150.4.0"] = "rusty-v8-v150.4.0"
+    codex_module_bazel_sha256: Literal[
+        "1a6c8685d241a5390ff94432581e842c2950cbe5262b47b27d8db467cebec4c2"
+    ]
+    v8_sandbox_feature_enabled: Literal[True] = True
+    v8_archive_url: Literal[
+        "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/"
+        "librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz"
+    ]
+    v8_archive_sha256: Literal["a35c75d1f26e6a983885a45b33490a4ebe54f05050568b32b89cfb421b30b583"]
+    v8_binding_url: Literal[
+        "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/"
+        "src_binding_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.rs"
+    ]
+    v8_binding_sha256: Literal["7727826ae479bdb645e807239fb12d1f8e2e23de7a6cf16f5ee592690d1d8506"]
+    v8_checksum_url: Literal[
+        "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/"
+        "rusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.sha256"
+    ]
+    v8_checksum_sha256: Literal["6774b42c9424c098c72a805c08d4e94be17c591cf02b1dc2633060255a8a61be"]
+    v8_archive_post_build_sha256: Literal[
+        "a35c75d1f26e6a983885a45b33490a4ebe54f05050568b32b89cfb421b30b583"
+    ]
+    v8_binding_post_build_sha256: Literal[
+        "7727826ae479bdb645e807239fb12d1f8e2e23de7a6cf16f5ee592690d1d8506"
+    ]
+    v8_checksum_post_build_sha256: Literal[
+        "6774b42c9424c098c72a805c08d4e94be17c591cf02b1dc2633060255a8a61be"
+    ]
+
+
 class LinuxHostProofSummaryV1(Contract):
     process_proof_sha256: Digest
     code_mode_host_sha256: Digest
@@ -211,6 +267,40 @@ class LinuxNativeCodexBuildPayloadV2(Contract):
         return self
 
 
+class LinuxNativeCodexBuildPayloadV3(Contract):
+    provenance: LinuxBuildProvenanceV3
+    binaries: tuple[LinuxNativeBinaryV1, LinuxNativeBinaryV1]
+    process_proof: LinuxHostProofSummaryV1
+    compilation: Literal["PASS"] = "PASS"
+    qualification: Literal["LINUX_NATIVE_CODEX_AUTHORITY_PRE_SAMPLING"] = (
+        "LINUX_NATIVE_CODEX_AUTHORITY_PRE_SAMPLING"
+    )
+    native_bundle_qualified: Literal[False] = False
+    native_executor_isolation_qualified: Literal[False] = False
+    execution_ready: Literal[False] = False
+
+    @field_validator("binaries")
+    @classmethod
+    def exact_binary_pair(
+        cls, value: tuple[LinuxNativeBinaryV1, LinuxNativeBinaryV1]
+    ) -> tuple[LinuxNativeBinaryV1, LinuxNativeBinaryV1]:
+        if tuple(item.role for item in value) != ("codex", "codex-code-mode-host"):
+            raise ValueError("Linux build must bind the ordered Codex/code-mode-host pair")
+        if value[0].sha256 == value[1].sha256:
+            raise ValueError("Linux build binaries must have distinct identities")
+        return value
+
+    @model_validator(mode="after")
+    def proof_uses_exact_sibling_host(self) -> LinuxNativeCodexBuildPayloadV3:
+        host = self.binaries[1]
+        if (
+            self.process_proof.code_mode_host_sha256 != host.sha256
+            or self.process_proof.code_mode_host_relative_path != host.relative_path
+        ):
+            raise ValueError("Linux process proof does not bind the exact sibling code-mode host")
+        return self
+
+
 class LinuxNativeCodexBuildV1(Contract):
     linux_native_codex_build_id: Digest
     payload: LinuxNativeCodexBuildPayloadV1
@@ -247,6 +337,27 @@ class LinuxNativeCodexBuildV2(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> LinuxNativeCodexBuildV2:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_codex_build_id != expected:
+            raise ValueError("Linux native Codex build ID mismatch")
+        return self
+
+
+class LinuxNativeCodexBuildV3(Contract):
+    linux_native_codex_build_id: Digest
+    payload: LinuxNativeCodexBuildPayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxNativeCodexBuildPayloadV3) -> LinuxNativeCodexBuildV3:
+        return cls(
+            linux_native_codex_build_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeCodexBuildV3:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_codex_build_id != expected:
             raise ValueError("Linux native Codex build ID mismatch")
