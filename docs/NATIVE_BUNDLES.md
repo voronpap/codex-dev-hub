@@ -198,7 +198,7 @@ establish this newer diagnostic authority. As with every failure artifact,
 publication occurs only after complete process/profile/runtime-ACL cleanup and
 source-bundle re-verification, and it does not grant readiness.
 
-Forward V5 binds Windows DLL lookup only to the resolved parent directory of
+Historical Forward V5 bound Windows DLL lookup only to the resolved parent directory of
 the exact running packaged interpreter by retaining one `os.add_dll_directory`
 handle for the complete bootstrap, probe import and child execution lifetime.
 Ambient `PATH`, the working directory, registry entries and caller-supplied
@@ -212,6 +212,26 @@ immutable bundle manifest, with fixed exit codes and bounded status only. V1-V4
 remain parseable historical diagnostics and cannot establish V5 loader-boundary
 evidence. V5 is still failure-only diagnostic evidence and does not grant
 readiness.
+
+Forward V6 replaces that active boundary with the reviewed
+`_devfabric_native_loader.pyd` helper from the exact packaged interpreter
+directory. The V6 profile binds the accepted loader build/binary authority and
+a fixed six-entry expected hash projection for `_ctypes`, `_socket`,
+`_overlapped`, `select`, `_hashlib` and `_ssl`. Before any of those modules can
+be loaded, the stdlib bootstrap rejects a preloaded matrix member, verifies the
+helper's exact sibling path and SHA-256, imports only that fixed module name,
+calls `activate()` with no arguments, and requires the exact ordered result
+`libffi-8.dll`, `libcrypto-3.dll`, `libssl-3.dll`. The child then imports the
+fixed six-module order. Its observed paths and hashes must equal the immutable
+bundle expectations retained in both the V6 profile and V5 success receipt;
+self-hashed substitution fails on parse. Forward V6 failure diagnostics retain
+only bounded loader classifications, exact expected/observed hash joins and
+fixed exit mappings. V1-V5 evidence remains parseable historical evidence and
+cannot establish the V6 helper boundary.
+
+V6 is still a metadata-only, non-readiness qualification step. It keeps
+`native_executor_isolation_qualified=false` and `package_readiness=false`; the
+metadata-only AppContainer probe cannot promote Windows readiness.
 
 Qualification retains the complete canonical profile, exact `SandboxSpec`
 bytes/hash and a strictly joined receipt. It tests filesystem/registry scope,

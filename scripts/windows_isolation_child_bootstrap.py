@@ -14,7 +14,6 @@ import os
 import runpy
 import sys
 from pathlib import Path
-from typing import Protocol, cast
 
 EXIT_ARGUMENTS_INVALID = 189
 EXIT_SELF_HASH_MISMATCH = 190
@@ -38,12 +37,13 @@ EXIT_MATRIX_SSL = 207
 EXIT_DLL_DIRECTORY_BINDING = 208
 EXIT_MATRIX_HASHLIB_V5 = 209
 EXIT_MATRIX_SSL_V5 = 210
+EXIT_NATIVE_LOADER_ACTIVATION = 211
+EXIT_MATRIX_CTYPES_V6 = 212
 MAX_FAILURE_BYTES = 4096
-NATIVE_LOADER_FILES = (
-    ("python/_ctypes.pyd", "_ctypes.pyd"),
-    ("python/libffi-8.dll", "libffi-8.dll"),
-)
+NATIVE_LOADER_MODULE = ("python/_devfabric_native_loader.pyd", "_devfabric_native_loader.pyd")
+NATIVE_LOADER_DEPENDENCIES = ("libffi-8.dll", "libcrypto-3.dll", "libssl-3.dll")
 NATIVE_IMPORT_MATRIX = (
+    ("_ctypes", "python/_ctypes.pyd", "_ctypes.pyd", EXIT_MATRIX_CTYPES_V6),
     ("_socket", "python/_socket.pyd", "_socket.pyd", EXIT_MATRIX_SOCKET),
     ("_overlapped", "python/_overlapped.pyd", "_overlapped.pyd", EXIT_MATRIX_OVERLAPPED),
     ("select", "python/select.pyd", "select.pyd", EXIT_MATRIX_SELECT),
@@ -66,10 +66,6 @@ LOADER_DETAILS = {
         1114,
     ),
 }
-
-
-class _DllDirectoryHandle(Protocol):
-    def close(self) -> None: ...
 
 
 class _FailureFrameTooLarge(Exception):
@@ -137,33 +133,6 @@ def _loader_reason(error: BaseException) -> str:
     return _loader_diagnostic(error)[0]
 
 
-def _native_loader_observations() -> list[dict[str, object]]:
-    runtime_root = Path(sys.executable).resolve().parent
-    observations: list[dict[str, object]] = []
-    for relative_path, filename in NATIVE_LOADER_FILES:
-        target = runtime_root / filename
-        try:
-            observed_sha256 = _sha2.sha256(target.read_bytes()).hexdigest()
-            status = "readable"
-        except FileNotFoundError:
-            observed_sha256 = None
-            status = "missing"
-        except PermissionError:
-            observed_sha256 = None
-            status = "access_denied"
-        except OSError:
-            observed_sha256 = None
-            status = "other_error"
-        observations.append(
-            {
-                "observed_sha256": observed_sha256,
-                "relative_path": relative_path,
-                "status": status,
-            }
-        )
-    return observations
-
-
 def _native_file_observation(relative_path: str, filename: str) -> dict[str, object]:
     target = Path(sys.executable).resolve().parent / filename
     try:
@@ -181,6 +150,7 @@ def _native_file_observation(relative_path: str, filename: str) -> dict[str, obj
     return {
         "observed_sha256": observed_sha256,
         "relative_path": relative_path,
+        "schema_version": 3,
         "status": status,
     }
 
@@ -191,6 +161,7 @@ def _run_native_import_matrix() -> tuple[list[dict[str, object]], BaseException 
             "module": module,
             "file": _native_file_observation(relative_path, filename),
             "import_status": "not_attempted",
+            "schema_version": 3,
         }
         for module, relative_path, filename, _ in NATIVE_IMPORT_MATRIX
     ]
@@ -204,49 +175,53 @@ def _run_native_import_matrix() -> tuple[list[dict[str, object]], BaseException 
     return observations, None, None
 
 
-def _activate_launcher_dll_directory() -> tuple[
-    dict[str, object], _DllDirectoryHandle | None, BaseException | None
-]:
-    """Bind DLL lookup only to the exact running interpreter directory."""
+def _activate_native_loader(
+    expected_sha256: str,
+) -> tuple[dict[str, object], BaseException | None]:
+    """Activate only the reviewed interpreter-sibling native loader."""
 
+    relative_path, filename = NATIVE_LOADER_MODULE
+    observation: dict[str, object] = {
+        "activated_dependencies": [],
+        "error_code": None,
+        "module_path": relative_path,
+        "module_sha256": None,
+        "schema_version": 2,
+        "status": "failed",
+    }
     try:
-        if "_hashlib" in sys.modules or "_ssl" in sys.modules:
-            raise RuntimeError("Reviewed crypto modules were loaded before DLL binding")
+        if any(module in sys.modules for module, *_ in NATIVE_IMPORT_MATRIX):
+            raise RuntimeError("Reviewed native module loaded before native-loader activation")
         runtime_root = Path(sys.executable).resolve(strict=True).parent
-        handle = os.add_dll_directory(str(runtime_root))
+        module_path = (runtime_root / filename).resolve(strict=True)
+        if module_path.parent != runtime_root or module_path.name != filename:
+            raise RuntimeError("Native-loader module is not the interpreter sibling")
+        observed_sha256 = _sha2.sha256(module_path.read_bytes()).hexdigest()
+        if observed_sha256 != expected_sha256:
+            raise RuntimeError("Native-loader module hash differs from reviewed authority")
+        loader = importlib.import_module("_devfabric_native_loader")
+        origin_raw = getattr(loader, "__file__", None)
+        if not isinstance(origin_raw, str):
+            raise RuntimeError("Imported native-loader origin is unavailable")
+        origin = Path(origin_raw).resolve(strict=True)
+        if origin != module_path:
+            raise RuntimeError("Imported native-loader origin differs from reviewed sibling")
+        activated = loader.activate()
+        if activated != NATIVE_LOADER_DEPENDENCIES:
+            raise RuntimeError("Native-loader activation result differs from reviewed order")
     except BaseException as error:
-        return (
-            {
-                "directory_kind": "launcher_parent",
-                "error_code": _numeric_code(error, "winerror") or _numeric_code(error, "errno"),
-                "schema_version": 1,
-                "status": "failed",
-            },
-            None,
-            error,
+        observation["error_code"] = _numeric_code(error, "winerror") or _numeric_code(
+            error, "errno"
         )
-    if not callable(getattr(handle, "close", None)):
-        invalid_handle_error = RuntimeError("DLL directory activation returned an invalid handle")
-        return (
-            {
-                "directory_kind": "launcher_parent",
-                "error_code": None,
-                "schema_version": 1,
-                "status": "failed",
-            },
-            None,
-            invalid_handle_error,
-        )
-    return (
+        return observation, error
+    observation.update(
         {
-            "directory_kind": "launcher_parent",
-            "error_code": None,
-            "schema_version": 1,
+            "activated_dependencies": list(NATIVE_LOADER_DEPENDENCIES),
+            "module_sha256": observed_sha256,
             "status": "active",
-        },
-        cast(_DllDirectoryHandle, handle),
-        None,
+        }
     )
+    return observation, None
 
 
 def _canonical(value: object) -> bytes:
@@ -280,7 +255,7 @@ def _write_failure(
     phase: str,
     error: BaseException,
     native_import_matrix: list[dict[str, object]],
-    dll_directory_activation: dict[str, object],
+    native_loader_activation: dict[str, object],
     failed_matrix_module: str | None = None,
 ) -> None:
     exception_class = type(error).__name__
@@ -290,12 +265,16 @@ def _write_failure(
         or not exception_class.isidentifier()
     ):
         raise _FailureFrameTooLarge
-    loader_failure = phase in {"bootstrap_native_matrix", "bootstrap_import"}
+    loader_failure = phase in {
+        "bootstrap_native_loader",
+        "bootstrap_native_matrix",
+        "bootstrap_import",
+    }
     loader_reason, loader_code = _loader_diagnostic(error) if loader_failure else (None, None)
     encoded = _canonical(
         {
             "errno": _numeric_code(error, "errno"),
-            "dll_directory_activation": dll_directory_activation,
+            "native_loader_activation": native_loader_activation,
             "exception_class": exception_class,
             "failed_matrix_module": failed_matrix_module,
             "import_boundary": _import_boundary(error) if phase == "bootstrap_import" else None,
@@ -306,11 +285,8 @@ def _write_failure(
                 _native_file_observation(relative_path, filename)
                 for relative_path, filename in NATIVE_CRYPTO_FILES
             ],
-            "native_loader_observations": (
-                _native_loader_observations() if phase == "bootstrap_import" else []
-            ),
             "phase": phase,
-            "schema_version": 5,
+            "schema_version": 6,
             "winerror": _numeric_code(error, "winerror"),
         }
     )
@@ -342,7 +318,7 @@ def _started_frame(
 
 
 def main() -> int:
-    if len(sys.argv) != 10:
+    if len(sys.argv) != 11:
         return EXIT_ARGUMENTS_INVALID
     (
         _,
@@ -355,6 +331,7 @@ def main() -> int:
         environment_instance_id,
         profile_id,
         probe_sha256,
+        expected_native_loader_sha256,
     ) = sys.argv
     child_script = Path(child_script_raw)
     request_path = Path(request_raw)
@@ -386,8 +363,8 @@ def main() -> int:
     except BaseException:
         return EXIT_STATUS_WRITE_DENIED
 
-    dll_directory_activation, dll_directory_handle, activation_error = (
-        _activate_launcher_dll_directory()
+    native_loader_activation, activation_error = _activate_native_loader(
+        expected_native_loader_sha256
     )
     if activation_error is not None:
         native_import_matrix: list[dict[str, object]] = [
@@ -395,105 +372,99 @@ def main() -> int:
                 "module": module,
                 "file": _native_file_observation(relative_path, filename),
                 "import_status": "not_attempted",
+                "schema_version": 3,
             }
             for module, relative_path, filename, _ in NATIVE_IMPORT_MATRIX
         ]
         try:
             _write_failure(
                 failure_path,
-                "bootstrap_dll_directory",
+                "bootstrap_native_loader",
                 activation_error,
                 native_import_matrix,
-                dll_directory_activation,
+                native_loader_activation,
             )
         except _FailureFrameTooLarge:
             return EXIT_IMPORT_FAILURE_TOO_LARGE
         except BaseException:
             return EXIT_IMPORT_FAILURE_WRITE_DENIED
-        return EXIT_DLL_DIRECTORY_BINDING
+        return EXIT_NATIVE_LOADER_ACTIVATION
 
-    if dll_directory_handle is None:
+    native_import_matrix, matrix_error, matrix_exit = _run_native_import_matrix()
+    if (matrix_error is None) != (matrix_exit is None):
         return EXIT_IMPORT_FAILED
-    try:
-        native_import_matrix, matrix_error, matrix_exit = _run_native_import_matrix()
-        if (matrix_error is None) != (matrix_exit is None):
+    if matrix_error is not None:
+        if matrix_exit is None:
             return EXIT_IMPORT_FAILED
-        if matrix_error is not None:
-            if matrix_exit is None:
-                return EXIT_IMPORT_FAILED
-            failed = next(
-                item["module"] for item in native_import_matrix if item["import_status"] == "failed"
-            )
-            try:
-                _write_failure(
-                    failure_path,
-                    "bootstrap_native_matrix",
-                    matrix_error,
-                    native_import_matrix,
-                    dll_directory_activation,
-                    str(failed),
-                )
-            except _FailureFrameTooLarge:
-                return EXIT_IMPORT_FAILURE_TOO_LARGE
-            except BaseException:
-                return EXIT_IMPORT_FAILURE_WRITE_DENIED
-            return matrix_exit
-
-        sys.argv = [
-            str(child_script),
-            "--child",
-            str(request_path),
-            str(result_path),
-            str(failure_path),
-        ]
+        failed = next(
+            item["module"] for item in native_import_matrix if item["import_status"] == "failed"
+        )
         try:
-            namespace = runpy.run_path(
-                str(child_script), run_name="devfabric_windows_isolation_child"
+            _write_failure(
+                failure_path,
+                "bootstrap_native_matrix",
+                matrix_error,
+                native_import_matrix,
+                native_loader_activation,
+                str(failed),
             )
-            guarded = namespace.get("_child_guarded")
-            if not callable(guarded):
-                raise RuntimeError("reviewed child entry point is unavailable")
-        except BaseException as error:
-            try:
-                _write_failure(
-                    failure_path,
-                    "bootstrap_import",
-                    error,
-                    native_import_matrix,
-                    dll_directory_activation,
-                )
-            except _FailureFrameTooLarge:
-                return EXIT_IMPORT_FAILURE_TOO_LARGE
-            except BaseException:
-                return EXIT_IMPORT_FAILURE_WRITE_DENIED
-            return _classified_import_exit(error)
+        except _FailureFrameTooLarge:
+            return EXIT_IMPORT_FAILURE_TOO_LARGE
+        except BaseException:
+            return EXIT_IMPORT_FAILURE_WRITE_DENIED
+        return matrix_exit
 
+    sys.argv = [
+        str(child_script),
+        "--child",
+        str(request_path),
+        str(result_path),
+        str(failure_path),
+    ]
+    try:
+        namespace = runpy.run_path(str(child_script), run_name="devfabric_windows_isolation_child")
+        guarded = namespace.get("_child_guarded_v6")
+        if not callable(guarded):
+            raise RuntimeError("reviewed child entry point is unavailable")
+    except BaseException as error:
         try:
-            return int(
-                guarded(
-                    request_path,
-                    result_path,
-                    failure_path,
-                    dll_directory_activation,
-                    native_import_matrix,
-                )
+            _write_failure(
+                failure_path,
+                "bootstrap_import",
+                error,
+                native_import_matrix,
+                native_loader_activation,
             )
-        except BaseException as error:
-            try:
-                _write_failure(
-                    failure_path,
-                    "bootstrap_invoke",
-                    error,
-                    native_import_matrix,
-                    dll_directory_activation,
-                )
-            except _FailureFrameTooLarge:
-                return EXIT_INVOKE_FAILURE_TOO_LARGE
-            except BaseException:
-                return EXIT_INVOKE_FAILURE_WRITE_DENIED
-            return EXIT_INVOKE_FAILED
-    finally:
-        dll_directory_handle.close()
+        except _FailureFrameTooLarge:
+            return EXIT_IMPORT_FAILURE_TOO_LARGE
+        except BaseException:
+            return EXIT_IMPORT_FAILURE_WRITE_DENIED
+        return _classified_import_exit(error)
+
+    try:
+        return int(
+            guarded(
+                request_path,
+                result_path,
+                failure_path,
+                native_loader_activation,
+                native_import_matrix,
+            )
+        )
+    except BaseException as error:
+        try:
+            _write_failure(
+                failure_path,
+                "bootstrap_invoke",
+                error,
+                native_import_matrix,
+                native_loader_activation,
+            )
+        except _FailureFrameTooLarge:
+            return EXIT_INVOKE_FAILURE_TOO_LARGE
+        except BaseException:
+            return EXIT_INVOKE_FAILURE_WRITE_DENIED
+        return EXIT_INVOKE_FAILED
 
 
 if __name__ == "__main__":
