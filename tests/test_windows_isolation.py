@@ -2760,6 +2760,7 @@ def test_stdlib_bootstrap_binds_only_launcher_parent_and_retains_handle(
         bootstrap.os,
         "add_dll_directory",
         lambda path: captured.append(path) or handle,
+        raising=False,
     )
     activation, retained, error = bootstrap._activate_launcher_dll_directory()
     assert error is None
