@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import stat
@@ -27,6 +28,7 @@ from devhub.linux_isolation import (
     LinuxAppArmorSetupStateV1,
     LinuxFileAuthorityV1,
     LinuxIsolationEvidenceV4,
+    LinuxIsolationEvidenceV5,
     LinuxNativePathIdentityV1,
 )
 
@@ -43,6 +45,7 @@ RUNTIME_PARENT = LOADED_SNAPSHOT.parent
 _COMMIT = re.compile(r"^[a-f0-9]{40}$")
 _ENVIRONMENT = re.compile(r"^[a-f0-9]{32}$")
 Runner = Callable[[list[str]], subprocess.CompletedProcess[bytes]]
+MechanicsEvidence = LinuxIsolationEvidenceV4 | LinuxIsolationEvidenceV5
 LifecyclePhase = Literal["setup", "rollback", "cleanup", "finalization"]
 
 
@@ -674,6 +677,19 @@ def cleanup_owned(
     return state
 
 
+def read_mechanics(path: Path) -> MechanicsEvidence:
+    encoded = path.read_bytes()
+    raw = json.loads(encoded)
+    if not isinstance(raw, dict):
+        raise ValueError("Linux isolation mechanics evidence is not an object")
+    schema_version = raw.get("schema_version")
+    if schema_version == 4:
+        return LinuxIsolationEvidenceV4.model_validate_json(encoded)
+    if schema_version == 5:
+        return LinuxIsolationEvidenceV5.model_validate_json(encoded)
+    raise ValueError("Linux isolation mechanics evidence version is unsupported")
+
+
 def cleanup(
     state_path: Path,
     mechanics_path: Path,
@@ -682,7 +698,7 @@ def cleanup(
 ) -> None:
     if output.exists() or output.is_symlink():
         raise ValueError("AppArmor cleanup receipt already exists")
-    mechanics = LinuxIsolationEvidenceV4.model_validate_json(mechanics_path.read_bytes())
+    mechanics = read_mechanics(mechanics_path)
     state = read_state(state_path)
     profile = mechanics.payload.profile.payload
     apparmor = profile.host.apparmor

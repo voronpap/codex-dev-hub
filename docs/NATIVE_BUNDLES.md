@@ -505,11 +505,10 @@ mandatory before Linux readiness.
 
 ### Native Linux isolation mechanics baseline
 
-`LinuxNativeIsolationV1`, `LinuxNativeIsolationV2` and
-`LinuxNativeIsolationV3` remain strict historical contracts. The
-private-launcher/AppArmor qualification now emits the forward-only
-`LinuxNativeIsolationV4` contract; V1-V3 payloads and canonical identities are
-not reinterpreted. V4 preserves the V3 Landlock authority: it records the kernel-reported ABI
+`LinuxNativeIsolationV1` through `LinuxNativeIsolationV4` remain strict historical
+contracts. The private-launcher/AppArmor qualification now emits the forward-only
+`LinuxNativeIsolationV5` contract; V1-V4 payloads and canonical identities are
+not reinterpreted. V5 preserves the V4 mount and V3 Landlock authority: it records the kernel-reported ABI
 separately from the reviewed policy ABI. Kernels reporting ABI 7 or newer keep
 their exact observation while enforcement is capped at reviewed ABI 6 and its
 exact `handled_access_fs` mask. Kernels older than ABI 3 fail closed. The child
@@ -531,7 +530,7 @@ bounded `/api/version`, `/api/tags` and `/api/show` requests to fixed
 `127.0.0.1:11434`; generation, streaming, oversized and ambiguous HTTP requests
 are denied before forwarding.
 
-V4 also binds `/usr/bin/mount`'s ordinary permission bits, special bits and
+V5 also preserves V4's binding of `/usr/bin/mount`'s ordinary permission bits, special bits and
 complete `stat.S_IMODE` separately. The exact Ubuntu 24.04 root-owned mount
 binary may retain setuid; setgid, sticky, group/world-writable, non-root or
 substituted tools fail closed. Both unshare binaries, `apparmor_parser` and the
@@ -586,7 +585,14 @@ Main-only run `38246458005` is separately retained as an immutable
 pre-namespace mount-mode representation failure: V3 rejected the exact
 root-owned Ubuntu `/usr/bin/mount` mode `04755` before namespace creation.
 Privileged cleanup succeeded and all execution counters remained zero. V4 is
-the forward-only correction; neither failed run grants readiness.
+the forward-only correction. Main-only run `38252172665` is retained separately
+as a pre-namespace synthetic-upstream bind failure: the fixed fixture port
+`127.0.0.1:11434` was already occupied, cleanup succeeded and all execution
+counters remained zero. V5 selects an ephemeral loopback fixture port, retains
+the exact listening socket, and binds its port, inode and owner process identity
+through profile, observation, receipt and evidence. The production Ollama
+destination and accepted HTTP Host authority remain exactly
+`127.0.0.1:11434`. None of these failed runs grants readiness.
 
 ## Platform acceptance matrix
 

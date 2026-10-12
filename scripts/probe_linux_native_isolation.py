@@ -36,17 +36,19 @@ from devhub.linux_isolation import (
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV4,
-    LinuxIsolationEvidenceV4,
+    LinuxIsolationEvidencePayloadV5,
+    LinuxIsolationEvidenceV5,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailureV1,
-    LinuxIsolationObservationV4,
-    LinuxIsolationProfilePayloadV4,
-    LinuxIsolationProfileV4,
-    LinuxIsolationReceiptPayloadV4,
-    LinuxIsolationReceiptV4,
+    LinuxIsolationObservationV5,
+    LinuxIsolationProfilePayloadV5,
+    LinuxIsolationProfileV5,
+    LinuxIsolationReceiptPayloadV5,
+    LinuxIsolationReceiptV5,
     LinuxMountAuthorityV1,
     LinuxNativePathIdentityV1,
+    LinuxSyntheticUpstreamAuthorityV1,
+    LinuxSyntheticUpstreamObservationV1,
     LinuxToolAuthorityV1,
     LinuxToolAuthorityV4,
     enforced_landlock_abi,
@@ -310,7 +312,7 @@ def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
 
 
 def revalidate_profile_sources(
-    profile: LinuxIsolationProfileV4, child_script: Path, bundle: Path
+    profile: LinuxIsolationProfileV5, child_script: Path, bundle: Path
 ) -> None:
     revalidate_tool(profile.payload.system_unshare)
     revalidate_tool(profile.payload.unshare)
@@ -549,6 +551,32 @@ def bind_stub_ollama(host: str = "127.0.0.1", port: int = 11434) -> socket.socke
     return server
 
 
+def synthetic_upstream_authority(server: socket.socket) -> LinuxSyntheticUpstreamAuthorityV1:
+    if (
+        server.family != socket.AF_INET
+        or server.type & socket.SOCK_STREAM != socket.SOCK_STREAM
+        or server.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN) != 1
+    ):
+        raise ValueError("Synthetic upstream must be one retained listening TCP socket")
+    host, port = server.getsockname()
+    info = os.fstat(server.fileno())
+    return LinuxSyntheticUpstreamAuthorityV1(
+        host=host,
+        port=port,
+        socket_inode=info.st_ino,
+        owner_pid=os.getpid(),
+        owner_start_time_ticks=process_start_time(os.getpid()),
+        owner_uid=current_uid(),
+    )
+
+
+def revalidate_synthetic_upstream(
+    server: socket.socket, expected: LinuxSyntheticUpstreamAuthorityV1
+) -> None:
+    if synthetic_upstream_authority(server) != expected:
+        raise ValueError("Synthetic upstream listener authority changed before launch")
+
+
 def stub_ollama(
     server: socket.socket,
     stop: threading.Event,
@@ -586,7 +614,7 @@ def stub_ollama(
 
 
 def namespace_command(
-    profile: LinuxIsolationProfileV4,
+    profile: LinuxIsolationProfileV5,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -650,14 +678,15 @@ def namespace_command(
 
 
 def run_probe(
-    profile: LinuxIsolationProfileV4,
+    profile: LinuxIsolationProfileV5,
     child_script: Path,
     root: Path,
     bundle: Path,
     state: Path,
     output: Path,
     broker_dir: Path,
-) -> tuple[LinuxIsolationObservationV4, bytes, bytes]:
+    stub_server: socket.socket,
+) -> tuple[LinuxIsolationObservationV5, bytes, bytes]:
     revalidate_profile_sources(profile, child_script, bundle)
     registration_read, registration_write = os.pipe()
     result_read, result_write = os.pipe()
@@ -674,10 +703,8 @@ def run_probe(
         result_write,
         host_namespaces,
     )
-    # Bind the exact synthetic upstream synchronously. An occupied fixed port
-    # must fail before the namespace child or broker can be launched.
     try:
-        stub_server = bind_stub_ollama()
+        revalidate_synthetic_upstream(stub_server, profile.payload.synthetic_upstream)
     except BaseException:
         for descriptor in (registration_read, registration_write, result_read, result_write):
             os.close(descriptor)
@@ -750,8 +777,13 @@ def run_probe(
             outer_uid=outer_uid,
             start_time_ticks=int(registration["start_time_ticks"]),
         )
+        revalidate_synthetic_upstream(stub_server, profile.payload.synthetic_upstream)
         stub_thread.start()
-        broker = LinuxMetadataBrokerV1(broker_dir / "ollama.sock", peer)
+        broker = LinuxMetadataBrokerV1(
+            broker_dir / "ollama.sock",
+            peer,
+            synthetic_upstream=profile.payload.synthetic_upstream,
+        )
 
         def serve() -> None:
             try:
@@ -794,9 +826,12 @@ def run_probe(
                 "peer_uid_matched": True,
             }
         )
+        raw_observation["synthetic_upstream"] = LinuxSyntheticUpstreamObservationV1(
+            authority=profile.payload.synthetic_upstream
+        ).model_dump(mode="json")
         raw_observation["descendant_cleanup_passed"] = True
         raw_observation["cleanup_failures"] = []
-        observation = LinuxIsolationObservationV4.model_validate(raw_observation)
+        observation = LinuxIsolationObservationV5.model_validate(raw_observation)
         if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
             raise ValueError("Isolation launcher process group remained after process exit")
         revalidate_profile_sources(profile, child_script, bundle)
@@ -874,12 +909,13 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV4 | None = None
+    profile: LinuxIsolationProfileV5 | None = None
     stdout = b""
     stderr = b""
     phase: FailurePhase = "host_inspection"
     cleanup_succeeded = False
     scratch: Path | None = None
+    stub_server: socket.socket | None = None
     try:
         repo = root_script.parents[1]
         verified_git_head(repo, args.implementation_commit)
@@ -928,8 +964,10 @@ def main() -> None:
                 broker_host_uid=current_uid(),
                 broker_module_sha256=file_sha256(broker_module),
             )
-            profile = LinuxIsolationProfileV4.create(
-                LinuxIsolationProfilePayloadV4(
+            stub_server = bind_stub_ollama(port=0)
+            synthetic_upstream = synthetic_upstream_authority(stub_server)
+            profile = LinuxIsolationProfileV5.create(
+                LinuxIsolationProfilePayloadV5(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
                     native_bundle_id=bundle_id,
@@ -944,6 +982,7 @@ def main() -> None:
                     source_directories=sources,
                     mounts=mounts,
                     broker=broker_expectation,
+                    synthetic_upstream=synthetic_upstream,
                     landlock_handled_access=landlock_handled_access(host.enforced_landlock_abi),
                 )
             )
@@ -952,20 +991,22 @@ def main() -> None:
                 raise ValueError("Isolation parent probe changed before launch")
             phase = "namespace_creation"
             observation, stdout, stderr = run_probe(
-                profile, child_script, root, bundle, state, output, broker
+                profile, child_script, root, bundle, state, output, broker, stub_server
             )
+            stub_server.close()
+            stub_server = None
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV4.create(
-            LinuxIsolationReceiptPayloadV4(
+        receipt = LinuxIsolationReceiptV5.create(
+            LinuxIsolationReceiptPayloadV5(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV4.create(
-            LinuxIsolationEvidencePayloadV4(
+        evidence = LinuxIsolationEvidenceV5.create(
+            LinuxIsolationEvidencePayloadV5(
                 profile=profile,
                 receipt=receipt,
                 child_stdout_retained_sha256=sha256(stdout),
@@ -979,6 +1020,8 @@ def main() -> None:
         )
         write_new(args.output, canonical(evidence.model_dump(mode="json")))
     except BaseException as error:
+        if stub_server is not None:
+            stub_server.close()
         cleanup_succeeded = scratch is not None and not scratch.exists()
         reason_code, observed_errno = failure_reason(phase, error)
         failure = LinuxIsolationFailureV1.create(

@@ -15,6 +15,7 @@ from typing import Literal, cast
 
 from pydantic import Field
 
+from devhub.linux_isolation import LinuxSyntheticUpstreamAuthorityV1
 from devhub.models import Contract
 
 DESTINATION_HOST = "127.0.0.1"
@@ -205,6 +206,7 @@ class LinuxMetadataBrokerV1:
         max_request_bytes: int = 64 * 1024,
         max_response_bytes: int = 4 * 1024**2,
         expected_model: str = EXPECTED_MODEL,
+        synthetic_upstream: LinuxSyntheticUpstreamAuthorityV1 | None = None,
     ) -> None:
         self.socket_path = socket_path
         self.peer = peer
@@ -213,6 +215,21 @@ class LinuxMetadataBrokerV1:
         if expected_model != EXPECTED_MODEL:
             raise ValueError("Linux metadata broker requires the exact qualified model")
         self.expected_model = expected_model
+        if synthetic_upstream is None:
+            self.destination_host = DESTINATION_HOST
+            self.destination_port = DESTINATION_PORT
+        else:
+            geteuid = getattr(os, "geteuid", None)
+            if (
+                not callable(geteuid)
+                or synthetic_upstream.owner_pid != os.getpid()
+                or synthetic_upstream.owner_uid != int(geteuid())
+                or synthetic_upstream.owner_start_time_ticks
+                != process_start_time_ticks(os.getpid())
+            ):
+                raise ValueError("Synthetic upstream owner authority differs from the broker")
+            self.destination_host = synthetic_upstream.host
+            self.destination_port = synthetic_upstream.port
 
     def _validate_socket_parent(self) -> None:
         parent = self.socket_path.parent
@@ -281,7 +298,7 @@ class LinuxMetadataBrokerV1:
                     if deadline is not None:
                         remaining = max(0.1, min(remaining, deadline - time.monotonic()))
                     with socket.create_connection(
-                        (DESTINATION_HOST, DESTINATION_PORT), timeout=remaining
+                        (self.destination_host, self.destination_port), timeout=remaining
                     ) as target:
                         target.sendall(request.raw)
                         _bounded_response(target, connection, self.max_response_bytes)

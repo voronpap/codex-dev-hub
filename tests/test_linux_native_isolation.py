@@ -10,7 +10,7 @@ import subprocess
 import threading
 from pathlib import Path
 from types import ModuleType
-from typing import Literal, Never, cast
+from typing import Literal, cast
 
 import pytest
 from pydantic import ValidationError
@@ -36,38 +36,49 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidencePayloadV2,
     LinuxIsolationEvidencePayloadV3,
     LinuxIsolationEvidencePayloadV4,
+    LinuxIsolationEvidencePayloadV5,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
     LinuxIsolationEvidenceV3,
     LinuxIsolationEvidenceV4,
+    LinuxIsolationEvidenceV5,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationObservationV1,
     LinuxIsolationObservationV2,
     LinuxIsolationObservationV3,
     LinuxIsolationObservationV4,
+    LinuxIsolationObservationV5,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfilePayloadV3,
     LinuxIsolationProfilePayloadV4,
+    LinuxIsolationProfilePayloadV5,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
     LinuxIsolationProfileV3,
     LinuxIsolationProfileV4,
+    LinuxIsolationProfileV5,
     LinuxIsolationQualificationPayloadV3,
     LinuxIsolationQualificationPayloadV4,
+    LinuxIsolationQualificationPayloadV5,
     LinuxIsolationQualificationV4,
+    LinuxIsolationQualificationV5,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
     LinuxIsolationReceiptPayloadV4,
+    LinuxIsolationReceiptPayloadV5,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
     LinuxIsolationReceiptV3,
     LinuxIsolationReceiptV4,
+    LinuxIsolationReceiptV5,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
     LinuxNativePathIdentityV1,
     LinuxRlimitsV1,
+    LinuxSyntheticUpstreamAuthorityV1,
+    LinuxSyntheticUpstreamObservationV1,
     LinuxToolAuthorityV1,
     LinuxToolAuthorityV4,
     enforced_landlock_abi,
@@ -258,6 +269,16 @@ def broker() -> LinuxBrokerExpectationV1:
     )
 
 
+def synthetic_upstream() -> LinuxSyntheticUpstreamAuthorityV1:
+    return LinuxSyntheticUpstreamAuthorityV1(
+        port=43123,
+        socket_inode=789,
+        owner_pid=123,
+        owner_start_time_ticks=456,
+        owner_uid=1000,
+    )
+
+
 def profile_payload() -> LinuxIsolationProfilePayloadV3:
     roles: tuple[
         Literal["broker"],
@@ -325,6 +346,18 @@ def profile_payload_v4() -> LinuxIsolationProfilePayloadV4:
     return LinuxIsolationProfilePayloadV4.model_validate(raw)
 
 
+def profile_payload_v5() -> LinuxIsolationProfilePayloadV5:
+    raw = profile_payload_v4().model_dump(mode="python")
+    raw["schema_version"] = 5
+    raw["profile_kind"] = "linux_native_isolation_v5"
+    authority = synthetic_upstream()
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    return LinuxIsolationProfilePayloadV5.model_validate(raw)
+
+
 def namespace_observation() -> LinuxNamespaceObservationV1:
     return LinuxNamespaceObservationV1(
         host_user_namespace_id="user:[1]",
@@ -362,6 +395,15 @@ def observation_v4() -> LinuxIsolationObservationV4:
     return LinuxIsolationObservationV4.model_validate(raw)
 
 
+def observation_v5() -> LinuxIsolationObservationV5:
+    raw = observation_v4().model_dump(mode="python")
+    raw["schema_version"] = 5
+    raw["synthetic_upstream"] = LinuxSyntheticUpstreamObservationV1(
+        authority=synthetic_upstream()
+    ).model_dump(mode="python")
+    return LinuxIsolationObservationV5.model_validate(raw)
+
+
 def evidence_payload(
     profile: LinuxIsolationProfileV3, receipt: LinuxIsolationReceiptV3
 ) -> LinuxIsolationEvidencePayloadV3:
@@ -382,6 +424,22 @@ def evidence_payload_v4(
     profile: LinuxIsolationProfileV4, receipt: LinuxIsolationReceiptV4
 ) -> LinuxIsolationEvidencePayloadV4:
     return LinuxIsolationEvidencePayloadV4(
+        profile=profile,
+        receipt=receipt,
+        child_stdout_retained_sha256=H,
+        child_stderr_retained_sha256=H,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup=LinuxHostCleanupObservationV1(),
+    )
+
+
+def evidence_payload_v5(
+    profile: LinuxIsolationProfileV5, receipt: LinuxIsolationReceiptV5
+) -> LinuxIsolationEvidencePayloadV5:
+    return LinuxIsolationEvidencePayloadV5(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -472,6 +530,130 @@ def test_v4_mount_mode_profile_receipt_evidence_and_qualification_are_closed() -
     assert profile.payload.mount.special_bits == "04000"
     assert receipt.payload.observation.mount_authority_revalidated is True
     assert qualification.payload.package_readiness is False
+
+
+def test_v5_synthetic_upstream_profile_receipt_evidence_and_qualification_are_closed() -> None:
+    profile = LinuxIsolationProfileV5.create(profile_payload_v5())
+    receipt = LinuxIsolationReceiptV5.create(
+        LinuxIsolationReceiptPayloadV5(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation_v5(),
+        )
+    )
+    evidence = LinuxIsolationEvidenceV5.create(evidence_payload_v5(profile, receipt))
+    cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=evidence.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    qualification = LinuxIsolationQualificationV5.create(
+        LinuxIsolationQualificationPayloadV5(
+            mechanics=evidence,
+            apparmor_cleanup=cleanup,
+        )
+    )
+    assert profile.model_validate_json(profile.model_dump_json()) == profile
+    assert receipt.model_validate_json(receipt.model_dump_json()) == receipt
+    assert evidence.model_validate_json(evidence.model_dump_json()) == evidence
+    assert qualification.model_validate_json(qualification.model_dump_json()) == qualification
+    assert (
+        receipt.payload.model_requests,
+        receipt.payload.provider_sends,
+        receipt.payload.mcp_tool_executions,
+        receipt.payload.real_task_executions,
+    ) == (0, 0, 0, 0)
+    assert receipt.payload.package_readiness is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
+def test_finalizer_joins_only_v5_mechanics(tmp_path: Path) -> None:
+    profile = LinuxIsolationProfileV5.create(profile_payload_v5())
+    receipt = LinuxIsolationReceiptV5.create(
+        LinuxIsolationReceiptPayloadV5(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation_v5(),
+        )
+    )
+    evidence = LinuxIsolationEvidenceV5.create(evidence_payload_v5(profile, receipt))
+    cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=evidence.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    mechanics_path = tmp_path / "mechanics.json"
+    cleanup_path = tmp_path / "cleanup.json"
+    output = tmp_path / "qualification.json"
+    mechanics_path.write_text(evidence.model_dump_json(), encoding="utf-8")
+    cleanup_path.write_text(cleanup.model_dump_json(), encoding="utf-8")
+    FINALIZER.finalize(mechanics_path, cleanup_path, output)
+    qualification = LinuxIsolationQualificationV5.model_validate_json(output.read_bytes())
+    assert qualification.payload.mechanics == evidence
+    assert qualification.payload.apparmor_cleanup == cleanup
+
+
+def test_v5_rejects_synthetic_upstream_substitution_and_arbitrary_host() -> None:
+    profile = LinuxIsolationProfileV5.create(profile_payload_v5())
+    observed = observation_v5().model_dump(mode="python")
+    observed["synthetic_upstream"]["authority"]["port"] += 1
+    receipt = LinuxIsolationReceiptV5.create(
+        LinuxIsolationReceiptPayloadV5(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=LinuxIsolationObservationV5.model_validate(observed),
+        )
+    )
+    with pytest.raises(ValidationError, match="synthetic upstream authority differs"):
+        LinuxIsolationEvidencePayloadV5(
+            profile=profile,
+            receipt=receipt,
+            child_stdout_retained_sha256=H,
+            child_stderr_retained_sha256=H,
+            child_stdout_retained_bytes=0,
+            child_stderr_retained_bytes=0,
+            child_stdout_truncated=False,
+            child_stderr_truncated=False,
+            cleanup=LinuxHostCleanupObservationV1(),
+        )
+    raw = synthetic_upstream().model_dump(mode="python")
+    raw["host"] = "0.0.0.0"
+    with pytest.raises(ValidationError):
+        LinuxSyntheticUpstreamAuthorityV1.model_validate(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("owner_pid", 124),
+        ("owner_start_time_ticks", 457),
+        ("owner_uid", 1001),
+    ],
+)
+def test_v5_rejects_rehashed_synthetic_owner_substitution(field: str, value: int) -> None:
+    raw = profile_payload_v5().model_dump(mode="python")
+    raw["synthetic_upstream"][field] = value
+    with pytest.raises(ValidationError, match="owner differs from broker host"):
+        LinuxIsolationProfilePayloadV5.model_validate(raw)
+
+
+def test_v5_rejects_production_ollama_port_as_synthetic_fixture() -> None:
+    raw = profile_payload_v5().model_dump(mode="python")
+    raw["synthetic_upstream"]["port"] = 11434
+    with pytest.raises(ValidationError, match="must not use the production Ollama port"):
+        LinuxIsolationProfilePayloadV5.model_validate(raw)
 
 
 def test_historical_v1_contracts_remain_strictly_parseable_and_canonical() -> None:
@@ -1462,6 +1644,7 @@ def test_broker_cancellation_removes_socket(tmp_path: Path) -> None:
     tmp_path.chmod(0o700)
     peer = LinuxBrokerPeerAuthorityV1(outer_pid=1, outer_uid=1, start_time_ticks=1)
     runtime = LinuxMetadataBrokerV1(tmp_path / "ollama.sock", peer)
+    assert (runtime.destination_host, runtime.destination_port) == ("127.0.0.1", 11434)
     cancelled = threading.Event()
     cancelled.set()
     with pytest.raises(TimeoutError, match="cancelled"):
@@ -1542,41 +1725,114 @@ def test_synthetic_ollama_stub_cancellation_cleans_listener() -> None:
     assert server.fileno() == -1
 
 
-def test_occupied_stub_port_fails_before_namespace_launch(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+@pytest.mark.skipif(os.name != "posix", reason="Synthetic listener authority is Linux-only")
+def test_synthetic_upstream_ignores_occupied_production_port_and_retains_authority() -> None:
     occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    occupied.bind(("127.0.0.1", 0))
-    occupied.listen(1)
-    occupied.setblocking(False)
-    occupied_port = int(occupied.getsockname()[1])
-    launched = False
-    bind_stub = PROBE.bind_stub_ollama
-
-    def forbidden_launch(*_args: object, **_kwargs: object) -> Never:
-        nonlocal launched
-        launched = True
-        raise AssertionError("namespace child must not launch")
-
-    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
-    monkeypatch.setattr(PROBE, "bind_stub_ollama", lambda: bind_stub(port=occupied_port))
-    monkeypatch.setattr(PROBE.subprocess, "Popen", forbidden_launch)
+    production_port_owned = False
     try:
-        with pytest.raises(OSError):
-            PROBE.run_probe(
-                LinuxIsolationProfileV3.create(profile_payload()),
-                Path("/repo/scripts/linux_native_isolation_child.py"),
-                tmp_path / "root",
-                tmp_path / "bundle",
-                tmp_path / "state",
-                tmp_path / "output",
-                tmp_path / "broker",
-            )
-        assert launched is False
-        with pytest.raises(BlockingIOError):
-            occupied.accept()
+        try:
+            occupied.bind(("127.0.0.1", 11434))
+            occupied.listen(1)
+            production_port_owned = True
+        except OSError:
+            occupied.close()
+        server = PROBE.bind_stub_ollama(port=0)
+        try:
+            authority = PROBE.synthetic_upstream_authority(server)
+            assert authority.port != 11434
+            PROBE.revalidate_synthetic_upstream(server, authority)
+            stolen = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                with pytest.raises(OSError):
+                    stolen.bind((authority.host, authority.port))
+            finally:
+                stolen.close()
+        finally:
+            server.close()
     finally:
-        occupied.close()
+        if production_port_owned:
+            occupied.close()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Synthetic listener authority is Linux-only")
+def test_synthetic_upstream_rejects_listener_substitution() -> None:
+    first = PROBE.bind_stub_ollama(port=0)
+    second = PROBE.bind_stub_ollama(port=0)
+    try:
+        expected = PROBE.synthetic_upstream_authority(first)
+        with pytest.raises(ValueError, match="changed before launch"):
+            PROBE.revalidate_synthetic_upstream(second, expected)
+    finally:
+        first.close()
+        second.close()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Synthetic listener authority is Linux-only")
+def test_synthetic_upstream_rejects_close_and_rebind() -> None:
+    first = PROBE.bind_stub_ollama(port=0)
+    expected = PROBE.synthetic_upstream_authority(first)
+    first.close()
+    replacement = PROBE.bind_stub_ollama(host=expected.host, port=expected.port)
+    try:
+        with pytest.raises(ValueError, match="changed before launch"):
+            PROBE.revalidate_synthetic_upstream(replacement, expected)
+    finally:
+        replacement.close()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Synthetic listener authority is Linux-only")
+def test_pre_worker_launch_failure_closes_retained_synthetic_listener(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw = profile_payload_v5().model_dump(mode="python")
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    profile = LinuxIsolationProfileV5.create(LinuxIsolationProfilePayloadV5.model_validate(raw))
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(PROBE, "namespace_command", lambda *_args: ["unreachable"])
+
+    def fail_launch(*_args: object, **_kwargs: object) -> None:
+        raise OSError("synthetic launch failure")
+
+    monkeypatch.setattr(PROBE.subprocess, "Popen", fail_launch)
+    with pytest.raises(OSError, match="synthetic launch failure"):
+        PROBE.run_probe(
+            profile,
+            Path("/repo/scripts/linux_native_isolation_child.py"),
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+        )
+    assert server.fileno() == -1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Synthetic broker authority is Linux-only")
+def test_broker_accepts_only_current_retained_synthetic_upstream(tmp_path: Path) -> None:
+    tmp_path.chmod(0o700)
+    server = PROBE.bind_stub_ollama(port=0)
+    try:
+        authority = PROBE.synthetic_upstream_authority(server)
+        peer = LinuxBrokerPeerAuthorityV1(outer_pid=1, outer_uid=1, start_time_ticks=1)
+        runtime = LinuxMetadataBrokerV1(
+            tmp_path / "ollama.sock", peer, synthetic_upstream=authority
+        )
+        assert (runtime.destination_host, runtime.destination_port) == (
+            authority.host,
+            authority.port,
+        )
+        wrong_owner = authority.model_copy(update={"owner_pid": authority.owner_pid + 1})
+        with pytest.raises(ValueError, match="owner authority differs"):
+            LinuxMetadataBrokerV1(tmp_path / "other.sock", peer, synthetic_upstream=wrong_owner)
+    finally:
+        server.close()
 
 
 @pytest.mark.parametrize("abi", [3, 4])
