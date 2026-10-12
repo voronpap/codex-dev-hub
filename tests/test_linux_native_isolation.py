@@ -3155,7 +3155,7 @@ def test_run_probe_prefers_typed_runtime_failure_over_expected_broker_cancellati
         LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
     )
     encoded = canonical(failure.model_dump(mode="json")) + b"\n"
-    (tmp_path / "broker").mkdir()
+    (tmp_path / "broker").mkdir(mode=0o700)
     host_pid = os.getpid()
     host_start_time = PROBE.process_start_time(host_pid)
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
@@ -3200,7 +3200,7 @@ def test_run_probe_keeps_independent_broker_failure_primary(
         LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
     )
     encoded = canonical(failure.model_dump(mode="json")) + b"\n"
-    (tmp_path / "broker").mkdir()
+    (tmp_path / "broker").mkdir(mode=0o700)
     host_pid = os.getpid()
     host_start_time = PROBE.process_start_time(host_pid)
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
@@ -3244,7 +3244,7 @@ def test_run_probe_rejects_missing_or_malformed_runtime_failure(
     server = PROBE.bind_stub_ollama(port=0)
     profile = profile_v10_for_server(server)
     capture = PROBE.ProbeProcessCapture()
-    (tmp_path / "broker").mkdir()
+    (tmp_path / "broker").mkdir(mode=0o700)
     host_pid = os.getpid()
     host_start_time = PROBE.process_start_time(host_pid)
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)

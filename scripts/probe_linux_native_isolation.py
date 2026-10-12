@@ -1042,7 +1042,9 @@ def run_probe(
         if broker_error and not expected_broker_cancellation(
             broker_error, child_exited=process.returncode is not None
         ):
-            raise ValueError(f"Isolation broker failed: {type(broker_error[0]).__name__}")
+            raise ProbePhaseFailure(
+                "broker", f"Isolation broker failed: {type(broker_error[0]).__name__}"
+            )
         if runtime_failure is not None:
             raise ChildRuntimeFailure(runtime_failure)
         active_phase = "child_result"
