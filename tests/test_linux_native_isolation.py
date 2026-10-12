@@ -2391,7 +2391,15 @@ def test_run_probe_accepts_only_self_hashed_bounded_bootstrap_failure(
             reason_code="namespace_owner_projection_mismatch",
         )
     )
-    encoded = canonical(failure.model_dump(mode="json")) + b"\n"
+    encoded = (
+        json.dumps(
+            failure.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
+    assert encoded.count(b"\n") == 1
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
     monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
 
