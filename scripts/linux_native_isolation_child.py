@@ -235,6 +235,7 @@ def validate_mount_authority(
         raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_content_mismatch")
     version_environment = json.loads(expected_version_environment_raw)
     exact_version_environment = {
+        "schema_version": 1,
         "lang": "C.UTF-8",
         "lc_all": "C.UTF-8",
         "path": "/usr/bin:/bin",

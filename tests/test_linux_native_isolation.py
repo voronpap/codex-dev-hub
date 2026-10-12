@@ -61,7 +61,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV8,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailurePayloadV2,
-    LinuxIsolationFailureV3,
+    LinuxIsolationFailureV4,
     LinuxIsolationObservationV1,
     LinuxIsolationObservationV2,
     LinuxIsolationObservationV3,
@@ -452,6 +452,16 @@ def profile_v7_for_server(server: socket.socket) -> LinuxIsolationProfileV7:
     raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
     raw["broker"]["broker_host_uid"] = authority.owner_uid
     return LinuxIsolationProfileV7.create(LinuxIsolationProfilePayloadV7.model_validate(raw))
+
+
+def profile_v8_for_server(server: socket.socket) -> LinuxIsolationProfileV8:
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw = profile_payload_v8().model_dump(mode="python")
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    return LinuxIsolationProfileV8.create(LinuxIsolationProfilePayloadV8.model_validate(raw))
 
 
 def namespace_observation() -> LinuxNamespaceObservationV1:
@@ -2537,10 +2547,10 @@ def test_run_probe_accepts_only_self_hashed_bounded_bootstrap_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v7_for_server(server)
+    profile = profile_v8_for_server(server)
     capture = PROBE.ProbeProcessCapture()
-    failure = LinuxChildBootstrapFailureV1.create(
-        LinuxChildBootstrapFailurePayloadV1(
+    failure = LinuxChildBootstrapFailureV2.create(
+        LinuxChildBootstrapFailurePayloadV2(
             stage="mount_authority",
             reason_code="namespace_owner_projection_mismatch",
         )
@@ -2599,14 +2609,14 @@ def test_run_probe_accepts_only_self_hashed_bounded_bootstrap_failure(
         ("cleanup", "cleanup_failed", False),
     ],
 )
-def test_main_publishes_exact_v3_child_failure_phase_without_success(
+def test_main_publishes_exact_v4_child_failure_phase_without_success(
     failure_phase: PROBE.FailurePhase,
     expected_reason: PROBE.FailureReason,
     cleanup_succeeded: bool,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expected = profile_payload_v7()
+    expected = profile_payload_v8()
     diagnostic = b"bounded-main-child-bootstrap-failure"
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
@@ -2641,8 +2651,8 @@ def test_main_publishes_exact_v3_child_failure_phase_without_success(
         capture.stderr.observed = len(diagnostic)
         server.close()
         if failure_phase == "child_registration":
-            frame = LinuxChildBootstrapFailureV1.create(
-                LinuxChildBootstrapFailurePayloadV1(
+            frame = LinuxChildBootstrapFailureV2.create(
+                LinuxChildBootstrapFailurePayloadV2(
                     stage="mount_authority",
                     reason_code="namespace_owner_projection_mismatch",
                 )
@@ -2686,7 +2696,7 @@ def test_main_publishes_exact_v3_child_failure_phase_without_success(
     )
     with pytest.raises(expected_exception):
         PROBE.main()
-    failure = LinuxIsolationFailureV3.model_validate_json(failure_output.read_bytes())
+    failure = LinuxIsolationFailureV4.model_validate_json(failure_output.read_bytes())
     assert failure.payload.phase == failure_phase
     assert failure.payload.reason_code == expected_reason
     assert failure.payload.child_process_started is True
@@ -3350,15 +3360,32 @@ def test_child_revalidates_complete_mount_authority_before_use(
         CHILD.validate_mount_authority(candidate, encoded, environment, 65534, 65534)
     assert changed_mode.value.reason_code == "mount_pre_exec_mode_mismatch"
 
-    with pytest.raises(CHILD.BootstrapValidationFailure) as changed_environment:
-        CHILD.validate_mount_authority(
-            candidate,
-            encoded,
-            json.dumps({"lang": "C", "lc_all": "C", "path": "/usr/bin:/bin"}),
-            65534,
-            65534,
-        )
-    assert changed_environment.value.reason_code == "mount_version_environment_invalid"
+    invalid_environments = (
+        {"lang": "C.UTF-8", "lc_all": "C.UTF-8", "path": "/usr/bin:/bin"},
+        {
+            "schema_version": 2,
+            "lang": "C.UTF-8",
+            "lc_all": "C.UTF-8",
+            "path": "/usr/bin:/bin",
+        },
+        {
+            "schema_version": 1,
+            "lang": "C.UTF-8",
+            "lc_all": "C.UTF-8",
+            "path": "/usr/bin:/bin",
+            "extra": "forbidden",
+        },
+    )
+    for invalid_environment in invalid_environments:
+        with pytest.raises(CHILD.BootstrapValidationFailure) as changed_environment:
+            CHILD.validate_mount_authority(
+                candidate,
+                encoded,
+                json.dumps(invalid_environment),
+                65534,
+                65534,
+            )
+        assert changed_environment.value.reason_code == "mount_version_environment_invalid"
 
     candidate.chmod(0o755)
     monkeypatch.setattr(
