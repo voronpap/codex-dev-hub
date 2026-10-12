@@ -1353,6 +1353,10 @@ def test_v11_binds_self_hashed_bounded_broker_failure_contracts() -> None:
 @pytest.mark.parametrize(
     "checkpoint",
     [
+        "construction",
+        "thread_creation",
+        "thread_start",
+        "worker",
         "parent_validation",
         "bind",
         "chmod",
@@ -3811,6 +3815,7 @@ def test_run_probe_prefers_typed_runtime_failure_over_expected_broker_cancellati
         )
     assert error.value.frame == failure
     assert capture.child_runtime_failure == failure
+    assert capture.host_broker_failure is None
     assert capture.returncode == 71
     assert capture.cleanup_failed is False
 
@@ -3870,6 +3875,201 @@ def test_run_probe_keeps_independent_broker_failure_primary(
             capture,
         )
     assert error.value.phase == "broker"
+    assert capture.child_runtime_failure == failure
+    assert capture.host_broker_failure is not None
+    assert capture.host_broker_failure.payload.checkpoint == "worker"
+    projected_child, projected_host = PROBE.projected_failure_diagnostics(capture)
+    assert projected_child is None
+    assert projected_host == capture.host_broker_failure
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Runtime failure pipe is Linux-only")
+@pytest.mark.parametrize("failure_point", ["construction", "thread_start"])
+def test_run_probe_binds_preworker_broker_failure(
+    failure_point: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v11_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    (tmp_path / "broker").mkdir(mode=0o700)
+    host_pid = os.getpid()
+    host_start_time = PROBE.process_start_time(host_pid)
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(
+        PROBE,
+        "process_start_time",
+        lambda pid: host_start_time if pid == host_pid else 456,
+    )
+    monkeypatch.setattr(PROBE, "is_descendant", lambda *_args: True)
+    monkeypatch.setattr(
+        PROBE,
+        "namespace_command",
+        lambda *args: registered_child_command(cast(int, args[7]), cast(int, args[8]), None, 0),
+    )
+    if failure_point == "construction":
+
+        def fail_construction(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("synthetic construction failure")
+
+        monkeypatch.setattr(PROBE, "LinuxMetadataBrokerV1", fail_construction)
+    else:
+        real_thread = threading.Thread
+
+        class FailingStartThread:
+            ident = None
+
+            def start(self) -> None:
+                raise RuntimeError("synthetic thread start failure")
+
+        def make_thread(*args: object, **kwargs: object) -> threading.Thread | FailingStartThread:
+            target = kwargs.get("target")
+            if getattr(target, "__name__", None) == "serve":
+                return FailingStartThread()
+            return real_thread(*args, **kwargs)
+
+        monkeypatch.setattr(PROBE.threading, "Thread", make_thread)
+    with pytest.raises(PROBE.ProbePhaseFailure) as error:
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert error.value.phase == "broker"
+    assert capture.host_broker_failure is not None
+    assert capture.host_broker_failure.payload.checkpoint == failure_point
+    assert capture.cleanup_failed is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Linux probe main path is Linux-only")
+@pytest.mark.parametrize("failure_point", ["construction", "concurrent_worker_child"])
+def test_main_seals_every_primary_broker_failure(
+    failure_point: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected = profile_payload_v11()
+    output = tmp_path / "mechanics.json"
+    failure_output = tmp_path / "failure.json"
+    host_pid = os.getpid()
+    host_start_time = PROBE.process_start_time(host_pid)
+    projection_inputs: list[
+        tuple[LinuxChildRuntimeFailureV2 | None, LinuxHostBrokerFailureV1 | None]
+    ] = []
+    real_projection = PROBE.projected_failure_diagnostics
+
+    def fixed_file_authority(path: Path, name: str) -> LinuxToolAuthorityV1:
+        if name != "unshare":
+            raise AssertionError("unexpected tool authority request")
+        return (
+            expected.system_unshare if str(path) == PROBE.LINUX_SYSTEM_UNSHARE else expected.unshare
+        )
+
+    def child_command(*args: object) -> list[str]:
+        result: bytes | None = None
+        returncode = 0
+        if failure_point == "concurrent_worker_child":
+            profile = cast(LinuxIsolationProfileV11, args[0])
+            child = LinuxChildRuntimeFailureV2.create(
+                LinuxChildRuntimeFailurePayloadV2(
+                    linux_isolation_profile_id=profile.linux_isolation_profile_id,
+                    environment_instance_id=profile.payload.environment_instance_id,
+                    stage="landlock",
+                    reason_code="landlock_failed",
+                )
+            )
+            result = (
+                json.dumps(
+                    child.model_dump(mode="json"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                + b"\n"
+            )
+            assert result.count(b"\n") == 1
+            returncode = 71
+        return registered_child_command(cast(int, args[7]), cast(int, args[8]), result, returncode)
+
+    def observe_projection(
+        capture: PROBE.ProbeProcessCapture,
+    ) -> tuple[LinuxChildRuntimeFailureV2 | None, LinuxHostBrokerFailureV1 | None]:
+        projection_inputs.append((capture.child_runtime_failure, capture.host_broker_failure))
+        return real_projection(capture)
+
+    monkeypatch.setattr(PROBE, "verified_git_head", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "apparmor_authority", lambda *_args: expected.host.apparmor)
+    monkeypatch.setattr(PROBE, "host_authority", lambda *_args: expected.host)
+    monkeypatch.setattr(PROBE, "file_authority", fixed_file_authority)
+    monkeypatch.setattr(PROBE, "full_mode_authority", lambda *_args: expected.mount)
+    monkeypatch.setattr(PROBE, "plain_file_authority", lambda *_args: expected.bootstrap_python)
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(
+        PROBE,
+        "process_start_time",
+        lambda pid: host_start_time if pid == host_pid else 456,
+    )
+    monkeypatch.setattr(PROBE, "is_descendant", lambda *_args: True)
+    monkeypatch.setattr(PROBE, "namespace_command", child_command)
+    monkeypatch.setattr(PROBE, "projected_failure_diagnostics", observe_projection)
+    if failure_point == "construction":
+
+        def fail_construction(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("synthetic construction failure")
+
+        monkeypatch.setattr(PROBE, "LinuxMetadataBrokerV1", fail_construction)
+    else:
+
+        def fail_worker(*_args: object, **_kwargs: object) -> tuple[str, ...]:
+            raise RuntimeError("synthetic worker failure")
+
+        monkeypatch.setattr(PROBE.LinuxMetadataBrokerV1, "serve_requests", fail_worker)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "probe_linux_native_isolation.py",
+            "--implementation-commit",
+            COMMIT,
+            "--environment-instance-id",
+            ENVIRONMENT,
+            "--output",
+            str(output),
+            "--failure-output",
+            str(failure_output),
+        ],
+    )
+    with pytest.raises(PROBE.ProbePhaseFailure):
+        PROBE.main()
+    failure = LinuxIsolationFailureV7.model_validate_json(failure_output.read_bytes())
+    assert failure.payload.phase == "broker"
+    assert failure.payload.host_broker_failure is not None
+    assert failure.payload.host_broker_failure.payload.checkpoint == (
+        "construction" if failure_point == "construction" else "worker"
+    )
+    assert failure.payload.child_runtime_failure is None
+    assert len(projection_inputs) == 1
+    observed_child, observed_host = projection_inputs[0]
+    assert observed_host is not None
+    if failure_point == "concurrent_worker_child":
+        assert observed_child is not None
+        assert observed_child.payload.stage == "landlock"
+        assert observed_host.payload.checkpoint == "worker"
+    else:
+        assert observed_child is None
+    assert failure.payload.cleanup_attempted is True
+    assert failure.payload.cleanup_succeeded is True
+    assert (
+        failure.payload.model_requests,
+        failure.payload.provider_sends,
+        failure.payload.mcp_tool_executions,
+        failure.payload.real_task_executions,
+    ) == (0, 0, 0, 0)
+    assert output.exists() is False
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Runtime failure pipe is Linux-only")
@@ -3989,12 +4189,21 @@ def test_main_publishes_exact_v7_child_failure_phase_without_success(
             capture.returncode = 71
             raise PROBE.ChildRuntimeFailure(frame)
         if failure_phase == "broker":
+            capture.child_runtime_failure = LinuxChildRuntimeFailureV2.create(
+                LinuxChildRuntimeFailurePayloadV2(
+                    linux_isolation_profile_id=active_profile.linux_isolation_profile_id,
+                    environment_instance_id=ENVIRONMENT,
+                    stage="landlock",
+                    reason_code="landlock_failed",
+                )
+            )
+            capture.returncode = 71
             capture.host_broker_failure = LinuxHostBrokerFailureV1.create(
                 LinuxHostBrokerFailurePayloadV1(
                     linux_isolation_profile_id=active_profile.linux_isolation_profile_id,
                     environment_instance_id=ENVIRONMENT,
-                    checkpoint="parent_validation",
-                    reason_code="parent_validation_failed",
+                    checkpoint="construction",
+                    reason_code="construction_failed",
                     failure_kind="internal_error",
                 )
             )
@@ -4078,6 +4287,11 @@ def test_main_publishes_exact_v7_child_failure_phase_without_success(
         assert failure.payload.child_runtime_failure.payload.stage == "private_root"
     else:
         assert failure.payload.child_runtime_failure is None
+    if failure_phase == "broker":
+        assert failure.payload.host_broker_failure is not None
+        assert failure.payload.host_broker_failure.payload.checkpoint == "construction"
+    else:
+        assert failure.payload.host_broker_failure is None
     assert output.exists() is False
     assert scratch_paths and all(not path.exists() for path in scratch_paths)
 

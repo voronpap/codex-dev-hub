@@ -647,6 +647,10 @@ def host_broker_failure_frame(
             environment_instance_id=profile.payload.environment_instance_id,
             checkpoint=cast(
                 Literal[
+                    "construction",
+                    "thread_creation",
+                    "thread_start",
+                    "worker",
                     "parent_validation",
                     "bind",
                     "chmod",
@@ -666,6 +670,10 @@ def host_broker_failure_frame(
             ),
             reason_code=cast(
                 Literal[
+                    "construction_failed",
+                    "thread_creation_failed",
+                    "thread_start_failed",
+                    "worker_failed",
                     "parent_validation_failed",
                     "bind_failed",
                     "chmod_failed",
@@ -712,6 +720,36 @@ def host_broker_failure_frame(
             ),
         )
     )
+
+
+def record_host_broker_failure(
+    profile: LinuxIsolationProfileV11,
+    capture: ProbeProcessCapture,
+    checkpoint: str,
+    cause: BaseException,
+    completed_outcomes: tuple[str, ...] = (),
+) -> LinuxMetadataBrokerFailure:
+    """Retain one bounded host diagnostic for every broker-phase failure."""
+
+    failure = (
+        cause
+        if isinstance(cause, LinuxMetadataBrokerFailure)
+        else LinuxMetadataBrokerFailure(checkpoint, completed_outcomes, cause)
+    )
+    capture.host_broker_failure = host_broker_failure_frame(profile, failure)
+    return failure
+
+
+def projected_failure_diagnostics(
+    capture: ProbeProcessCapture,
+) -> tuple[LinuxChildRuntimeFailureV2 | None, LinuxHostBrokerFailureV1 | None]:
+    """Project only diagnostics compatible with the primary sealed failure."""
+
+    child = capture.child_runtime_failure
+    host = capture.host_broker_failure
+    if host is not None and child is not None and child.payload.stage != "broker":
+        child = None
+    return child, host
 
 
 def validate_child_bootstrap_failure(
@@ -1079,11 +1117,15 @@ def run_probe(
         active_phase = "broker"
         revalidate_synthetic_upstream(stub_server, profile.payload.synthetic_upstream)
         stub_thread.start()
-        broker = LinuxMetadataBrokerV1(
-            broker_dir / "ollama.sock",
-            peer,
-            synthetic_upstream=profile.payload.synthetic_upstream,
-        )
+        try:
+            broker = LinuxMetadataBrokerV1(
+                broker_dir / "ollama.sock",
+                peer,
+                synthetic_upstream=profile.payload.synthetic_upstream,
+            )
+        except BaseException as error:
+            record_host_broker_failure(profile, capture, "construction", error)
+            raise ProbePhaseFailure("broker", "Isolation broker construction failed") from error
 
         def serve() -> None:
             try:
@@ -1091,13 +1133,22 @@ def run_probe(
                     broker.serve_requests(5, stop_event=broker_stop, deadline=time.monotonic() + 60)
                 )
             except LinuxMetadataBrokerFailure as error:
-                capture.host_broker_failure = host_broker_failure_frame(profile, error)
-                broker_error.append(error)
+                broker_error.append(
+                    record_host_broker_failure(profile, capture, error.checkpoint, error)
+                )
             except BaseException as error:
                 broker_error.append(error)
 
-        broker_thread = threading.Thread(target=serve, daemon=True)
-        broker_thread.start()
+        try:
+            broker_thread = threading.Thread(target=serve, daemon=True)
+        except BaseException as error:
+            record_host_broker_failure(profile, capture, "thread_creation", error)
+            raise ProbePhaseFailure("broker", "Isolation broker thread creation failed") from error
+        try:
+            broker_thread.start()
+        except BaseException as error:
+            record_host_broker_failure(profile, capture, "thread_start", error)
+            raise ProbePhaseFailure("broker", "Isolation broker thread start failed") from error
         deadline = time.monotonic() + 60
         while process.poll() is None and time.monotonic() < deadline and not stop_capture.is_set():
             time.sleep(0.02)
@@ -1136,6 +1187,10 @@ def run_probe(
         if broker_error and not expected_broker_cancellation(
             broker_error, child_exited=process.returncode is not None
         ):
+            if capture.host_broker_failure is None:
+                record_host_broker_failure(
+                    profile, capture, "worker", broker_error[0], tuple(broker_outcomes)
+                )
             raise ProbePhaseFailure(
                 "broker", f"Isolation broker failed: {type(broker_error[0]).__name__}"
             )
@@ -1180,6 +1235,8 @@ def run_probe(
         primary_error = error
         raise
     except BaseException as error:
+        if active_phase == "broker" and capture.host_broker_failure is None:
+            record_host_broker_failure(profile, capture, "worker", error, tuple(broker_outcomes))
         phased_error = ProbePhaseFailure(active_phase, f"Isolation {active_phase} phase failed")
         primary_error = phased_error
         raise phased_error from error
@@ -1221,7 +1278,7 @@ def run_probe(
                 )
             )
         )
-        if broker_thread is not None:
+        if broker_thread is not None and broker_thread.ident is not None:
             cleanup_errors.extend(
                 exhaustive_cleanup(
                     (partial(join_thread, broker_thread, "Isolation broker thread"),)
@@ -1451,6 +1508,7 @@ def main() -> None:
             scratch is not None and not scratch.exists() and not capture.cleanup_failed
         )
         reason_code, observed_errno = failure_reason(phase, final_error)
+        child_runtime_failure, host_broker_failure = projected_failure_diagnostics(capture)
         failure = LinuxIsolationFailureV7.create(
             LinuxIsolationFailurePayloadV7(
                 linux_isolation_profile_id=(
@@ -1471,8 +1529,8 @@ def main() -> None:
                 child_stdout_observed_bytes=capture.stdout.observed,
                 child_stderr_observed_bytes=capture.stderr.observed,
                 child_bootstrap_failure=capture.child_bootstrap_failure,
-                child_runtime_failure=capture.child_runtime_failure,
-                host_broker_failure=capture.host_broker_failure,
+                child_runtime_failure=child_runtime_failure,
+                host_broker_failure=host_broker_failure,
                 cleanup_attempted=scratch is not None,
                 cleanup_succeeded=cleanup_succeeded,
             )

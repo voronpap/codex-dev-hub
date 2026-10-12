@@ -1604,6 +1604,10 @@ class LinuxHostBrokerFailurePayloadV1(Contract):
     linux_isolation_profile_id: Digest
     environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
     checkpoint: Literal[
+        "construction",
+        "thread_creation",
+        "thread_start",
+        "worker",
         "parent_validation",
         "bind",
         "chmod",
@@ -1620,6 +1624,10 @@ class LinuxHostBrokerFailurePayloadV1(Contract):
         "cleanup",
     ]
     reason_code: Literal[
+        "construction_failed",
+        "thread_creation_failed",
+        "thread_start_failed",
+        "worker_failed",
         "parent_validation_failed",
         "bind_failed",
         "chmod_failed",
