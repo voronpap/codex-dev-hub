@@ -19,19 +19,19 @@ from pydantic import JsonValue
 
 from devhub.benchmark import canonical, write_new
 from devhub.linux_bundle import (
-    LinuxCodexAuthorityV1,
+    LinuxCodexAuthorityV2,
     LinuxLauncherV1,
-    LinuxNativeArchivePayloadV1,
-    LinuxNativeArchiveV1,
-    LinuxNativeBundlePayloadV1,
-    LinuxNativeBundleV1,
+    LinuxNativeArchivePayloadV2,
+    LinuxNativeArchiveV2,
+    LinuxNativeBundlePayloadV2,
+    LinuxNativeBundleV2,
     LinuxPythonAuthorityV1,
     inventory_linux_bundle,
     observe_linux_runtime,
     verify_linux_native_bundle,
     verify_linux_native_release,
 )
-from devhub.linux_native import LinuxNativeCodexBuildV7
+from devhub.linux_native import LinuxNativeCodexBuildV8
 from devhub.native_bundle import (
     file_sha256,
     review_dependency_wheels,
@@ -233,12 +233,12 @@ def _verify_retained_authority(
 
 def _review_codex_artifact(
     artifact: Path, expected_commit: str, run_id: int, run_attempt: int
-) -> LinuxNativeCodexBuildV7:
+) -> LinuxNativeCodexBuildV8:
     artifact = Path(os.path.abspath(artifact))
     _plain_artifact_layout(artifact)
     receipt_path = artifact / "linux-native-codex-build.json"
     inventory_path = artifact / "native-build-artifact-inventory.json"
-    receipt = LinuxNativeCodexBuildV7.model_validate_json(receipt_path.read_bytes())
+    receipt = LinuxNativeCodexBuildV8.model_validate_json(receipt_path.read_bytes())
     inventory = NativeBuildArtifactInventoryV2.model_validate_json(inventory_path.read_bytes())
     payload = receipt.payload
     pair = inventory.payload.linux_pair
@@ -246,9 +246,9 @@ def _review_codex_artifact(
         payload.provenance.implementation_commit != expected_commit
         or payload.provenance.workflow_run_id != run_id
         or payload.provenance.workflow_run_attempt != run_attempt
-        or payload.provenance.build_id != "linux-build-007"
+        or payload.provenance.build_id != "linux-build-008"
         or inventory.payload.platform != "linux"
-        or inventory.payload.build_id != "linux-build-007"
+        or inventory.payload.build_id != "linux-build-008"
         or inventory.payload.status != "PASS"
         or pair is None
         or pair.build_receipt_sha256 != file_sha256(receipt_path)
@@ -279,7 +279,7 @@ def _assemble(
     run_attempt: int,
     builder_python: Path,
     uv: Path,
-) -> LinuxNativeBundleV1:
+) -> LinuxNativeBundleV2:
     bundle_root = release / "bundle"
     manifest_path = release / "linux-native-bundle.json"
     bundle_root.mkdir(parents=True)
@@ -389,7 +389,7 @@ def _assemble(
         )
     build = receipt.payload
     binaries = {item.role: item for item in build.binaries}
-    codex = LinuxCodexAuthorityV1(
+    codex = LinuxCodexAuthorityV2(
         accepted_run_id=run_id,
         accepted_run_attempt=run_attempt,
         devfabric_implementation_commit=expected_commit,
@@ -410,8 +410,8 @@ def _assemble(
         dependency_wheels=dependencies,
         runtime=runtime,
     )
-    bundle = LinuxNativeBundleV1.create(
-        LinuxNativeBundlePayloadV1(
+    bundle = LinuxNativeBundleV2.create(
+        LinuxNativeBundlePayloadV2(
             implementation_commit=expected_commit,
             python=python,
             codex=codex,
@@ -430,12 +430,12 @@ def _assemble(
     return bundle
 
 
-def _write_archive(release: Path, bundle: LinuxNativeBundleV1) -> LinuxNativeArchiveV1:
+def _write_archive(release: Path, bundle: LinuxNativeBundleV2) -> LinuxNativeArchiveV2:
     archive_path = release / ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
         stream.add(release / "bundle", arcname="bundle", recursive=True)
-    archive = LinuxNativeArchiveV1.create(
-        LinuxNativeArchivePayloadV1(
+    archive = LinuxNativeArchiveV2.create(
+        LinuxNativeArchivePayloadV2(
             bundle_id=bundle.linux_native_bundle_id,
             size=archive_path.stat().st_size,
             sha256=file_sha256(archive_path),
@@ -455,7 +455,7 @@ def build(
     codex_artifact: Path,
     accepted_run_id: int,
     accepted_run_attempt: int,
-) -> LinuxNativeBundleV1:
+) -> LinuxNativeBundleV2:
     repo = repo.resolve(strict=True)
     commit = reviewed_commit(repo, expected_commit)
     builder_python, uv = _verified_builder(repo)
