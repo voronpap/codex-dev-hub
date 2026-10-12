@@ -34,22 +34,22 @@ from devhub.linux_isolation import (
     LinuxAppArmorAuthorityV2,
     LinuxAppArmorParserAuthorityV2,
     LinuxBrokerExpectationV1,
-    LinuxChildBootstrapFailureV2,
+    LinuxChildBootstrapFailureV3,
     LinuxChildRegistrationPayloadV3,
     LinuxChildRegistrationV3,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV8,
-    LinuxIsolationEvidenceV8,
-    LinuxIsolationFailurePayloadV4,
-    LinuxIsolationFailureV4,
-    LinuxIsolationObservationV8,
-    LinuxIsolationProfilePayloadV8,
-    LinuxIsolationProfileV8,
-    LinuxIsolationReceiptPayloadV8,
-    LinuxIsolationReceiptV8,
+    LinuxIsolationEvidencePayloadV9,
+    LinuxIsolationEvidenceV9,
+    LinuxIsolationFailurePayloadV5,
+    LinuxIsolationFailureV5,
+    LinuxIsolationObservationV9,
+    LinuxIsolationProfilePayloadV9,
+    LinuxIsolationProfileV9,
+    LinuxIsolationReceiptPayloadV9,
+    LinuxIsolationReceiptV9,
     LinuxMountAuthorityV1,
     LinuxNamespaceOwnerProjectionExpectationV1,
     LinuxNativePathIdentityV1,
@@ -350,7 +350,7 @@ def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
 
 
 def revalidate_profile_sources(
-    profile: LinuxIsolationProfileV8, child_script: Path, bundle: Path
+    profile: LinuxIsolationProfileV9, child_script: Path, bundle: Path
 ) -> None:
     revalidate_tool(profile.payload.system_unshare)
     revalidate_tool(profile.payload.unshare)
@@ -588,7 +588,7 @@ class ProbeProcessCapture:
         self.process_started = False
         self.returncode: int | None = None
         self.cleanup_failed = False
-        self.child_bootstrap_failure: LinuxChildBootstrapFailureV2 | None = None
+        self.child_bootstrap_failure: LinuxChildBootstrapFailureV3 | None = None
 
 
 class ProbePhaseFailure(ValueError):
@@ -605,9 +605,27 @@ class ChildRegistrationFailure(ProbePhaseFailure):
 
 
 class ChildBootstrapFailure(ChildRegistrationFailure):
-    def __init__(self, frame: LinuxChildBootstrapFailureV2) -> None:
+    def __init__(self, frame: LinuxChildBootstrapFailureV3) -> None:
         super().__init__("Isolation child reported a bounded bootstrap failure")
         self.frame = frame
+
+
+def validate_child_bootstrap_failure(
+    profile: LinuxIsolationProfileV9,
+    frame: LinuxChildBootstrapFailureV3,
+    child_script: Path,
+    bundle: Path,
+) -> None:
+    """Join a self-hashed child diagnostic to the exact host profile authority."""
+
+    if (
+        frame.payload.reason_code == "mount_pre_exec_identity_mismatch"
+        and frame.payload.expected_native_identity != profile.payload.mount.native_identity
+    ):
+        raise ChildRegistrationFailure(
+            "Isolation child native identity expectation differs from profile authority"
+        )
+    revalidate_profile_sources(profile, child_script, bundle)
 
 
 class ProbeCleanupFailure(ValueError):
@@ -706,7 +724,7 @@ def stub_ollama(
 
 
 def namespace_command(
-    profile: LinuxIsolationProfileV8,
+    profile: LinuxIsolationProfileV9,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -783,15 +801,15 @@ def namespace_command(
 def validate_registered_observation(
     raw_observation: dict[str, object],
     registered: LinuxChildRegistrationPayloadV3,
-) -> LinuxIsolationObservationV8:
-    observation = LinuxIsolationObservationV8.model_validate(raw_observation)
+) -> LinuxIsolationObservationV9:
+    observation = LinuxIsolationObservationV9.model_validate(raw_observation)
     if observation.mount_authority != registered.mount_authority:
         raise ValueError("Isolation child result/registration mount authority mismatch")
     return observation
 
 
 def run_probe(
-    profile: LinuxIsolationProfileV8,
+    profile: LinuxIsolationProfileV9,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -800,7 +818,7 @@ def run_probe(
     broker_dir: Path,
     stub_server: socket.socket,
     capture: ProbeProcessCapture,
-) -> LinuxIsolationObservationV8:
+) -> LinuxIsolationObservationV9:
     owned_fds: set[int] = set()
     process: subprocess.Popen[bytes] | None = None
     collectors: list[threading.Thread] = []
@@ -877,14 +895,15 @@ def run_probe(
         if (
             isinstance(raw_registration, dict)
             and isinstance(raw_registration.get("payload"), dict)
-            and raw_registration["payload"].get("frame_kind") == "linux_child_bootstrap_failure_v2"
+            and raw_registration["payload"].get("frame_kind") == "linux_child_bootstrap_failure_v3"
         ):
             try:
-                bootstrap_failure = LinuxChildBootstrapFailureV2.model_validate(raw_registration)
+                bootstrap_failure = LinuxChildBootstrapFailureV3.model_validate(raw_registration)
             except ValueError as error:
                 raise ChildRegistrationFailure(
                     "Isolation child bootstrap failure frame is invalid"
                 ) from error
+            validate_child_bootstrap_failure(profile, bootstrap_failure, child_script, bundle)
             capture.child_bootstrap_failure = bootstrap_failure
             raise ChildBootstrapFailure(bootstrap_failure)
         try:
@@ -1114,7 +1133,7 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV8 | None = None
+    profile: LinuxIsolationProfileV9 | None = None
     capture = ProbeProcessCapture()
     phase: FailurePhase = "host_inspection"
     cleanup_succeeded = False
@@ -1176,8 +1195,8 @@ def main() -> None:
             )
             stub_server = bind_stub_ollama(port=0)
             synthetic_upstream = synthetic_upstream_authority(stub_server)
-            profile = LinuxIsolationProfileV8.create(
-                LinuxIsolationProfilePayloadV8(
+            profile = LinuxIsolationProfileV9.create(
+                LinuxIsolationProfilePayloadV9(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
                     native_bundle_id=bundle_id,
@@ -1221,15 +1240,15 @@ def main() -> None:
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV8.create(
-            LinuxIsolationReceiptPayloadV8(
+        receipt = LinuxIsolationReceiptV9.create(
+            LinuxIsolationReceiptPayloadV9(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV8.create(
-            LinuxIsolationEvidencePayloadV8(
+        evidence = LinuxIsolationEvidenceV9.create(
+            LinuxIsolationEvidencePayloadV9(
                 profile=profile,
                 receipt=receipt,
                 child_stdout_retained_sha256=sha256(bytes(capture.stdout.data)),
@@ -1257,8 +1276,8 @@ def main() -> None:
             scratch is not None and not scratch.exists() and not capture.cleanup_failed
         )
         reason_code, observed_errno = failure_reason(phase, final_error)
-        failure = LinuxIsolationFailureV4.create(
-            LinuxIsolationFailurePayloadV4(
+        failure = LinuxIsolationFailureV5.create(
+            LinuxIsolationFailurePayloadV5(
                 linux_isolation_profile_id=(
                     profile.linux_isolation_profile_id if profile is not None else None
                 ),

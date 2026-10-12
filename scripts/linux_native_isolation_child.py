@@ -166,10 +166,19 @@ def file_sha256(path: Path) -> str:
 
 
 class BootstrapValidationFailure(ValueError):
-    def __init__(self, stage: str, reason_code: str) -> None:
+    def __init__(
+        self,
+        stage: str,
+        reason_code: str,
+        *,
+        expected_native_identity: dict[str, int] | None = None,
+        observed_native_identity: dict[str, int] | None = None,
+    ) -> None:
         super().__init__(reason_code)
         self.stage = stage
         self.reason_code = reason_code
+        self.expected_native_identity = expected_native_identity
+        self.observed_native_identity = observed_native_identity
 
 
 def configured_overflow_id(path: Path) -> int:
@@ -283,7 +292,27 @@ def validate_mount_authority(
     ):
         raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_mode_mismatch")
     if observed_static["native_identity"] != expected.get("native_identity"):
-        raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_identity_mismatch")
+        expected_identity = expected.get("native_identity")
+        if (
+            not isinstance(expected_identity, dict)
+            or not isinstance(expected_identity.get("device"), int)
+            or not isinstance(expected_identity.get("inode"), int)
+            or expected_identity["device"] < 0
+            or expected_identity["inode"] < 1
+        ):
+            raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_content_mismatch")
+        raise BootstrapValidationFailure(
+            "mount_authority",
+            "mount_pre_exec_identity_mismatch",
+            expected_native_identity={
+                "device": expected_identity["device"],
+                "inode": expected_identity["inode"],
+            },
+            observed_native_identity={
+                "device": info.st_dev,
+                "inode": info.st_ino,
+            },
+        )
     try:
         completed = subprocess.run(
             [str(path), "--version"],
@@ -354,15 +383,24 @@ def write_frame(descriptor: int, value: object) -> None:
     )
 
 
-def write_bootstrap_failure(descriptor: int, stage: str, reason_code: str) -> None:
+def write_bootstrap_failure(
+    descriptor: int,
+    stage: str,
+    reason_code: str,
+    *,
+    expected_native_identity: dict[str, int] | None = None,
+    observed_native_identity: dict[str, int] | None = None,
+) -> None:
     payload = {
-        "schema_version": 2,
-        "frame_kind": "linux_child_bootstrap_failure_v2",
+        "schema_version": 3,
+        "frame_kind": "linux_child_bootstrap_failure_v3",
         "stage": stage,
         "reason_code": reason_code,
+        "expected_native_identity": expected_native_identity,
+        "observed_native_identity": observed_native_identity,
     }
     frame = {
-        "schema_version": 2,
+        "schema_version": 3,
         "child_bootstrap_failure_id": digest(canonical(payload)),
         "payload": payload,
     }
@@ -761,7 +799,13 @@ def main() -> None:
             args.expected_overflow_gid,
         )
     except BootstrapValidationFailure as error:
-        write_bootstrap_failure(args.registration_fd, error.stage, error.reason_code)
+        write_bootstrap_failure(
+            args.registration_fd,
+            error.stage,
+            error.reason_code,
+            expected_native_identity=error.expected_native_identity,
+            observed_native_identity=error.observed_native_identity,
+        )
         raise SystemExit(70) from None
     except BaseException:
         write_bootstrap_failure(
