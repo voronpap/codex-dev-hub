@@ -1903,7 +1903,7 @@ def test_pre_worker_launch_failure_closes_retained_synthetic_listener(
         raise OSError("synthetic launch failure")
 
     monkeypatch.setattr(PROBE.subprocess, "Popen", fail_launch)
-    with pytest.raises(OSError, match="synthetic launch failure"):
+    with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
             Path("/repo/scripts/linux_native_isolation_child.py"),
@@ -1915,6 +1915,9 @@ def test_pre_worker_launch_failure_closes_retained_synthetic_listener(
             server,
             capture,
         )
+    assert error.value.phase == "namespace_creation"
+    assert isinstance(error.value.__cause__, OSError)
+    assert str(error.value.__cause__) == "synthetic launch failure"
     assert server.fileno() == -1
     assert capture.process_started is False
     assert capture.returncode is None
@@ -2534,7 +2537,7 @@ def test_each_parent_write_close_failure_still_cleans_all_resources(
     monkeypatch.setattr(PROBE.os, "pipe", recording_pipe)
     monkeypatch.setattr(PROBE.os, "close", fail_selected_parent_close)
     monkeypatch.setattr(PROBE.subprocess, "Popen", lambda *_args, **_kwargs: FinishedProcess())
-    with pytest.raises(OSError, match="parent write close failure"):
+    with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
             ROOT / "scripts/linux_native_isolation_child.py",
@@ -2546,6 +2549,9 @@ def test_each_parent_write_close_failure_still_cleans_all_resources(
             server,
             capture,
         )
+    assert error.value.phase == "namespace_creation"
+    assert isinstance(error.value.__cause__, OSError)
+    assert str(error.value.__cause__) == "synthetic parent write close failure"
     assert len(created) == 4
     for descriptor in created:
         with pytest.raises(OSError):
@@ -2614,7 +2620,7 @@ def test_partial_collector_start_failure_cleans_started_thread_process_and_fds(
     monkeypatch.setattr(PROBE.os, "pipe", recording_pipe)
     monkeypatch.setattr(PROBE.subprocess, "Popen", lambda *_args, **_kwargs: FinishedProcess())
     monkeypatch.setattr(PROBE.threading, "Thread", ControlledThread)
-    with pytest.raises(RuntimeError, match="second collector start failure"):
+    with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
             ROOT / "scripts/linux_native_isolation_child.py",
@@ -2626,6 +2632,9 @@ def test_partial_collector_start_failure_cleans_started_thread_process_and_fds(
             server,
             capture,
         )
+    assert error.value.phase == "namespace_creation"
+    assert isinstance(error.value.__cause__, RuntimeError)
+    assert str(error.value.__cause__) == "synthetic second collector start failure"
     assert starts == 2
     assert len(created) == 4
     for descriptor in created:
