@@ -3154,7 +3154,12 @@ def test_run_probe_prefers_typed_runtime_failure_over_expected_broker_cancellati
     failure = LinuxChildRuntimeFailureV1.create(
         LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
     )
-    encoded = canonical(failure.model_dump(mode="json")) + b"\n"
+    encoded = (
+        json.dumps(failure.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
     (tmp_path / "broker").mkdir(mode=0o700)
     host_pid = os.getpid()
     host_start_time = PROBE.process_start_time(host_pid)
@@ -3199,7 +3204,12 @@ def test_run_probe_keeps_independent_broker_failure_primary(
     failure = LinuxChildRuntimeFailureV1.create(
         LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
     )
-    encoded = canonical(failure.model_dump(mode="json")) + b"\n"
+    encoded = (
+        json.dumps(failure.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
     (tmp_path / "broker").mkdir(mode=0o700)
     host_pid = os.getpid()
     host_start_time = PROBE.process_start_time(host_pid)
