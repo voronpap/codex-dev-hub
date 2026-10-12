@@ -10,6 +10,7 @@ from devhub.linux_native import (
     LinuxBuildProvenanceV6,
     LinuxBuildProvenanceV7,
     LinuxBuildProvenanceV8,
+    LinuxBuildProvenanceV9,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV3,
     LinuxNativeBinaryV1,
@@ -17,18 +18,27 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildPayloadV6,
     LinuxNativeCodexBuildPayloadV7,
     LinuxNativeCodexBuildPayloadV8,
+    LinuxNativeCodexBuildPayloadV9,
     LinuxNativeCodexBuildV5,
     LinuxNativeCodexBuildV6,
     LinuxNativeCodexBuildV7,
     LinuxNativeCodexBuildV8,
+    LinuxNativeCodexBuildV9,
 )
 
-LinuxBuildId = Literal["linux-build-005", "linux-build-006", "linux-build-007", "linux-build-008"]
+LinuxBuildId = Literal[
+    "linux-build-005",
+    "linux-build-006",
+    "linux-build-007",
+    "linux-build-008",
+    "linux-build-009",
+]
 LinuxBuildReceipt = (
     LinuxNativeCodexBuildV5
     | LinuxNativeCodexBuildV6
     | LinuxNativeCodexBuildV7
     | LinuxNativeCodexBuildV8
+    | LinuxNativeCodexBuildV9
 )
 
 
@@ -38,7 +48,7 @@ def _sha256(path: Path) -> str:
 
 def linux_pass_artifact(
     root: Path,
-    build_id: LinuxBuildId = "linux-build-008",
+    build_id: LinuxBuildId = "linux-build-009",
     *,
     implementation_commit: str = "a" * 40,
     workflow_run_id: int = 123,
@@ -159,10 +169,22 @@ def linux_pass_artifact(
                 process_proof=proof,
             )
         )
-    else:
+    elif build_id == "linux-build-008":
         receipt = LinuxNativeCodexBuildV8.create(
             LinuxNativeCodexBuildPayloadV8(
                 provenance=LinuxBuildProvenanceV8(
+                    **provenance_fields,
+                    workflow_run_id=workflow_run_id,
+                    workflow_run_attempt=workflow_run_attempt,
+                ),
+                binaries=(codex, host),
+                process_proof=proof,
+            )
+        )
+    else:
+        receipt = LinuxNativeCodexBuildV9.create(
+            LinuxNativeCodexBuildPayloadV9(
+                provenance=LinuxBuildProvenanceV9(
                     **provenance_fields,
                     workflow_run_id=workflow_run_id,
                     workflow_run_attempt=workflow_run_attempt,

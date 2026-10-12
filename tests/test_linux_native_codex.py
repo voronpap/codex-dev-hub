@@ -20,6 +20,7 @@ from devhub.linux_native import (
     LinuxBuildProvenanceV6,
     LinuxBuildProvenanceV7,
     LinuxBuildProvenanceV8,
+    LinuxBuildProvenanceV9,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV1,
     LinuxHostProofSummaryV2,
@@ -33,6 +34,7 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildPayloadV6,
     LinuxNativeCodexBuildPayloadV7,
     LinuxNativeCodexBuildPayloadV8,
+    LinuxNativeCodexBuildPayloadV9,
     LinuxNativeCodexBuildV1,
     LinuxNativeCodexBuildV2,
     LinuxNativeCodexBuildV3,
@@ -41,6 +43,7 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildV6,
     LinuxNativeCodexBuildV7,
     LinuxNativeCodexBuildV8,
+    LinuxNativeCodexBuildV9,
 )
 from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 
@@ -353,6 +356,24 @@ def test_linux_build_004_binds_ordinary_default_and_preserves_history() -> None:
     assert (
         LinuxNativeCodexBuildV8.model_validate_json(current_bundle.model_dump_json())
         == current_bundle
+    )
+
+    size_corrected = LinuxNativeCodexBuildV9.create(
+        LinuxNativeCodexBuildPayloadV9(
+            provenance=LinuxBuildProvenanceV9(
+                **{
+                    **current_bundle.payload.provenance.model_dump(mode="python"),
+                    "build_id": "linux-build-009",
+                }
+            ),
+            binaries=current_bundle.payload.binaries,
+            process_proof=current_bundle.payload.process_proof,
+        )
+    )
+    assert size_corrected.payload.provenance.build_id == "linux-build-009"
+    assert (
+        LinuxNativeCodexBuildV9.model_validate_json(size_corrected.model_dump_json())
+        == size_corrected
     )
 
 
@@ -675,12 +696,12 @@ def test_post_build_v8_failure_records_exact_phase_and_preserves_compile_state(
     assert observed["process_proof"] is None
 
 
-def test_linux_workflow_reserves_build_008_for_merged_main_dispatch() -> None:
+def test_linux_workflow_reserves_build_009_for_merged_main_dispatch() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
-    assert "devfabric-linux-build-008-evidence" in workflow
-    assert "devfabric-linux-build-008-binaries" in workflow
+    assert "devfabric-linux-build-009-evidence" in workflow
+    assert "devfabric-linux-build-009-binaries" in workflow
     assert "--platform linux" in workflow
-    assert "--build-id linux-build-008" in workflow
+    assert "--build-id linux-build-009" in workflow
     assert "pull_request:" not in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "ref: ${{ github.sha }}" in workflow
@@ -733,7 +754,7 @@ new file mode 100644
         root,
         candidate_patch=candidate,
         host_patch=host,
-        build_id="linux-build-008",
+        build_id="linux-build-009",
     )
 
     assert (root / "candidate.txt").read_text(encoding="utf-8") == "candidate\n"
@@ -1001,7 +1022,7 @@ def test_process_summary_rejects_alternate_code_mode_failures(message: str) -> N
 
 
 def test_linux_builder_reuses_shared_source_and_process_authority() -> None:
-    assert LINUX_BUILD.BUILD_ID == "linux-build-008"
+    assert LINUX_BUILD.BUILD_ID == "linux-build-009"
     assert LINUX_BUILD.retained.prepare_build_source is not None
     signature = inspect.signature(LINUX_BUILD.shared.process_proof)
     assert {"capture", "wait_pid_exit", "proof_env", "platform_label"} <= set(signature.parameters)

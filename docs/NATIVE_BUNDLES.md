@@ -359,9 +359,19 @@ not compile the pair. Main-only run `38173867791` completed `linux-build-007` at
 commit `61c8d13c74699b34923f4026cccaeb0fbebf0337`, including compilation, the exact
 Default/A/B proof, EOF proof and complete retained inventory. That authority remains
 valid for its historical implementation commit. The subsequently merged Linux
-isolation implementation requires a current-commit pair. Forward-only
-`linux-build-008` preserves all build-007 proof semantics and is consumed only by the
-same-commit bundle V2 contract; V1-V7 receipts remain strict historical contracts.
+isolation implementation required a current-commit pair. Main-only run
+`38312090452` completed `linux-build-008` at commit
+`93c177cf84074a32d9970cbb934664bf6c77e732`. Its retained pair is `codex`
+SHA-256 `fef19d08999a00782649b3ff365dccf0a3362835fcc24ebacee83a4fbd383f5b`
+and `codex-code-mode-host` SHA-256
+`d770fa924c6aaff3398f77dff5eef7a68399686727875a439826b07a73930555`.
+The same-binary Default/A/B proof, EOF proof, security negatives, cleanup and
+complete retained inventory passed with zero execution counters. Bundle run
+`38318283921` then failed closed before publication because the accepted
+1,344,548,808-byte `codex` exceeded the previous 512 MiB Codex-file limit. It
+published no bundle. Forward-only `linux-build-009` preserves all build-008 proof
+semantics for the implementation containing the reviewed role-specific size
+correction. V1-V8 receipts remain strict historical contracts.
 
 Its strict self-hashed receipt binds both executable hashes, ELF class/machine,
 program interpreter, `DT_NEEDED`, absence of embedded RPATH/RUNPATH, required
@@ -483,16 +493,22 @@ Build-020 and all OCI evidence remain immutable historical evidence.
 
 ## Native Linux directory authority
 
-The historical `linux-build-007` receipt added the workflow run and attempt to
-its exact merged implementation identity. It remains strictly parseable and its
-hash is unchanged. The forward-only `linux-build-008` receipt uses the same proof
-semantics for the current implementation. The manual main-only
-`linux-native-bundle.yml` workflow accepts only the successful build-008 pair,
-run and attempt from the exact same implementation commit.
+The historical `linux-build-007` and `linux-build-008` receipts remain strictly
+parseable and their hashes are unchanged. Build-008 run `38312090452` proved the
+exact current-at-the-time pair, but bundle run `38318283921` stopped before
+publication at the former 512 MiB Codex-file size gate. Forward-only
+`linux-build-009` preserves the same proof and inventory semantics for the merged
+size-corrected implementation. The manual main-only `linux-native-bundle.yml`
+workflow accepts only the successful build-009 pair, run and attempt from the
+exact same implementation commit.
 
-`LinuxNativeBundleV1` remains the historical build-007 directory contract.
-`LinuxNativeBundleV2` preserves its closed-layout and runtime rules while requiring
-build-008. It seals a closed directory containing the exact Codex pair,
+`LinuxNativeBundleV1` remains the historical build-007 directory contract and
+`LinuxNativeBundleV2` remains the historical build-008 contract.
+`LinuxNativeBundleV3` preserves their closed-layout and runtime rules while
+requiring build-009. Only the Codex executable file cap changes from 512 MiB to
+1536 MiB; the sibling host remains capped at 512 MiB and authority JSON files
+remain capped at their reviewed limits. V3 seals a closed directory containing
+the exact Codex pair,
 an exact copied CPython 3.12.10 runtime, a wheel built from the reviewed commit,
 all registry wheels selected from `uv.lock`, and two relative launchers.  The
 builder clears ambient `site-packages`, installs only reviewed wheels, verifies
@@ -722,8 +738,8 @@ syscall-filter, complete native-executor isolation and package readiness false.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PARTIAL — `linux-build-007` passed for historical commit `61c8d13c74699b34923f4026cccaeb0fbebf0337`; exact-current-commit `linux-build-008` is registered but not run |
-| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PARTIAL — build-007 proved Default/A/B, EOF, security negatives and retention; exact-current-commit build-008 pending |
+| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PARTIAL — `linux-build-008` run `38312090452` passed for commit `93c177cf84074a32d9970cbb934664bf6c77e732`; forward-only `linux-build-009` is registered for the size-corrected merged implementation |
+| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PARTIAL — build-008 proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit build-009 pending |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
@@ -732,9 +748,9 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
-| Runnable artifact | PENDING directory/launcher/file manifest | PENDING directory/launcher/file manifest |
+| Runnable artifact | PENDING directory/launcher/file manifest | PENDING — bundle run `38318283921` failed before publication at the superseded Codex size gate; V3/build-009 correction pending |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for historical build-007 and V11 isolation mechanics; build-008 plus bundle V2 registration under review |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for build-008 native pair and V11 isolation mechanics; build-009 plus bundle V3 correction under review |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

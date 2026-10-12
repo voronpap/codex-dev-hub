@@ -30,16 +30,16 @@ from derive_stage3g_production_lock import PRODUCTION_HOST_LOCK_SHA256
 from stage3g_schema_hash import read_schema_identity
 
 from devhub.linux_native import (
-    LinuxBuildProvenanceV8,
+    LinuxBuildProvenanceV9,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV3,
     LinuxNativeBinaryV1,
-    LinuxNativeCodexBuildPayloadV8,
-    LinuxNativeCodexBuildV8,
+    LinuxNativeCodexBuildPayloadV9,
+    LinuxNativeCodexBuildV9,
 )
 from devhub.native_bundle import git_blob_sha256
 
-BUILD_ID = "linux-build-008"
+BUILD_ID = "linux-build-009"
 TARGET = "x86_64-unknown-linux-gnu"
 V8_RELEASE_TAG = "rusty-v8-v150.4.0"
 V8_RELEASE_BASE = f"https://github.com/openai/codex/releases/download/{V8_RELEASE_TAG}"
@@ -864,8 +864,8 @@ def main() -> None:
         rustc = _tool_path("rustc")
         cargo = _tool_path("cargo")
         provenance_hashes = committed_provenance_hashes(repo, implementation_commit)
-        payload = LinuxNativeCodexBuildPayloadV8(
-            provenance=LinuxBuildProvenanceV8(
+        payload = LinuxNativeCodexBuildPayloadV9(
+            provenance=LinuxBuildProvenanceV9(
                 workflow_run_id=args.workflow_run_id,
                 workflow_run_attempt=args.workflow_run_attempt,
                 implementation_commit=implementation_commit,
@@ -897,7 +897,7 @@ def main() -> None:
             binaries=binaries,
             process_proof=summary,
         )
-        final = LinuxNativeCodexBuildV8.create(payload)
+        final = LinuxNativeCodexBuildV9.create(payload)
         (args.output / "linux-native-codex-build.json").write_text(
             final.model_dump_json(indent=2) + "\n", encoding="utf-8"
         )
