@@ -2531,6 +2531,54 @@ def test_v3_child_registration_and_v2_failure_frames_are_self_hashed_and_bounded
         )
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Child registration writer is Linux-only")
+def test_child_registration_writer_emits_exact_canonical_v3_frame() -> None:
+    assert CHILD is not None
+    projection = owner_projection().model_dump(mode="json")
+    authority = LinuxMountAuthorityObservationV1().model_dump(mode="json")
+    raw = CHILD.child_registration_frame(
+        apparmor_current_profile=LINUX_APPARMOR_CURRENT,
+        outer_process_id=123,
+        inner_process_id=1,
+        outer_user_id=1000,
+        inner_user_id=1000,
+        process_start_time_ticks=456,
+        mount_owner_projection=projection,
+        mount_authority=authority,
+    )
+    parsed = LinuxChildRegistrationV3.model_validate(raw)
+    assert parsed.payload.mount_owner_projection.model_dump(mode="json") == projection
+    assert parsed.payload.mount_authority.model_dump(mode="json") == authority
+
+    mutations: tuple[tuple[str, str, object], ...] = (
+        ("mount_owner_projection", "schema_version", None),
+        ("mount_owner_projection", "schema_version", 2),
+        ("mount_owner_projection", "extra", True),
+        ("mount_authority", "schema_version", None),
+        ("mount_authority", "schema_version", 2),
+        ("mount_authority", "extra", True),
+    )
+    for section, field, value in mutations:
+        changed = copy.deepcopy(raw)
+        payload = cast(dict[str, object], changed["payload"])
+        nested = cast(dict[str, object], payload[section])
+        if value is None:
+            del nested[field]
+        else:
+            nested[field] = value
+        changed["child_registration_id"] = CHILD.digest(CHILD.canonical(payload))
+        with pytest.raises(ValidationError):
+            LinuxChildRegistrationV3.model_validate(changed)
+
+    substituted = copy.deepcopy(raw)
+    substituted_payload = cast(dict[str, object], substituted["payload"])
+    substituted_authority = cast(dict[str, object], substituted_payload["mount_authority"])
+    substituted_authority["pre_exec_authority_matched"] = False
+    substituted["child_registration_id"] = CHILD.digest(CHILD.canonical(substituted_payload))
+    with pytest.raises(ValidationError):
+        LinuxChildRegistrationV3.model_validate(substituted)
+
+
 @pytest.mark.parametrize(
     "observed",
     [
