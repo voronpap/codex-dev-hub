@@ -503,6 +503,67 @@ every distribution.  Directory assembly alone leaves
 native process/filesystem/network isolation and platform receipts remain
 mandatory before Linux readiness.
 
+### Native Linux isolation mechanics baseline
+
+`LinuxNativeIsolationV1` remains the strict historical contract. The private
+launcher/AppArmor authority is a forward-only `LinuxNativeIsolationV2`
+metadata-only qualification slice; V1 payloads and canonical identities are
+not reinterpreted.
+It binds one exact Ubuntu 24.04 x86_64 host and kernel, the reviewed system
+`/usr/bin/unshare`, an exact root-owned copy at
+`/opt/devfabric/libexec/unshare`, `/usr/bin/mount`, bootstrap-interpreter file
+identity, source directory
+device/inode identities, and an explicit private-root
+mount table, rootless user/mount/PID/network namespaces, a nonzero namespace UID,
+`no_new_privs`, zero capability sets, ABI-specific Landlock rules, observed fixed
+rlimits, and a fresh AF_UNIX metadata broker. Python is the already-loaded
+qualification bootstrap; this mechanics receipt does not claim a complete
+post-chroot Python runtime closure. The broker validates the child outer PID,
+start time and UID; the child independently validates the translated broker PID,
+UID and socket inode. It forwards only
+bounded `/api/version`, `/api/tags` and `/api/show` requests to fixed
+`127.0.0.1:11434`; generation, streaming, oversized and ambiguous HTTP requests
+are denied before forwarding.
+
+The real Ubuntu mechanics probe uses a synthetic non-task fixture and a local
+metadata stub. It makes no Codex, MCP, model or provider call. Its receipt
+therefore proves namespace/mount/Landlock/broker mechanics only. It explicitly
+keeps `cgroup_resource_boundary_qualified=false`,
+`syscall_filter_qualified=false`, `native_executor_isolation_qualified=false`
+and `package_readiness=false`. A final native-Linux package still requires the
+exact runnable bundle, delegated cgroup-v2 resource controls or a narrower
+reviewed resource claim, a reviewed syscall boundary, secrets/data lifecycle,
+real external Ollama identity and one same-environment qualification manifest.
+Unsupported user namespaces, mount operations, Landlock, peer credentials or
+cleanup fail closed; there is no unrestricted host-process fallback.
+Ubuntu's global unprivileged-user-namespace restriction remains enabled. The
+only exception is the repo-owned named AppArmor attachment for the private
+launcher; the generic `/usr/bin/unshare` receives no exception. Qualification
+binds the profile Git blob and installed bytes, root ownership/mode, exact
+`apparmor_parser` file/version, the kernel loaded-profile observation, and the
+child's actual `/proc/self/attr/current` label. Privileged policy setup never
+runs for pull-request code. It is available only through an explicit
+`workflow_dispatch` at an exact commit on `main`; the job uses `sudo` only to
+install/load and then remove that host policy. The namespace mechanics and
+child remain the ordinary runner user. Cleanup evidence separately records
+parser unload, loaded-profile absence, installed-profile removal,
+private-launcher removal, snapshot removal and owned-parent cleanup. A final V2
+qualification is valid only when its self-hashed mechanics evidence and
+self-hashed cleanup receipt join to the same implementation, environment,
+exact profile ID and mechanics-evidence ID. Completed cleanup first revalidates
+the exact loaded `(unconfined)` profile and every recorded file/directory;
+disappearance, mode drift or substitution fails before removal. Partial rollback
+alone may tolerate a journaled object that was never created. Every cleanup
+mutation first persists a self-hashed pending transition, then seals completion;
+recovery accepts only the exact pre-action authority or its exact expected
+absence and never removes a substituted object. Setup, rollback,
+cleanup and finalization failures emit a bounded self-hashed lifecycle failure
+record with zero execution counters and cannot coexist with success evidence.
+An intended host that cannot install this exact narrow
+profile is unsupported and fails closed; disabling the global sysctl is not an
+accepted fallback. The workflow verifies the exact main commit and a clean
+tree. Paths remain locators; hashes plus native identities are the authority.
+
 ## Platform acceptance matrix
 
 `PENDING` means the requirement has no accepted native-package evidence yet.

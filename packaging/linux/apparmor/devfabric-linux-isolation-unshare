@@ -1,0 +1,7 @@
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile devfabric-linux-isolation-unshare /opt/devfabric/libexec/unshare flags=(unconfined) {
+  userns,
+}
