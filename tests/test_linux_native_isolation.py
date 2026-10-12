@@ -3276,13 +3276,13 @@ def test_child_broker_translation_uses_exact_peer_observations(
 
 @pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
 @pytest.mark.parametrize(
-    ("overrides", "raises_directly"),
+    ("overrides", "direct_reason"),
     [
-        ({"peer_pid": 1}, False),
-        ({"peer_uid": 1001}, False),
-        ({"inodes": (7, 7, 8, 7, 7)}, True),
-        ({"parent_mode": 0o755}, False),
-        ({"socket_mode": 0o644}, False),
+        ({"peer_pid": 1}, None),
+        ({"peer_uid": 1001}, None),
+        ({"inodes": (7, 7, 8, 7, 7)}, "broker_inode_substitution"),
+        ({"parent_mode": 0o755}, None),
+        ({"socket_mode": 0o644}, None),
         (
             {
                 "responses": (
@@ -3293,19 +3293,19 @@ def test_child_broker_translation_uses_exact_peer_observations(
                     b"HTTP/1.1 403 Forbidden",
                 )
             },
-            False,
+            "broker_response_status_invalid",
         ),
     ],
 )
 def test_child_broker_observation_rejects_authority_mismatch(
     monkeypatch: pytest.MonkeyPatch,
     overrides: dict[str, object],
-    raises_directly: bool,
+    direct_reason: str | None,
 ) -> None:
-    if raises_directly:
+    if direct_reason is not None:
         with pytest.raises(CHILD.BrokerObservationFailure) as error:
             broker_observation_fixture(monkeypatch, **overrides)
-        assert error.value.reason_code == "broker_inode_substitution"
+        assert error.value.reason_code == direct_reason
         return
     observed = broker_observation_fixture(monkeypatch, **overrides)
     observed.update(
@@ -3988,6 +3988,16 @@ def test_main_publishes_exact_v7_child_failure_phase_without_success(
             capture.child_runtime_failure = frame
             capture.returncode = 71
             raise PROBE.ChildRuntimeFailure(frame)
+        if failure_phase == "broker":
+            capture.host_broker_failure = LinuxHostBrokerFailureV1.create(
+                LinuxHostBrokerFailurePayloadV1(
+                    linux_isolation_profile_id=active_profile.linux_isolation_profile_id,
+                    environment_instance_id=ENVIRONMENT,
+                    checkpoint="parent_validation",
+                    reason_code="parent_validation_failed",
+                    failure_kind="internal_error",
+                )
+            )
         if failure_phase == "cleanup":
             capture.cleanup_failed = True
             raise PROBE.ProbeCleanupFailure("synthetic cleanup failure")
