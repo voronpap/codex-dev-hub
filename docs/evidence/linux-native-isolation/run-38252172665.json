@@ -1,0 +1,22 @@
+{
+  "artifact_digest": "sha256:c666c43b948410b5e73008d3692c49ee801ad5f1ff8b9554484b443d5a7d40b1",
+  "artifact_id": 11748211571,
+  "artifact_name": "devfabric-linux-native-isolation-qualification",
+  "classification": "PRE_NAMESPACE_SYNTHETIC_UPSTREAM_BIND_FAILURE",
+  "cleanup_attempted": true,
+  "cleanup_succeeded": true,
+  "environment_instance_id": "e31af9433bec14c0ba3faae0b9004cea",
+  "head_sha": "b38ee81d1b4876745de5e9e96eb50b81815f9f4c",
+  "job_id": 114821007976,
+  "linux_isolation_failure_id": "c6a49c92dbe708508e6c92b4b3be116f0db716d5332219f2dae74a37e29503c6",
+  "linux_isolation_profile_id": "a28bfe369e7472b4283d411453cd1c43525f0af539df2389880e59b6ea6f9efc",
+  "mcp_tool_executions": 0,
+  "model_requests": 0,
+  "observed_errno": 98,
+  "phase": "namespace_creation",
+  "provider_sends": 0,
+  "real_task_executions": 0,
+  "reason_code": "namespace_launch_failed",
+  "run_id": 38252172665,
+  "schema_version": 1
+}

@@ -23,6 +23,8 @@ LINUX_ISOLATION_PROFILE_KIND_V3 = "linux_native_isolation_v3"
 LINUX_ISOLATION_RECEIPT_KIND_V3 = "linux_native_isolation_receipt_v3"
 LINUX_ISOLATION_PROFILE_KIND_V4 = "linux_native_isolation_v4"
 LINUX_ISOLATION_RECEIPT_KIND_V4 = "linux_native_isolation_receipt_v4"
+LINUX_ISOLATION_PROFILE_KIND_V5 = "linux_native_isolation_v5"
+LINUX_ISOLATION_RECEIPT_KIND_V5 = "linux_native_isolation_receipt_v5"
 LINUX_TARGET_OS = "ubuntu"
 LINUX_TARGET_VERSION = "24.04"
 LINUX_TARGET_ARCH = "x86_64"
@@ -394,6 +396,21 @@ class LinuxBrokerExpectationV1(Contract):
         return value
 
 
+class LinuxSyntheticUpstreamAuthorityV1(Contract):
+    """Retained host listener used only by the synthetic mechanics fixture."""
+
+    schema_version: Literal[1] = 1
+    authority_kind: Literal["linux_synthetic_ollama_upstream_v1"] = (
+        "linux_synthetic_ollama_upstream_v1"
+    )
+    host: Literal["127.0.0.1"] = "127.0.0.1"
+    port: Annotated[int, Field(ge=1, le=65535)]
+    socket_inode: Annotated[int, Field(ge=1)]
+    owner_pid: Annotated[int, Field(ge=1)]
+    owner_start_time_ticks: Annotated[int, Field(ge=1)]
+    owner_uid: Annotated[int, Field(ge=0)]
+
+
 class LinuxIsolationProfilePayloadV1(Contract):
     schema_version: Literal[1] = 1
     profile_kind: Literal["linux_native_isolation_v1"] = "linux_native_isolation_v1"
@@ -588,6 +605,32 @@ class LinuxIsolationProfilePayloadV4(LinuxIsolationProfilePayloadV3):
         return self
 
 
+class LinuxIsolationProfilePayloadV5(LinuxIsolationProfilePayloadV4):
+    """Forward-only profile binding the retained synthetic upstream listener."""
+
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v5"] = "linux_native_isolation_v5"  # type: ignore[assignment]
+    synthetic_upstream: LinuxSyntheticUpstreamAuthorityV1
+
+    @model_validator(mode="after")
+    def exact_v5_synthetic_upstream_authority(self) -> LinuxIsolationProfilePayloadV5:
+        owner = (
+            self.synthetic_upstream.owner_pid,
+            self.synthetic_upstream.owner_start_time_ticks,
+            self.synthetic_upstream.owner_uid,
+        )
+        broker_host = (
+            self.broker.broker_host_pid,
+            self.broker.broker_host_start_time_ticks,
+            self.broker.broker_host_uid,
+        )
+        if owner != broker_host:
+            raise ValueError("Synthetic upstream owner differs from broker host authority")
+        if self.synthetic_upstream.port == self.broker.destination_port:
+            raise ValueError("Synthetic upstream must not use the production Ollama port")
+        return self
+
+
 class LinuxIsolationProfileV1(Contract):
     linux_isolation_profile_id: Digest
     payload: LinuxIsolationProfilePayloadV1
@@ -663,6 +706,26 @@ class LinuxIsolationProfileV4(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation V4 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV5(ContractV2):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV5
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV5) -> LinuxIsolationProfileV5:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV5:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V5 profile hash mismatch")
         return self
 
 
@@ -815,6 +878,19 @@ class LinuxIsolationObservationV4(LinuxIsolationObservationV3):
 
     schema_version: Literal[4] = 4  # type: ignore[assignment]
     mount_authority_revalidated: Literal[True] = True
+
+
+class LinuxSyntheticUpstreamObservationV1(Contract):
+    authority: LinuxSyntheticUpstreamAuthorityV1
+    listener_identity_matched: Literal[True] = True
+    listener_retained_through_broker: Literal[True] = True
+
+
+class LinuxIsolationObservationV5(LinuxIsolationObservationV4):
+    """V5 observation joins mechanics traffic to one retained fixture listener."""
+
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    synthetic_upstream: LinuxSyntheticUpstreamObservationV1
 
 
 class LinuxHostCleanupObservationV1(Contract):
@@ -1028,6 +1104,32 @@ class LinuxIsolationReceiptV4(ContractV2):
         return self
 
 
+class LinuxIsolationReceiptPayloadV5(LinuxIsolationReceiptPayloadV4):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v5"] = "linux_native_isolation_receipt_v5"  # type: ignore[assignment]
+    observation: LinuxIsolationObservationV5
+
+
+class LinuxIsolationReceiptV5(ContractV2):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV5
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV5) -> LinuxIsolationReceiptV5:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV5:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V5 receipt hash mismatch")
+        return self
+
+
 class LinuxIsolationEvidencePayloadV2(ContractV2):
     schema_version: Literal[2] = 2
     profile: LinuxIsolationProfileV2
@@ -1189,6 +1291,41 @@ class LinuxIsolationEvidenceV4(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_evidence_id != expected:
             raise ValueError("Linux isolation V4 evidence hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV5(LinuxIsolationEvidencePayloadV4):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV5  # type: ignore[assignment]
+    receipt: LinuxIsolationReceiptV5  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def exact_synthetic_upstream_join(self) -> LinuxIsolationEvidencePayloadV5:
+        if (
+            self.receipt.payload.observation.synthetic_upstream.authority
+            != self.profile.payload.synthetic_upstream
+        ):
+            raise ValueError("Linux V5 synthetic upstream authority differs")
+        return self
+
+
+class LinuxIsolationEvidenceV5(ContractV2):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV5
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV5) -> LinuxIsolationEvidenceV5:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV5:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V5 evidence hash mismatch")
         return self
 
 
@@ -1514,6 +1651,31 @@ class LinuxIsolationQualificationV4(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_qualification_id != expected:
             raise ValueError("Linux isolation V4 qualification hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationPayloadV5(LinuxIsolationQualificationPayloadV4):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV5  # type: ignore[assignment]
+
+
+class LinuxIsolationQualificationV5(ContractV2):
+    schema_version: Literal[5] = 5  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV5
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationQualificationPayloadV5) -> LinuxIsolationQualificationV5:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV5:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V5 qualification hash mismatch")
         return self
 
 
