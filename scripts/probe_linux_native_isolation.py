@@ -36,18 +36,19 @@ from devhub.linux_isolation import (
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV3,
-    LinuxIsolationEvidenceV3,
+    LinuxIsolationEvidencePayloadV4,
+    LinuxIsolationEvidenceV4,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailureV1,
-    LinuxIsolationObservationV3,
-    LinuxIsolationProfilePayloadV3,
-    LinuxIsolationProfileV3,
-    LinuxIsolationReceiptPayloadV3,
-    LinuxIsolationReceiptV3,
+    LinuxIsolationObservationV4,
+    LinuxIsolationProfilePayloadV4,
+    LinuxIsolationProfileV4,
+    LinuxIsolationReceiptPayloadV4,
+    LinuxIsolationReceiptV4,
     LinuxMountAuthorityV1,
     LinuxNativePathIdentityV1,
     LinuxToolAuthorityV1,
+    LinuxToolAuthorityV4,
     enforced_landlock_abi,
     landlock_handled_access,
 )
@@ -202,6 +203,31 @@ def file_authority(path: Path, name: ToolName) -> LinuxToolAuthorityV1:
     )
 
 
+def full_mode_authority(path: Path, name: ToolName) -> LinuxToolAuthorityV4:
+    if path.is_symlink() or not path.is_file() or path.resolve(strict=True) != path:
+        raise ValueError(f"{name} authority must be one non-symlink regular file")
+    info = path.stat()
+    complete_mode = stat.S_IMODE(info.st_mode)
+    completed = subprocess.run(
+        [str(path), "--version"], capture_output=True, check=False, timeout=10
+    )
+    if completed.returncode != 0:
+        raise ValueError(f"{name} version observation failed")
+    return LinuxToolAuthorityV4(
+        name=name,
+        locator=str(path),
+        sha256=file_sha256(path),
+        size=info.st_size,
+        owner_uid=info.st_uid,
+        owner_gid=info.st_gid,
+        permission_bits=f"0{complete_mode & 0o777:03o}",
+        special_bits=f"0{complete_mode & 0o7000:04o}",
+        full_mode=f"0{complete_mode:04o}",
+        native_identity=native_identity(info),
+        version_output_sha256=sha256(completed.stdout + b"\n---stderr---\n" + completed.stderr),
+    )
+
+
 def apparmor_parser_authority(path: Path) -> LinuxAppArmorParserAuthorityV2:
     authority = plain_file_authority(path)
     completed = subprocess.run(
@@ -271,6 +297,12 @@ def revalidate_tool(expected: LinuxToolAuthorityV1) -> None:
         raise ValueError("A required isolation tool authority changed")
 
 
+def revalidate_full_mode_tool(expected: LinuxToolAuthorityV4) -> None:
+    observed = full_mode_authority(Path(expected.locator), expected.name)
+    if observed != expected:
+        raise ValueError("A required full-mode isolation tool authority changed")
+
+
 def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
     observed = directory_authority(Path(expected.locator), expected.role)
     if observed != expected:
@@ -278,11 +310,11 @@ def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
 
 
 def revalidate_profile_sources(
-    profile: LinuxIsolationProfileV3, child_script: Path, bundle: Path
+    profile: LinuxIsolationProfileV4, child_script: Path, bundle: Path
 ) -> None:
     revalidate_tool(profile.payload.system_unshare)
     revalidate_tool(profile.payload.unshare)
-    revalidate_tool(profile.payload.mount)
+    revalidate_full_mode_tool(profile.payload.mount)
     revalidate_file(profile.payload.bootstrap_python)
     for source in profile.payload.source_directories:
         revalidate_directory(source)
@@ -554,7 +586,7 @@ def stub_ollama(
 
 
 def namespace_command(
-    profile: LinuxIsolationProfileV3,
+    profile: LinuxIsolationProfileV4,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -590,6 +622,12 @@ def namespace_command(
         str(broker_dir),
         "--mount-binary",
         profile.payload.mount.locator,
+        "--expected-mount-authority",
+        json.dumps(
+            profile.payload.mount.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
         "--registration-fd",
         str(registration_write),
         "--result-fd",
@@ -612,14 +650,14 @@ def namespace_command(
 
 
 def run_probe(
-    profile: LinuxIsolationProfileV3,
+    profile: LinuxIsolationProfileV4,
     child_script: Path,
     root: Path,
     bundle: Path,
     state: Path,
     output: Path,
     broker_dir: Path,
-) -> tuple[LinuxIsolationObservationV3, bytes, bytes]:
+) -> tuple[LinuxIsolationObservationV4, bytes, bytes]:
     revalidate_profile_sources(profile, child_script, bundle)
     registration_read, registration_write = os.pipe()
     result_read, result_write = os.pipe()
@@ -758,7 +796,7 @@ def run_probe(
         )
         raw_observation["descendant_cleanup_passed"] = True
         raw_observation["cleanup_failures"] = []
-        observation = LinuxIsolationObservationV3.model_validate(raw_observation)
+        observation = LinuxIsolationObservationV4.model_validate(raw_observation)
         if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
             raise ValueError("Isolation launcher process group remained after process exit")
         revalidate_profile_sources(profile, child_script, bundle)
@@ -836,7 +874,7 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV3 | None = None
+    profile: LinuxIsolationProfileV4 | None = None
     stdout = b""
     stderr = b""
     phase: FailurePhase = "host_inspection"
@@ -865,7 +903,7 @@ def main() -> None:
             host = host_authority(unshare_path, apparmor)
             system_unshare = file_authority(system_unshare_path, "unshare")
             unshare = file_authority(unshare_path, "unshare")
-            mount = file_authority(mount_path, "mount")
+            mount = full_mode_authority(mount_path, "mount")
             bootstrap_python = plain_file_authority(Path(sys.executable).resolve(strict=True))
             bundle_id = tree_identity(bundle)
             sources = tuple(
@@ -890,8 +928,8 @@ def main() -> None:
                 broker_host_uid=current_uid(),
                 broker_module_sha256=file_sha256(broker_module),
             )
-            profile = LinuxIsolationProfileV3.create(
-                LinuxIsolationProfilePayloadV3(
+            profile = LinuxIsolationProfileV4.create(
+                LinuxIsolationProfilePayloadV4(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
                     native_bundle_id=bundle_id,
@@ -919,15 +957,15 @@ def main() -> None:
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV3.create(
-            LinuxIsolationReceiptPayloadV3(
+        receipt = LinuxIsolationReceiptV4.create(
+            LinuxIsolationReceiptPayloadV4(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV3.create(
-            LinuxIsolationEvidencePayloadV3(
+        evidence = LinuxIsolationEvidenceV4.create(
+            LinuxIsolationEvidencePayloadV4(
                 profile=profile,
                 receipt=receipt,
                 child_stdout_retained_sha256=sha256(stdout),

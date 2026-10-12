@@ -102,6 +102,45 @@ def sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def file_sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            hasher.update(block)
+    return hasher.hexdigest()
+
+
+def validate_mount_authority(path: Path, expected_raw: str) -> None:
+    expected = json.loads(expected_raw)
+    if not isinstance(expected, dict):
+        raise ValueError("Expected mount authority is not an object")
+    if path.is_symlink() or not path.is_file() or path.resolve(strict=True) != path:
+        raise ValueError("Mount authority is not one non-symlink regular file")
+    info = path.stat()
+    complete_mode = stat.S_IMODE(info.st_mode)
+    completed = subprocess.run(
+        [str(path), "--version"], capture_output=True, check=False, timeout=10
+    )
+    if completed.returncode != 0:
+        raise ValueError("Mount authority version observation failed")
+    observed = {
+        "schema_version": 4,
+        "name": "mount",
+        "locator": str(path),
+        "sha256": file_sha256(path),
+        "size": info.st_size,
+        "owner_uid": info.st_uid,
+        "owner_gid": info.st_gid,
+        "permission_bits": f"0{complete_mode & 0o777:03o}",
+        "special_bits": f"0{complete_mode & 0o7000:04o}",
+        "full_mode": f"0{complete_mode:04o}",
+        "native_identity": {"device": info.st_dev, "inode": info.st_ino},
+        "version_output_sha256": sha256(completed.stdout + b"\n---stderr---\n" + completed.stderr),
+    }
+    if observed != expected:
+        raise ValueError("Mount authority changed before the first mount operation")
+
+
 def namespace_id(kind: str) -> str:
     return os.readlink(f"/proc/self/ns/{kind}")
 
@@ -453,6 +492,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--broker", type=Path, required=True)
     parser.add_argument("--mount-binary", required=True)
+    parser.add_argument("--expected-mount-authority", required=True)
     parser.add_argument("--registration-fd", type=int, required=True)
     parser.add_argument("--result-fd", type=int, required=True)
     parser.add_argument("--host-namespaces", required=True)
@@ -467,6 +507,8 @@ def main() -> None:
     apparmor_current = Path("/proc/self/attr/current").read_text(encoding="utf-8").strip()
     if apparmor_current != args.expected_apparmor_current:
         raise ValueError("AppArmor current profile differs from the reviewed attachment")
+
+    validate_mount_authority(Path(args.mount_binary), args.expected_mount_authority)
 
     registration = {
         "apparmor_current_profile": apparmor_current,
@@ -551,6 +593,7 @@ def main() -> None:
             "child_gid": os.getegid(),
         },
         "private_mount_root": True,
+        "mount_authority_revalidated": True,
         "mount_table_sha256": sha256(mount_table),
         "observed_mount_targets": mount_targets,
         "bundle_read_only": bundle_read_only,

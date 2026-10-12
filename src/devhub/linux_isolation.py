@@ -21,6 +21,8 @@ LINUX_ISOLATION_PROFILE_KIND_V2 = "linux_native_isolation_v2"
 LINUX_ISOLATION_RECEIPT_KIND_V2 = "linux_native_isolation_receipt_v2"
 LINUX_ISOLATION_PROFILE_KIND_V3 = "linux_native_isolation_v3"
 LINUX_ISOLATION_RECEIPT_KIND_V3 = "linux_native_isolation_receipt_v3"
+LINUX_ISOLATION_PROFILE_KIND_V4 = "linux_native_isolation_v4"
+LINUX_ISOLATION_RECEIPT_KIND_V4 = "linux_native_isolation_receipt_v4"
 LINUX_TARGET_OS = "ubuntu"
 LINUX_TARGET_VERSION = "24.04"
 LINUX_TARGET_ARCH = "x86_64"
@@ -139,6 +141,41 @@ class LinuxToolAuthorityV1(LinuxFileAuthorityV1):
             raise ValueError("Linux namespace tools must be root-owned")
         if mode & 0o022 or not mode & 0o100 or mode & 0o7000:
             raise ValueError("Linux namespace tool mode is unsafe")
+        return self
+
+
+class LinuxToolAuthorityV4(ContractV2):
+    """Complete authority for a host tool whose special mode bits matter."""
+
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    name: Literal["unshare", "mount"]
+    locator: Annotated[str, Field(min_length=2, max_length=4096, pattern=r"^/[^\x00\r\n]+$")]
+    sha256: Digest
+    size: Annotated[int, Field(ge=1)]
+    owner_uid: Annotated[int, Field(ge=0)]
+    owner_gid: Annotated[int, Field(ge=0)]
+    permission_bits: Annotated[str, Field(pattern=r"^0[0-7]{3}$")]
+    special_bits: Annotated[str, Field(pattern=r"^0[0-7]000$")]
+    full_mode: Annotated[str, Field(pattern=r"^0[0-7]{4}$")]
+    native_identity: LinuxNativePathIdentityV1
+    version_output_sha256: Digest
+
+    @model_validator(mode="after")
+    def exact_safe_tool_mode(self) -> LinuxToolAuthorityV4:
+        permissions = int(self.permission_bits, 8)
+        special = int(self.special_bits, 8)
+        full = int(self.full_mode, 8)
+        if full != permissions | special:
+            raise ValueError("Linux tool full mode differs from its permission components")
+        if self.owner_uid != 0 or self.owner_gid != 0:
+            raise ValueError("Linux namespace tools must be root-owned")
+        if permissions & 0o022 or not permissions & 0o100:
+            raise ValueError("Linux namespace tool permissions are unsafe")
+        if special & (0o2000 | 0o1000):
+            raise ValueError("Linux namespace tool has forbidden setgid or sticky bits")
+        if special:
+            if special != 0o4000 or self.name != "mount" or self.locator != "/usr/bin/mount":
+                raise ValueError("Only exact /usr/bin/mount may carry setuid")
         return self
 
 
@@ -537,6 +574,20 @@ class LinuxIsolationProfilePayloadV3(LinuxIsolationProfilePayloadV2):
         return self
 
 
+class LinuxIsolationProfilePayloadV4(LinuxIsolationProfilePayloadV3):
+    """Forward-only profile binding the complete mount executable mode."""
+
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v4"] = "linux_native_isolation_v4"  # type: ignore[assignment]
+    mount: LinuxToolAuthorityV4  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def exact_v4_mount_authority(self) -> LinuxIsolationProfilePayloadV4:
+        if self.mount.name != "mount" or self.mount.locator != "/usr/bin/mount":
+            raise ValueError("V4 profile requires exact /usr/bin/mount authority")
+        return self
+
+
 class LinuxIsolationProfileV1(Contract):
     linux_isolation_profile_id: Digest
     payload: LinuxIsolationProfilePayloadV1
@@ -592,6 +643,26 @@ class LinuxIsolationProfileV3(Contract):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation V3 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV4(ContractV2):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV4
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV4) -> LinuxIsolationProfileV4:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV4:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V4 profile hash mismatch")
         return self
 
 
@@ -737,6 +808,13 @@ class LinuxIsolationObservationV3(ContractV2):
         if self.landlock_handled_access != landlock_handled_access(expected):
             raise ValueError("Observed Landlock mask differs from the enforced ABI")
         return self
+
+
+class LinuxIsolationObservationV4(LinuxIsolationObservationV3):
+    """V4 observation includes child-side mount authority revalidation."""
+
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    mount_authority_revalidated: Literal[True] = True
 
 
 class LinuxHostCleanupObservationV1(Contract):
@@ -924,6 +1002,32 @@ class LinuxIsolationReceiptV3(Contract):
         return self
 
 
+class LinuxIsolationReceiptPayloadV4(LinuxIsolationReceiptPayloadV3):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v4"] = "linux_native_isolation_receipt_v4"  # type: ignore[assignment]
+    observation: LinuxIsolationObservationV4
+
+
+class LinuxIsolationReceiptV4(ContractV2):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV4
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV4) -> LinuxIsolationReceiptV4:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV4:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V4 receipt hash mismatch")
+        return self
+
+
 class LinuxIsolationEvidencePayloadV2(ContractV2):
     schema_version: Literal[2] = 2
     profile: LinuxIsolationProfileV2
@@ -1059,6 +1163,32 @@ class LinuxIsolationEvidenceV3(Contract):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_evidence_id != expected:
             raise ValueError("Linux isolation V3 evidence hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV4(LinuxIsolationEvidencePayloadV3):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV4  # type: ignore[assignment]
+    receipt: LinuxIsolationReceiptV4  # type: ignore[assignment]
+
+
+class LinuxIsolationEvidenceV4(ContractV2):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV4
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV4) -> LinuxIsolationEvidenceV4:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV4:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V4 evidence hash mismatch")
         return self
 
 
@@ -1359,6 +1489,31 @@ class LinuxIsolationQualificationV3(Contract):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_qualification_id != expected:
             raise ValueError("Linux isolation V3 qualification hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationPayloadV4(LinuxIsolationQualificationPayloadV3):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV4  # type: ignore[assignment]
+
+
+class LinuxIsolationQualificationV4(ContractV2):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV4
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationQualificationPayloadV4) -> LinuxIsolationQualificationV4:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV4:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V4 qualification hash mismatch")
         return self
 
 

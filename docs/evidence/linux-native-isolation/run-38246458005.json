@@ -1,0 +1,20 @@
+{
+  "artifact_digest": "sha256:f898090ca944244b56b21d935633db41a474447697d907ca488f8c6d6b480fed",
+  "artifact_id": 11746391427,
+  "artifact_name": "devfabric-linux-native-isolation-qualification",
+  "classification": "PRE_NAMESPACE_MOUNT_MODE_REPRESENTATION_FAILURE",
+  "cleanup_attempted": true,
+  "cleanup_succeeded": true,
+  "environment_instance_id": "9caf92ba618acb82a1e2870d9424e4e2",
+  "head_sha": "ec2132211684a0c5c8453b81c1df14a947b76c70",
+  "job_id": 114801424460,
+  "linux_isolation_failure_id": "024a7dc818adfddb18143454b6ec77696fbfdd6777e4782702679b0a80c6acb1",
+  "mcp_tool_executions": 0,
+  "model_requests": 0,
+  "phase": "host_inspection",
+  "provider_sends": 0,
+  "real_task_executions": 0,
+  "reason_code": "host_authority_invalid",
+  "run_id": 38246458005,
+  "schema_version": 1
+}

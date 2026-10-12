@@ -505,10 +505,11 @@ mandatory before Linux readiness.
 
 ### Native Linux isolation mechanics baseline
 
-`LinuxNativeIsolationV1` and `LinuxNativeIsolationV2` remain strict historical
-contracts. The private-launcher/AppArmor qualification now emits the
-forward-only `LinuxNativeIsolationV3` contract; V1/V2 payloads and canonical
-identities are not reinterpreted. V3 records the kernel-reported Landlock ABI
+`LinuxNativeIsolationV1`, `LinuxNativeIsolationV2` and
+`LinuxNativeIsolationV3` remain strict historical contracts. The
+private-launcher/AppArmor qualification now emits the forward-only
+`LinuxNativeIsolationV4` contract; V1-V3 payloads and canonical identities are
+not reinterpreted. V4 preserves the V3 Landlock authority: it records the kernel-reported ABI
 separately from the reviewed policy ABI. Kernels reporting ABI 7 or newer keep
 their exact observation while enforcement is capped at reviewed ABI 6 and its
 exact `handled_access_fs` mask. Kernels older than ABI 3 fail closed. The child
@@ -529,6 +530,14 @@ UID and socket inode. It forwards only
 bounded `/api/version`, `/api/tags` and `/api/show` requests to fixed
 `127.0.0.1:11434`; generation, streaming, oversized and ambiguous HTTP requests
 are denied before forwarding.
+
+V4 also binds `/usr/bin/mount`'s ordinary permission bits, special bits and
+complete `stat.S_IMODE` separately. The exact Ubuntu 24.04 root-owned mount
+binary may retain setuid; setgid, sticky, group/world-writable, non-root or
+substituted tools fail closed. Both unshare binaries, `apparmor_parser` and the
+bootstrap interpreter continue to require zero special bits. The child
+independently re-reads the mount binary bytes, size, owner, full mode,
+device/inode and version output before its first mount operation.
 
 The real Ubuntu mechanics probe uses a synthetic non-task fixture and a local
 metadata stub. It makes no Codex, MCP, model or provider call. Its receipt
@@ -573,6 +582,11 @@ Main-only run `38212445127` is retained as an immutable pre-namespace
 `host_authority_invalid` failure: the runner reported Landlock ABI 7 to the
 older V2 representation, privileged cleanup succeeded, and model, provider,
 MCP-tool and real-task counters remained zero. It is not qualification evidence.
+Main-only run `38246458005` is separately retained as an immutable
+pre-namespace mount-mode representation failure: V3 rejected the exact
+root-owned Ubuntu `/usr/bin/mount` mode `04755` before namespace creation.
+Privileged cleanup succeeded and all execution counters remained zero. V4 is
+the forward-only correction; neither failed run grants readiness.
 
 ## Platform acceptance matrix
 
