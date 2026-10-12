@@ -4254,7 +4254,7 @@ def test_main_publishes_exact_v7_child_failure_phase_without_success(
         70
         if failure_phase == "child_registration"
         else 71
-        if failure_phase == "private_root"
+        if failure_phase in {"private_root", "broker"}
         else 7
     )
     assert failure.payload.child_returncode == expected_returncode
