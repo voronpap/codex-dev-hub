@@ -613,6 +613,20 @@ as a broker error. Failure V6 retains the typed child frame, while V1-V9 success
 and V1-V5 failure evidence remain parseable. V10 remains diagnostic and does
 not grant readiness.
 
+V11 is a forward-only diagnostic contract for the next main-only native Linux
+qualification. It keeps the V10 execution policy unchanged and replaces the
+coarse broker failure with bounded, self-hashed child and host observations.
+The child identifies the exact metadata checkpoint and operation; the host
+identifies its fixed broker checkpoint and the canonical prefix of completed
+request outcomes. Both use fixed reason and errno categories and exclude raw
+exception text, paths and diagnostic streams. Failure V7 can retain both
+diagnostics when they describe the same broker phase. Historical V1-V10
+qualification and V1-V6 failure evidence remain parseable. V11 is diagnostic,
+binds both diagnostics to the exact profile and environment, keeps all four
+execution counters at zero, and does not grant readiness. Broker cleanup only
+removes the exact device/inode created by the broker; a foreign or substituted
+socket is preserved and fails closed for operator review.
+
 The real Ubuntu mechanics probe uses a synthetic non-task fixture and a local
 metadata stub. It makes no Codex, MCP, model or provider call. Its receipt
 therefore proves namespace/mount/Landlock/broker mechanics only. It explicitly

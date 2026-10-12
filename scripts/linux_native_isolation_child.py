@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -180,6 +181,34 @@ class BootstrapValidationFailure(ValueError):
         self.reason_code = reason_code
         self.expected_native_identity = expected_native_identity
         self.observed_native_identity = observed_native_identity
+
+
+class BrokerObservationFailure(ValueError):
+    def __init__(
+        self,
+        checkpoint: str,
+        operation: str,
+        reason_code: str,
+        errno_category: str | None = None,
+    ) -> None:
+        super().__init__(reason_code)
+        self.checkpoint = checkpoint
+        self.operation = operation
+        self.reason_code = reason_code
+        self.errno_category = errno_category
+
+
+def bounded_errno_category(error: OSError) -> str:
+    if error.errno is None:
+        return "other_os_error"
+    return {
+        errno.ECONNREFUSED: "connection_refused",
+        errno.ECONNRESET: "connection_reset",
+        errno.EPIPE: "broken_pipe",
+        errno.ETIMEDOUT: "timed_out",
+        errno.EACCES: "permission_denied",
+        errno.EPERM: "permission_denied",
+    }.get(error.errno, "other_os_error")
 
 
 def configured_overflow_id(path: Path) -> int:
@@ -447,31 +476,63 @@ def write_bootstrap_failure(
     os.close(descriptor)
 
 
-def runtime_failure_frame(stage: str) -> dict[str, object]:
+def runtime_failure_frame(
+    stage: str,
+    linux_isolation_profile_id: str,
+    environment_instance_id: str,
+    broker_failure: BrokerObservationFailure | None = None,
+) -> dict[str, object]:
+    if stage == "broker" and broker_failure is None:
+        broker_failure = BrokerObservationFailure(
+            "socket_wait", "internal", "broker_internal_failure"
+        )
     reason_code = {
         "private_root": "private_root_failed",
         "rlimits": "rlimits_failed",
         "capability_drop": "capability_drop_failed",
         "landlock": "landlock_failed",
         "negative_probes": "negative_probes_failed",
-        "broker": "broker_failed",
+        "broker": "broker_internal_failure",
         "result_assembly": "result_assembly_failed",
     }[stage]
+    if broker_failure is not None:
+        if stage != "broker":
+            raise ValueError("Broker diagnostic belongs to a non-broker stage")
+        reason_code = broker_failure.reason_code
     payload = {
-        "schema_version": 1,
-        "frame_kind": "linux_child_runtime_failure_v1",
+        "schema_version": 2,
+        "frame_kind": "linux_child_runtime_failure_v2",
+        "linux_isolation_profile_id": linux_isolation_profile_id,
+        "environment_instance_id": environment_instance_id,
         "stage": stage,
         "reason_code": reason_code,
+        "broker_checkpoint": broker_failure.checkpoint if broker_failure is not None else None,
+        "broker_operation": broker_failure.operation if broker_failure is not None else None,
+        "errno_category": broker_failure.errno_category if broker_failure is not None else None,
     }
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "child_runtime_failure_id": digest(canonical(payload)),
         "payload": payload,
     }
 
 
-def write_runtime_failure(descriptor: int, stage: str) -> None:
-    write_frame(descriptor, runtime_failure_frame(stage))
+def write_runtime_failure(
+    descriptor: int,
+    stage: str,
+    linux_isolation_profile_id: str,
+    environment_instance_id: str,
+    broker_failure: BrokerObservationFailure | None = None,
+) -> None:
+    write_frame(
+        descriptor,
+        runtime_failure_frame(
+            stage,
+            linux_isolation_profile_id,
+            environment_instance_id,
+            broker_failure,
+        ),
+    )
     os.close(descriptor)
 
 
@@ -738,31 +799,88 @@ def denied_dns() -> bool:
     return False
 
 
-def unix_http(socket_path: str, raw: bytes) -> tuple[bytes, tuple[int, int, int], int]:
+def unix_http(
+    checkpoint: str, socket_path: str, raw: bytes
+) -> tuple[bytes, tuple[int, int, int], int]:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(5)
     try:
-        client.connect(socket_path)
-        peer = struct.unpack(
-            "3i",
-            client.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")),
-        )
-        socket_info = os.lstat(socket_path)
-        parent_info = os.lstat(Path(socket_path).parent)
-        if (
-            not stat.S_ISSOCK(socket_info.st_mode)
-            or stat.S_IMODE(socket_info.st_mode) != 0o600
-            or stat.S_IMODE(parent_info.st_mode) != 0o700
-            or peer[0] != 0
-            or peer[1] != 1000
-        ):
-            raise ValueError("Child-side Ollama broker identity validation failed")
-        client.sendall(raw)
-        client.shutdown(socket.SHUT_WR)
+        try:
+            client.connect(socket_path)
+        except OSError as error:
+            raise BrokerObservationFailure(
+                checkpoint,
+                "connect",
+                "broker_connect_failed",
+                bounded_errno_category(error),
+            ) from None
+        try:
+            peer = struct.unpack(
+                "3i",
+                client.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")),
+            )
+        except OSError as error:
+            raise BrokerObservationFailure(
+                checkpoint,
+                "peer_credentials",
+                "broker_peer_credentials_failed",
+                bounded_errno_category(error),
+            ) from None
+        try:
+            socket_info = os.lstat(socket_path)
+            parent_info = os.lstat(Path(socket_path).parent)
+        except OSError as error:
+            raise BrokerObservationFailure(
+                checkpoint,
+                "path_stat",
+                "broker_socket_stat_failed",
+                bounded_errno_category(error),
+            ) from None
+        if not stat.S_ISSOCK(socket_info.st_mode):
+            raise BrokerObservationFailure(checkpoint, "socket_type", "broker_socket_type_invalid")
+        if stat.S_IMODE(socket_info.st_mode) != 0o600:
+            raise BrokerObservationFailure(checkpoint, "socket_mode", "broker_socket_mode_invalid")
+        if stat.S_IMODE(parent_info.st_mode) != 0o700:
+            raise BrokerObservationFailure(checkpoint, "parent_mode", "broker_parent_mode_invalid")
+        if peer[0] != 0:
+            raise BrokerObservationFailure(checkpoint, "peer_pid", "broker_peer_pid_invalid")
+        if peer[1] != 1000:
+            raise BrokerObservationFailure(checkpoint, "peer_uid", "broker_peer_uid_invalid")
+        try:
+            client.sendall(raw)
+        except OSError as error:
+            raise BrokerObservationFailure(
+                checkpoint,
+                "send",
+                "broker_send_failed",
+                bounded_errno_category(error),
+            ) from None
+        try:
+            client.shutdown(socket.SHUT_WR)
+        except OSError as error:
+            raise BrokerObservationFailure(
+                checkpoint,
+                "shutdown_write",
+                "broker_shutdown_failed",
+                bounded_errno_category(error),
+            ) from None
         chunks = bytearray()
-        while chunk := client.recv(64 * 1024):
+        while True:
+            try:
+                chunk = client.recv(64 * 1024)
+            except OSError as error:
+                raise BrokerObservationFailure(
+                    checkpoint,
+                    "receive",
+                    "broker_receive_failed",
+                    bounded_errno_category(error),
+                ) from None
+            if not chunk:
+                break
             if len(chunks) + len(chunk) > 4 * 1024**2:
-                raise ValueError("Broker response exceeded the child limit")
+                raise BrokerObservationFailure(
+                    checkpoint, "response_bound", "broker_response_bound_exceeded"
+                )
             chunks.extend(chunk)
         return bytes(chunks), peer, socket_info.st_ino
     finally:
@@ -775,35 +893,58 @@ def broker_observations() -> dict[str, bool | str | int]:
     while not Path(socket_path).exists() and time.monotonic() < deadline:
         time.sleep(0.05)
     if not Path(socket_path).exists():
-        raise ValueError("Ollama broker socket did not appear")
+        raise BrokerObservationFailure("socket_wait", "wait", "broker_socket_missing")
     version, version_peer, socket_inode = unix_http(
+        "version",
         socket_path,
         b"GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:11434\r\n\r\n",
     )
+    if not version.startswith(b"HTTP/1.1 200"):
+        raise BrokerObservationFailure(
+            "version", "response_status", "broker_response_status_invalid"
+        )
     tags, tags_peer, tags_inode = unix_http(
+        "tags",
         socket_path,
         b"GET /api/tags HTTP/1.1\r\nHost: 127.0.0.1:11434\r\n\r\n",
     )
+    if not tags.startswith(b"HTTP/1.1 200"):
+        raise BrokerObservationFailure("tags", "response_status", "broker_response_status_invalid")
     show_body = b'{"model":"qwen2.5:14b-instruct"}'
     show, show_peer, show_inode = unix_http(
+        "show",
         socket_path,
         b"POST /api/show HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nContent-Length: "
         + str(len(show_body)).encode("ascii")
         + b"\r\n\r\n"
         + show_body,
     )
+    if not show.startswith(b"HTTP/1.1 200"):
+        raise BrokerObservationFailure("show", "response_status", "broker_response_status_invalid")
     generate, generate_peer, generate_inode = unix_http(
+        "generate_denial",
         socket_path,
         b"POST /api/generate HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nContent-Length: 2\r\n\r\n{}",
     )
+    if not generate.startswith(b"HTTP/1.1 403"):
+        raise BrokerObservationFailure(
+            "generate_denial", "response_status", "broker_response_status_invalid"
+        )
     oversized, oversized_peer, oversized_inode = unix_http(
+        "oversized_denial",
         socket_path,
         b"GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nX: " + b"a" * (70 * 1024),
     )
+    if not oversized.startswith(b"HTTP/1.1 403"):
+        raise BrokerObservationFailure(
+            "oversized_denial", "response_status", "broker_response_status_invalid"
+        )
     peers = (version_peer, tags_peer, show_peer, generate_peer, oversized_peer)
     inodes = (socket_inode, tags_inode, show_inode, generate_inode, oversized_inode)
     if len(set(inodes)) != 1:
-        raise ValueError("Ollama broker socket identity changed during qualification")
+        raise BrokerObservationFailure(
+            "inode_stability", "inode_compare", "broker_inode_substitution"
+        )
     peer_pid_translation = all(peer[0] == 0 for peer in peers)
     peer_uid_translation = all(peer[1] == 1000 for peer in peers)
     return {
@@ -964,8 +1105,15 @@ def run_post_registration(
         }
         write_frame(args.result_fd, observed)
         os.close(args.result_fd)
-    except BaseException:
-        write_runtime_failure(args.result_fd, stage)
+    except BaseException as error:
+        broker_failure = error if isinstance(error, BrokerObservationFailure) else None
+        write_runtime_failure(
+            args.result_fd,
+            stage,
+            args.linux_isolation_profile_id,
+            args.environment_instance_id,
+            broker_failure,
+        )
         raise SystemExit(71) from None
 
 
@@ -990,6 +1138,8 @@ def main() -> None:
     parser.add_argument("--expected-landlock-mask", type=int, required=True)
     parser.add_argument("--expected-rlimits-sha256", required=True)
     parser.add_argument("--expected-apparmor-current", required=True)
+    parser.add_argument("--linux-isolation-profile-id", required=True)
+    parser.add_argument("--environment-instance-id", required=True)
     args = parser.parse_args()
 
     if sys.flags.isolated != 1 or sys.flags.dont_write_bytecode != 1:
