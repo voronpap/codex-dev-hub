@@ -564,6 +564,26 @@ preserves V2's record of whether the child process started and its observed exit
 and exact bounded retained/observed stdout and stderr counts and hashes. It never
 stores raw diagnostic streams.
 
+V8 makes the mount authority observation staged and fail-closed. The child
+first verifies the non-symlink locator, bytes, size, complete mode, projected
+root ownership and device/inode without executing the tool. It then runs
+`mount --version` with the same profile-bound `LANG`, `LC_ALL` and `PATH` used
+by the host seal, compares the exact output hash, and revalidates every static
+field afterward so a substitution during execution cannot register. Child
+registration V3 records each completed stage. Bounded bootstrap-failure V2
+uses fixed reason codes for pre-execution path/content/mode/identity failures,
+version environment/execution/exit/hash failures and post-execution
+substitution; it still cannot include raw paths, tracebacks or diagnostic
+streams. Historical V1-V7 contracts remain parseable.
+
+Main-only run `38274945632` on merge commit `172f75d9f8114b89d6ef642eb2886d030e4cde9a`
+proved that V7 owner projection passed and then returned its coarse
+`mount_authority_mismatch` failure. Because V7 did not distinguish the
+remaining static, version-execution and post-execution comparisons, the exact
+field is not claimed. The retained additive record is
+`docs/evidence/linux-native-isolation/run-38274945632.json`; cleanup passed and
+all execution counters remained zero.
+
 The real Ubuntu mechanics probe uses a synthetic non-task fixture and a local
 metadata stub. It makes no Codex, MCP, model or provider call. Its receipt
 therefore proves namespace/mount/Landlock/broker mechanics only. It explicitly

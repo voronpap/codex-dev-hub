@@ -34,21 +34,22 @@ from devhub.linux_isolation import (
     LinuxAppArmorAuthorityV2,
     LinuxAppArmorParserAuthorityV2,
     LinuxBrokerExpectationV1,
-    LinuxChildBootstrapFailureV1,
-    LinuxChildRegistrationV2,
+    LinuxChildBootstrapFailureV2,
+    LinuxChildRegistrationPayloadV3,
+    LinuxChildRegistrationV3,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV7,
-    LinuxIsolationEvidenceV7,
-    LinuxIsolationFailurePayloadV3,
-    LinuxIsolationFailureV3,
-    LinuxIsolationObservationV7,
-    LinuxIsolationProfilePayloadV7,
-    LinuxIsolationProfileV7,
-    LinuxIsolationReceiptPayloadV7,
-    LinuxIsolationReceiptV7,
+    LinuxIsolationEvidencePayloadV8,
+    LinuxIsolationEvidenceV8,
+    LinuxIsolationFailurePayloadV4,
+    LinuxIsolationFailureV4,
+    LinuxIsolationObservationV8,
+    LinuxIsolationProfilePayloadV8,
+    LinuxIsolationProfileV8,
+    LinuxIsolationReceiptPayloadV8,
+    LinuxIsolationReceiptV8,
     LinuxMountAuthorityV1,
     LinuxNamespaceOwnerProjectionExpectationV1,
     LinuxNativePathIdentityV1,
@@ -56,6 +57,7 @@ from devhub.linux_isolation import (
     LinuxSyntheticUpstreamObservationV1,
     LinuxToolAuthorityV1,
     LinuxToolAuthorityV4,
+    LinuxToolVersionEnvironmentV1,
     enforced_landlock_abi,
     landlock_handled_access,
 )
@@ -68,6 +70,7 @@ LANDLOCK_CREATE_RULESET_VERSION = 1
 SYS_LANDLOCK_CREATE_RULESET_X86_64 = 444
 _COMMIT = re.compile(r"^[a-f0-9]{40}$")
 LINUX_SIGKILL = 9
+MOUNT_VERSION_ENVIRONMENT = LinuxToolVersionEnvironmentV1()
 ToolName = Literal["unshare", "mount"]
 DirectoryRole = Literal["fixture", "state", "output", "broker", "scratch_root"]
 FailurePhase = Literal[
@@ -220,24 +223,47 @@ def file_authority(path: Path, name: ToolName) -> LinuxToolAuthorityV1:
 def full_mode_authority(path: Path, name: ToolName) -> LinuxToolAuthorityV4:
     if path.is_symlink() or not path.is_file() or path.resolve(strict=True) != path:
         raise ValueError(f"{name} authority must be one non-symlink regular file")
-    info = path.stat()
-    complete_mode = stat.S_IMODE(info.st_mode)
+    before_info = path.stat()
+    before_mode = stat.S_IMODE(before_info.st_mode)
+    before_sha256 = file_sha256(path)
     completed = subprocess.run(
-        [str(path), "--version"], capture_output=True, check=False, timeout=10
+        [str(path), "--version"],
+        capture_output=True,
+        check=False,
+        timeout=10,
+        env={
+            "LANG": MOUNT_VERSION_ENVIRONMENT.lang,
+            "LC_ALL": MOUNT_VERSION_ENVIRONMENT.lc_all,
+            "PATH": MOUNT_VERSION_ENVIRONMENT.path,
+        },
     )
     if completed.returncode != 0:
         raise ValueError(f"{name} version observation failed")
+    if path.is_symlink() or not path.is_file() or path.resolve(strict=True) != path:
+        raise ValueError(f"{name} authority changed during version observation")
+    after_info = path.stat()
+    after_mode = stat.S_IMODE(after_info.st_mode)
+    after_sha256 = file_sha256(path)
+    if (
+        native_identity(before_info) != native_identity(after_info)
+        or before_info.st_size != after_info.st_size
+        or before_info.st_uid != after_info.st_uid
+        or before_info.st_gid != after_info.st_gid
+        or before_mode != after_mode
+        or before_sha256 != after_sha256
+    ):
+        raise ValueError(f"{name} authority changed during version observation")
     return LinuxToolAuthorityV4(
         name=name,
         locator=str(path),
-        sha256=file_sha256(path),
-        size=info.st_size,
-        owner_uid=info.st_uid,
-        owner_gid=info.st_gid,
-        permission_bits=f"0{complete_mode & 0o777:03o}",
-        special_bits=f"0{complete_mode & 0o7000:04o}",
-        full_mode=f"0{complete_mode:04o}",
-        native_identity=native_identity(info),
+        sha256=after_sha256,
+        size=after_info.st_size,
+        owner_uid=after_info.st_uid,
+        owner_gid=after_info.st_gid,
+        permission_bits=f"0{after_mode & 0o777:03o}",
+        special_bits=f"0{after_mode & 0o7000:04o}",
+        full_mode=f"0{after_mode:04o}",
+        native_identity=native_identity(after_info),
         version_output_sha256=sha256(completed.stdout + b"\n---stderr---\n" + completed.stderr),
     )
 
@@ -324,7 +350,7 @@ def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
 
 
 def revalidate_profile_sources(
-    profile: LinuxIsolationProfileV7, child_script: Path, bundle: Path
+    profile: LinuxIsolationProfileV8, child_script: Path, bundle: Path
 ) -> None:
     revalidate_tool(profile.payload.system_unshare)
     revalidate_tool(profile.payload.unshare)
@@ -562,7 +588,7 @@ class ProbeProcessCapture:
         self.process_started = False
         self.returncode: int | None = None
         self.cleanup_failed = False
-        self.child_bootstrap_failure: LinuxChildBootstrapFailureV1 | None = None
+        self.child_bootstrap_failure: LinuxChildBootstrapFailureV2 | None = None
 
 
 class ProbePhaseFailure(ValueError):
@@ -579,7 +605,7 @@ class ChildRegistrationFailure(ProbePhaseFailure):
 
 
 class ChildBootstrapFailure(ChildRegistrationFailure):
-    def __init__(self, frame: LinuxChildBootstrapFailureV1) -> None:
+    def __init__(self, frame: LinuxChildBootstrapFailureV2) -> None:
         super().__init__("Isolation child reported a bounded bootstrap failure")
         self.frame = frame
 
@@ -680,7 +706,7 @@ def stub_ollama(
 
 
 def namespace_command(
-    profile: LinuxIsolationProfileV7,
+    profile: LinuxIsolationProfileV8,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -723,6 +749,12 @@ def namespace_command(
             sort_keys=True,
             separators=(",", ":"),
         ),
+        "--expected-mount-version-environment",
+        json.dumps(
+            profile.payload.mount_version_environment.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
         "--expected-overflow-uid",
         str(profile.payload.mount_owner_projection.overflow_uid),
         "--expected-overflow-gid",
@@ -748,8 +780,18 @@ def namespace_command(
     ]
 
 
+def validate_registered_observation(
+    raw_observation: dict[str, object],
+    registered: LinuxChildRegistrationPayloadV3,
+) -> LinuxIsolationObservationV8:
+    observation = LinuxIsolationObservationV8.model_validate(raw_observation)
+    if observation.mount_authority != registered.mount_authority:
+        raise ValueError("Isolation child result/registration mount authority mismatch")
+    return observation
+
+
 def run_probe(
-    profile: LinuxIsolationProfileV7,
+    profile: LinuxIsolationProfileV8,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -758,7 +800,7 @@ def run_probe(
     broker_dir: Path,
     stub_server: socket.socket,
     capture: ProbeProcessCapture,
-) -> LinuxIsolationObservationV7:
+) -> LinuxIsolationObservationV8:
     owned_fds: set[int] = set()
     process: subprocess.Popen[bytes] | None = None
     collectors: list[threading.Thread] = []
@@ -835,10 +877,10 @@ def run_probe(
         if (
             isinstance(raw_registration, dict)
             and isinstance(raw_registration.get("payload"), dict)
-            and raw_registration["payload"].get("frame_kind") == "linux_child_bootstrap_failure_v1"
+            and raw_registration["payload"].get("frame_kind") == "linux_child_bootstrap_failure_v2"
         ):
             try:
-                bootstrap_failure = LinuxChildBootstrapFailureV1.model_validate(raw_registration)
+                bootstrap_failure = LinuxChildBootstrapFailureV2.model_validate(raw_registration)
             except ValueError as error:
                 raise ChildRegistrationFailure(
                     "Isolation child bootstrap failure frame is invalid"
@@ -846,7 +888,7 @@ def run_probe(
             capture.child_bootstrap_failure = bootstrap_failure
             raise ChildBootstrapFailure(bootstrap_failure)
         try:
-            registration = LinuxChildRegistrationV2.model_validate(raw_registration)
+            registration = LinuxChildRegistrationV3.model_validate(raw_registration)
         except ValueError as error:
             raise ChildRegistrationFailure(
                 "Isolation child registration frame is invalid"
@@ -930,7 +972,7 @@ def run_probe(
         ).model_dump(mode="json")
         raw_observation["descendant_cleanup_passed"] = True
         raw_observation["cleanup_failures"] = []
-        observation = LinuxIsolationObservationV7.model_validate(raw_observation)
+        observation = validate_registered_observation(raw_observation, registered)
         if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
             raise ValueError("Isolation launcher process group remained after process exit")
         revalidate_profile_sources(profile, child_script, bundle)
@@ -1072,7 +1114,7 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV7 | None = None
+    profile: LinuxIsolationProfileV8 | None = None
     capture = ProbeProcessCapture()
     phase: FailurePhase = "host_inspection"
     cleanup_succeeded = False
@@ -1134,8 +1176,8 @@ def main() -> None:
             )
             stub_server = bind_stub_ollama(port=0)
             synthetic_upstream = synthetic_upstream_authority(stub_server)
-            profile = LinuxIsolationProfileV7.create(
-                LinuxIsolationProfilePayloadV7(
+            profile = LinuxIsolationProfileV8.create(
+                LinuxIsolationProfilePayloadV8(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
                     native_bundle_id=bundle_id,
@@ -1152,6 +1194,7 @@ def main() -> None:
                     broker=broker_expectation,
                     synthetic_upstream=synthetic_upstream,
                     mount_owner_projection=mount_owner_projection,
+                    mount_version_environment=MOUNT_VERSION_ENVIRONMENT,
                     landlock_handled_access=landlock_handled_access(host.enforced_landlock_abi),
                 )
             )
@@ -1178,15 +1221,15 @@ def main() -> None:
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV7.create(
-            LinuxIsolationReceiptPayloadV7(
+        receipt = LinuxIsolationReceiptV8.create(
+            LinuxIsolationReceiptPayloadV8(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV7.create(
-            LinuxIsolationEvidencePayloadV7(
+        evidence = LinuxIsolationEvidenceV8.create(
+            LinuxIsolationEvidencePayloadV8(
                 profile=profile,
                 receipt=receipt,
                 child_stdout_retained_sha256=sha256(bytes(capture.stdout.data)),
@@ -1214,8 +1257,8 @@ def main() -> None:
             scratch is not None and not scratch.exists() and not capture.cleanup_failed
         )
         reason_code, observed_errno = failure_reason(phase, final_error)
-        failure = LinuxIsolationFailureV3.create(
-            LinuxIsolationFailurePayloadV3(
+        failure = LinuxIsolationFailureV4.create(
+            LinuxIsolationFailurePayloadV4(
                 linux_isolation_profile_id=(
                     profile.linux_isolation_profile_id if profile is not None else None
                 ),
