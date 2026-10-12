@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import socket
+import stat
 import subprocess
 import threading
 from pathlib import Path
@@ -1761,6 +1762,10 @@ def test_file_authority_rejects_relative_locator_and_missing_native_identity() -
     raw["locator"] = "usr/bin/python3"
     with pytest.raises(ValidationError):
         LinuxFileAuthorityV1.model_validate(raw)
+    raw = plain_file().model_dump(mode="python")
+    del raw["native_identity"]
+    with pytest.raises(ValidationError):
+        LinuxFileAuthorityV1.model_validate(raw)
 
 
 @pytest.mark.parametrize(
@@ -1806,17 +1811,32 @@ def test_child_revalidates_complete_mount_authority_before_use(
 
     monkeypatch.setattr(PROBE.subprocess, "run", version)
     monkeypatch.setattr(CHILD.subprocess, "run", version)
-    expected = PROBE.full_mode_authority(candidate, "mount")
-    encoded = json.dumps(expected.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    info = candidate.stat()
+    complete_mode = stat.S_IMODE(info.st_mode)
+    expected = {
+        "schema_version": 4,
+        "name": "mount",
+        "locator": str(candidate),
+        "sha256": PROBE.file_sha256(candidate),
+        "size": info.st_size,
+        "owner_uid": info.st_uid,
+        "owner_gid": info.st_gid,
+        "permission_bits": f"0{complete_mode & 0o777:03o}",
+        "special_bits": f"0{complete_mode & 0o7000:04o}",
+        "full_mode": f"0{complete_mode:04o}",
+        "native_identity": {"device": info.st_dev, "inode": info.st_ino},
+        "version_output_sha256": PROBE.sha256(b"mount version\n\n---stderr---\n"),
+    }
+    encoded = json.dumps(expected, sort_keys=True, separators=(",", ":"))
     CHILD.validate_mount_authority(candidate, encoded)
 
     candidate.write_bytes(b"mount-v2")
     with pytest.raises(ValueError, match="changed before the first mount"):
         CHILD.validate_mount_authority(candidate, encoded)
-    raw = plain_file().model_dump(mode="python")
-    del raw["native_identity"]
-    with pytest.raises(ValidationError):
-        LinuxFileAuthorityV1.model_validate(raw)
+    candidate.write_bytes(b"mount-v1")
+    candidate.chmod(0o700)
+    with pytest.raises(ValueError, match="changed before the first mount"):
+        CHILD.validate_mount_authority(candidate, encoded)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Native device/inode authority is Linux-only")
