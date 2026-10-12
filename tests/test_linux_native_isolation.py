@@ -29,30 +29,38 @@ from devhub.linux_isolation import (
     LinuxBrokerObservationV1,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
-    LinuxHostAuthorityV2,
+    LinuxHostAuthorityV3,
     LinuxHostCleanupObservationV1,
     LinuxIsolationEvidencePayloadV1,
     LinuxIsolationEvidencePayloadV2,
+    LinuxIsolationEvidencePayloadV3,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
+    LinuxIsolationEvidenceV3,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationObservationV1,
     LinuxIsolationObservationV2,
+    LinuxIsolationObservationV3,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
+    LinuxIsolationProfilePayloadV3,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
-    LinuxIsolationQualificationPayloadV2,
-    LinuxIsolationQualificationV2,
+    LinuxIsolationProfileV3,
+    LinuxIsolationQualificationPayloadV3,
+    LinuxIsolationQualificationV3,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
+    LinuxIsolationReceiptPayloadV3,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
+    LinuxIsolationReceiptV3,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
     LinuxNativePathIdentityV1,
     LinuxRlimitsV1,
     LinuxToolAuthorityV1,
+    enforced_landlock_abi,
     landlock_handled_access,
     observed_private_mount_targets,
 )
@@ -208,7 +216,7 @@ def broker() -> LinuxBrokerExpectationV1:
     )
 
 
-def profile_payload() -> LinuxIsolationProfilePayloadV2:
+def profile_payload() -> LinuxIsolationProfilePayloadV3:
     roles: tuple[
         Literal["broker"],
         Literal["fixture"],
@@ -218,7 +226,7 @@ def profile_payload() -> LinuxIsolationProfilePayloadV2:
     ] = ("broker", "fixture", "output", "scratch_root", "state")
     sources = tuple(directory(role, index) for index, role in enumerate(roles, 2))
     source_hashes = {item.role: digest(canonical(item.model_dump(mode="json"))) for item in sources}
-    return LinuxIsolationProfilePayloadV2(
+    return LinuxIsolationProfilePayloadV3(
         environment_instance_id=ENVIRONMENT,
         implementation_commit=COMMIT,
         native_bundle_id=H,
@@ -226,12 +234,13 @@ def profile_payload() -> LinuxIsolationProfilePayloadV2:
         bootstrap_python=plain_file(),
         probe_sha256=H,
         child_probe_sha256=H,
-        host=LinuxHostAuthorityV2(
+        host=LinuxHostAuthorityV3(
             os_release_sha256=H,
             kernel_release="6.8.0-1018-azure",
             kernel_version_sha256=H,
             apparmor=apparmor(),
-            landlock_abi=6,
+            kernel_landlock_abi=7,
+            enforced_landlock_abi=6,
             delegated_cgroup_available=False,
         ),
         system_unshare=tool("unshare", index=20),
@@ -281,12 +290,13 @@ def namespace_observation() -> LinuxNamespaceObservationV1:
     )
 
 
-def observation() -> LinuxIsolationObservationV2:
-    return LinuxIsolationObservationV2(
+def observation() -> LinuxIsolationObservationV3:
+    return LinuxIsolationObservationV3(
         namespaces=namespace_observation(),
         mount_table_sha256=H,
         observed_mount_targets=MOUNT_TARGETS,
-        landlock_abi=6,
+        kernel_landlock_abi=7,
+        enforced_landlock_abi=6,
         landlock_handled_access=landlock_handled_access(6),
         landlock_rule_targets=RULE_TARGETS,
         landlock_ruleset_sha256=H,
@@ -296,9 +306,9 @@ def observation() -> LinuxIsolationObservationV2:
 
 
 def evidence_payload(
-    profile: LinuxIsolationProfileV2, receipt: LinuxIsolationReceiptV2
-) -> LinuxIsolationEvidencePayloadV2:
-    return LinuxIsolationEvidencePayloadV2(
+    profile: LinuxIsolationProfileV3, receipt: LinuxIsolationReceiptV3
+) -> LinuxIsolationEvidencePayloadV3:
+    return LinuxIsolationEvidencePayloadV3(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -311,16 +321,35 @@ def evidence_payload(
     )
 
 
+def historical_v2_profile_payload() -> LinuxIsolationProfilePayloadV2:
+    raw = profile_payload().model_dump(mode="python")
+    raw["schema_version"] = 2
+    raw["profile_kind"] = "linux_native_isolation_v2"
+    host = raw["host"]
+    host["schema_version"] = 1
+    host["landlock_abi"] = host.pop("enforced_landlock_abi")
+    host.pop("kernel_landlock_abi")
+    return LinuxIsolationProfilePayloadV2.model_validate(raw)
+
+
+def historical_v2_observation() -> LinuxIsolationObservationV2:
+    raw = observation().model_dump(mode="python")
+    raw["schema_version"] = 2
+    raw["landlock_abi"] = raw.pop("enforced_landlock_abi")
+    raw.pop("kernel_landlock_abi")
+    return LinuxIsolationObservationV2.model_validate(raw)
+
+
 def test_linux_profile_receipt_and_composite_are_self_hashed_and_non_ready() -> None:
-    profile = LinuxIsolationProfileV2.create(profile_payload())
-    receipt = LinuxIsolationReceiptV2.create(
-        LinuxIsolationReceiptPayloadV2(
+    profile = LinuxIsolationProfileV3.create(profile_payload())
+    receipt = LinuxIsolationReceiptV3.create(
+        LinuxIsolationReceiptPayloadV3(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
             observation=observation(),
         )
     )
-    evidence = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
+    evidence = LinuxIsolationEvidenceV3.create(evidence_payload(profile, receipt))
     assert profile.model_validate_json(profile.model_dump_json()) == profile
     assert receipt.model_validate_json(receipt.model_dump_json()) == receipt
     assert evidence.model_validate_json(evidence.model_dump_json()) == evidence
@@ -336,7 +365,7 @@ def test_linux_profile_receipt_and_composite_are_self_hashed_and_non_ready() -> 
 
 
 def test_historical_v1_contracts_remain_strictly_parseable_and_canonical() -> None:
-    raw_profile = profile_payload().model_dump(mode="python")
+    raw_profile = historical_v2_profile_payload().model_dump(mode="python")
     raw_profile["schema_version"] = 1
     raw_profile["profile_kind"] = "linux_native_isolation_v1"
     raw_profile["unshare"] = raw_profile.pop("system_unshare")
@@ -344,7 +373,7 @@ def test_historical_v1_contracts_remain_strictly_parseable_and_canonical() -> No
     v1_payload = LinuxIsolationProfilePayloadV1.model_validate(raw_profile)
     v1_profile = LinuxIsolationProfileV1.create(v1_payload)
 
-    raw_observation = observation().model_dump(mode="python")
+    raw_observation = historical_v2_observation().model_dump(mode="python")
     raw_observation["schema_version"] = 1
     raw_observation.pop("apparmor_current_profile")
     v1_observation = LinuxIsolationObservationV1.model_validate(raw_observation)
@@ -374,10 +403,38 @@ def test_historical_v1_contracts_remain_strictly_parseable_and_canonical() -> No
     assert b"system_unshare" not in encoded
 
 
-def test_linux_composite_rejects_cross_environment_and_profile_observation_mismatch() -> None:
-    profile = LinuxIsolationProfileV2.create(profile_payload())
-    wrong_environment = LinuxIsolationReceiptV2.create(
+def test_historical_v2_contracts_remain_strictly_parseable_and_canonical() -> None:
+    profile = LinuxIsolationProfileV2.create(historical_v2_profile_payload())
+    receipt = LinuxIsolationReceiptV2.create(
         LinuxIsolationReceiptPayloadV2(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=historical_v2_observation(),
+        )
+    )
+    evidence = LinuxIsolationEvidenceV2.create(
+        LinuxIsolationEvidencePayloadV2(
+            profile=profile,
+            receipt=receipt,
+            child_stdout_retained_sha256=H,
+            child_stderr_retained_sha256=H,
+            child_stdout_retained_bytes=0,
+            child_stderr_retained_bytes=0,
+            child_stdout_truncated=False,
+            child_stderr_truncated=False,
+            cleanup=LinuxHostCleanupObservationV1(),
+        )
+    )
+    encoded = canonical(evidence.model_dump(mode="json"))
+    assert LinuxIsolationEvidenceV2.model_validate_json(encoded) == evidence
+    assert b"kernel_landlock_abi" not in encoded
+    assert b"enforced_landlock_abi" not in encoded
+
+
+def test_linux_composite_rejects_cross_environment_and_profile_observation_mismatch() -> None:
+    profile = LinuxIsolationProfileV3.create(profile_payload())
+    wrong_environment = LinuxIsolationReceiptV3.create(
+        LinuxIsolationReceiptPayloadV3(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id="a" * 32,
             observation=observation(),
@@ -386,52 +443,49 @@ def test_linux_composite_rejects_cross_environment_and_profile_observation_misma
     with pytest.raises(ValidationError, match="authority differ"):
         evidence_payload(profile, wrong_environment)
     changed = observation().model_copy(update={"landlock_handled_access": 1})
-    receipt = LinuxIsolationReceiptV2.create(
-        LinuxIsolationReceiptPayloadV2(
+    with pytest.raises(ValidationError, match="Landlock mask"):
+        LinuxIsolationReceiptPayloadV3(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
             observation=changed,
         )
-    )
-    with pytest.raises(ValidationError, match="Landlock mask"):
-        evidence_payload(profile, receipt)
 
 
 def test_profile_rejects_tampering_open_bags_and_weakened_authority() -> None:
-    profile = LinuxIsolationProfileV2.create(profile_payload()).model_dump(mode="json")
+    profile = LinuxIsolationProfileV3.create(profile_payload()).model_dump(mode="json")
     profile["linux_isolation_profile_id"] = "f" * 64
     with pytest.raises(ValidationError, match="profile hash mismatch"):
-        LinuxIsolationProfileV2.model_validate_json(json.dumps(profile))
+        LinuxIsolationProfileV3.model_validate_json(json.dumps(profile))
     raw = profile_payload().model_dump(mode="python") | {"unexpected_authority": True}
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        LinuxIsolationProfilePayloadV2.model_validate(raw)
+        LinuxIsolationProfilePayloadV3.model_validate(raw)
     raw = profile_payload().model_dump(mode="python")
     raw["mounts"] = tuple(reversed(raw["mounts"]))
     with pytest.raises(ValidationError, match="sorted and unique"):
-        LinuxIsolationProfilePayloadV2.model_validate(raw)
+        LinuxIsolationProfilePayloadV3.model_validate(raw)
     raw = profile_payload().model_dump(mode="python")
     raw["landlock_handled_access"] = 1
     with pytest.raises(ValidationError, match="exact reviewed host ABI"):
-        LinuxIsolationProfilePayloadV2.model_validate(raw)
+        LinuxIsolationProfilePayloadV3.model_validate(raw)
     raw = profile_payload().model_dump(mode="python")
     raw["host"]["apparmor_userns_restriction"] = 0
     with pytest.raises(ValidationError, match="literal_error|Input should be 1"):
-        LinuxIsolationProfilePayloadV2.model_validate(raw)
+        LinuxIsolationProfilePayloadV3.model_validate(raw)
     raw = profile_payload().model_dump(mode="python")
     raw["host"]["apparmor"]["installed_profile"]["owner_uid"] = 1000
     with pytest.raises(ValidationError, match="Installed AppArmor profile"):
-        LinuxIsolationProfilePayloadV2.model_validate(raw)
+        LinuxIsolationProfilePayloadV3.model_validate(raw)
     raw = profile_payload().model_dump(mode="python")
     raw["unshare"]["native_identity"] = raw["system_unshare"]["native_identity"]
     with pytest.raises(ValidationError, match="Private unshare"):
-        LinuxIsolationProfilePayloadV2.model_validate(raw)
+        LinuxIsolationProfilePayloadV3.model_validate(raw)
 
 
 def test_observation_requires_exact_child_apparmor_attachment() -> None:
     raw = observation().model_dump(mode="python")
     raw["apparmor_current_profile"] = "unconfined"
     with pytest.raises(ValidationError, match="literal_error"):
-        LinuxIsolationObservationV2.model_validate(raw)
+        LinuxIsolationObservationV3.model_validate(raw)
 
 
 def test_apparmor_authority_rejects_source_snapshot_and_parser_substitution() -> None:
@@ -483,15 +537,15 @@ def test_apparmor_authority_rejects_unloaded_or_wrong_mode_profile(tmp_path: Pat
 
 
 def test_cleanup_receipt_is_required_for_final_v2_qualification() -> None:
-    profile = LinuxIsolationProfileV2.create(profile_payload())
-    receipt = LinuxIsolationReceiptV2.create(
-        LinuxIsolationReceiptPayloadV2(
+    profile = LinuxIsolationProfileV3.create(profile_payload())
+    receipt = LinuxIsolationReceiptV3.create(
+        LinuxIsolationReceiptPayloadV3(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
             observation=observation(),
         )
     )
-    mechanics = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
+    mechanics = LinuxIsolationEvidenceV3.create(evidence_payload(profile, receipt))
     authority_sha = digest(canonical(profile.payload.host.apparmor.model_dump(mode="json")))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
@@ -502,8 +556,8 @@ def test_cleanup_receipt_is_required_for_final_v2_qualification() -> None:
             apparmor_authority_sha256=authority_sha,
         )
     )
-    qualification = LinuxIsolationQualificationV2.create(
-        LinuxIsolationQualificationPayloadV2(mechanics=mechanics, apparmor_cleanup=cleanup)
+    qualification = LinuxIsolationQualificationV3.create(
+        LinuxIsolationQualificationPayloadV3(mechanics=mechanics, apparmor_cleanup=cleanup)
     )
     assert qualification.payload.package_readiness is False
     forged = cleanup.model_dump(mode="python")
@@ -512,7 +566,7 @@ def test_cleanup_receipt_is_required_for_final_v2_qualification() -> None:
         LinuxAppArmorCleanupPayloadV1.model_validate(forged["payload"])
     )
     with pytest.raises(ValidationError, match="authority differ"):
-        LinuxIsolationQualificationPayloadV2(
+        LinuxIsolationQualificationPayloadV3(
             mechanics=mechanics,
             apparmor_cleanup=forged_cleanup,
         )
@@ -982,15 +1036,15 @@ def production_cleanup_retry_authority(
         )
     ]
     loaded = [LINUX_APPARMOR_CURRENT]
-    profile = LinuxIsolationProfileV2.create(profile_payload())
-    receipt = LinuxIsolationReceiptV2.create(
-        LinuxIsolationReceiptPayloadV2(
+    profile = LinuxIsolationProfileV3.create(profile_payload())
+    receipt = LinuxIsolationReceiptV3.create(
+        LinuxIsolationReceiptPayloadV3(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
             observation=observation(),
         )
     )
-    mechanics = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
+    mechanics = LinuxIsolationEvidenceV3.create(evidence_payload(profile, receipt))
     mechanics_path.write_text(mechanics.model_dump_json(), encoding="utf-8")
     snapshot_sha = digest((LINUX_APPARMOR_CURRENT + "\n").encode())
 
@@ -1063,7 +1117,7 @@ def test_production_cleanup_retry_after_unload_journal_crash_writes_receipt(
 
     APPARMOR_MANAGER.cleanup(state_path, mechanics_path, output, runner=unload)
     cleanup = LinuxAppArmorCleanupReceiptV1.model_validate_json(output.read_bytes())
-    mechanics = LinuxIsolationEvidenceV2.model_validate_json(mechanics_path.read_bytes())
+    mechanics = LinuxIsolationEvidenceV3.model_validate_json(mechanics_path.read_bytes())
     assert cleanup.payload.linux_isolation_profile_id == (
         mechanics.payload.profile.linux_isolation_profile_id
     )
@@ -1123,15 +1177,15 @@ def test_cleanup_rejects_complete_state_substitution_before_mutation(
     monkeypatch: pytest.MonkeyPatch,
     updates: dict[str, str],
 ) -> None:
-    profile = LinuxIsolationProfileV2.create(profile_payload())
-    receipt = LinuxIsolationReceiptV2.create(
-        LinuxIsolationReceiptPayloadV2(
+    profile = LinuxIsolationProfileV3.create(profile_payload())
+    receipt = LinuxIsolationReceiptV3.create(
+        LinuxIsolationReceiptPayloadV3(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
             observation=observation(),
         )
     )
-    mechanics = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
+    mechanics = LinuxIsolationEvidenceV3.create(evidence_payload(profile, receipt))
     mechanics_path = tmp_path / "mechanics.json"
     mechanics_path.write_text(mechanics.model_dump_json(), encoding="utf-8")
     state = apparmor_setup_state(
@@ -1158,15 +1212,15 @@ def test_cleanup_rejects_complete_state_substitution_before_mutation(
 
 
 def test_cleanup_receipt_cannot_replay_against_different_profile_or_evidence() -> None:
-    profile = LinuxIsolationProfileV2.create(profile_payload())
-    receipt = LinuxIsolationReceiptV2.create(
-        LinuxIsolationReceiptPayloadV2(
+    profile = LinuxIsolationProfileV3.create(profile_payload())
+    receipt = LinuxIsolationReceiptV3.create(
+        LinuxIsolationReceiptPayloadV3(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
             observation=observation(),
         )
     )
-    mechanics = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
+    mechanics = LinuxIsolationEvidenceV3.create(evidence_payload(profile, receipt))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
             implementation_commit=COMMIT,
@@ -1178,29 +1232,29 @@ def test_cleanup_receipt_cannot_replay_against_different_profile_or_evidence() -
             ),
         )
     )
-    changed_profile = LinuxIsolationProfileV2.create(
+    changed_profile = LinuxIsolationProfileV3.create(
         profile_payload().model_copy(update={"native_bundle_id": "f" * 64})
     )
-    changed_receipt = LinuxIsolationReceiptV2.create(
-        LinuxIsolationReceiptPayloadV2(
+    changed_receipt = LinuxIsolationReceiptV3.create(
+        LinuxIsolationReceiptPayloadV3(
             linux_isolation_profile_id=changed_profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
             observation=observation(),
         )
     )
-    changed_mechanics = LinuxIsolationEvidenceV2.create(
+    changed_mechanics = LinuxIsolationEvidenceV3.create(
         evidence_payload(changed_profile, changed_receipt)
     )
     with pytest.raises(ValidationError, match="authority differ"):
-        LinuxIsolationQualificationPayloadV2(
+        LinuxIsolationQualificationPayloadV3(
             mechanics=changed_mechanics,
             apparmor_cleanup=cleanup,
         )
-    changed_evidence = LinuxIsolationEvidenceV2.create(
+    changed_evidence = LinuxIsolationEvidenceV3.create(
         evidence_payload(
             profile,
-            LinuxIsolationReceiptV2.create(
-                LinuxIsolationReceiptPayloadV2(
+            LinuxIsolationReceiptV3.create(
+                LinuxIsolationReceiptPayloadV3(
                     linux_isolation_profile_id=profile.linux_isolation_profile_id,
                     environment_instance_id=ENVIRONMENT,
                     observation=observation(),
@@ -1209,7 +1263,7 @@ def test_cleanup_receipt_cannot_replay_against_different_profile_or_evidence() -
         ).model_copy(update={"child_stdout_retained_sha256": "f" * 64})
     )
     with pytest.raises(ValidationError, match="authority differ"):
-        LinuxIsolationQualificationPayloadV2(
+        LinuxIsolationQualificationPayloadV3(
             mechanics=changed_evidence,
             apparmor_cleanup=cleanup,
         )
@@ -1400,7 +1454,7 @@ def test_occupied_stub_port_fails_before_namespace_launch(
     try:
         with pytest.raises(OSError):
             PROBE.run_probe(
-                LinuxIsolationProfileV2.create(profile_payload()),
+                LinuxIsolationProfileV3.create(profile_payload()),
                 Path("/repo/scripts/linux_native_isolation_child.py"),
                 tmp_path / "root",
                 tmp_path / "bundle",
@@ -1431,6 +1485,51 @@ def test_landlock_rejects_unreviewed_abi(abi: int) -> None:
         landlock_handled_access(abi)
 
 
+@pytest.mark.parametrize(
+    ("kernel_abi", "expected"),
+    [(3, 3), (4, 4), (5, 5), (6, 6), (7, 6), (99, 6)],
+)
+def test_kernel_landlock_abi_uses_reviewed_policy_ceiling(kernel_abi: int, expected: int) -> None:
+    assert enforced_landlock_abi(kernel_abi) == expected
+
+
+@pytest.mark.parametrize("kernel_abi", [0, 1, 2])
+def test_kernel_landlock_abi_below_minimum_fails_closed(kernel_abi: int) -> None:
+    with pytest.raises(ValueError, match="kernel ABI 3 or newer"):
+        enforced_landlock_abi(kernel_abi)
+
+
+def test_child_independently_derives_reviewed_policy_from_kernel_abi() -> None:
+    source = (ROOT / "scripts/linux_native_isolation_child.py").read_text(encoding="utf-8")
+    assert "kernel_abi = landlock_abi()" in source
+    assert "policy_abi = enforced_landlock_abi(kernel_abi)" in source
+    assert "landlock_handled_access(policy_abi)" in source
+
+
+def test_v3_rejects_kernel_policy_and_observation_tampering() -> None:
+    raw_host = profile_payload().host.model_dump(mode="python")
+    raw_host["enforced_landlock_abi"] = 5
+    with pytest.raises(ValidationError, match="policy ceiling"):
+        LinuxHostAuthorityV3.model_validate(raw_host)
+
+    raw_observation = observation().model_dump(mode="python")
+    raw_observation["enforced_landlock_abi"] = 5
+    with pytest.raises(ValidationError, match="policy ceiling"):
+        LinuxIsolationObservationV3.model_validate(raw_observation)
+
+    profile = LinuxIsolationProfileV3.create(profile_payload())
+    changed = observation().model_copy(update={"kernel_landlock_abi": 8})
+    receipt = LinuxIsolationReceiptV3.create(
+        LinuxIsolationReceiptPayloadV3(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=changed,
+        )
+    )
+    with pytest.raises(ValidationError, match="kernel ABI differs"):
+        evidence_payload(profile, receipt)
+
+
 def test_mount_parser_requires_exact_private_root_options() -> None:
     lines = [
         "1 0 0:1 / / rw,nosuid,nodev - tmpfs tmpfs rw",
@@ -1452,7 +1551,7 @@ def test_mount_parser_requires_exact_private_root_options() -> None:
 
 
 def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
-    profile = LinuxIsolationProfileV2.create(profile_payload())
+    profile = LinuxIsolationProfileV3.create(profile_payload())
     command = PROBE.namespace_command(
         profile,
         Path("/repo/scripts/linux_native_isolation_child.py"),
@@ -1469,6 +1568,8 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
     assert command[command.index("--net") + 1] == profile.payload.bootstrap_python.locator
     assert command[0] == "/opt/devfabric/libexec/unshare"
     assert command[command.index("--expected-apparmor-current") + 1] == LINUX_APPARMOR_CURRENT
+    assert command[command.index("--expected-kernel-landlock-abi") + 1] == "7"
+    assert command[command.index("--expected-enforced-landlock-abi") + 1] == "6"
     assert "--dependency" not in command
 
 
@@ -1515,8 +1616,8 @@ def test_workflow_checks_out_exact_head_and_manual_runs_are_main_only() -> None:
 
 
 def test_receipt_rejects_nonzero_counters_and_forged_readiness() -> None:
-    profile = LinuxIsolationProfileV2.create(profile_payload())
-    raw = LinuxIsolationReceiptPayloadV2(
+    profile = LinuxIsolationProfileV3.create(profile_payload())
+    raw = LinuxIsolationReceiptPayloadV3(
         linux_isolation_profile_id=profile.linux_isolation_profile_id,
         environment_instance_id=ENVIRONMENT,
         observation=observation(),
@@ -1530,7 +1631,7 @@ def test_receipt_rejects_nonzero_counters_and_forged_readiness() -> None:
         changed = copy.deepcopy(raw)
         changed[field] = 1
         with pytest.raises(ValidationError):
-            LinuxIsolationReceiptPayloadV2.model_validate(changed)
+            LinuxIsolationReceiptPayloadV3.model_validate(changed)
     for field in (
         "cgroup_resource_boundary_qualified",
         "syscall_filter_qualified",
@@ -1540,7 +1641,7 @@ def test_receipt_rejects_nonzero_counters_and_forged_readiness() -> None:
         changed = copy.deepcopy(raw)
         changed[field] = True
         with pytest.raises(ValidationError):
-            LinuxIsolationReceiptPayloadV2.model_validate(changed)
+            LinuxIsolationReceiptPayloadV3.model_validate(changed)
 
 
 def test_file_authority_rejects_relative_locator_and_missing_native_identity() -> None:
@@ -1578,9 +1679,9 @@ def test_source_revalidation_rejects_same_bytes_at_replaced_inode(
 
 
 def test_profile_canonical_bytes_are_stable() -> None:
-    first = LinuxIsolationProfileV2.create(profile_payload())
-    second = LinuxIsolationProfileV2.create(
-        LinuxIsolationProfilePayloadV2.model_validate_json(
+    first = LinuxIsolationProfileV3.create(profile_payload())
+    second = LinuxIsolationProfileV3.create(
+        LinuxIsolationProfilePayloadV3.model_validate_json(
             json.dumps(profile_payload().model_dump(mode="json"), indent=2, sort_keys=False)
         )
     )

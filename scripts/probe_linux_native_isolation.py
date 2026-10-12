@@ -34,20 +34,21 @@ from devhub.linux_isolation import (
     LinuxBrokerExpectationV1,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
-    LinuxHostAuthorityV2,
+    LinuxHostAuthorityV3,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV2,
-    LinuxIsolationEvidenceV2,
+    LinuxIsolationEvidencePayloadV3,
+    LinuxIsolationEvidenceV3,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailureV1,
-    LinuxIsolationObservationV2,
-    LinuxIsolationProfilePayloadV2,
-    LinuxIsolationProfileV2,
-    LinuxIsolationReceiptPayloadV2,
-    LinuxIsolationReceiptV2,
+    LinuxIsolationObservationV3,
+    LinuxIsolationProfilePayloadV3,
+    LinuxIsolationProfileV3,
+    LinuxIsolationReceiptPayloadV3,
+    LinuxIsolationReceiptV3,
     LinuxMountAuthorityV1,
     LinuxNativePathIdentityV1,
     LinuxToolAuthorityV1,
+    enforced_landlock_abi,
     landlock_handled_access,
 )
 from devhub.linux_ollama_broker import LinuxBrokerPeerAuthorityV1, LinuxMetadataBrokerV1
@@ -277,7 +278,7 @@ def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
 
 
 def revalidate_profile_sources(
-    profile: LinuxIsolationProfileV2, child_script: Path, bundle: Path
+    profile: LinuxIsolationProfileV3, child_script: Path, bundle: Path
 ) -> None:
     revalidate_tool(profile.payload.system_unshare)
     revalidate_tool(profile.payload.unshare)
@@ -338,7 +339,7 @@ def parse_os_release(path: Path) -> dict[str, str]:
 
 def host_authority(
     unshare: Path, apparmor_authority_value: LinuxAppArmorAuthorityV2
-) -> LinuxHostAuthorityV2:
+) -> LinuxHostAuthorityV3:
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         raise ValueError("Native isolation probe requires Linux x86_64")
     os_release = Path("/etc/os-release")
@@ -365,12 +366,14 @@ def host_authority(
             current_cgroup /= line[3:].lstrip("/")
             break
     delegated = os.access(current_cgroup / "cgroup.subtree_control", os.W_OK)
-    return LinuxHostAuthorityV2(
+    kernel_abi = landlock_abi()
+    return LinuxHostAuthorityV3(
         os_release_sha256=file_sha256(os_release),
         kernel_release=platform.release(),
         kernel_version_sha256=sha256(platform.version().encode("utf-8")),
         apparmor=apparmor_authority_value,
-        landlock_abi=landlock_abi(),
+        kernel_landlock_abi=kernel_abi,
+        enforced_landlock_abi=enforced_landlock_abi(kernel_abi),
         delegated_cgroup_available=delegated,
     )
 
@@ -551,7 +554,7 @@ def stub_ollama(
 
 
 def namespace_command(
-    profile: LinuxIsolationProfileV2,
+    profile: LinuxIsolationProfileV3,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -595,8 +598,10 @@ def namespace_command(
         json.dumps(host_namespaces, sort_keys=True, separators=(",", ":")),
         "--expected-mount-targets",
         json.dumps([item.target for item in profile.payload.mounts], separators=(",", ":")),
-        "--expected-landlock-abi",
-        str(profile.payload.host.landlock_abi),
+        "--expected-kernel-landlock-abi",
+        str(profile.payload.host.kernel_landlock_abi),
+        "--expected-enforced-landlock-abi",
+        str(profile.payload.host.enforced_landlock_abi),
         "--expected-landlock-mask",
         str(profile.payload.landlock_handled_access),
         "--expected-rlimits-sha256",
@@ -607,14 +612,14 @@ def namespace_command(
 
 
 def run_probe(
-    profile: LinuxIsolationProfileV2,
+    profile: LinuxIsolationProfileV3,
     child_script: Path,
     root: Path,
     bundle: Path,
     state: Path,
     output: Path,
     broker_dir: Path,
-) -> tuple[LinuxIsolationObservationV2, bytes, bytes]:
+) -> tuple[LinuxIsolationObservationV3, bytes, bytes]:
     revalidate_profile_sources(profile, child_script, bundle)
     registration_read, registration_write = os.pipe()
     result_read, result_write = os.pipe()
@@ -753,7 +758,7 @@ def run_probe(
         )
         raw_observation["descendant_cleanup_passed"] = True
         raw_observation["cleanup_failures"] = []
-        observation = LinuxIsolationObservationV2.model_validate(raw_observation)
+        observation = LinuxIsolationObservationV3.model_validate(raw_observation)
         if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
             raise ValueError("Isolation launcher process group remained after process exit")
         revalidate_profile_sources(profile, child_script, bundle)
@@ -831,7 +836,7 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV2 | None = None
+    profile: LinuxIsolationProfileV3 | None = None
     stdout = b""
     stderr = b""
     phase: FailurePhase = "host_inspection"
@@ -885,8 +890,8 @@ def main() -> None:
                 broker_host_uid=current_uid(),
                 broker_module_sha256=file_sha256(broker_module),
             )
-            profile = LinuxIsolationProfileV2.create(
-                LinuxIsolationProfilePayloadV2(
+            profile = LinuxIsolationProfileV3.create(
+                LinuxIsolationProfilePayloadV3(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
                     native_bundle_id=bundle_id,
@@ -901,7 +906,7 @@ def main() -> None:
                     source_directories=sources,
                     mounts=mounts,
                     broker=broker_expectation,
-                    landlock_handled_access=landlock_handled_access(host.landlock_abi),
+                    landlock_handled_access=landlock_handled_access(host.enforced_landlock_abi),
                 )
             )
             phase = "source_revalidation"
@@ -914,15 +919,15 @@ def main() -> None:
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV2.create(
-            LinuxIsolationReceiptPayloadV2(
+        receipt = LinuxIsolationReceiptV3.create(
+            LinuxIsolationReceiptPayloadV3(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV2.create(
-            LinuxIsolationEvidencePayloadV2(
+        evidence = LinuxIsolationEvidenceV3.create(
+            LinuxIsolationEvidencePayloadV3(
                 profile=profile,
                 receipt=receipt,
                 child_stdout_retained_sha256=sha256(stdout),

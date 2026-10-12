@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Join V2 native Linux mechanics with the exact privileged cleanup receipt."""
+"""Join V3 native Linux mechanics with the exact privileged cleanup receipt."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from devhub.linux_isolation import (
     LinuxAppArmorCleanupReceiptV1,
     LinuxAppArmorLifecycleFailurePayloadV1,
     LinuxAppArmorLifecycleFailureV1,
-    LinuxIsolationEvidenceV2,
-    LinuxIsolationQualificationPayloadV2,
-    LinuxIsolationQualificationV2,
+    LinuxIsolationEvidenceV3,
+    LinuxIsolationQualificationPayloadV3,
+    LinuxIsolationQualificationV3,
 )
 
 
@@ -30,10 +30,10 @@ def write_new(path: Path, raw: bytes) -> None:
 
 
 def finalize(mechanics_path: Path, cleanup_path: Path, output: Path) -> None:
-    mechanics = LinuxIsolationEvidenceV2.model_validate_json(mechanics_path.read_bytes())
+    mechanics = LinuxIsolationEvidenceV3.model_validate_json(mechanics_path.read_bytes())
     cleanup = LinuxAppArmorCleanupReceiptV1.model_validate_json(cleanup_path.read_bytes())
-    qualification = LinuxIsolationQualificationV2.create(
-        LinuxIsolationQualificationPayloadV2(
+    qualification = LinuxIsolationQualificationV3.create(
+        LinuxIsolationQualificationPayloadV3(
             mechanics=mechanics,
             apparmor_cleanup=cleanup,
         )

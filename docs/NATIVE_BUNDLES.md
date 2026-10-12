@@ -505,10 +505,15 @@ mandatory before Linux readiness.
 
 ### Native Linux isolation mechanics baseline
 
-`LinuxNativeIsolationV1` remains the strict historical contract. The private
-launcher/AppArmor authority is a forward-only `LinuxNativeIsolationV2`
-metadata-only qualification slice; V1 payloads and canonical identities are
-not reinterpreted.
+`LinuxNativeIsolationV1` and `LinuxNativeIsolationV2` remain strict historical
+contracts. The private-launcher/AppArmor qualification now emits the
+forward-only `LinuxNativeIsolationV3` contract; V1/V2 payloads and canonical
+identities are not reinterpreted. V3 records the kernel-reported Landlock ABI
+separately from the reviewed policy ABI. Kernels reporting ABI 7 or newer keep
+their exact observation while enforcement is capped at reviewed ABI 6 and its
+exact `handled_access_fs` mask. Kernels older than ABI 3 fail closed. The child
+independently repeats the kernel query and derives the same cap before creating
+the ruleset.
 It binds one exact Ubuntu 24.04 x86_64 host and kernel, the reviewed system
 `/usr/bin/unshare`, an exact root-owned copy at
 `/opt/devfabric/libexec/unshare`, `/usr/bin/mount`, bootstrap-interpreter file
@@ -547,7 +552,7 @@ runs for pull-request code. It is available only through an explicit
 install/load and then remove that host policy. The namespace mechanics and
 child remain the ordinary runner user. Cleanup evidence separately records
 parser unload, loaded-profile absence, installed-profile removal,
-private-launcher removal, snapshot removal and owned-parent cleanup. A final V2
+private-launcher removal, snapshot removal and owned-parent cleanup. A final V3
 qualification is valid only when its self-hashed mechanics evidence and
 self-hashed cleanup receipt join to the same implementation, environment,
 exact profile ID and mechanics-evidence ID. Completed cleanup first revalidates
@@ -563,6 +568,11 @@ An intended host that cannot install this exact narrow
 profile is unsupported and fails closed; disabling the global sysctl is not an
 accepted fallback. The workflow verifies the exact main commit and a clean
 tree. Paths remain locators; hashes plus native identities are the authority.
+
+Main-only run `38212445127` is retained as an immutable pre-namespace
+`host_authority_invalid` failure: the runner reported Landlock ABI 7 to the
+older V2 representation, privileged cleanup succeeded, and model, provider,
+MCP-tool and real-task counters remained zero. It is not qualification evidence.
 
 ## Platform acceptance matrix
 
