@@ -19,6 +19,8 @@ LINUX_ISOLATION_PROFILE_KIND = "linux_native_isolation_v1"
 LINUX_ISOLATION_RECEIPT_KIND = "linux_native_isolation_receipt_v1"
 LINUX_ISOLATION_PROFILE_KIND_V2 = "linux_native_isolation_v2"
 LINUX_ISOLATION_RECEIPT_KIND_V2 = "linux_native_isolation_receipt_v2"
+LINUX_ISOLATION_PROFILE_KIND_V3 = "linux_native_isolation_v3"
+LINUX_ISOLATION_RECEIPT_KIND_V3 = "linux_native_isolation_receipt_v3"
 LINUX_TARGET_OS = "ubuntu"
 LINUX_TARGET_VERSION = "24.04"
 LINUX_TARGET_ARCH = "x86_64"
@@ -32,6 +34,8 @@ LINUX_APPARMOR_PROFILE_MODE = "unconfined"
 LINUX_APPARMOR_CURRENT = f"{LINUX_APPARMOR_PROFILE_NAME} ({LINUX_APPARMOR_PROFILE_MODE})"
 LANDLOCK_ACCESS_FS_IOCTL_DEV = 1 << 15
 LANDLOCK_ACCESS_FS_ABI3 = (1 << 15) - 1
+MINIMUM_REVIEWED_LANDLOCK_ABI = 3
+MAXIMUM_REVIEWED_LANDLOCK_ABI = 6
 
 
 def landlock_handled_access(abi: int) -> int:
@@ -40,6 +44,14 @@ def landlock_handled_access(abi: int) -> int:
     if abi not in {3, 4, 5, 6}:
         raise ValueError("Linux qualification supports exactly Landlock ABI 3 through 6")
     return LANDLOCK_ACCESS_FS_ABI3 | (LANDLOCK_ACCESS_FS_IOCTL_DEV if abi >= 5 else 0)
+
+
+def enforced_landlock_abi(kernel_abi: int) -> int:
+    """Select the reviewed policy ABI without hiding the observed kernel ABI."""
+
+    if kernel_abi < MINIMUM_REVIEWED_LANDLOCK_ABI:
+        raise ValueError("Linux qualification requires Landlock kernel ABI 3 or newer")
+    return min(kernel_abi, MAXIMUM_REVIEWED_LANDLOCK_ABI)
 
 
 def _mount_path(value: str) -> str:
@@ -230,6 +242,38 @@ class LinuxHostAuthorityV2(Contract):
     landlock_abi: Annotated[int, Field(ge=3, le=6)]
     cgroup_v2: Literal[True] = True
     delegated_cgroup_available: bool
+
+
+class LinuxHostAuthorityV3(ContractV2):
+    """Exact host authority with distinct observed and enforced Landlock ABIs."""
+
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    os_id: Literal["ubuntu"] = "ubuntu"
+    os_version_id: Literal["24.04"] = "24.04"
+    architecture: Literal["x86_64"] = "x86_64"
+    os_release_sha256: Digest
+    kernel_release: Annotated[str, Field(min_length=1, max_length=256)]
+    kernel_version_sha256: Digest
+    user_namespace_clone_enabled: Literal[True] = True
+    apparmor_userns_restriction_present: Literal[True] = True
+    apparmor_userns_restriction: Literal[1] = 1
+    apparmor: LinuxAppArmorAuthorityV2
+    kernel_landlock_abi: Annotated[int, Field(ge=3)]
+    enforced_landlock_abi: Annotated[int, Field(ge=3, le=6)]
+    cgroup_v2: Literal[True] = True
+    delegated_cgroup_available: bool
+
+    @model_validator(mode="after")
+    def exact_enforced_abi(self) -> LinuxHostAuthorityV3:
+        if self.enforced_landlock_abi != enforced_landlock_abi(self.kernel_landlock_abi):
+            raise ValueError("Enforced Landlock ABI differs from the reviewed policy ceiling")
+        return self
+
+    @property
+    def landlock_abi(self) -> int:
+        """Compatibility accessor for the shared V2 profile validator."""
+
+        return self.enforced_landlock_abi
 
 
 class LinuxRlimitsV1(Contract):
@@ -476,6 +520,23 @@ class LinuxIsolationProfilePayloadV2(LinuxIsolationProfilePayloadV1):
         return self
 
 
+class LinuxIsolationProfilePayloadV3(LinuxIsolationProfilePayloadV2):
+    """Forward-only profile that records kernel and reviewed policy ABIs separately."""
+
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v3"] = "linux_native_isolation_v3"  # type: ignore[assignment]
+    host: LinuxHostAuthorityV3  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def exact_v3_landlock_authority(self) -> LinuxIsolationProfilePayloadV3:
+        expected = enforced_landlock_abi(self.host.kernel_landlock_abi)
+        if self.host.enforced_landlock_abi != expected:
+            raise ValueError("Profile Landlock policy ABI differs from the kernel observation")
+        if self.landlock_handled_access != landlock_handled_access(expected):
+            raise ValueError("Landlock access mask differs from the reviewed enforced ABI")
+        return self
+
+
 class LinuxIsolationProfileV1(Contract):
     linux_isolation_profile_id: Digest
     payload: LinuxIsolationProfilePayloadV1
@@ -511,6 +572,26 @@ class LinuxIsolationProfileV2(Contract):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation V2 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV3(Contract):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV3) -> LinuxIsolationProfileV3:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V3 profile hash mismatch")
         return self
 
 
@@ -602,6 +683,60 @@ class LinuxIsolationObservationV2(LinuxIsolationObservationV1):
     apparmor_current_profile: Literal["devfabric-linux-isolation-unshare (unconfined)"] = (
         "devfabric-linux-isolation-unshare (unconfined)"
     )
+
+
+class LinuxIsolationObservationV3(ContractV2):
+    """V3 observation with exact kernel and reviewed Landlock policy ABIs."""
+
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    apparmor_current_profile: Literal["devfabric-linux-isolation-unshare (unconfined)"] = (
+        "devfabric-linux-isolation-unshare (unconfined)"
+    )
+    namespaces: LinuxNamespaceObservationV1
+    private_mount_root: Literal[True] = True
+    mount_table_sha256: Digest
+    observed_mount_targets: tuple[str, ...]
+    bundle_read_only: Literal[True] = True
+    state_read_write: Literal[True] = True
+    output_read_write: Literal[True] = True
+    home_tmpfs: Literal[True] = True
+    tmp_tmpfs: Literal[True] = True
+    fresh_proc: Literal[True] = True
+    minimal_dev: Literal[True] = True
+    host_root_hidden: Literal[True] = True
+    host_home_hidden: Literal[True] = True
+    no_new_privs: Literal[True] = True
+    cap_effective: Literal[0] = 0
+    cap_permitted: Literal[0] = 0
+    cap_inheritable: Literal[0] = 0
+    cap_ambient: Literal[0] = 0
+    cap_bounding: Literal[0] = 0
+    capability_regain_denied: Literal[True] = True
+    kernel_landlock_abi: Annotated[int, Field(ge=3)]
+    enforced_landlock_abi: Annotated[int, Field(ge=3, le=6)]
+    landlock_handled_access: Annotated[int, Field(gt=0)]
+    landlock_rule_targets: tuple[str, ...]
+    landlock_ruleset_sha256: Digest
+    landlock_allowed_operations_passed: Literal[True] = True
+    landlock_denied_operations_passed: Literal[True] = True
+    direct_loopback_denied: Literal[True] = True
+    direct_lan_denied: Literal[True] = True
+    direct_dns_denied: Literal[True] = True
+    direct_public_denied: Literal[True] = True
+    rlimits_applied: Literal[True] = True
+    rlimits_sha256: Digest
+    broker: LinuxBrokerObservationV1
+    descendant_cleanup_passed: Literal[True] = True
+    cleanup_failures: tuple[()] = ()
+
+    @model_validator(mode="after")
+    def exact_landlock_authority(self) -> LinuxIsolationObservationV3:
+        expected = enforced_landlock_abi(self.kernel_landlock_abi)
+        if self.enforced_landlock_abi != expected:
+            raise ValueError("Observed enforced Landlock ABI differs from the policy ceiling")
+        if self.landlock_handled_access != landlock_handled_access(expected):
+            raise ValueError("Observed Landlock mask differs from the enforced ABI")
+        return self
 
 
 class LinuxHostCleanupObservationV1(Contract):
@@ -752,6 +887,43 @@ class LinuxIsolationReceiptV2(Contract):
         return self
 
 
+class LinuxIsolationReceiptPayloadV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v3"] = "linux_native_isolation_receipt_v3"
+    linux_isolation_profile_id: Digest
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    observation: LinuxIsolationObservationV3
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+    metadata_isolation_baseline_qualified: Literal[True] = True
+    cgroup_resource_boundary_qualified: Literal[False] = False
+    syscall_filter_qualified: Literal[False] = False
+    native_executor_isolation_qualified: Literal[False] = False
+    package_readiness: Literal[False] = False
+
+
+class LinuxIsolationReceiptV3(Contract):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV3) -> LinuxIsolationReceiptV3:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V3 receipt hash mismatch")
+        return self
+
+
 class LinuxIsolationEvidencePayloadV2(ContractV2):
     schema_version: Literal[2] = 2
     profile: LinuxIsolationProfileV2
@@ -817,6 +989,76 @@ class LinuxIsolationEvidenceV2(Contract):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_evidence_id != expected:
             raise ValueError("Linux isolation V2 evidence hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV3
+    receipt: LinuxIsolationReceiptV3
+    child_stdout_retained_sha256: Digest
+    child_stderr_retained_sha256: Digest
+    child_stdout_retained_bytes: Annotated[int, Field(ge=0, le=1024 * 1024)]
+    child_stderr_retained_bytes: Annotated[int, Field(ge=0, le=1024 * 1024)]
+    child_stdout_truncated: bool
+    child_stderr_truncated: bool
+    cleanup: LinuxHostCleanupObservationV1
+
+    @model_validator(mode="after")
+    def exact_profile_receipt_join(self) -> LinuxIsolationEvidencePayloadV3:
+        profile = self.profile.payload
+        observed = self.receipt.payload.observation
+        if (
+            self.receipt.payload.linux_isolation_profile_id
+            != self.profile.linux_isolation_profile_id
+            or self.receipt.payload.environment_instance_id != profile.environment_instance_id
+        ):
+            raise ValueError("Linux isolation V3 profile and receipt authority differ")
+        if observed.apparmor_current_profile != profile.host.apparmor.loaded_profile_line:
+            raise ValueError("Observed AppArmor profile differs from host authority")
+        if observed.kernel_landlock_abi != profile.host.kernel_landlock_abi:
+            raise ValueError("Observed Landlock kernel ABI differs from profile authority")
+        if observed.enforced_landlock_abi != profile.host.enforced_landlock_abi:
+            raise ValueError("Observed enforced Landlock ABI differs from profile authority")
+        if observed.landlock_handled_access != profile.landlock_handled_access:
+            raise ValueError("Observed Landlock mask differs from profile authority")
+        expected_targets = tuple(item.target for item in profile.mounts)
+        if observed.observed_mount_targets != expected_targets:
+            raise ValueError("Observed mount targets differ from profile authority")
+        expected_rlimits = digest(canonical(profile.rlimits.model_dump(mode="json")))
+        if observed.rlimits_sha256 != expected_rlimits:
+            raise ValueError("Observed rlimits differ from profile authority")
+        expected_rules = (
+            "/bundle",
+            "/home",
+            "/output",
+            "/proc",
+            "/run/devfabric",
+            "/state",
+            "/tmp",
+        )
+        if observed.landlock_rule_targets != expected_rules:
+            raise ValueError("Observed Landlock rules differ from the reviewed rule set")
+        return self
+
+
+class LinuxIsolationEvidenceV3(Contract):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV3) -> LinuxIsolationEvidenceV3:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V3 evidence hash mismatch")
         return self
 
 
@@ -1074,6 +1316,49 @@ class LinuxIsolationQualificationV2(Contract):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_qualification_id != expected:
             raise ValueError("Linux isolation qualification hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationPayloadV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV3
+    apparmor_cleanup: LinuxAppArmorCleanupReceiptV1
+    package_readiness: Literal[False] = False
+
+    @model_validator(mode="after")
+    def exact_mechanics_cleanup_join(self) -> LinuxIsolationQualificationPayloadV3:
+        profile = self.mechanics.payload.profile.payload
+        cleanup = self.apparmor_cleanup.payload
+        apparmor_sha256 = digest(canonical(profile.host.apparmor.model_dump(mode="json")))
+        if (
+            cleanup.implementation_commit != profile.implementation_commit
+            or cleanup.environment_instance_id != profile.environment_instance_id
+            or cleanup.linux_isolation_profile_id
+            != self.mechanics.payload.profile.linux_isolation_profile_id
+            or cleanup.linux_isolation_evidence_id != self.mechanics.linux_isolation_evidence_id
+            or cleanup.apparmor_authority_sha256 != apparmor_sha256
+        ):
+            raise ValueError("Linux V3 mechanics and AppArmor cleanup authority differ")
+        return self
+
+
+class LinuxIsolationQualificationV3(Contract):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationQualificationPayloadV3) -> LinuxIsolationQualificationV3:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V3 qualification hash mismatch")
         return self
 
 

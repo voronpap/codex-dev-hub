@@ -27,6 +27,7 @@ from pydantic import JsonValue
 from devhub.benchmark import canonical, digest
 from devhub.linux_isolation import (
     LinuxRlimitsV1,
+    enforced_landlock_abi,
     landlock_handled_access,
     observed_private_mount_targets,
 )
@@ -263,9 +264,16 @@ def landlock_abi() -> int:
     return int(value)
 
 
-def apply_landlock() -> tuple[int, int, tuple[str, ...], str]:
-    abi = landlock_abi()
-    handled_access = landlock_handled_access(abi)
+def observed_landlock_authority() -> tuple[int, int, int]:
+    """Independently observe the kernel and derive the reviewed enforcement mask."""
+
+    kernel_abi = landlock_abi()
+    policy_abi = enforced_landlock_abi(kernel_abi)
+    return kernel_abi, policy_abi, landlock_handled_access(policy_abi)
+
+
+def apply_landlock() -> tuple[int, int, int, tuple[str, ...], str]:
+    kernel_abi, policy_abi, handled_access = observed_landlock_authority()
     libc = ctypes.CDLL(None, use_errno=True)
     ruleset_attr = LandlockRulesetAttr(handled_access)
     ruleset_fd = libc.syscall(
@@ -310,7 +318,7 @@ def apply_landlock() -> tuple[int, int, tuple[str, ...], str]:
         os.close(ruleset_fd)
     targets = tuple(path for path, _ in rules)
     ruleset_identity = digest(canonical(cast(JsonValue, rules)))
-    return abi, handled_access, targets, ruleset_identity
+    return kernel_abi, policy_abi, handled_access, targets, ruleset_identity
 
 
 def process_security_status() -> dict[str, int]:
@@ -449,7 +457,8 @@ def main() -> None:
     parser.add_argument("--result-fd", type=int, required=True)
     parser.add_argument("--host-namespaces", required=True)
     parser.add_argument("--expected-mount-targets", required=True)
-    parser.add_argument("--expected-landlock-abi", type=int, required=True)
+    parser.add_argument("--expected-kernel-landlock-abi", type=int, required=True)
+    parser.add_argument("--expected-enforced-landlock-abi", type=int, required=True)
     parser.add_argument("--expected-landlock-mask", type=int, required=True)
     parser.add_argument("--expected-rlimits-sha256", required=True)
     parser.add_argument("--expected-apparmor-current", required=True)
@@ -486,8 +495,12 @@ def main() -> None:
     os.chdir("/")
     rlimits = set_limits()
     drop_capabilities()
-    abi, handled_access, rule_targets, ruleset_sha = apply_landlock()
-    if abi != args.expected_landlock_abi or handled_access != args.expected_landlock_mask:
+    kernel_abi, policy_abi, handled_access, rule_targets, ruleset_sha = apply_landlock()
+    if (
+        kernel_abi != args.expected_kernel_landlock_abi
+        or policy_abi != args.expected_enforced_landlock_abi
+        or handled_access != args.expected_landlock_mask
+    ):
         raise ValueError("Observed Landlock authority differs from the host profile")
     status = process_security_status()
     if any(status[key] for key in status if key.startswith("cap_")):
@@ -556,7 +569,8 @@ def main() -> None:
         "cap_ambient": status["cap_ambient"],
         "cap_bounding": status["cap_bounding"],
         "capability_regain_denied": regain_denied,
-        "landlock_abi": abi,
+        "kernel_landlock_abi": kernel_abi,
+        "enforced_landlock_abi": policy_abi,
         "landlock_handled_access": handled_access,
         "landlock_rule_targets": rule_targets,
         "landlock_ruleset_sha256": ruleset_sha,
