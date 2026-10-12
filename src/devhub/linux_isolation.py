@@ -705,6 +705,19 @@ class LinuxIsolationProfilePayloadV10(LinuxIsolationProfilePayloadV9):
     )
 
 
+class LinuxIsolationProfilePayloadV11(LinuxIsolationProfilePayloadV10):
+    """Forward-only profile binding bounded broker failure diagnostics."""
+
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v11"] = "linux_native_isolation_v11"  # type: ignore[assignment]
+    child_runtime_failure_protocol: Literal["linux_child_runtime_failure_v2"] = (
+        "linux_child_runtime_failure_v2"  # type: ignore[assignment]
+    )
+    host_broker_failure_protocol: Literal["linux_host_broker_failure_v1"] = (
+        "linux_host_broker_failure_v1"
+    )
+
+
 class LinuxIsolationProfileV1(Contract):
     linux_isolation_profile_id: Digest
     payload: LinuxIsolationProfilePayloadV1
@@ -900,6 +913,26 @@ class LinuxIsolationProfileV10(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation V10 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV11(ContractV2):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV11
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV11) -> LinuxIsolationProfileV11:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV11:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V11 profile hash mismatch")
         return self
 
 
@@ -1397,6 +1430,277 @@ class LinuxChildRuntimeFailureV1(Contract):
         return self
 
 
+class LinuxChildRuntimeFailurePayloadV2(ContractV2):
+    """Forward-only bounded child diagnostic for broker sub-operations."""
+
+    schema_version: Literal[2] = 2
+    frame_kind: Literal["linux_child_runtime_failure_v2"] = "linux_child_runtime_failure_v2"
+    linux_isolation_profile_id: Digest
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    stage: Literal[
+        "private_root",
+        "rlimits",
+        "capability_drop",
+        "landlock",
+        "negative_probes",
+        "broker",
+        "result_assembly",
+    ]
+    reason_code: Literal[
+        "private_root_failed",
+        "rlimits_failed",
+        "capability_drop_failed",
+        "landlock_failed",
+        "negative_probes_failed",
+        "broker_socket_missing",
+        "broker_connect_failed",
+        "broker_peer_credentials_failed",
+        "broker_socket_stat_failed",
+        "broker_socket_type_invalid",
+        "broker_socket_mode_invalid",
+        "broker_parent_mode_invalid",
+        "broker_peer_pid_invalid",
+        "broker_peer_uid_invalid",
+        "broker_send_failed",
+        "broker_shutdown_failed",
+        "broker_receive_failed",
+        "broker_response_bound_exceeded",
+        "broker_response_status_invalid",
+        "broker_inode_substitution",
+        "broker_internal_failure",
+        "result_assembly_failed",
+    ]
+    broker_checkpoint: (
+        Literal[
+            "socket_wait",
+            "version",
+            "tags",
+            "show",
+            "generate_denial",
+            "oversized_denial",
+            "inode_stability",
+        ]
+        | None
+    ) = None
+    broker_operation: (
+        Literal[
+            "wait",
+            "connect",
+            "socket_type",
+            "socket_mode",
+            "parent_mode",
+            "peer_pid",
+            "peer_uid",
+            "peer_credentials",
+            "path_stat",
+            "send",
+            "shutdown_write",
+            "receive",
+            "response_bound",
+            "response_status",
+            "inode_compare",
+            "internal",
+        ]
+        | None
+    ) = None
+    errno_category: (
+        Literal[
+            "connection_refused",
+            "connection_reset",
+            "broken_pipe",
+            "timed_out",
+            "permission_denied",
+            "other_os_error",
+        ]
+        | None
+    ) = None
+
+    @model_validator(mode="after")
+    def exact_diagnostic_shape(self) -> LinuxChildRuntimeFailurePayloadV2:
+        generic = {
+            "private_root": "private_root_failed",
+            "rlimits": "rlimits_failed",
+            "capability_drop": "capability_drop_failed",
+            "landlock": "landlock_failed",
+            "negative_probes": "negative_probes_failed",
+            "result_assembly": "result_assembly_failed",
+        }
+        if self.stage != "broker":
+            if self.reason_code != generic[self.stage]:
+                raise ValueError("Linux child V2 runtime stage and reason differ")
+            if (
+                self.broker_checkpoint is not None
+                or self.broker_operation is not None
+                or self.errno_category is not None
+            ):
+                raise ValueError("Linux child V2 non-broker failure carries broker fields")
+        elif self.broker_checkpoint is None or self.broker_operation is None:
+            raise ValueError("Linux child V2 broker failure lacks a bounded checkpoint")
+        else:
+            exact = {
+                "broker_socket_missing": ("socket_wait", "wait", False),
+                "broker_connect_failed": (None, "connect", True),
+                "broker_peer_credentials_failed": (None, "peer_credentials", True),
+                "broker_socket_stat_failed": (None, "path_stat", True),
+                "broker_socket_type_invalid": (None, "socket_type", False),
+                "broker_socket_mode_invalid": (None, "socket_mode", False),
+                "broker_parent_mode_invalid": (None, "parent_mode", False),
+                "broker_peer_pid_invalid": (None, "peer_pid", False),
+                "broker_peer_uid_invalid": (None, "peer_uid", False),
+                "broker_send_failed": (None, "send", True),
+                "broker_shutdown_failed": (None, "shutdown_write", True),
+                "broker_receive_failed": (None, "receive", True),
+                "broker_response_bound_exceeded": (None, "response_bound", False),
+                "broker_response_status_invalid": (None, "response_status", False),
+                "broker_inode_substitution": ("inode_stability", "inode_compare", False),
+                "broker_internal_failure": ("socket_wait", "internal", False),
+            }
+            if self.reason_code not in exact:
+                raise ValueError("Linux child V2 broker stage has a non-broker reason")
+            expected_checkpoint, expected_operation, requires_errno = exact[self.reason_code]
+            if expected_checkpoint is not None and self.broker_checkpoint != expected_checkpoint:
+                raise ValueError("Linux child V2 broker reason and checkpoint differ")
+            if self.broker_operation != expected_operation:
+                raise ValueError("Linux child V2 broker reason and operation differ")
+            ordinary_checkpoints = {
+                "version",
+                "tags",
+                "show",
+                "generate_denial",
+                "oversized_denial",
+            }
+            if expected_checkpoint is None and self.broker_checkpoint not in ordinary_checkpoints:
+                raise ValueError("Linux child V2 broker operation has an invalid checkpoint")
+            if requires_errno != (self.errno_category is not None):
+                raise ValueError("Linux child V2 broker errno shape differs from its reason")
+        return self
+
+
+class LinuxChildRuntimeFailureV2(ContractV2):
+    schema_version: Literal[2] = 2
+    child_runtime_failure_id: Digest
+    payload: LinuxChildRuntimeFailurePayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxChildRuntimeFailurePayloadV2) -> LinuxChildRuntimeFailureV2:
+        return cls(
+            child_runtime_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxChildRuntimeFailureV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.child_runtime_failure_id != expected:
+            raise ValueError("Linux child V2 runtime failure hash mismatch")
+        return self
+
+
+class LinuxHostBrokerFailurePayloadV1(Contract):
+    """Bounded host broker diagnostic with no exception text or paths."""
+
+    schema_version: Literal[1] = 1
+    receipt_kind: Literal["linux_host_broker_failure_v1"] = "linux_host_broker_failure_v1"
+    linux_isolation_profile_id: Digest
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    checkpoint: Literal[
+        "parent_validation",
+        "bind",
+        "chmod",
+        "listen",
+        "accept",
+        "peer_credentials",
+        "peer_start_time",
+        "request_parse",
+        "denial_response",
+        "upstream_connect",
+        "upstream_send",
+        "upstream_read",
+        "client_forwarding",
+        "cleanup",
+    ]
+    reason_code: Literal[
+        "parent_validation_failed",
+        "bind_failed",
+        "chmod_failed",
+        "listen_failed",
+        "accept_failed",
+        "peer_credentials_failed",
+        "peer_start_time_failed",
+        "request_parse_failed",
+        "denial_response_failed",
+        "upstream_connect_failed",
+        "upstream_send_failed",
+        "upstream_read_failed",
+        "client_forwarding_failed",
+        "cleanup_failed",
+    ]
+    failure_kind: Literal[
+        "os_error",
+        "authority_validation",
+        "response_bound_exceeded",
+        "cleanup_error",
+        "internal_error",
+    ]
+    errno_category: (
+        Literal[
+            "address_in_use",
+            "connection_refused",
+            "connection_reset",
+            "broken_pipe",
+            "timed_out",
+            "permission_denied",
+            "other_os_error",
+        ]
+        | None
+    ) = None
+    completed_outcomes: tuple[Literal["/api/version", "/api/tags", "/api/show", "denied"], ...] = ()
+
+    @model_validator(mode="after")
+    def exact_outcome_prefix(self) -> LinuxHostBrokerFailurePayloadV1:
+        expected = ("/api/version", "/api/tags", "/api/show", "denied", "denied")
+        if (
+            len(self.completed_outcomes) > len(expected)
+            or self.completed_outcomes != expected[: len(self.completed_outcomes)]
+        ):
+            raise ValueError("Linux host broker failure outcomes are not a canonical prefix")
+        expected_reason = f"{self.checkpoint}_failed"
+        if self.reason_code != expected_reason:
+            raise ValueError("Linux host broker checkpoint and reason differ")
+        if (self.failure_kind == "os_error") != (self.errno_category is not None):
+            raise ValueError("Linux host broker errno shape differs from its failure kind")
+        if self.failure_kind == "authority_validation" and self.checkpoint not in {
+            "parent_validation",
+            "peer_credentials",
+            "peer_start_time",
+        }:
+            raise ValueError("Linux host broker authority failure has an invalid checkpoint")
+        if self.failure_kind == "response_bound_exceeded" and self.checkpoint != "upstream_read":
+            raise ValueError("Linux host broker response bound has an invalid checkpoint")
+        if self.failure_kind == "cleanup_error" and self.checkpoint != "cleanup":
+            raise ValueError("Linux host broker cleanup failure has an invalid checkpoint")
+        return self
+
+
+class LinuxHostBrokerFailureV1(Contract):
+    linux_host_broker_failure_id: Digest
+    payload: LinuxHostBrokerFailurePayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxHostBrokerFailurePayloadV1) -> LinuxHostBrokerFailureV1:
+        return cls(
+            linux_host_broker_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxHostBrokerFailureV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_host_broker_failure_id != expected:
+            raise ValueError("Linux host broker failure hash mismatch")
+        return self
+
+
 class LinuxIsolationObservationV6(LinuxIsolationObservationV5):
     """V6 observation proves the isolated stdlib-only child entry boundary."""
 
@@ -1428,6 +1732,12 @@ class LinuxIsolationObservationV10(LinuxIsolationObservationV9):
     """V10 preserves the successful V9 observation contract."""
 
     schema_version: Literal[10] = 10  # type: ignore[assignment]
+
+
+class LinuxIsolationObservationV11(LinuxIsolationObservationV10):
+    """V11 preserves the successful V10 observation contract."""
+
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
 
 
 class LinuxHostCleanupObservationV1(Contract):
@@ -1799,6 +2109,34 @@ class LinuxIsolationReceiptV10(ContractV2):
         return self
 
 
+class LinuxIsolationReceiptPayloadV11(LinuxIsolationReceiptPayloadV10):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v11"] = (
+        "linux_native_isolation_receipt_v11"  # type: ignore[assignment]
+    )
+    observation: LinuxIsolationObservationV11
+
+
+class LinuxIsolationReceiptV11(ContractV2):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV11
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV11) -> LinuxIsolationReceiptV11:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV11:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V11 receipt hash mismatch")
+        return self
+
+
 class LinuxIsolationEvidencePayloadV2(ContractV2):
     schema_version: Literal[2] = 2
     profile: LinuxIsolationProfileV2
@@ -2138,6 +2476,32 @@ class LinuxIsolationEvidenceV10(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_evidence_id != expected:
             raise ValueError("Linux isolation V10 evidence hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV11(LinuxIsolationEvidencePayloadV10):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV11  # type: ignore[assignment]
+    receipt: LinuxIsolationReceiptV11  # type: ignore[assignment]
+
+
+class LinuxIsolationEvidenceV11(ContractV2):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV11
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV11) -> LinuxIsolationEvidenceV11:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV11:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V11 evidence hash mismatch")
         return self
 
 
@@ -2618,6 +2982,33 @@ class LinuxIsolationQualificationV10(ContractV2):
         return self
 
 
+class LinuxIsolationQualificationPayloadV11(LinuxIsolationQualificationPayloadV10):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV11  # type: ignore[assignment]
+
+
+class LinuxIsolationQualificationV11(ContractV2):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV11
+
+    @classmethod
+    def create(
+        cls, payload: LinuxIsolationQualificationPayloadV11
+    ) -> LinuxIsolationQualificationV11:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV11:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V11 qualification hash mismatch")
+        return self
+
+
 class LinuxIsolationFailurePayloadV1(Contract):
     schema_version: Literal[1] = 1
     receipt_kind: Literal["linux_native_isolation_failure_v1"] = "linux_native_isolation_failure_v1"
@@ -2937,4 +3328,87 @@ class LinuxIsolationFailureV6(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_failure_id != expected:
             raise ValueError("Linux isolation V6 failure hash mismatch")
+        return self
+
+
+class LinuxIsolationFailurePayloadV7(LinuxIsolationFailurePayloadV2):
+    schema_version: Literal[7] = 7  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_failure_v7"] = "linux_native_isolation_failure_v7"  # type: ignore[assignment]
+    child_bootstrap_failure: LinuxChildBootstrapFailureV3 | None = None
+    child_runtime_failure: LinuxChildRuntimeFailureV2 | None = None
+    host_broker_failure: LinuxHostBrokerFailureV1 | None = None
+
+    @model_validator(mode="after")
+    def exact_diagnostics(self) -> LinuxIsolationFailurePayloadV7:
+        cleanup_overrides_primary = (
+            self.phase == "cleanup" and self.cleanup_attempted and not self.cleanup_succeeded
+        )
+        if self.child_bootstrap_failure is not None:
+            if (
+                self.phase != "child_registration" and not cleanup_overrides_primary
+            ) or not self.child_process_started:
+                raise ValueError("Linux V7 bootstrap failure is attached to an invalid phase")
+            if self.child_returncode != 70:
+                raise ValueError("Linux V7 bootstrap failure has an unexpected return code")
+        if self.child_runtime_failure is not None:
+            expected_phase = {
+                "private_root": "private_root",
+                "rlimits": "child_result",
+                "capability_drop": "capability_drop",
+                "landlock": "landlock",
+                "negative_probes": "negative_probes",
+                "broker": "broker",
+                "result_assembly": "child_result",
+            }[self.child_runtime_failure.payload.stage]
+            if (
+                self.phase != expected_phase and not cleanup_overrides_primary
+            ) or not self.child_process_started:
+                raise ValueError("Linux V7 runtime failure is attached to an invalid phase")
+            if self.child_returncode != 71:
+                raise ValueError("Linux V7 runtime failure has an unexpected return code")
+        if self.host_broker_failure is not None and (
+            (self.phase != "broker" and not cleanup_overrides_primary)
+            or not self.child_process_started
+        ):
+            raise ValueError("Linux V7 host broker failure is attached to an invalid phase")
+        if self.phase == "broker" and (
+            self.child_runtime_failure is None and self.host_broker_failure is None
+        ):
+            raise ValueError("Linux V7 broker failure lacks typed diagnostics")
+        if self.child_bootstrap_failure is not None and (
+            self.child_runtime_failure is not None or self.host_broker_failure is not None
+        ):
+            raise ValueError("Linux V7 bootstrap failure conflicts with runtime diagnostics")
+        if (
+            self.host_broker_failure is not None
+            and self.child_runtime_failure is not None
+            and self.child_runtime_failure.payload.stage != "broker"
+        ):
+            raise ValueError("Linux V7 host/child broker diagnostics are inconsistent")
+        for diagnostic in (self.child_runtime_failure, self.host_broker_failure):
+            if diagnostic is not None and (
+                diagnostic.payload.linux_isolation_profile_id != self.linux_isolation_profile_id
+                or diagnostic.payload.environment_instance_id != self.environment_instance_id
+            ):
+                raise ValueError("Linux V7 diagnostic authority differs from the outer failure")
+        return self
+
+
+class LinuxIsolationFailureV7(ContractV2):
+    schema_version: Literal[7] = 7  # type: ignore[assignment]
+    linux_isolation_failure_id: Digest
+    payload: LinuxIsolationFailurePayloadV7
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationFailurePayloadV7) -> LinuxIsolationFailureV7:
+        return cls(
+            linux_isolation_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationFailureV7:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_failure_id != expected:
+            raise ValueError("Linux isolation V7 failure hash mismatch")
         return self

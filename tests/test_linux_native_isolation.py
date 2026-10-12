@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import errno
 import importlib.util
 import io
 import json
@@ -11,6 +12,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from types import ModuleType
 from typing import Literal, cast
@@ -42,10 +44,14 @@ from devhub.linux_isolation import (
     LinuxChildRegistrationV2,
     LinuxChildRegistrationV3,
     LinuxChildRuntimeFailurePayloadV1,
+    LinuxChildRuntimeFailurePayloadV2,
     LinuxChildRuntimeFailureV1,
+    LinuxChildRuntimeFailureV2,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
+    LinuxHostBrokerFailurePayloadV1,
+    LinuxHostBrokerFailureV1,
     LinuxHostCleanupObservationV1,
     LinuxIsolationEvidencePayloadV1,
     LinuxIsolationEvidencePayloadV2,
@@ -57,6 +63,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidencePayloadV8,
     LinuxIsolationEvidencePayloadV9,
     LinuxIsolationEvidencePayloadV10,
+    LinuxIsolationEvidencePayloadV11,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
     LinuxIsolationEvidenceV3,
@@ -67,18 +74,21 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV8,
     LinuxIsolationEvidenceV9,
     LinuxIsolationEvidenceV10,
+    LinuxIsolationEvidenceV11,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailurePayloadV2,
     LinuxIsolationFailurePayloadV3,
     LinuxIsolationFailurePayloadV4,
     LinuxIsolationFailurePayloadV5,
     LinuxIsolationFailurePayloadV6,
+    LinuxIsolationFailurePayloadV7,
     LinuxIsolationFailureV1,
     LinuxIsolationFailureV2,
     LinuxIsolationFailureV3,
     LinuxIsolationFailureV4,
     LinuxIsolationFailureV5,
     LinuxIsolationFailureV6,
+    LinuxIsolationFailureV7,
     LinuxIsolationObservationV1,
     LinuxIsolationObservationV2,
     LinuxIsolationObservationV3,
@@ -89,6 +99,7 @@ from devhub.linux_isolation import (
     LinuxIsolationObservationV8,
     LinuxIsolationObservationV9,
     LinuxIsolationObservationV10,
+    LinuxIsolationObservationV11,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfilePayloadV3,
@@ -99,6 +110,7 @@ from devhub.linux_isolation import (
     LinuxIsolationProfilePayloadV8,
     LinuxIsolationProfilePayloadV9,
     LinuxIsolationProfilePayloadV10,
+    LinuxIsolationProfilePayloadV11,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
     LinuxIsolationProfileV3,
@@ -109,6 +121,7 @@ from devhub.linux_isolation import (
     LinuxIsolationProfileV8,
     LinuxIsolationProfileV9,
     LinuxIsolationProfileV10,
+    LinuxIsolationProfileV11,
     LinuxIsolationQualificationPayloadV3,
     LinuxIsolationQualificationPayloadV4,
     LinuxIsolationQualificationPayloadV5,
@@ -124,6 +137,7 @@ from devhub.linux_isolation import (
     LinuxIsolationQualificationV8,
     LinuxIsolationQualificationV9,
     LinuxIsolationQualificationV10,
+    LinuxIsolationQualificationV11,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
@@ -134,6 +148,7 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptPayloadV8,
     LinuxIsolationReceiptPayloadV9,
     LinuxIsolationReceiptPayloadV10,
+    LinuxIsolationReceiptPayloadV11,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
     LinuxIsolationReceiptV3,
@@ -144,6 +159,7 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptV8,
     LinuxIsolationReceiptV9,
     LinuxIsolationReceiptV10,
+    LinuxIsolationReceiptV11,
     LinuxMountAuthorityObservationV1,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
@@ -163,6 +179,7 @@ from devhub.linux_isolation import (
 from devhub.linux_ollama_broker import (
     BoundedHTTPRequest,
     LinuxBrokerPeerAuthorityV1,
+    LinuxMetadataBrokerFailure,
     LinuxMetadataBrokerV1,
     read_metadata_request,
 )
@@ -481,6 +498,14 @@ def profile_payload_v10() -> LinuxIsolationProfilePayloadV10:
     return LinuxIsolationProfilePayloadV10.model_validate(raw)
 
 
+def profile_payload_v11() -> LinuxIsolationProfilePayloadV11:
+    raw = profile_payload_v10().model_dump(mode="python")
+    raw["schema_version"] = 11
+    raw["profile_kind"] = "linux_native_isolation_v11"
+    raw["child_runtime_failure_protocol"] = "linux_child_runtime_failure_v2"
+    return LinuxIsolationProfilePayloadV11.model_validate(raw)
+
+
 def profile_v6_for_server(server: socket.socket) -> LinuxIsolationProfileV6:
     authority = PROBE.synthetic_upstream_authority(server)
     raw = profile_payload_v6().model_dump(mode="python")
@@ -529,6 +554,16 @@ def profile_v10_for_server(server: socket.socket) -> LinuxIsolationProfileV10:
     raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
     raw["broker"]["broker_host_uid"] = authority.owner_uid
     return LinuxIsolationProfileV10.create(LinuxIsolationProfilePayloadV10.model_validate(raw))
+
+
+def profile_v11_for_server(server: socket.socket) -> LinuxIsolationProfileV11:
+    raw = profile_payload_v11().model_dump(mode="python")
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    return LinuxIsolationProfileV11.create(LinuxIsolationProfilePayloadV11.model_validate(raw))
 
 
 def registered_child_command(
@@ -652,6 +687,12 @@ def observation_v10() -> LinuxIsolationObservationV10:
     return LinuxIsolationObservationV10.model_validate(raw)
 
 
+def observation_v11() -> LinuxIsolationObservationV11:
+    raw = observation_v10().model_dump(mode="python")
+    raw["schema_version"] = 11
+    return LinuxIsolationObservationV11.model_validate(raw)
+
+
 def evidence_payload(
     profile: LinuxIsolationProfileV3, receipt: LinuxIsolationReceiptV3
 ) -> LinuxIsolationEvidencePayloadV3:
@@ -768,6 +809,22 @@ def evidence_payload_v10(
     profile: LinuxIsolationProfileV10, receipt: LinuxIsolationReceiptV10
 ) -> LinuxIsolationEvidencePayloadV10:
     return LinuxIsolationEvidencePayloadV10(
+        profile=profile,
+        receipt=receipt,
+        child_stdout_retained_sha256=H,
+        child_stderr_retained_sha256=H,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup=LinuxHostCleanupObservationV1(),
+    )
+
+
+def evidence_payload_v11(
+    profile: LinuxIsolationProfileV11, receipt: LinuxIsolationReceiptV11
+) -> LinuxIsolationEvidencePayloadV11:
+    return LinuxIsolationEvidencePayloadV11(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -1254,6 +1311,210 @@ def test_v10_runtime_failure_rejects_tampering_rehashing_and_extra_fields() -> N
         LinuxChildRuntimeFailureV1.model_validate(extra)
 
 
+def test_v11_binds_self_hashed_bounded_broker_failure_contracts() -> None:
+    profile = LinuxIsolationProfileV11.create(profile_payload_v11())
+    assert profile.payload.child_runtime_failure_protocol == "linux_child_runtime_failure_v2"
+    child = LinuxChildRuntimeFailureV2.create(
+        LinuxChildRuntimeFailurePayloadV2(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            stage="broker",
+            reason_code="broker_connect_failed",
+            broker_checkpoint="version",
+            broker_operation="connect",
+            errno_category="connection_refused",
+        )
+    )
+    host = LinuxHostBrokerFailureV1.create(
+        LinuxHostBrokerFailurePayloadV1(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            checkpoint="upstream_connect",
+            reason_code="upstream_connect_failed",
+            failure_kind="os_error",
+            errno_category="connection_refused",
+            completed_outcomes=("/api/version", "/api/tags", "/api/show", "denied"),
+        )
+    )
+    assert LinuxChildRuntimeFailureV2.model_validate_json(child.model_dump_json()) == child
+    assert LinuxHostBrokerFailureV1.model_validate_json(host.model_dump_json()) == host
+
+    tampered_child = child.model_dump(mode="python")
+    tampered_child["payload"]["broker_checkpoint"] = "tags"
+    with pytest.raises(ValidationError, match="hash mismatch"):
+        LinuxChildRuntimeFailureV2.model_validate(tampered_child)
+    tampered_host = host.model_dump(mode="python")
+    tampered_host["payload"]["checkpoint"] = "upstream_read"
+    tampered_host["payload"]["reason_code"] = "upstream_read_failed"
+    with pytest.raises(ValidationError, match="hash mismatch"):
+        LinuxHostBrokerFailureV1.model_validate(tampered_host)
+
+
+@pytest.mark.parametrize(
+    "checkpoint",
+    [
+        "parent_validation",
+        "bind",
+        "chmod",
+        "listen",
+        "accept",
+        "peer_credentials",
+        "peer_start_time",
+        "request_parse",
+        "denial_response",
+        "upstream_connect",
+        "upstream_send",
+        "upstream_read",
+        "client_forwarding",
+        "cleanup",
+    ],
+)
+def test_v11_host_broker_failure_has_fixed_checkpoint_vocabulary(checkpoint: str) -> None:
+    frame = LinuxHostBrokerFailureV1.create(
+        LinuxHostBrokerFailurePayloadV1(
+            linux_isolation_profile_id=H,
+            environment_instance_id=ENVIRONMENT,
+            checkpoint=checkpoint,
+            reason_code=f"{checkpoint}_failed",
+            failure_kind="internal_error",
+        )
+    )
+    assert frame.payload.checkpoint == checkpoint
+
+
+def test_v11_host_broker_failure_rejects_noncanonical_outcome_history() -> None:
+    with pytest.raises(ValidationError, match="canonical prefix"):
+        LinuxHostBrokerFailurePayloadV1(
+            linux_isolation_profile_id=H,
+            environment_instance_id=ENVIRONMENT,
+            checkpoint="upstream_read",
+            reason_code="upstream_read_failed",
+            failure_kind="internal_error",
+            completed_outcomes=("/api/version", "/api/show"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("reason", "operation", "errno_category"),
+    [
+        ("broker_connect_failed", "receive", "connection_refused"),
+        ("broker_connect_failed", "connect", None),
+        ("broker_socket_mode_invalid", "socket_mode", "permission_denied"),
+        ("broker_peer_credentials_failed", "peer_pid", "permission_denied"),
+        ("broker_socket_stat_failed", "socket_type", "permission_denied"),
+    ],
+)
+def test_v11_child_broker_failure_rejects_impossible_diagnostic_tuple(
+    reason: str, operation: str, errno_category: str | None
+) -> None:
+    with pytest.raises(ValidationError):
+        LinuxChildRuntimeFailurePayloadV2(
+            linux_isolation_profile_id=H,
+            environment_instance_id=ENVIRONMENT,
+            stage="broker",
+            reason_code=reason,
+            broker_checkpoint="version",
+            broker_operation=operation,
+            errno_category=errno_category,
+        )
+
+
+def test_v11_host_writer_and_reader_bind_exact_profile_environment() -> None:
+    profile = LinuxIsolationProfileV11.create(profile_payload_v11())
+    failure = LinuxMetadataBrokerFailure(
+        "bind", (), OSError(errno.EADDRINUSE, "address already in use")
+    )
+    frame = PROBE.host_broker_failure_frame(profile, failure)
+    parsed = LinuxHostBrokerFailureV1.model_validate_json(frame.model_dump_json())
+    assert parsed.payload.linux_isolation_profile_id == profile.linux_isolation_profile_id
+    assert parsed.payload.environment_instance_id == profile.payload.environment_instance_id
+    assert (
+        parsed.payload.checkpoint,
+        parsed.payload.reason_code,
+        parsed.payload.failure_kind,
+        parsed.payload.errno_category,
+    ) == ("bind", "bind_failed", "os_error", "address_in_use")
+
+
+def test_v11_failure_retains_consistent_child_and_host_broker_diagnostics() -> None:
+    child = LinuxChildRuntimeFailureV2.create(
+        LinuxChildRuntimeFailurePayloadV2(
+            linux_isolation_profile_id=H,
+            environment_instance_id=ENVIRONMENT,
+            stage="broker",
+            reason_code="broker_receive_failed",
+            broker_checkpoint="tags",
+            broker_operation="receive",
+            errno_category="connection_reset",
+        )
+    )
+    host = LinuxHostBrokerFailureV1.create(
+        LinuxHostBrokerFailurePayloadV1(
+            linux_isolation_profile_id=H,
+            environment_instance_id=ENVIRONMENT,
+            checkpoint="upstream_read",
+            reason_code="upstream_read_failed",
+            failure_kind="os_error",
+            errno_category="connection_reset",
+            completed_outcomes=("/api/version",),
+        )
+    )
+    failure = LinuxIsolationFailureV7.create(
+        LinuxIsolationFailurePayloadV7(
+            linux_isolation_profile_id=H,
+            environment_instance_id=ENVIRONMENT,
+            phase="broker",
+            reason_code="broker_failed",
+            child_stdout_retained_sha256=digest(b""),
+            child_stderr_retained_sha256=digest(b""),
+            child_stdout_truncated=False,
+            child_stderr_truncated=False,
+            cleanup_attempted=True,
+            cleanup_succeeded=True,
+            child_process_started=True,
+            child_returncode=71,
+            child_stdout_retained_bytes=0,
+            child_stderr_retained_bytes=0,
+            child_stdout_observed_bytes=0,
+            child_stderr_observed_bytes=0,
+            child_runtime_failure=child,
+            host_broker_failure=host,
+        )
+    )
+    assert failure.payload.child_runtime_failure == child
+    assert failure.payload.host_broker_failure == host
+    raw = failure.payload.model_dump(mode="python")
+    raw["child_runtime_failure"]["payload"]["stage"] = "landlock"
+    raw["child_runtime_failure"]["payload"]["reason_code"] = "landlock_failed"
+    raw["child_runtime_failure"]["payload"]["broker_checkpoint"] = None
+    raw["child_runtime_failure"]["payload"]["broker_operation"] = None
+    raw["child_runtime_failure"]["payload"]["errno_category"] = None
+    raw["child_runtime_failure"]["child_runtime_failure_id"] = digest(
+        canonical(raw["child_runtime_failure"]["payload"])
+    )
+    raw["phase"] = "cleanup"
+    raw["reason_code"] = "cleanup_failed"
+    raw["cleanup_succeeded"] = False
+    with pytest.raises(ValidationError, match="inconsistent"):
+        LinuxIsolationFailurePayloadV7.model_validate(raw)
+
+    transplanted = failure.payload.model_dump(mode="python")
+    transplanted["linux_isolation_profile_id"] = "4" * 64
+    with pytest.raises(ValidationError, match="authority differs"):
+        LinuxIsolationFailurePayloadV7.model_validate(transplanted)
+
+    transplanted_environment = failure.payload.model_dump(mode="python")
+    transplanted_environment["environment_instance_id"] = "5" * 32
+    with pytest.raises(ValidationError, match="authority differs"):
+        LinuxIsolationFailurePayloadV7.model_validate(transplanted_environment)
+
+    missing = failure.payload.model_dump(mode="python")
+    missing["child_runtime_failure"] = None
+    missing["host_broker_failure"] = None
+    with pytest.raises(ValidationError, match="lacks typed diagnostics"):
+        LinuxIsolationFailurePayloadV7.model_validate(missing)
+
+
 def test_v10_broker_cancellation_is_secondary_only_after_child_exit() -> None:
     cancelled = TimeoutError("Linux metadata broker was cancelled")
     assert PROBE.expected_broker_cancellation([cancelled], child_exited=True) is True
@@ -1271,7 +1532,7 @@ def test_v10_broker_cancellation_is_secondary_only_after_child_exit() -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Child runtime framing is Linux-only")
-def test_child_runtime_failure_writer_uses_the_reviewed_v10_contract() -> None:
+def test_child_runtime_failure_writer_uses_the_reviewed_v11_contract() -> None:
     assert CHILD is not None
     for stage in (
         "private_root",
@@ -1282,21 +1543,21 @@ def test_child_runtime_failure_writer_uses_the_reviewed_v10_contract() -> None:
         "broker",
         "result_assembly",
     ):
-        frame = CHILD.runtime_failure_frame(stage)
-        assert LinuxChildRuntimeFailureV1.model_validate(frame).payload.stage == stage
+        frame = CHILD.runtime_failure_frame(stage, H, ENVIRONMENT)
+        assert LinuxChildRuntimeFailureV2.model_validate(frame).payload.stage == stage
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
-def test_finalizer_joins_only_v10_mechanics(tmp_path: Path) -> None:
-    profile = LinuxIsolationProfileV10.create(profile_payload_v10())
-    receipt = LinuxIsolationReceiptV10.create(
-        LinuxIsolationReceiptPayloadV10(
+def test_finalizer_joins_only_v11_mechanics(tmp_path: Path) -> None:
+    profile = LinuxIsolationProfileV11.create(profile_payload_v11())
+    receipt = LinuxIsolationReceiptV11.create(
+        LinuxIsolationReceiptPayloadV11(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation_v10(),
+            observation=observation_v11(),
         )
     )
-    evidence = LinuxIsolationEvidenceV10.create(evidence_payload_v10(profile, receipt))
+    evidence = LinuxIsolationEvidenceV11.create(evidence_payload_v11(profile, receipt))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
             implementation_commit=COMMIT,
@@ -1315,7 +1576,7 @@ def test_finalizer_joins_only_v10_mechanics(tmp_path: Path) -> None:
     cleanup_path.write_text(cleanup.model_dump_json(), encoding="utf-8")
     assert APPARMOR_MANAGER.read_mechanics(mechanics_path) == evidence
     FINALIZER.finalize(mechanics_path, cleanup_path, output)
-    qualification = LinuxIsolationQualificationV10.model_validate_json(output.read_bytes())
+    qualification = LinuxIsolationQualificationV11.model_validate_json(output.read_bytes())
     assert qualification.payload.mechanics == evidence
     assert qualification.payload.apparmor_cleanup == cleanup
 
@@ -2367,6 +2628,66 @@ def test_broker_cancellation_removes_socket(tmp_path: Path) -> None:
     assert not (tmp_path / "ollama.sock").exists()
 
 
+@pytest.mark.skipif(not hasattr(socket, "SO_PEERCRED"), reason="Linux SO_PEERCRED required")
+def test_broker_preserves_foreign_preexisting_socket(tmp_path: Path) -> None:
+    tmp_path.chmod(0o700)
+    path = tmp_path / "ollama.sock"
+    foreign = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    foreign.bind(str(path))
+    foreign.listen(1)
+    try:
+        peer = LinuxBrokerPeerAuthorityV1(outer_pid=1, outer_uid=1, start_time_ticks=1)
+        runtime = LinuxMetadataBrokerV1(path, peer)
+        with pytest.raises(LinuxMetadataBrokerFailure) as error:
+            runtime.serve_requests(1)
+        assert error.value.checkpoint == "parent_validation"
+        assert error.value.failure_kind == "authority_validation"
+        assert path.exists()
+    finally:
+        foreign.close()
+        path.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(not hasattr(socket, "SO_PEERCRED"), reason="Linux SO_PEERCRED required")
+def test_broker_preserves_substituted_socket_during_cleanup(tmp_path: Path) -> None:
+    tmp_path.chmod(0o700)
+    path = tmp_path / "ollama.sock"
+    peer = LinuxBrokerPeerAuthorityV1(outer_pid=1, outer_uid=1, start_time_ticks=1)
+    runtime = LinuxMetadataBrokerV1(path, peer)
+    stopped = threading.Event()
+    failures: list[BaseException] = []
+
+    def serve() -> None:
+        try:
+            runtime.serve_requests(1, stop_event=stopped)
+        except BaseException as error:
+            failures.append(error)
+
+    worker = threading.Thread(target=serve, daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 3
+    while not path.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert path.exists()
+    path.unlink()
+    replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    replacement.bind(str(path))
+    replacement.listen(1)
+    stopped.set()
+    worker.join(timeout=3)
+    try:
+        assert not worker.is_alive()
+        assert len(failures) == 1
+        failure = failures[0]
+        assert isinstance(failure, LinuxMetadataBrokerFailure)
+        assert failure.checkpoint == "cleanup"
+        assert failure.failure_kind == "cleanup_error"
+        assert path.exists()
+    finally:
+        replacement.close()
+        path.unlink(missing_ok=True)
+
+
 def send_stub_request(port: int, path: str) -> bytes:
     with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
         connection.sendall(f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:11434\r\n\r\n".encode("ascii"))
@@ -2760,7 +3081,9 @@ def broker_observation_fixture(
     def fail_outer_pid() -> int:
         raise AssertionError("post-chroot code must not inspect the outer PID")
 
-    def unix_http(_socket_path: str, _raw: bytes) -> tuple[bytes, tuple[int, int, int], int]:
+    def unix_http(
+        _checkpoint: str, _socket_path: str, _raw: bytes
+    ) -> tuple[bytes, tuple[int, int, int], int]:
         response, inode = next(response_iterator)
         return response, (peer_pid, peer_uid, 1000), inode
 
@@ -2775,6 +3098,169 @@ def broker_observation_fixture(
     monkeypatch.setattr(CHILD.Path, "exists", lambda _path: True)
     monkeypatch.setattr(CHILD.os, "lstat", lstat)
     return cast(dict[str, bool | str | int], CHILD.broker_observations())
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
+def test_child_broker_connect_race_is_a_bounded_typed_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+
+    class RefusedSocket:
+        def settimeout(self, _timeout: float) -> None:
+            pass
+
+        def connect(self, _path: str) -> None:
+            raise ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(CHILD.socket, "socket", lambda *_args: RefusedSocket())
+    with pytest.raises(CHILD.BrokerObservationFailure) as error:
+        CHILD.unix_http("version", "/run/devfabric/ollama.sock", b"request")
+    assert (
+        error.value.checkpoint,
+        error.value.operation,
+        error.value.reason_code,
+        error.value.errno_category,
+    ) == ("version", "connect", "broker_connect_failed", "connection_refused")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
+@pytest.mark.parametrize(
+    ("failure_point", "checkpoint", "operation", "reason"),
+    [
+        (
+            "peer_credentials",
+            "version",
+            "peer_credentials",
+            "broker_peer_credentials_failed",
+        ),
+        ("path_stat", "tags", "path_stat", "broker_socket_stat_failed"),
+    ],
+)
+def test_child_broker_os_failure_writer_reader_uses_exact_tuple(
+    failure_point: str,
+    checkpoint: str,
+    operation: str,
+    reason: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+
+    class FailingSocket:
+        def settimeout(self, _timeout: float) -> None:
+            pass
+
+        def connect(self, _path: str) -> None:
+            pass
+
+        def getsockopt(self, *_args: object) -> bytes:
+            if failure_point == "peer_credentials":
+                raise PermissionError(errno.EACCES, "denied")
+            return CHILD.struct.pack("3i", 0, 1000, 1000)
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(CHILD.socket, "socket", lambda *_args: FailingSocket())
+    if failure_point == "path_stat":
+        monkeypatch.setattr(
+            CHILD.os,
+            "lstat",
+            lambda _path: (_ for _ in ()).throw(PermissionError(errno.EACCES, "denied")),
+        )
+    with pytest.raises(CHILD.BrokerObservationFailure) as error:
+        CHILD.unix_http(checkpoint, "/run/devfabric/ollama.sock", b"request")
+    assert (
+        error.value.checkpoint,
+        error.value.operation,
+        error.value.reason_code,
+        error.value.errno_category,
+    ) == (checkpoint, operation, reason, "permission_denied")
+    frame = CHILD.runtime_failure_frame("broker", H, ENVIRONMENT, error.value)
+    parsed = LinuxChildRuntimeFailureV2.model_validate(frame)
+    assert parsed.payload.broker_operation == operation
+    assert parsed.payload.reason_code == reason
+
+
+@pytest.mark.skipif(os.name != "posix", reason="AF_UNIX bind/listen boundary is Linux-only")
+def test_child_broker_real_bound_before_listen_race_is_typed(tmp_path: Path) -> None:
+    assert CHILD is not None
+    tmp_path.chmod(0o700)
+    path = tmp_path / "ollama.sock"
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(path))
+    path.chmod(0o600)
+    try:
+        assert path.exists()
+        with pytest.raises(CHILD.BrokerObservationFailure) as error:
+            CHILD.unix_http("version", str(path), b"request")
+        assert (
+            error.value.checkpoint,
+            error.value.operation,
+            error.value.reason_code,
+            error.value.errno_category,
+        ) == ("version", "connect", "broker_connect_failed", "connection_refused")
+    finally:
+        listener.close()
+        path.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
+@pytest.mark.parametrize(
+    ("index", "checkpoint"),
+    [
+        (0, "version"),
+        (1, "tags"),
+        (2, "show"),
+        (3, "generate_denial"),
+        (4, "oversized_denial"),
+    ],
+)
+def test_child_broker_status_failure_identifies_exact_checkpoint(
+    index: int, checkpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert CHILD is not None
+    responses = [
+        b"HTTP/1.1 200 OK",
+        b"HTTP/1.1 200 OK",
+        b"HTTP/1.1 200 OK",
+        b"HTTP/1.1 403 Forbidden",
+        b"HTTP/1.1 403 Forbidden",
+    ]
+    responses[index] = b"HTTP/1.1 500 Error"
+    with pytest.raises(CHILD.BrokerObservationFailure) as error:
+        broker_observation_fixture(monkeypatch, responses=tuple(responses))
+    assert (
+        error.value.checkpoint,
+        error.value.operation,
+        error.value.reason_code,
+    ) == (checkpoint, "response_status", "broker_response_status_invalid")
+
+
+@pytest.mark.skipif(not hasattr(socket, "SO_PEERCRED"), reason="Linux SO_PEERCRED required")
+def test_host_broker_parent_validation_failure_is_bounded_and_cleans(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tmp_path.chmod(0o700)
+    path = tmp_path / "ollama.sock"
+    peer = LinuxBrokerPeerAuthorityV1(outer_pid=1, outer_uid=1, start_time_ticks=1)
+    runtime = LinuxMetadataBrokerV1(path, peer)
+    monkeypatch.setattr(
+        runtime,
+        "_validate_socket_parent",
+        lambda: (_ for _ in ()).throw(PermissionError(errno.EACCES, "denied")),
+    )
+    with pytest.raises(LinuxMetadataBrokerFailure) as error:
+        runtime.serve_requests(1)
+    assert (
+        error.value.checkpoint,
+        error.value.completed_outcomes,
+        error.value.errno_category,
+    ) == ("parent_validation", (), "permission_denied")
+    assert not path.exists()
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
@@ -2817,8 +3303,9 @@ def test_child_broker_observation_rejects_authority_mismatch(
     raises_directly: bool,
 ) -> None:
     if raises_directly:
-        with pytest.raises(ValueError, match="socket identity changed"):
+        with pytest.raises(CHILD.BrokerObservationFailure) as error:
             broker_observation_fixture(monkeypatch, **overrides)
+        assert error.value.reason_code == "broker_inode_substitution"
         return
     observed = broker_observation_fixture(monkeypatch, **overrides)
     observed.update(
@@ -3128,16 +3615,16 @@ def test_v3_registration_cannot_supply_missing_result_mount_authority() -> None:
             mount_authority=LinuxMountAuthorityObservationV1(),
         )
     )
-    raw_observation = observation_v10().model_dump(mode="python")
+    raw_observation = observation_v11().model_dump(mode="python")
     del raw_observation["mount_authority"]
     with pytest.raises(ValidationError, match="mount_authority"):
         PROBE.validate_registered_observation(raw_observation, registration.payload)
 
     assert (
         PROBE.validate_registered_observation(
-            observation_v10().model_dump(mode="python"), registration.payload
+            observation_v11().model_dump(mode="python"), registration.payload
         )
-        == observation_v10()
+        == observation_v11()
     )
 
 
@@ -3278,10 +3765,15 @@ def test_run_probe_prefers_typed_runtime_failure_over_expected_broker_cancellati
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v10_for_server(server)
+    profile = profile_v11_for_server(server)
     capture = PROBE.ProbeProcessCapture()
-    failure = LinuxChildRuntimeFailureV1.create(
-        LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
+    failure = LinuxChildRuntimeFailureV2.create(
+        LinuxChildRuntimeFailurePayloadV2(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=profile.payload.environment_instance_id,
+            stage="landlock",
+            reason_code="landlock_failed",
+        )
     )
     encoded = (
         json.dumps(failure.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode(
@@ -3328,10 +3820,15 @@ def test_run_probe_keeps_independent_broker_failure_primary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v10_for_server(server)
+    profile = profile_v11_for_server(server)
     capture = PROBE.ProbeProcessCapture()
-    failure = LinuxChildRuntimeFailureV1.create(
-        LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
+    failure = LinuxChildRuntimeFailureV2.create(
+        LinuxChildRuntimeFailurePayloadV2(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=profile.payload.environment_instance_id,
+            stage="landlock",
+            reason_code="landlock_failed",
+        )
     )
     encoded = (
         json.dumps(failure.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode(
@@ -3381,7 +3878,7 @@ def test_run_probe_rejects_missing_or_malformed_runtime_failure(
     result: bytes | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v10_for_server(server)
+    profile = profile_v11_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     (tmp_path / "broker").mkdir(mode=0o700)
     host_pid = os.getpid()
@@ -3427,14 +3924,14 @@ def test_run_probe_rejects_missing_or_malformed_runtime_failure(
         ("cleanup", "cleanup_failed", False),
     ],
 )
-def test_main_publishes_exact_v6_child_failure_phase_without_success(
+def test_main_publishes_exact_v7_child_failure_phase_without_success(
     failure_phase: PROBE.FailurePhase,
     expected_reason: PROBE.FailureReason,
     cleanup_succeeded: bool,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expected = profile_payload_v10()
+    expected = profile_payload_v11()
     diagnostic = b"bounded-main-child-bootstrap-failure"
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
@@ -3461,6 +3958,7 @@ def test_main_publishes_exact_v6_child_failure_phase_without_success(
         )
 
     def fail_after_launch(*args: object) -> None:
+        active_profile = cast(LinuxIsolationProfileV11, args[0])
         server = cast(socket.socket, args[-2])
         capture = args[-1]
         capture.process_started = True
@@ -3479,9 +3977,12 @@ def test_main_publishes_exact_v6_child_failure_phase_without_success(
             capture.returncode = 70
             raise PROBE.ChildBootstrapFailure(frame)
         if failure_phase == "private_root":
-            frame = LinuxChildRuntimeFailureV1.create(
-                LinuxChildRuntimeFailurePayloadV1(
-                    stage="private_root", reason_code="private_root_failed"
+            frame = LinuxChildRuntimeFailureV2.create(
+                LinuxChildRuntimeFailurePayloadV2(
+                    linux_isolation_profile_id=active_profile.linux_isolation_profile_id,
+                    environment_instance_id=ENVIRONMENT,
+                    stage="private_root",
+                    reason_code="private_root_failed",
                 )
             )
             capture.child_runtime_failure = frame
@@ -3526,7 +4027,7 @@ def test_main_publishes_exact_v6_child_failure_phase_without_success(
     )
     with pytest.raises(expected_exception):
         PROBE.main()
-    failure = LinuxIsolationFailureV6.model_validate_json(failure_output.read_bytes())
+    failure = LinuxIsolationFailureV7.model_validate_json(failure_output.read_bytes())
     assert failure.payload.phase == failure_phase
     assert failure.payload.reason_code == expected_reason
     assert failure.payload.child_process_started is True

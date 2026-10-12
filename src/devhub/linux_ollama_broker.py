@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import socket
@@ -45,6 +46,47 @@ class LinuxBrokerPeerAuthorityV1(Contract):
     start_time_ticks: int = Field(ge=1)
     inner_pid: Literal[1] = 1
     inner_uid: Literal[1000] = 1000
+
+
+class LinuxMetadataBrokerFailure(ValueError):
+    """Fixed-enum host broker failure retained by the qualification harness."""
+
+    def __init__(
+        self,
+        checkpoint: str,
+        completed_outcomes: tuple[str, ...],
+        cause: BaseException,
+    ) -> None:
+        super().__init__(f"{checkpoint}_failed")
+        self.checkpoint = checkpoint
+        self.completed_outcomes = completed_outcomes
+        self.errno_category = bounded_errno_category(cause)
+        if isinstance(cause, OSError):
+            self.failure_kind = "os_error"
+        elif checkpoint in {"parent_validation", "peer_credentials", "peer_start_time"}:
+            self.failure_kind = "authority_validation"
+        elif checkpoint == "upstream_read" and isinstance(cause, ValueError):
+            self.failure_kind = "response_bound_exceeded"
+        elif checkpoint == "cleanup":
+            self.failure_kind = "cleanup_error"
+        else:
+            self.failure_kind = "internal_error"
+
+
+def bounded_errno_category(error: BaseException) -> str | None:
+    if not isinstance(error, OSError):
+        return None
+    if error.errno is None:
+        return "other_os_error"
+    return {
+        errno.EADDRINUSE: "address_in_use",
+        errno.ECONNREFUSED: "connection_refused",
+        errno.ECONNRESET: "connection_reset",
+        errno.EPIPE: "broken_pipe",
+        errno.ETIMEDOUT: "timed_out",
+        errno.EACCES: "permission_denied",
+        errno.EPERM: "permission_denied",
+    }.get(error.errno, "other_os_error")
 
 
 @dataclass(frozen=True)
@@ -261,26 +303,45 @@ class LinuxMetadataBrokerV1:
             raise ValueError("Broker request count is outside the reviewed bound")
         if os.name != "posix" or not hasattr(socket, "AF_UNIX"):
             raise ValueError("Native Linux broker requires AF_UNIX")
-        self._validate_socket_parent()
-        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        listener.settimeout(0.2)
+        checkpoint = "parent_validation"
+        listener: socket.socket | None = None
+        owned_socket_identity: tuple[int, int] | None = None
         outcomes: list[str] = []
+        failure: BaseException | None = None
         try:
+            self._validate_socket_parent()
+            checkpoint = "bind"
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.settimeout(0.2)
             listener.bind(str(self.socket_path))
+            socket_info = os.lstat(self.socket_path)
+            if not stat.S_ISSOCK(socket_info.st_mode):
+                raise ValueError("Bound broker path is not a socket")
+            owned_socket_identity = (socket_info.st_dev, socket_info.st_ino)
+            checkpoint = "chmod"
             self.socket_path.chmod(0o600)
+            checkpoint = "listen"
             listener.listen(1)
             while len(outcomes) < count:
                 if stop_event is not None and stop_event.is_set():
                     raise TimeoutError("Linux metadata broker was cancelled")
                 if deadline is not None and time.monotonic() >= deadline:
                     raise TimeoutError("Linux metadata broker deadline expired")
+                checkpoint = "accept"
                 try:
                     connection, _ = listener.accept()
                 except TimeoutError:
                     continue
                 with connection:
                     connection.settimeout(5)
-                    validate_peer(connection, self.peer)
+                    checkpoint = "peer_credentials"
+                    pid, uid, _ = _peer_credentials(connection)
+                    if pid != self.peer.outer_pid or uid != self.peer.outer_uid:
+                        raise ValueError("Ollama broker peer process identity mismatch")
+                    checkpoint = "peer_start_time"
+                    if process_start_time_ticks(pid) != self.peer.start_time_ticks:
+                        raise ValueError("Ollama broker peer start-time identity mismatch")
+                    checkpoint = "request_parse"
                     try:
                         request = read_metadata_request(
                             connection,
@@ -288,6 +349,7 @@ class LinuxMetadataBrokerV1:
                             expected_model=self.expected_model,
                         )
                     except ValueError:
+                        checkpoint = "denial_response"
                         connection.sendall(
                             b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n"
                             b"Connection: close\r\n\r\n"
@@ -297,18 +359,68 @@ class LinuxMetadataBrokerV1:
                     remaining = 10.0
                     if deadline is not None:
                         remaining = max(0.1, min(remaining, deadline - time.monotonic()))
-                    with socket.create_connection(
+                    checkpoint = "upstream_connect"
+                    target = socket.create_connection(
                         (self.destination_host, self.destination_port), timeout=remaining
-                    ) as target:
+                    )
+                    with target:
+                        checkpoint = "upstream_send"
                         target.sendall(request.raw)
-                        _bounded_response(target, connection, self.max_response_bytes)
+                        observed = 0
+                        while True:
+                            checkpoint = "upstream_read"
+                            chunk = target.recv(
+                                min(64 * 1024, self.max_response_bytes + 1 - observed)
+                            )
+                            if not chunk:
+                                break
+                            observed += len(chunk)
+                            if observed > self.max_response_bytes:
+                                raise ValueError(
+                                    "Ollama metadata response exceeds the reviewed byte limit"
+                                )
+                            checkpoint = "client_forwarding"
+                            connection.sendall(chunk)
                     outcomes.append(request.path)
+        except BaseException as error:
+            failure = error
         finally:
-            listener.close()
-            try:
-                self.socket_path.unlink()
-            except FileNotFoundError:
-                pass
+            if listener is not None:
+                try:
+                    listener.close()
+                except BaseException as error:
+                    failure = error
+                    checkpoint = "cleanup"
+            if owned_socket_identity is not None:
+                try:
+                    current = os.lstat(self.socket_path)
+                except FileNotFoundError:
+                    pass
+                except BaseException as error:
+                    failure = error
+                    checkpoint = "cleanup"
+                else:
+                    if (current.st_dev, current.st_ino) != owned_socket_identity:
+                        failure = ValueError("Broker socket identity changed before cleanup")
+                        checkpoint = "cleanup"
+                    else:
+                        try:
+                            self.socket_path.unlink()
+                        except BaseException as error:
+                            failure = error
+                            checkpoint = "cleanup"
+        if failure is not None:
+            if isinstance(failure, LinuxMetadataBrokerFailure):
+                raise failure
+            if isinstance(failure, TimeoutError) and str(failure) == (
+                "Linux metadata broker was cancelled"
+            ):
+                raise failure
+            raise LinuxMetadataBrokerFailure(
+                checkpoint,
+                tuple(outcomes),
+                failure,
+            ) from None
         return tuple(outcomes)
 
     def serve_one(self) -> None:
