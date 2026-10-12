@@ -13,15 +13,23 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
 
 from devhub.benchmark import Digest, canonical, digest
-from devhub.models import Contract
+from devhub.models import Contract, ContractV2
 
 LINUX_ISOLATION_PROFILE_KIND = "linux_native_isolation_v1"
 LINUX_ISOLATION_RECEIPT_KIND = "linux_native_isolation_receipt_v1"
+LINUX_ISOLATION_PROFILE_KIND_V2 = "linux_native_isolation_v2"
+LINUX_ISOLATION_RECEIPT_KIND_V2 = "linux_native_isolation_receipt_v2"
 LINUX_TARGET_OS = "ubuntu"
 LINUX_TARGET_VERSION = "24.04"
 LINUX_TARGET_ARCH = "x86_64"
 LINUX_SANDBOX_UID = 1000
 LINUX_SANDBOX_GID = 1000
+LINUX_SYSTEM_UNSHARE = "/usr/bin/unshare"
+LINUX_PRIVATE_UNSHARE = "/opt/devfabric/libexec/unshare"
+LINUX_APPARMOR_PROFILE_NAME = "devfabric-linux-isolation-unshare"
+LINUX_APPARMOR_PROFILE_ATTACHMENT = LINUX_PRIVATE_UNSHARE
+LINUX_APPARMOR_PROFILE_MODE = "unconfined"
+LINUX_APPARMOR_CURRENT = f"{LINUX_APPARMOR_PROFILE_NAME} ({LINUX_APPARMOR_PROFILE_MODE})"
 LANDLOCK_ACCESS_FS_IOCTL_DEV = 1 << 15
 LANDLOCK_ACCESS_FS_ABI3 = (1 << 15) - 1
 
@@ -122,6 +130,65 @@ class LinuxToolAuthorityV1(LinuxFileAuthorityV1):
         return self
 
 
+class LinuxAppArmorParserAuthorityV2(LinuxFileAuthorityV1):
+    locator: Literal["/usr/sbin/apparmor_parser"] = "/usr/sbin/apparmor_parser"
+    version_output_sha256: Digest
+
+    @model_validator(mode="after")
+    def root_owned_non_writable_parser(self) -> LinuxAppArmorParserAuthorityV2:
+        mode = int(self.mode, 8)
+        if self.owner_uid != 0 or self.owner_gid != 0:
+            raise ValueError("AppArmor parser must be root-owned")
+        if mode & 0o022 or not mode & 0o100 or mode & 0o7000:
+            raise ValueError("AppArmor parser mode is unsafe")
+        return self
+
+
+class LinuxAppArmorAuthorityV2(Contract):
+    """Exact narrow user-namespace exception attached to the private launcher."""
+
+    profile_name: Literal["devfabric-linux-isolation-unshare"] = "devfabric-linux-isolation-unshare"
+    attachment: Literal["/opt/devfabric/libexec/unshare"] = "/opt/devfabric/libexec/unshare"
+    mode: Literal["unconfined"] = "unconfined"
+    source_relative_path: Literal["packaging/linux/apparmor/devfabric-linux-isolation-unshare"] = (
+        "packaging/linux/apparmor/devfabric-linux-isolation-unshare"
+    )
+    source_git_blob_sha256: Digest
+    source_sha256: Digest
+    installed_profile: LinuxFileAuthorityV1
+    parser: LinuxAppArmorParserAuthorityV2
+    loaded_profiles_snapshot: LinuxFileAuthorityV1
+    loaded_profile_line: Literal["devfabric-linux-isolation-unshare (unconfined)"] = (
+        "devfabric-linux-isolation-unshare (unconfined)"
+    )
+
+    @model_validator(mode="after")
+    def exact_installed_authority(self) -> LinuxAppArmorAuthorityV2:
+        installed = self.installed_profile
+        snapshot = self.loaded_profiles_snapshot
+        expected_snapshot = (self.loaded_profile_line + "\n").encode("utf-8")
+        if self.source_git_blob_sha256 != self.source_sha256:
+            raise ValueError("AppArmor Git blob and checked-out source differ")
+        if (
+            installed.locator != "/etc/apparmor.d/devfabric-linux-isolation-unshare"
+            or installed.sha256 != self.source_sha256
+            or installed.owner_uid != 0
+            or installed.owner_gid != 0
+            or installed.mode != "0644"
+        ):
+            raise ValueError("Installed AppArmor profile differs from reviewed source authority")
+        if (
+            snapshot.locator != "/run/devfabric/devfabric-linux-isolation-profiles"
+            or snapshot.sha256 != digest(expected_snapshot)
+            or snapshot.size != len(expected_snapshot)
+            or snapshot.owner_uid != 0
+            or snapshot.owner_gid != 0
+            or snapshot.mode != "0444"
+        ):
+            raise ValueError("AppArmor loaded-profile snapshot authority is unsafe")
+        return self
+
+
 class LinuxHostAuthorityV1(Contract):
     """Exact host observations that affect rootless isolation semantics."""
 
@@ -145,6 +212,24 @@ class LinuxHostAuthorityV1(Contract):
         ):
             raise ValueError("AppArmor userns sysctl presence and value disagree")
         return self
+
+
+class LinuxHostAuthorityV2(Contract):
+    """Exact Ubuntu 24.04 authority with a narrow private-launcher profile."""
+
+    os_id: Literal["ubuntu"] = "ubuntu"
+    os_version_id: Literal["24.04"] = "24.04"
+    architecture: Literal["x86_64"] = "x86_64"
+    os_release_sha256: Digest
+    kernel_release: Annotated[str, Field(min_length=1, max_length=256)]
+    kernel_version_sha256: Digest
+    user_namespace_clone_enabled: Literal[True] = True
+    apparmor_userns_restriction_present: Literal[True] = True
+    apparmor_userns_restriction: Literal[1] = 1
+    apparmor: LinuxAppArmorAuthorityV2
+    landlock_abi: Annotated[int, Field(ge=3, le=6)]
+    cgroup_v2: Literal[True] = True
+    delegated_cgroup_available: bool
 
 
 class LinuxRlimitsV1(Contract):
@@ -325,6 +410,72 @@ class LinuxIsolationProfilePayloadV1(Contract):
         return self
 
 
+class LinuxIsolationProfilePayloadV2(LinuxIsolationProfilePayloadV1):
+    """Forward-only profile for the exact private AppArmor launcher."""
+
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v2"] = "linux_native_isolation_v2"  # type: ignore[assignment]
+    host: LinuxHostAuthorityV2  # type: ignore[assignment]
+    system_unshare: LinuxToolAuthorityV1
+    unshare: LinuxToolAuthorityV1
+
+    @model_validator(mode="after")
+    def closed_profile(self) -> LinuxIsolationProfilePayloadV2:
+        if (
+            self.system_unshare.name != "unshare"
+            or self.system_unshare.locator != LINUX_SYSTEM_UNSHARE
+            or self.unshare.name != "unshare"
+            or self.unshare.locator != LINUX_PRIVATE_UNSHARE
+        ):
+            raise ValueError("Profile requires exact system and private unshare authorities")
+        if (
+            self.system_unshare.sha256 != self.unshare.sha256
+            or self.system_unshare.size != self.unshare.size
+            or self.system_unshare.version_output_sha256 != self.unshare.version_output_sha256
+            or self.system_unshare.native_identity == self.unshare.native_identity
+        ):
+            raise ValueError("Private unshare does not match the reviewed system binary")
+        if self.mount.name != "mount" or self.mount.locator != "/usr/bin/mount":
+            raise ValueError("Profile requires exact /usr/bin/mount authority")
+        if self.namespace_kinds != ("mount", "network", "pid", "user"):
+            raise ValueError("Linux namespace set must be exact and canonical")
+        source_roles = tuple(item.role for item in self.source_directories)
+        if source_roles != ("broker", "fixture", "output", "scratch_root", "state"):
+            raise ValueError("Isolation source directories must be exact and canonical")
+        source_hashes: dict[str, str] = {
+            item.role: digest(canonical(item.model_dump(mode="json")))
+            for item in self.source_directories
+        }
+        mount_source_roles = {
+            "bundle_read_only": "fixture",
+            "output_read_write": "output",
+            "broker_read_only": "broker",
+            "state_read_write": "state",
+        }
+        for item in self.mounts:
+            role = mount_source_roles.get(item.kind)
+            if role is not None and item.source_identity_sha256 != source_hashes[role]:
+                raise ValueError("Mount source identity differs from directory authority")
+        mount_targets = tuple(item.target for item in self.mounts)
+        if mount_targets != tuple(sorted(set(mount_targets))):
+            raise ValueError("Mount targets must be sorted and unique")
+        required_kinds = {
+            "bundle_read_only",
+            "state_read_write",
+            "output_read_write",
+            "broker_read_only",
+            "tmpfs_home",
+            "tmpfs_tmp",
+            "proc",
+            "dev_tmpfs",
+        }
+        if not required_kinds.issubset({item.kind for item in self.mounts}):
+            raise ValueError("Linux private root is missing a required mount kind")
+        if self.landlock_handled_access != landlock_handled_access(self.host.landlock_abi):
+            raise ValueError("Landlock access mask differs from the exact reviewed host ABI")
+        return self
+
+
 class LinuxIsolationProfileV1(Contract):
     linux_isolation_profile_id: Digest
     payload: LinuxIsolationProfilePayloadV1
@@ -341,6 +492,25 @@ class LinuxIsolationProfileV1(Contract):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV2(Contract):
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV2) -> LinuxIsolationProfileV2:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V2 profile hash mismatch")
         return self
 
 
@@ -425,6 +595,13 @@ class LinuxIsolationObservationV1(Contract):
     broker: LinuxBrokerObservationV1
     descendant_cleanup_passed: Literal[True] = True
     cleanup_failures: tuple[()] = ()
+
+
+class LinuxIsolationObservationV2(LinuxIsolationObservationV1):
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    apparmor_current_profile: Literal["devfabric-linux-isolation-unshare (unconfined)"] = (
+        "devfabric-linux-isolation-unshare (unconfined)"
+    )
 
 
 class LinuxHostCleanupObservationV1(Contract):
@@ -536,6 +713,367 @@ class LinuxIsolationEvidenceV1(Contract):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_evidence_id != expected:
             raise ValueError("Linux isolation evidence hash mismatch")
+        return self
+
+
+class LinuxIsolationReceiptPayloadV2(ContractV2):
+    schema_version: Literal[2] = 2
+    receipt_kind: Literal["linux_native_isolation_receipt_v2"] = "linux_native_isolation_receipt_v2"
+    linux_isolation_profile_id: Digest
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    observation: LinuxIsolationObservationV2
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+    metadata_isolation_baseline_qualified: Literal[True] = True
+    cgroup_resource_boundary_qualified: Literal[False] = False
+    syscall_filter_qualified: Literal[False] = False
+    native_executor_isolation_qualified: Literal[False] = False
+    package_readiness: Literal[False] = False
+
+
+class LinuxIsolationReceiptV2(Contract):
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV2) -> LinuxIsolationReceiptV2:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V2 receipt hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV2(ContractV2):
+    schema_version: Literal[2] = 2
+    profile: LinuxIsolationProfileV2
+    receipt: LinuxIsolationReceiptV2
+    child_stdout_retained_sha256: Digest
+    child_stderr_retained_sha256: Digest
+    child_stdout_retained_bytes: Annotated[int, Field(ge=0, le=1024 * 1024)]
+    child_stderr_retained_bytes: Annotated[int, Field(ge=0, le=1024 * 1024)]
+    child_stdout_truncated: bool
+    child_stderr_truncated: bool
+    cleanup: LinuxHostCleanupObservationV1
+
+    @model_validator(mode="after")
+    def exact_profile_receipt_join(self) -> LinuxIsolationEvidencePayloadV2:
+        if (
+            self.receipt.payload.linux_isolation_profile_id
+            != self.profile.linux_isolation_profile_id
+            or self.receipt.payload.environment_instance_id
+            != self.profile.payload.environment_instance_id
+        ):
+            raise ValueError("Linux isolation V2 profile and receipt authority differ")
+        profile = self.profile.payload
+        observed = self.receipt.payload.observation
+        if observed.apparmor_current_profile != profile.host.apparmor.loaded_profile_line:
+            raise ValueError("Observed AppArmor profile differs from host authority")
+        if observed.landlock_abi != profile.host.landlock_abi:
+            raise ValueError("Observed Landlock ABI differs from profile authority")
+        if observed.landlock_handled_access != profile.landlock_handled_access:
+            raise ValueError("Observed Landlock mask differs from profile authority")
+        expected_targets = tuple(item.target for item in profile.mounts)
+        if observed.observed_mount_targets != expected_targets:
+            raise ValueError("Observed mount targets differ from profile authority")
+        expected_rlimits = digest(canonical(profile.rlimits.model_dump(mode="json")))
+        if observed.rlimits_sha256 != expected_rlimits:
+            raise ValueError("Observed rlimits differ from profile authority")
+        expected_rules = (
+            "/bundle",
+            "/home",
+            "/output",
+            "/proc",
+            "/run/devfabric",
+            "/state",
+            "/tmp",
+        )
+        if observed.landlock_rule_targets != expected_rules:
+            raise ValueError("Observed Landlock rules differ from the reviewed rule set")
+        return self
+
+
+class LinuxIsolationEvidenceV2(Contract):
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV2) -> LinuxIsolationEvidenceV2:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V2 evidence hash mismatch")
+        return self
+
+
+class LinuxAppArmorCleanupPayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    receipt_kind: Literal["linux_apparmor_cleanup_receipt_v1"] = "linux_apparmor_cleanup_receipt_v1"
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_isolation_profile_id: Digest
+    linux_isolation_evidence_id: Digest
+    apparmor_authority_sha256: Digest
+    parser_unload_succeeded: Literal[True] = True
+    loaded_profile_absent: Literal[True] = True
+    installed_profile_removed: Literal[True] = True
+    private_launcher_removed: Literal[True] = True
+    loaded_snapshot_removed: Literal[True] = True
+    private_root_removed_if_created: Literal[True] = True
+    private_parent_removed_if_created: Literal[True] = True
+    runtime_parent_removed_if_created: Literal[True] = True
+    setup_state_removed: Literal[True] = True
+    cleanup_complete: Literal[True] = True
+
+
+class LinuxAppArmorCleanupReceiptV1(Contract):
+    linux_apparmor_cleanup_receipt_id: Digest
+    payload: LinuxAppArmorCleanupPayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxAppArmorCleanupPayloadV1) -> LinuxAppArmorCleanupReceiptV1:
+        return cls(
+            linux_apparmor_cleanup_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxAppArmorCleanupReceiptV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_apparmor_cleanup_receipt_id != expected:
+            raise ValueError("Linux AppArmor cleanup receipt hash mismatch")
+        return self
+
+
+class LinuxAppArmorSetupStatePayloadV1(Contract):
+    """Root-owned ownership journal for the narrow temporary AppArmor authority."""
+
+    schema_version: Literal[1] = 1
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    source_git_blob_sha256: Digest
+    source_sha256: Digest
+    system_unshare_sha256: Digest
+    parser_sha256: Digest
+    private_root_created: bool = False
+    private_root_identity: LinuxNativePathIdentityV1 | None = None
+    private_parent_created: bool = False
+    private_parent_identity: LinuxNativePathIdentityV1 | None = None
+    runtime_parent_created: bool = False
+    runtime_parent_identity: LinuxNativePathIdentityV1 | None = None
+    private_launcher_created: bool = False
+    installed_profile_created: bool = False
+    profile_loaded: bool = False
+    loaded_snapshot_created: bool = False
+    setup_complete: bool = False
+    profile_unload_started: bool = False
+    profile_unloaded: bool = False
+    loaded_snapshot_removal_started: bool = False
+    loaded_snapshot_removed: bool = False
+    installed_profile_removal_started: bool = False
+    installed_profile_removed: bool = False
+    private_launcher_removal_started: bool = False
+    private_launcher_removed: bool = False
+    private_parent_removal_started: bool = False
+    private_parent_removed: bool = False
+    private_root_removal_started: bool = False
+    private_root_removed: bool = False
+    runtime_parent_removal_started: bool = False
+    runtime_parent_removed: bool = False
+
+    @model_validator(mode="after")
+    def exact_source_join(self) -> LinuxAppArmorSetupStatePayloadV1:
+        if self.source_git_blob_sha256 != self.source_sha256:
+            raise ValueError("AppArmor setup source differs from reviewed Git blob")
+        for created, identity in (
+            (self.private_root_created, self.private_root_identity),
+            (self.private_parent_created, self.private_parent_identity),
+            (self.runtime_parent_created, self.runtime_parent_identity),
+        ):
+            if identity is not None and not created:
+                raise ValueError("AppArmor directory identity lacks a creation journal entry")
+        if self.setup_complete and not all(
+            (
+                self.private_launcher_created,
+                self.installed_profile_created,
+                self.profile_loaded,
+                self.loaded_snapshot_created,
+            )
+        ):
+            raise ValueError("Completed AppArmor setup has missing owned objects")
+        if self.setup_complete and any(
+            created and identity is None
+            for created, identity in (
+                (self.private_root_created, self.private_root_identity),
+                (self.private_parent_created, self.private_parent_identity),
+                (self.runtime_parent_created, self.runtime_parent_identity),
+            )
+        ):
+            raise ValueError("Completed AppArmor setup lacks a created-directory identity")
+        if self.private_root_created and self.setup_complete and not self.private_parent_created:
+            raise ValueError("Created private root lacks its owned private parent")
+        if (self.profile_unload_started or self.profile_unloaded) and not self.profile_loaded:
+            raise ValueError("AppArmor profile cannot be unloaded before it was loaded")
+        if self.profile_unloaded and not self.profile_unload_started:
+            raise ValueError("AppArmor profile unload completion lacks a pending transition")
+        for created, started, removed in (
+            (
+                self.loaded_snapshot_created,
+                self.loaded_snapshot_removal_started,
+                self.loaded_snapshot_removed,
+            ),
+            (
+                self.installed_profile_created,
+                self.installed_profile_removal_started,
+                self.installed_profile_removed,
+            ),
+            (
+                self.private_launcher_created,
+                self.private_launcher_removal_started,
+                self.private_launcher_removed,
+            ),
+            (
+                self.private_parent_created,
+                self.private_parent_removal_started,
+                self.private_parent_removed,
+            ),
+            (
+                self.private_root_created,
+                self.private_root_removal_started,
+                self.private_root_removed,
+            ),
+            (
+                self.runtime_parent_created,
+                self.runtime_parent_removal_started,
+                self.runtime_parent_removed,
+            ),
+        ):
+            if (started or removed) and not created:
+                raise ValueError("AppArmor cleanup transition lacks a creation journal entry")
+            if removed and not started:
+                raise ValueError("AppArmor cleanup completion lacks a pending transition")
+        return self
+
+
+class LinuxAppArmorSetupStateV1(Contract):
+    linux_apparmor_setup_state_id: Digest
+    payload: LinuxAppArmorSetupStatePayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxAppArmorSetupStatePayloadV1) -> LinuxAppArmorSetupStateV1:
+        return cls(
+            linux_apparmor_setup_state_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxAppArmorSetupStateV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_apparmor_setup_state_id != expected:
+            raise ValueError("Linux AppArmor setup state hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationPayloadV2(ContractV2):
+    schema_version: Literal[2] = 2
+    mechanics: LinuxIsolationEvidenceV2
+    apparmor_cleanup: LinuxAppArmorCleanupReceiptV1
+    package_readiness: Literal[False] = False
+
+    @model_validator(mode="after")
+    def exact_mechanics_cleanup_join(self) -> LinuxIsolationQualificationPayloadV2:
+        profile = self.mechanics.payload.profile.payload
+        cleanup = self.apparmor_cleanup.payload
+        apparmor_sha256 = digest(canonical(profile.host.apparmor.model_dump(mode="json")))
+        if (
+            cleanup.implementation_commit != profile.implementation_commit
+            or cleanup.environment_instance_id != profile.environment_instance_id
+            or cleanup.linux_isolation_profile_id
+            != self.mechanics.payload.profile.linux_isolation_profile_id
+            or cleanup.linux_isolation_evidence_id != self.mechanics.linux_isolation_evidence_id
+            or cleanup.apparmor_authority_sha256 != apparmor_sha256
+        ):
+            raise ValueError("Linux mechanics and AppArmor cleanup authority differ")
+        return self
+
+
+class LinuxAppArmorLifecycleFailurePayloadV1(Contract):
+    """Sanitized authority for failures in the privileged AppArmor lifecycle."""
+
+    schema_version: Literal[1] = 1
+    receipt_kind: Literal["linux_apparmor_lifecycle_failure_v1"] = (
+        "linux_apparmor_lifecycle_failure_v1"
+    )
+    phase: Literal["setup", "rollback", "cleanup", "finalization"]
+    reason_code: Literal[
+        "authority_invalid",
+        "command_failed",
+        "cleanup_failed",
+        "join_failed",
+        "unexpected_internal_failure",
+    ]
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_apparmor_setup_state_id: Digest | None = None
+    cleanup_attempted: bool
+    cleanup_succeeded: bool
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+
+
+class LinuxAppArmorLifecycleFailureV1(Contract):
+    linux_apparmor_lifecycle_failure_id: Digest
+    payload: LinuxAppArmorLifecycleFailurePayloadV1
+
+    @classmethod
+    def create(
+        cls, payload: LinuxAppArmorLifecycleFailurePayloadV1
+    ) -> LinuxAppArmorLifecycleFailureV1:
+        return cls(
+            linux_apparmor_lifecycle_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxAppArmorLifecycleFailureV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_apparmor_lifecycle_failure_id != expected:
+            raise ValueError("Linux AppArmor lifecycle failure hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationV2(Contract):
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationQualificationPayloadV2) -> LinuxIsolationQualificationV2:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation qualification hash mismatch")
         return self
 
 

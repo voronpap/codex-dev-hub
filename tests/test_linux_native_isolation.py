@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import socket
+import subprocess
 import threading
 from pathlib import Path
 from types import ModuleType
@@ -15,20 +16,38 @@ from pydantic import ValidationError
 
 from devhub.benchmark import canonical, digest
 from devhub.linux_isolation import (
+    LINUX_APPARMOR_CURRENT,
+    LinuxAppArmorAuthorityV2,
+    LinuxAppArmorCleanupPayloadV1,
+    LinuxAppArmorCleanupReceiptV1,
+    LinuxAppArmorLifecycleFailurePayloadV1,
+    LinuxAppArmorLifecycleFailureV1,
+    LinuxAppArmorParserAuthorityV2,
+    LinuxAppArmorSetupStatePayloadV1,
+    LinuxAppArmorSetupStateV1,
     LinuxBrokerExpectationV1,
     LinuxBrokerObservationV1,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
-    LinuxHostAuthorityV1,
+    LinuxHostAuthorityV2,
     LinuxHostCleanupObservationV1,
     LinuxIsolationEvidencePayloadV1,
+    LinuxIsolationEvidencePayloadV2,
     LinuxIsolationEvidenceV1,
+    LinuxIsolationEvidenceV2,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationObservationV1,
+    LinuxIsolationObservationV2,
     LinuxIsolationProfilePayloadV1,
+    LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfileV1,
+    LinuxIsolationProfileV2,
+    LinuxIsolationQualificationPayloadV2,
+    LinuxIsolationQualificationV2,
     LinuxIsolationReceiptPayloadV1,
+    LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptV1,
+    LinuxIsolationReceiptV2,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
     LinuxNativePathIdentityV1,
@@ -58,6 +77,14 @@ def load_script(name: str, path: Path) -> ModuleType:
 PROBE = load_script(
     "linux_native_isolation_probe", ROOT / "scripts/probe_linux_native_isolation.py"
 )
+APPARMOR_MANAGER = load_script(
+    "linux_native_isolation_apparmor_manager",
+    ROOT / "scripts/manage_linux_native_isolation_apparmor.py",
+)
+FINALIZER = load_script(
+    "linux_native_isolation_finalizer",
+    ROOT / "scripts/finalize_linux_native_isolation.py",
+)
 H = "1" * 64
 ENVIRONMENT = "2" * 32
 COMMIT = "3" * 40
@@ -79,23 +106,57 @@ def native(index: int = 1) -> LinuxNativePathIdentityV1:
     return LinuxNativePathIdentityV1(device=1, inode=index)
 
 
-def plain_file(locator: str = "/usr/bin/python3") -> LinuxFileAuthorityV1:
+def plain_file(
+    locator: str = "/usr/bin/python3",
+    *,
+    index: int = 1,
+    mode: str = "0755",
+    sha: str = H,
+    size: int = 1,
+) -> LinuxFileAuthorityV1:
     return LinuxFileAuthorityV1(
         locator=locator,
-        sha256=H,
-        size=1,
+        sha256=sha,
+        size=size,
         owner_uid=0,
         owner_gid=0,
-        mode="0755",
-        native_identity=native(),
+        mode=mode,
+        native_identity=native(index),
     )
 
 
-def tool(name: Literal["unshare", "mount"]) -> LinuxToolAuthorityV1:
+def tool(
+    name: Literal["unshare", "mount"],
+    *,
+    locator: str | None = None,
+    index: int = 1,
+) -> LinuxToolAuthorityV1:
     return LinuxToolAuthorityV1(
-        **plain_file(f"/usr/bin/{name}").model_dump(mode="python"),
+        **plain_file(locator or f"/usr/bin/{name}", index=index).model_dump(mode="python"),
         name=name,
         version_output_sha256=H,
+    )
+
+
+def apparmor() -> LinuxAppArmorAuthorityV2:
+    parser = plain_file("/usr/sbin/apparmor_parser", index=23)
+    snapshot = (LINUX_APPARMOR_CURRENT + "\n").encode()
+    return LinuxAppArmorAuthorityV2(
+        source_git_blob_sha256=H,
+        source_sha256=H,
+        installed_profile=plain_file(
+            "/etc/apparmor.d/devfabric-linux-isolation-unshare", index=24, mode="0644"
+        ),
+        parser=LinuxAppArmorParserAuthorityV2(
+            **parser.model_dump(mode="python"), version_output_sha256=H
+        ),
+        loaded_profiles_snapshot=plain_file(
+            "/run/devfabric/devfabric-linux-isolation-profiles",
+            index=25,
+            mode="0444",
+            sha=digest(snapshot),
+            size=len(snapshot),
+        ),
     )
 
 
@@ -147,7 +208,7 @@ def broker() -> LinuxBrokerExpectationV1:
     )
 
 
-def profile_payload() -> LinuxIsolationProfilePayloadV1:
+def profile_payload() -> LinuxIsolationProfilePayloadV2:
     roles: tuple[
         Literal["broker"],
         Literal["fixture"],
@@ -157,7 +218,7 @@ def profile_payload() -> LinuxIsolationProfilePayloadV1:
     ] = ("broker", "fixture", "output", "scratch_root", "state")
     sources = tuple(directory(role, index) for index, role in enumerate(roles, 2))
     source_hashes = {item.role: digest(canonical(item.model_dump(mode="json"))) for item in sources}
-    return LinuxIsolationProfilePayloadV1(
+    return LinuxIsolationProfilePayloadV2(
         environment_instance_id=ENVIRONMENT,
         implementation_commit=COMMIT,
         native_bundle_id=H,
@@ -165,17 +226,17 @@ def profile_payload() -> LinuxIsolationProfilePayloadV1:
         bootstrap_python=plain_file(),
         probe_sha256=H,
         child_probe_sha256=H,
-        host=LinuxHostAuthorityV1(
+        host=LinuxHostAuthorityV2(
             os_release_sha256=H,
             kernel_release="6.8.0-1018-azure",
             kernel_version_sha256=H,
-            apparmor_userns_restriction_present=True,
-            apparmor_userns_restriction=0,
+            apparmor=apparmor(),
             landlock_abi=6,
             delegated_cgroup_available=False,
         ),
-        unshare=tool("unshare"),
-        mount=tool("mount"),
+        system_unshare=tool("unshare", index=20),
+        unshare=tool("unshare", locator="/opt/devfabric/libexec/unshare", index=21),
+        mount=tool("mount", index=22),
         source_directories=sources,
         mounts=(
             mount(
@@ -220,8 +281,8 @@ def namespace_observation() -> LinuxNamespaceObservationV1:
     )
 
 
-def observation() -> LinuxIsolationObservationV1:
-    return LinuxIsolationObservationV1(
+def observation() -> LinuxIsolationObservationV2:
+    return LinuxIsolationObservationV2(
         namespaces=namespace_observation(),
         mount_table_sha256=H,
         observed_mount_targets=MOUNT_TARGETS,
@@ -235,9 +296,9 @@ def observation() -> LinuxIsolationObservationV1:
 
 
 def evidence_payload(
-    profile: LinuxIsolationProfileV1, receipt: LinuxIsolationReceiptV1
-) -> LinuxIsolationEvidencePayloadV1:
-    return LinuxIsolationEvidencePayloadV1(
+    profile: LinuxIsolationProfileV2, receipt: LinuxIsolationReceiptV2
+) -> LinuxIsolationEvidencePayloadV2:
+    return LinuxIsolationEvidencePayloadV2(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -251,15 +312,15 @@ def evidence_payload(
 
 
 def test_linux_profile_receipt_and_composite_are_self_hashed_and_non_ready() -> None:
-    profile = LinuxIsolationProfileV1.create(profile_payload())
-    receipt = LinuxIsolationReceiptV1.create(
-        LinuxIsolationReceiptPayloadV1(
+    profile = LinuxIsolationProfileV2.create(profile_payload())
+    receipt = LinuxIsolationReceiptV2.create(
+        LinuxIsolationReceiptPayloadV2(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
             observation=observation(),
         )
     )
-    evidence = LinuxIsolationEvidenceV1.create(evidence_payload(profile, receipt))
+    evidence = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
     assert profile.model_validate_json(profile.model_dump_json()) == profile
     assert receipt.model_validate_json(receipt.model_dump_json()) == receipt
     assert evidence.model_validate_json(evidence.model_dump_json()) == evidence
@@ -274,10 +335,49 @@ def test_linux_profile_receipt_and_composite_are_self_hashed_and_non_ready() -> 
     ) == (0, 0, 0, 0)
 
 
-def test_linux_composite_rejects_cross_environment_and_profile_observation_mismatch() -> None:
-    profile = LinuxIsolationProfileV1.create(profile_payload())
-    wrong_environment = LinuxIsolationReceiptV1.create(
+def test_historical_v1_contracts_remain_strictly_parseable_and_canonical() -> None:
+    raw_profile = profile_payload().model_dump(mode="python")
+    raw_profile["schema_version"] = 1
+    raw_profile["profile_kind"] = "linux_native_isolation_v1"
+    raw_profile["unshare"] = raw_profile.pop("system_unshare")
+    raw_profile["host"].pop("apparmor")
+    v1_payload = LinuxIsolationProfilePayloadV1.model_validate(raw_profile)
+    v1_profile = LinuxIsolationProfileV1.create(v1_payload)
+
+    raw_observation = observation().model_dump(mode="python")
+    raw_observation["schema_version"] = 1
+    raw_observation.pop("apparmor_current_profile")
+    v1_observation = LinuxIsolationObservationV1.model_validate(raw_observation)
+    v1_receipt = LinuxIsolationReceiptV1.create(
         LinuxIsolationReceiptPayloadV1(
+            linux_isolation_profile_id=v1_profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=v1_observation,
+        )
+    )
+    v1_evidence = LinuxIsolationEvidenceV1.create(
+        LinuxIsolationEvidencePayloadV1(
+            profile=v1_profile,
+            receipt=v1_receipt,
+            child_stdout_retained_sha256=H,
+            child_stderr_retained_sha256=H,
+            child_stdout_retained_bytes=0,
+            child_stderr_retained_bytes=0,
+            child_stdout_truncated=False,
+            child_stderr_truncated=False,
+            cleanup=LinuxHostCleanupObservationV1(),
+        )
+    )
+    encoded = canonical(v1_evidence.model_dump(mode="json"))
+    assert LinuxIsolationEvidenceV1.model_validate_json(encoded) == v1_evidence
+    assert b"apparmor_current_profile" not in encoded
+    assert b"system_unshare" not in encoded
+
+
+def test_linux_composite_rejects_cross_environment_and_profile_observation_mismatch() -> None:
+    profile = LinuxIsolationProfileV2.create(profile_payload())
+    wrong_environment = LinuxIsolationReceiptV2.create(
+        LinuxIsolationReceiptPayloadV2(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id="a" * 32,
             observation=observation(),
@@ -286,8 +386,8 @@ def test_linux_composite_rejects_cross_environment_and_profile_observation_misma
     with pytest.raises(ValidationError, match="authority differ"):
         evidence_payload(profile, wrong_environment)
     changed = observation().model_copy(update={"landlock_handled_access": 1})
-    receipt = LinuxIsolationReceiptV1.create(
-        LinuxIsolationReceiptPayloadV1(
+    receipt = LinuxIsolationReceiptV2.create(
+        LinuxIsolationReceiptPayloadV2(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
             observation=changed,
@@ -298,21 +398,843 @@ def test_linux_composite_rejects_cross_environment_and_profile_observation_misma
 
 
 def test_profile_rejects_tampering_open_bags_and_weakened_authority() -> None:
-    profile = LinuxIsolationProfileV1.create(profile_payload()).model_dump(mode="json")
+    profile = LinuxIsolationProfileV2.create(profile_payload()).model_dump(mode="json")
     profile["linux_isolation_profile_id"] = "f" * 64
     with pytest.raises(ValidationError, match="profile hash mismatch"):
-        LinuxIsolationProfileV1.model_validate_json(json.dumps(profile))
+        LinuxIsolationProfileV2.model_validate_json(json.dumps(profile))
     raw = profile_payload().model_dump(mode="python") | {"unexpected_authority": True}
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        LinuxIsolationProfilePayloadV1.model_validate(raw)
+        LinuxIsolationProfilePayloadV2.model_validate(raw)
     raw = profile_payload().model_dump(mode="python")
     raw["mounts"] = tuple(reversed(raw["mounts"]))
     with pytest.raises(ValidationError, match="sorted and unique"):
-        LinuxIsolationProfilePayloadV1.model_validate(raw)
+        LinuxIsolationProfilePayloadV2.model_validate(raw)
     raw = profile_payload().model_dump(mode="python")
     raw["landlock_handled_access"] = 1
     with pytest.raises(ValidationError, match="exact reviewed host ABI"):
-        LinuxIsolationProfilePayloadV1.model_validate(raw)
+        LinuxIsolationProfilePayloadV2.model_validate(raw)
+    raw = profile_payload().model_dump(mode="python")
+    raw["host"]["apparmor_userns_restriction"] = 0
+    with pytest.raises(ValidationError, match="literal_error|Input should be 1"):
+        LinuxIsolationProfilePayloadV2.model_validate(raw)
+    raw = profile_payload().model_dump(mode="python")
+    raw["host"]["apparmor"]["installed_profile"]["owner_uid"] = 1000
+    with pytest.raises(ValidationError, match="Installed AppArmor profile"):
+        LinuxIsolationProfilePayloadV2.model_validate(raw)
+    raw = profile_payload().model_dump(mode="python")
+    raw["unshare"]["native_identity"] = raw["system_unshare"]["native_identity"]
+    with pytest.raises(ValidationError, match="Private unshare"):
+        LinuxIsolationProfilePayloadV2.model_validate(raw)
+
+
+def test_observation_requires_exact_child_apparmor_attachment() -> None:
+    raw = observation().model_dump(mode="python")
+    raw["apparmor_current_profile"] = "unconfined"
+    with pytest.raises(ValidationError, match="literal_error"):
+        LinuxIsolationObservationV2.model_validate(raw)
+
+
+def test_apparmor_authority_rejects_source_snapshot_and_parser_substitution() -> None:
+    raw = apparmor().model_dump(mode="python")
+    changed = copy.deepcopy(raw)
+    changed["source_git_blob_sha256"] = "f" * 64
+    with pytest.raises(ValidationError, match="Git blob"):
+        LinuxAppArmorAuthorityV2.model_validate(changed)
+
+    changed = copy.deepcopy(raw)
+    changed["loaded_profiles_snapshot"]["sha256"] = "f" * 64
+    with pytest.raises(ValidationError, match="snapshot authority"):
+        LinuxAppArmorAuthorityV2.model_validate(changed)
+
+    changed = copy.deepcopy(raw)
+    changed["parser"]["owner_uid"] = 1000
+    with pytest.raises(ValidationError, match="root-owned"):
+        LinuxAppArmorAuthorityV2.model_validate(changed)
+
+
+def test_apparmor_parser_version_failure_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        PROBE,
+        "plain_file_authority",
+        lambda _path: plain_file("/usr/sbin/apparmor_parser", index=99),
+    )
+    monkeypatch.setattr(
+        PROBE.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, b"", b"failed"),
+    )
+    with pytest.raises(ValueError, match="version observation failed"):
+        PROBE.apparmor_parser_authority(Path("/usr/sbin/apparmor_parser"))
+
+
+def test_apparmor_authority_rejects_unloaded_or_wrong_mode_profile(tmp_path: Path) -> None:
+    loaded = tmp_path / "loaded-profiles"
+    loaded.write_text("devfabric-linux-isolation-unshare (enforce)\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="not loaded"):
+        PROBE.apparmor_authority(
+            ROOT,
+            COMMIT,
+            installed=tmp_path / "installed",
+            parser=tmp_path / "parser",
+            loaded=loaded,
+        )
+
+
+def test_cleanup_receipt_is_required_for_final_v2_qualification() -> None:
+    profile = LinuxIsolationProfileV2.create(profile_payload())
+    receipt = LinuxIsolationReceiptV2.create(
+        LinuxIsolationReceiptPayloadV2(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation(),
+        )
+    )
+    mechanics = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
+    authority_sha = digest(canonical(profile.payload.host.apparmor.model_dump(mode="json")))
+    cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=mechanics.linux_isolation_evidence_id,
+            apparmor_authority_sha256=authority_sha,
+        )
+    )
+    qualification = LinuxIsolationQualificationV2.create(
+        LinuxIsolationQualificationPayloadV2(mechanics=mechanics, apparmor_cleanup=cleanup)
+    )
+    assert qualification.payload.package_readiness is False
+    forged = cleanup.model_dump(mode="python")
+    forged["payload"]["environment_instance_id"] = "a" * 32
+    forged_cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1.model_validate(forged["payload"])
+    )
+    with pytest.raises(ValidationError, match="authority differ"):
+        LinuxIsolationQualificationPayloadV2(
+            mechanics=mechanics,
+            apparmor_cleanup=forged_cleanup,
+        )
+
+
+def test_apparmor_setup_rejects_preexisting_owned_target_without_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    private = tmp_path / "private-unshare"
+    installed = tmp_path / "installed-profile"
+    snapshot = tmp_path / "snapshot"
+    state = tmp_path / "state.json"
+    private.write_bytes(b"foreign")
+    monkeypatch.setattr(APPARMOR_MANAGER, "PRIVATE_LAUNCHER", private)
+    monkeypatch.setattr(APPARMOR_MANAGER, "INSTALLED_PROFILE", installed)
+    monkeypatch.setattr(APPARMOR_MANAGER, "LOADED_SNAPSHOT", snapshot)
+    monkeypatch.setattr(APPARMOR_MANAGER, "profile_is_loaded", lambda: False)
+    with pytest.raises(ValueError, match="already exists"):
+        APPARMOR_MANAGER.ensure_absent_before_setup(state)
+    assert private.read_bytes() == b"foreign"
+    assert not installed.exists()
+    assert not snapshot.exists()
+
+
+def apparmor_setup_state(**changes: bool) -> LinuxAppArmorSetupStateV1:
+    payload = LinuxAppArmorSetupStatePayloadV1(
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        source_git_blob_sha256=H,
+        source_sha256=H,
+        system_unshare_sha256=H,
+        parser_sha256=H,
+    ).model_copy(update=changes)
+    return LinuxAppArmorSetupStateV1.create(payload)
+
+
+def in_memory_state_update(
+    _path: Path, payload: LinuxAppArmorSetupStatePayloadV1, **changes: object
+) -> LinuxAppArmorSetupStatePayloadV1:
+    return LinuxAppArmorSetupStatePayloadV1.model_validate(
+        payload.model_dump(mode="python") | changes
+    )
+
+
+def test_partial_setup_rollback_removes_only_recorded_owned_objects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_bytes(b"state")
+    private = tmp_path / "private"
+    private.write_bytes(b"owned")
+    foreign = tmp_path / "foreign-profile"
+    foreign.write_bytes(b"foreign")
+    recorded = apparmor_setup_state(private_launcher_created=True)
+    removed: list[Path] = []
+
+    def remove(path: Path, _sha: str, _mode: int) -> None:
+        removed.append(path)
+        path.unlink()
+
+    monkeypatch.setattr(APPARMOR_MANAGER, "read_state", lambda _path: recorded)
+    monkeypatch.setattr(APPARMOR_MANAGER, "PRIVATE_LAUNCHER", private)
+    monkeypatch.setattr(APPARMOR_MANAGER, "INSTALLED_PROFILE", foreign)
+    monkeypatch.setattr(APPARMOR_MANAGER, "remove_owned_file", remove)
+    monkeypatch.setattr(APPARMOR_MANAGER, "validate_owned_file", lambda *_args: None)
+    monkeypatch.setattr(APPARMOR_MANAGER, "loaded_profile_lines", lambda: ())
+    monkeypatch.setattr(APPARMOR_MANAGER, "update_state", in_memory_state_update)
+    APPARMOR_MANAGER.cleanup_owned(state_path, require_complete=False)
+    assert removed == [private]
+    assert foreign.read_bytes() == b"foreign"
+    assert not state_path.exists()
+
+
+def test_cleanup_failure_keeps_state_and_refuses_success_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_bytes(b"state")
+    parser = tmp_path / "parser"
+    parser.write_bytes(b"parser")
+    installed = tmp_path / "profile"
+    installed.write_bytes(b"profile")
+    recorded = apparmor_setup_state(profile_loaded=True)
+    monkeypatch.setattr(APPARMOR_MANAGER, "read_state", lambda _path: recorded)
+    monkeypatch.setattr(APPARMOR_MANAGER, "PARSER", parser)
+    monkeypatch.setattr(APPARMOR_MANAGER, "INSTALLED_PROFILE", installed)
+    monkeypatch.setattr(APPARMOR_MANAGER, "profile_is_loaded", lambda: True)
+    monkeypatch.setattr(APPARMOR_MANAGER, "loaded_profile_lines", lambda: (LINUX_APPARMOR_CURRENT,))
+    monkeypatch.setattr(
+        APPARMOR_MANAGER,
+        "file_sha256",
+        lambda path: H if path in {parser, installed} else "f" * 64,
+    )
+
+    def fail(_command: list[str]) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(_command, 1, b"", b"failed")
+
+    with pytest.raises(ValueError, match="did not remove every independently safe"):
+        APPARMOR_MANAGER.cleanup_owned(state_path, runner=fail, require_complete=False)
+    assert state_path.exists()
+
+
+def completed_cleanup_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, LinuxAppArmorSetupStateV1, list[str]]:
+    parser = tmp_path / "parser"
+    installed = tmp_path / "installed"
+    private = tmp_path / "private"
+    snapshot = tmp_path / "snapshot"
+    state_path = tmp_path / "state.json"
+    parser.write_bytes(b"parser")
+    installed.write_bytes(b"policy")
+    private.write_bytes(b"unshare")
+    snapshot.write_bytes((LINUX_APPARMOR_CURRENT + "\n").encode())
+    state_path.write_bytes(b"state")
+    parser.chmod(0o755)
+    installed.chmod(0o644)
+    private.chmod(0o755)
+    snapshot.chmod(0o644)
+    payload = LinuxAppArmorSetupStatePayloadV1(
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        source_git_blob_sha256=APPARMOR_MANAGER.file_sha256(installed),
+        source_sha256=APPARMOR_MANAGER.file_sha256(installed),
+        system_unshare_sha256=APPARMOR_MANAGER.file_sha256(private),
+        parser_sha256=APPARMOR_MANAGER.file_sha256(parser),
+        private_launcher_created=True,
+        installed_profile_created=True,
+        profile_loaded=True,
+        loaded_snapshot_created=True,
+        setup_complete=True,
+    )
+    state = LinuxAppArmorSetupStateV1.create(payload)
+    loaded = [LINUX_APPARMOR_CURRENT]
+    monkeypatch.setattr(APPARMOR_MANAGER, "PARSER", parser)
+    monkeypatch.setattr(APPARMOR_MANAGER, "INSTALLED_PROFILE", installed)
+    monkeypatch.setattr(APPARMOR_MANAGER, "PRIVATE_LAUNCHER", private)
+    monkeypatch.setattr(APPARMOR_MANAGER, "LOADED_SNAPSHOT", snapshot)
+    monkeypatch.setattr(APPARMOR_MANAGER, "read_state", lambda _path: state)
+    monkeypatch.setattr(APPARMOR_MANAGER, "loaded_profile_lines", lambda: tuple(loaded))
+    monkeypatch.setattr(APPARMOR_MANAGER, "safe_root_file", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(APPARMOR_MANAGER, "update_state", in_memory_state_update)
+
+    def validate(path: Path, expected_sha: str, _expected_mode: int) -> None:
+        if not path.exists() or APPARMOR_MANAGER.file_sha256(path) != expected_sha:
+            raise ValueError("Owned AppArmor lifecycle file is unavailable before cleanup")
+
+    def remove(path: Path, expected_sha: str, expected_mode: int) -> None:
+        validate(path, expected_sha, expected_mode)
+        path.unlink()
+
+    monkeypatch.setattr(APPARMOR_MANAGER, "validate_owned_file", validate)
+    monkeypatch.setattr(APPARMOR_MANAGER, "remove_owned_file", remove)
+    return state_path, state, loaded
+
+
+def test_completed_cleanup_prevalidates_then_removes_exact_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path, state, loaded = completed_cleanup_authority(tmp_path, monkeypatch)
+
+    def unload(command: list[str]) -> subprocess.CompletedProcess[bytes]:
+        assert command[1] == "-R"
+        loaded.clear()
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    result = APPARMOR_MANAGER.cleanup_owned(
+        state_path,
+        runner=unload,
+        expected_state_id=state.linux_apparmor_setup_state_id,
+    )
+    assert result == state
+    assert not state_path.exists()
+    assert not APPARMOR_MANAGER.INSTALLED_PROFILE.exists()
+    assert not APPARMOR_MANAGER.PRIVATE_LAUNCHER.exists()
+    assert not APPARMOR_MANAGER.LOADED_SNAPSHOT.exists()
+
+
+def test_completed_cleanup_rejects_missing_object_before_any_removal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path, state, _loaded = completed_cleanup_authority(tmp_path, monkeypatch)
+    APPARMOR_MANAGER.LOADED_SNAPSHOT.unlink()
+    called = False
+
+    def forbidden(_command: list[str]) -> subprocess.CompletedProcess[bytes]:
+        nonlocal called
+        called = True
+        raise AssertionError("cleanup must not mutate before complete prevalidation")
+
+    with pytest.raises(ValueError, match="unavailable before cleanup"):
+        APPARMOR_MANAGER.cleanup_owned(
+            state_path,
+            runner=forbidden,
+            expected_state_id=state.linux_apparmor_setup_state_id,
+        )
+    assert called is False
+    assert APPARMOR_MANAGER.INSTALLED_PROFILE.exists()
+    assert APPARMOR_MANAGER.PRIVATE_LAUNCHER.exists()
+    assert state_path.exists()
+
+
+@pytest.mark.parametrize("loaded", [[], ["devfabric-linux-isolation-unshare (enforce)"]])
+def test_completed_cleanup_rejects_absent_or_wrong_loaded_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    loaded: list[str],
+) -> None:
+    state_path, state, observed = completed_cleanup_authority(tmp_path, monkeypatch)
+    observed[:] = loaded
+    with pytest.raises(ValueError, match="loaded AppArmor profile authority"):
+        APPARMOR_MANAGER.cleanup_owned(
+            state_path,
+            expected_state_id=state.linux_apparmor_setup_state_id,
+        )
+    assert APPARMOR_MANAGER.INSTALLED_PROFILE.exists()
+    assert state_path.exists()
+
+
+def test_created_directory_identity_and_contents_reject_substitution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owned = tmp_path / "owned"
+    owned.mkdir()
+    child = owned / "expected"
+    child.write_bytes(b"owned")
+    identity = APPARMOR_MANAGER.native_identity(owned)
+    monkeypatch.setattr(APPARMOR_MANAGER, "safe_root_directory", lambda _path: None)
+    APPARMOR_MANAGER.validate_journal_directory(
+        owned,
+        created=True,
+        started=False,
+        removed=False,
+        identity=identity,
+        expected_children=(child.name,),
+        require_complete=True,
+    )
+    child.unlink()
+    (owned / "foreign").write_bytes(b"foreign")
+    with pytest.raises(ValueError, match="contents changed"):
+        APPARMOR_MANAGER.validate_journal_directory(
+            owned,
+            created=True,
+            started=False,
+            removed=False,
+            identity=identity,
+            expected_children=(child.name,),
+            require_complete=True,
+        )
+    (owned / "foreign").unlink()
+    owned.rmdir()
+    owned.mkdir()
+    with pytest.raises(ValueError, match="identity changed"):
+        APPARMOR_MANAGER.validate_journal_directory(
+            owned,
+            created=True,
+            started=False,
+            removed=False,
+            identity=identity,
+            expected_children=(),
+            require_complete=True,
+        )
+
+
+def test_post_unload_failure_is_exhaustive_and_retry_uses_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path, state, loaded = completed_cleanup_authority(tmp_path, monkeypatch)
+    state_box = [state]
+
+    def read(_path: Path) -> LinuxAppArmorSetupStateV1:
+        return state_box[0]
+
+    def update(
+        _path: Path, payload: LinuxAppArmorSetupStatePayloadV1, **changes: object
+    ) -> LinuxAppArmorSetupStatePayloadV1:
+        updated = in_memory_state_update(_path, payload, **changes)
+        state_box[0] = LinuxAppArmorSetupStateV1.create(updated)
+        return updated
+
+    attempts: list[Path] = []
+    fail_snapshot = [True]
+
+    def remove(path: Path, expected_sha: str, expected_mode: int) -> None:
+        attempts.append(path)
+        if path == APPARMOR_MANAGER.LOADED_SNAPSHOT and fail_snapshot[0]:
+            fail_snapshot[0] = False
+            raise OSError("synthetic removal failure")
+        if APPARMOR_MANAGER.file_sha256(path) != expected_sha:
+            raise AssertionError("test authority mismatch")
+        path.unlink()
+
+    def unload(command: list[str]) -> subprocess.CompletedProcess[bytes]:
+        loaded.clear()
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    monkeypatch.setattr(APPARMOR_MANAGER, "read_state", read)
+    monkeypatch.setattr(APPARMOR_MANAGER, "update_state", update)
+    monkeypatch.setattr(APPARMOR_MANAGER, "remove_owned_file", remove)
+    with pytest.raises(ValueError, match="did not remove every independently safe"):
+        APPARMOR_MANAGER.cleanup_owned(state_path, runner=unload)
+    assert attempts == [
+        APPARMOR_MANAGER.LOADED_SNAPSHOT,
+        APPARMOR_MANAGER.INSTALLED_PROFILE,
+        APPARMOR_MANAGER.PRIVATE_LAUNCHER,
+    ]
+    assert state_box[0].payload.profile_unloaded is True
+    assert state_box[0].payload.loaded_snapshot_removed is False
+    assert state_box[0].payload.installed_profile_removed is True
+    assert state_box[0].payload.private_launcher_removed is True
+    assert APPARMOR_MANAGER.LOADED_SNAPSHOT.exists()
+    assert not APPARMOR_MANAGER.INSTALLED_PROFILE.exists()
+    assert not APPARMOR_MANAGER.PRIVATE_LAUNCHER.exists()
+    assert state_path.exists()
+
+    attempts.clear()
+    APPARMOR_MANAGER.cleanup_owned(state_path, runner=unload)
+    assert attempts == [APPARMOR_MANAGER.LOADED_SNAPSHOT]
+    assert not state_path.exists()
+
+
+def test_profile_unload_crash_window_reconciles_pending_transition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_bytes(b"state")
+    parser = tmp_path / "parser"
+    parser.write_bytes(b"parser")
+    state_box = [apparmor_setup_state(profile_loaded=True)]
+    loaded = [LINUX_APPARMOR_CURRENT]
+    reject_completion = [True]
+
+    def read(_path: Path) -> LinuxAppArmorSetupStateV1:
+        return state_box[0]
+
+    def update(
+        path: Path, payload: LinuxAppArmorSetupStatePayloadV1, **changes: object
+    ) -> LinuxAppArmorSetupStatePayloadV1:
+        if changes == {"profile_unloaded": True} and reject_completion[0]:
+            reject_completion[0] = False
+            raise OSError("synthetic journal failure after unload")
+        updated = in_memory_state_update(path, payload, **changes)
+        state_box[0] = LinuxAppArmorSetupStateV1.create(updated)
+        return updated
+
+    def unload(command: list[str]) -> subprocess.CompletedProcess[bytes]:
+        loaded.clear()
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    monkeypatch.setattr(APPARMOR_MANAGER, "PARSER", parser)
+    monkeypatch.setattr(APPARMOR_MANAGER, "file_sha256", lambda _path: H)
+    monkeypatch.setattr(APPARMOR_MANAGER, "read_state", read)
+    monkeypatch.setattr(APPARMOR_MANAGER, "update_state", update)
+    monkeypatch.setattr(APPARMOR_MANAGER, "loaded_profile_lines", lambda: tuple(loaded))
+    with pytest.raises(ValueError, match="did not remove every independently safe"):
+        APPARMOR_MANAGER.cleanup_owned(state_path, runner=unload, require_complete=False)
+    assert state_box[0].payload.profile_unload_started is True
+    assert state_box[0].payload.profile_unloaded is False
+    assert loaded == []
+    assert state_path.exists()
+
+    APPARMOR_MANAGER.cleanup_owned(state_path, runner=unload, require_complete=False)
+    assert not state_path.exists()
+
+
+def test_file_removal_crash_window_rejects_substitution_then_reconciles_absence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_bytes(b"state")
+    private = tmp_path / "private"
+    private.write_bytes(b"owned")
+    owned_sha = APPARMOR_MANAGER.file_sha256(private)
+    state = LinuxAppArmorSetupStateV1.create(
+        LinuxAppArmorSetupStatePayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            source_git_blob_sha256=H,
+            source_sha256=H,
+            system_unshare_sha256=owned_sha,
+            parser_sha256=H,
+            private_launcher_created=True,
+        )
+    )
+    state_box = [state]
+    reject_completion = [True]
+
+    def read(_path: Path) -> LinuxAppArmorSetupStateV1:
+        return state_box[0]
+
+    def update(
+        path: Path, payload: LinuxAppArmorSetupStatePayloadV1, **changes: object
+    ) -> LinuxAppArmorSetupStatePayloadV1:
+        if changes == {"private_launcher_removed": True} and reject_completion[0]:
+            reject_completion[0] = False
+            raise OSError("synthetic journal failure after removal")
+        updated = in_memory_state_update(path, payload, **changes)
+        state_box[0] = LinuxAppArmorSetupStateV1.create(updated)
+        return updated
+
+    def validate(path: Path, expected_sha: str, _expected_mode: int) -> None:
+        if APPARMOR_MANAGER.file_sha256(path) != expected_sha:
+            raise ValueError("Owned AppArmor lifecycle file changed before cleanup")
+
+    monkeypatch.setattr(APPARMOR_MANAGER, "PRIVATE_LAUNCHER", private)
+    monkeypatch.setattr(APPARMOR_MANAGER, "loaded_profile_lines", lambda: ())
+    monkeypatch.setattr(APPARMOR_MANAGER, "read_state", read)
+    monkeypatch.setattr(APPARMOR_MANAGER, "update_state", update)
+    monkeypatch.setattr(APPARMOR_MANAGER, "validate_owned_file", validate)
+    monkeypatch.setattr(
+        APPARMOR_MANAGER,
+        "remove_owned_file",
+        lambda path, _sha, _mode: path.unlink(),
+    )
+    with pytest.raises(ValueError, match="did not remove every independently safe"):
+        APPARMOR_MANAGER.cleanup_owned(state_path, require_complete=False)
+    assert state_box[0].payload.private_launcher_removal_started is True
+    assert state_box[0].payload.private_launcher_removed is False
+    assert not private.exists()
+
+    private.write_bytes(b"substitute")
+    with pytest.raises(ValueError, match="changed before cleanup"):
+        APPARMOR_MANAGER.cleanup_owned(state_path, require_complete=False)
+    assert private.read_bytes() == b"substitute"
+    private.unlink()
+    APPARMOR_MANAGER.cleanup_owned(state_path, require_complete=False)
+    assert not state_path.exists()
+
+
+def production_cleanup_retry_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[
+    Path,
+    Path,
+    Path,
+    list[LinuxAppArmorSetupStateV1],
+    list[str],
+]:
+    system = tmp_path / "system-unshare"
+    private = tmp_path / "private-unshare"
+    parser = tmp_path / "apparmor-parser"
+    installed = tmp_path / "installed-profile"
+    snapshot = tmp_path / "loaded-snapshot"
+    state_path = tmp_path / "state.json"
+    mechanics_path = tmp_path / "mechanics.json"
+    output = tmp_path / "cleanup.json"
+    for path, raw, mode in (
+        (system, b"system", 0o755),
+        (private, b"private", 0o755),
+        (parser, b"parser", 0o755),
+        (installed, b"profile", 0o644),
+        (snapshot, (LINUX_APPARMOR_CURRENT + "\n").encode(), 0o444),
+    ):
+        path.write_bytes(raw)
+        path.chmod(mode)
+    state_path.write_bytes(b"state")
+    state_box = [
+        apparmor_setup_state(
+            private_launcher_created=True,
+            installed_profile_created=True,
+            profile_loaded=True,
+            loaded_snapshot_created=True,
+            setup_complete=True,
+        )
+    ]
+    loaded = [LINUX_APPARMOR_CURRENT]
+    profile = LinuxIsolationProfileV2.create(profile_payload())
+    receipt = LinuxIsolationReceiptV2.create(
+        LinuxIsolationReceiptPayloadV2(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation(),
+        )
+    )
+    mechanics = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
+    mechanics_path.write_text(mechanics.model_dump_json(), encoding="utf-8")
+    snapshot_sha = digest((LINUX_APPARMOR_CURRENT + "\n").encode())
+
+    def observed_sha(path: Path) -> str:
+        if path == snapshot:
+            return snapshot_sha
+        if path in {system, private, parser, installed} and path.read_bytes() != b"substitute":
+            return H
+        return "f" * 64
+
+    def validate_owned(path: Path, expected_sha: str, _expected_mode: int) -> None:
+        if not path.exists() or observed_sha(path) != expected_sha:
+            raise ValueError("Owned AppArmor lifecycle file changed before cleanup")
+
+    def validate_authority(path: Path, authority: LinuxFileAuthorityV1) -> None:
+        validate_owned(path, authority.sha256, int(authority.mode, 8))
+
+    def remove_owned(path: Path, expected_sha: str, expected_mode: int) -> None:
+        validate_owned(path, expected_sha, expected_mode)
+        path.chmod(0o600)
+        path.unlink()
+
+    monkeypatch.setattr(APPARMOR_MANAGER, "SYSTEM_LAUNCHER", system)
+    monkeypatch.setattr(APPARMOR_MANAGER, "PRIVATE_LAUNCHER", private)
+    monkeypatch.setattr(APPARMOR_MANAGER, "PARSER", parser)
+    monkeypatch.setattr(APPARMOR_MANAGER, "INSTALLED_PROFILE", installed)
+    monkeypatch.setattr(APPARMOR_MANAGER, "LOADED_SNAPSHOT", snapshot)
+    monkeypatch.setattr(APPARMOR_MANAGER, "read_state", lambda _path: state_box[0])
+    monkeypatch.setattr(APPARMOR_MANAGER, "file_sha256", observed_sha)
+    monkeypatch.setattr(APPARMOR_MANAGER, "validate_owned_file", validate_owned)
+    monkeypatch.setattr(APPARMOR_MANAGER, "validate_file_authority", validate_authority)
+    monkeypatch.setattr(APPARMOR_MANAGER, "remove_owned_file", remove_owned)
+    monkeypatch.setattr(APPARMOR_MANAGER, "loaded_profile_lines", lambda: tuple(loaded))
+    monkeypatch.setattr(
+        APPARMOR_MANAGER,
+        "write_exclusive",
+        lambda path, raw, _mode: path.write_bytes(raw),
+    )
+    return state_path, mechanics_path, output, state_box, loaded
+
+
+def test_production_cleanup_retry_after_unload_journal_crash_writes_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path, mechanics_path, output, state_box, loaded = production_cleanup_retry_authority(
+        tmp_path, monkeypatch
+    )
+    reject_completion = [True]
+
+    def update(
+        path: Path, payload: LinuxAppArmorSetupStatePayloadV1, **changes: object
+    ) -> LinuxAppArmorSetupStatePayloadV1:
+        if changes == {"profile_unloaded": True} and reject_completion[0]:
+            reject_completion[0] = False
+            raise OSError("synthetic journal failure after unload")
+        updated = in_memory_state_update(path, payload, **changes)
+        state_box[0] = LinuxAppArmorSetupStateV1.create(updated)
+        return updated
+
+    def unload(command: list[str]) -> subprocess.CompletedProcess[bytes]:
+        loaded.clear()
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    monkeypatch.setattr(APPARMOR_MANAGER, "update_state", update)
+    with pytest.raises(ValueError, match="did not remove every independently safe"):
+        APPARMOR_MANAGER.cleanup(state_path, mechanics_path, output, runner=unload)
+    assert not output.exists()
+    assert state_box[0].payload.profile_unload_started is True
+    assert state_box[0].payload.profile_unloaded is False
+
+    APPARMOR_MANAGER.cleanup(state_path, mechanics_path, output, runner=unload)
+    cleanup = LinuxAppArmorCleanupReceiptV1.model_validate_json(output.read_bytes())
+    mechanics = LinuxIsolationEvidenceV2.model_validate_json(mechanics_path.read_bytes())
+    assert cleanup.payload.linux_isolation_profile_id == (
+        mechanics.payload.profile.linux_isolation_profile_id
+    )
+    assert cleanup.payload.linux_isolation_evidence_id == mechanics.linux_isolation_evidence_id
+
+
+def test_production_cleanup_retry_rejects_substituted_pending_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path, mechanics_path, output, state_box, loaded = production_cleanup_retry_authority(
+        tmp_path, monkeypatch
+    )
+    reject_completion = [True]
+
+    def update(
+        path: Path, payload: LinuxAppArmorSetupStatePayloadV1, **changes: object
+    ) -> LinuxAppArmorSetupStatePayloadV1:
+        if changes == {"private_launcher_removed": True} and reject_completion[0]:
+            reject_completion[0] = False
+            raise OSError("synthetic journal failure after file removal")
+        updated = in_memory_state_update(path, payload, **changes)
+        state_box[0] = LinuxAppArmorSetupStateV1.create(updated)
+        return updated
+
+    def unload(command: list[str]) -> subprocess.CompletedProcess[bytes]:
+        loaded.clear()
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    monkeypatch.setattr(APPARMOR_MANAGER, "update_state", update)
+    with pytest.raises(ValueError, match="did not remove every independently safe"):
+        APPARMOR_MANAGER.cleanup(state_path, mechanics_path, output, runner=unload)
+    assert state_box[0].payload.private_launcher_removal_started is True
+    assert state_box[0].payload.private_launcher_removed is False
+    assert not APPARMOR_MANAGER.PRIVATE_LAUNCHER.exists()
+
+    APPARMOR_MANAGER.PRIVATE_LAUNCHER.write_bytes(b"substitute")
+    with pytest.raises(ValueError, match="changed before cleanup"):
+        APPARMOR_MANAGER.cleanup(state_path, mechanics_path, output, runner=unload)
+    assert APPARMOR_MANAGER.PRIVATE_LAUNCHER.read_bytes() == b"substitute"
+    assert not output.exists()
+
+    APPARMOR_MANAGER.PRIVATE_LAUNCHER.unlink()
+    APPARMOR_MANAGER.cleanup(state_path, mechanics_path, output, runner=unload)
+    LinuxAppArmorCleanupReceiptV1.model_validate_json(output.read_bytes())
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"source_git_blob_sha256": "f" * 64, "source_sha256": "f" * 64},
+        {"system_unshare_sha256": "f" * 64},
+        {"parser_sha256": "f" * 64},
+    ],
+)
+def test_cleanup_rejects_complete_state_substitution_before_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    updates: dict[str, str],
+) -> None:
+    profile = LinuxIsolationProfileV2.create(profile_payload())
+    receipt = LinuxIsolationReceiptV2.create(
+        LinuxIsolationReceiptPayloadV2(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation(),
+        )
+    )
+    mechanics = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
+    mechanics_path = tmp_path / "mechanics.json"
+    mechanics_path.write_text(mechanics.model_dump_json(), encoding="utf-8")
+    state = apparmor_setup_state(
+        private_launcher_created=True,
+        installed_profile_created=True,
+        profile_loaded=True,
+        loaded_snapshot_created=True,
+        setup_complete=True,
+    )
+    changed = state.payload.model_copy(update=updates)
+    substituted = LinuxAppArmorSetupStateV1.create(changed)
+    monkeypatch.setattr(APPARMOR_MANAGER, "read_state", lambda _path: substituted)
+    monkeypatch.setattr(
+        APPARMOR_MANAGER,
+        "cleanup_owned",
+        lambda *_args, **_kwargs: pytest.fail("substituted state must fail before cleanup"),
+    )
+    with pytest.raises(ValueError, match="differs from mechanics authority"):
+        APPARMOR_MANAGER.cleanup(
+            tmp_path / "state.json",
+            mechanics_path,
+            tmp_path / "cleanup.json",
+        )
+
+
+def test_cleanup_receipt_cannot_replay_against_different_profile_or_evidence() -> None:
+    profile = LinuxIsolationProfileV2.create(profile_payload())
+    receipt = LinuxIsolationReceiptV2.create(
+        LinuxIsolationReceiptPayloadV2(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation(),
+        )
+    )
+    mechanics = LinuxIsolationEvidenceV2.create(evidence_payload(profile, receipt))
+    cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=mechanics.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    changed_profile = LinuxIsolationProfileV2.create(
+        profile_payload().model_copy(update={"native_bundle_id": "f" * 64})
+    )
+    changed_receipt = LinuxIsolationReceiptV2.create(
+        LinuxIsolationReceiptPayloadV2(
+            linux_isolation_profile_id=changed_profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation(),
+        )
+    )
+    changed_mechanics = LinuxIsolationEvidenceV2.create(
+        evidence_payload(changed_profile, changed_receipt)
+    )
+    with pytest.raises(ValidationError, match="authority differ"):
+        LinuxIsolationQualificationPayloadV2(
+            mechanics=changed_mechanics,
+            apparmor_cleanup=cleanup,
+        )
+    changed_evidence = LinuxIsolationEvidenceV2.create(
+        evidence_payload(
+            profile,
+            LinuxIsolationReceiptV2.create(
+                LinuxIsolationReceiptPayloadV2(
+                    linux_isolation_profile_id=profile.linux_isolation_profile_id,
+                    environment_instance_id=ENVIRONMENT,
+                    observation=observation(),
+                )
+            ),
+        ).model_copy(update={"child_stdout_retained_sha256": "f" * 64})
+    )
+    with pytest.raises(ValidationError, match="authority differ"):
+        LinuxIsolationQualificationPayloadV2(
+            mechanics=changed_evidence,
+            apparmor_cleanup=cleanup,
+        )
+
+
+def test_lifecycle_failure_is_self_hashed_sanitized_and_zero_countered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "failure.json"
+    monkeypatch.setattr(
+        APPARMOR_MANAGER, "write_exclusive", lambda path, raw, _mode: path.write_bytes(raw)
+    )
+    APPARMOR_MANAGER.write_lifecycle_failure(
+        output,
+        phase="cleanup",
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        state_id=H,
+        cleanup_attempted=True,
+        cleanup_succeeded=False,
+    )
+    failure = LinuxAppArmorLifecycleFailureV1.model_validate_json(output.read_bytes())
+    assert failure.payload.reason_code == "cleanup_failed"
+    assert failure.payload.model_requests == failure.payload.provider_sends == 0
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        LinuxAppArmorLifecycleFailurePayloadV1.model_validate(
+            failure.payload.model_dump(mode="python") | {"detail": "/secret/path"}
+        )
 
 
 def test_namespace_observation_rejects_any_host_namespace_reuse() -> None:
@@ -475,7 +1397,7 @@ def test_occupied_stub_port_fails_before_namespace_launch(
     try:
         with pytest.raises(OSError):
             PROBE.run_probe(
-                LinuxIsolationProfileV1.create(profile_payload()),
+                LinuxIsolationProfileV2.create(profile_payload()),
                 Path("/repo/scripts/linux_native_isolation_child.py"),
                 tmp_path / "root",
                 tmp_path / "bundle",
@@ -527,7 +1449,7 @@ def test_mount_parser_requires_exact_private_root_options() -> None:
 
 
 def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
-    profile = LinuxIsolationProfileV1.create(profile_payload())
+    profile = LinuxIsolationProfileV2.create(profile_payload())
     command = PROBE.namespace_command(
         profile,
         Path("/repo/scripts/linux_native_isolation_child.py"),
@@ -542,6 +1464,8 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
     )
     assert "--keep-caps" in command
     assert command[command.index("--net") + 1] == profile.payload.bootstrap_python.locator
+    assert command[0] == "/opt/devfabric/libexec/unshare"
+    assert command[command.index("--expected-apparmor-current") + 1] == LINUX_APPARMOR_CURRENT
     assert "--dependency" not in command
 
 
@@ -566,16 +1490,30 @@ def test_failure_contract_has_typed_reason_and_rejects_raw_details() -> None:
 
 def test_workflow_checks_out_exact_head_and_manual_runs_are_main_only() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-isolation.yml").read_text(encoding="utf-8")
-    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
-    assert "github.event_name == 'pull_request' || github.ref == 'refs/heads/main'" in workflow
+    assert "pull_request:" not in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'" in workflow
     source = (ROOT / "scripts/probe_linux_native_isolation.py").read_text(encoding="utf-8")
     assert '["git", "rev-parse", "HEAD"]' in source
     assert '["git", "status", "--porcelain"]' in source
+    manager = (ROOT / "scripts/manage_linux_native_isolation_apparmor.py").read_text(
+        encoding="utf-8"
+    )
+    assert "LINUX_PRIVATE_UNSHARE" in manager
+    assert "apparmor_restrict_unprivileged_userns=0" not in workflow
+    assert "profile devfabric-linux-isolation-unshare /opt/devfabric/libexec/unshare" in (
+        ROOT / "packaging/linux/apparmor/devfabric-linux-isolation-unshare"
+    ).read_text(encoding="utf-8")
+    assert workflow.index("Remove owned AppArmor authority and seal cleanup") < workflow.index(
+        "Upload bounded qualification evidence"
+    )
+    assert "scripts/manage_linux_native_isolation_apparmor.py setup" in workflow
+    assert "scripts/finalize_linux_native_isolation.py" in workflow
 
 
 def test_receipt_rejects_nonzero_counters_and_forged_readiness() -> None:
-    profile = LinuxIsolationProfileV1.create(profile_payload())
-    raw = LinuxIsolationReceiptPayloadV1(
+    profile = LinuxIsolationProfileV2.create(profile_payload())
+    raw = LinuxIsolationReceiptPayloadV2(
         linux_isolation_profile_id=profile.linux_isolation_profile_id,
         environment_instance_id=ENVIRONMENT,
         observation=observation(),
@@ -589,7 +1527,7 @@ def test_receipt_rejects_nonzero_counters_and_forged_readiness() -> None:
         changed = copy.deepcopy(raw)
         changed[field] = 1
         with pytest.raises(ValidationError):
-            LinuxIsolationReceiptPayloadV1.model_validate(changed)
+            LinuxIsolationReceiptPayloadV2.model_validate(changed)
     for field in (
         "cgroup_resource_boundary_qualified",
         "syscall_filter_qualified",
@@ -599,7 +1537,7 @@ def test_receipt_rejects_nonzero_counters_and_forged_readiness() -> None:
         changed = copy.deepcopy(raw)
         changed[field] = True
         with pytest.raises(ValidationError):
-            LinuxIsolationReceiptPayloadV1.model_validate(changed)
+            LinuxIsolationReceiptPayloadV2.model_validate(changed)
 
 
 def test_file_authority_rejects_relative_locator_and_missing_native_identity() -> None:
@@ -637,9 +1575,9 @@ def test_source_revalidation_rejects_same_bytes_at_replaced_inode(
 
 
 def test_profile_canonical_bytes_are_stable() -> None:
-    first = LinuxIsolationProfileV1.create(profile_payload())
-    second = LinuxIsolationProfileV1.create(
-        LinuxIsolationProfilePayloadV1.model_validate_json(
+    first = LinuxIsolationProfileV2.create(profile_payload())
+    second = LinuxIsolationProfileV2.create(
+        LinuxIsolationProfilePayloadV2.model_validate_json(
             json.dumps(profile_payload().model_dump(mode="json"), indent=2, sort_keys=False)
         )
     )

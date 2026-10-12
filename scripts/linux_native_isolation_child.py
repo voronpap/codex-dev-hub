@@ -452,9 +452,15 @@ def main() -> None:
     parser.add_argument("--expected-landlock-abi", type=int, required=True)
     parser.add_argument("--expected-landlock-mask", type=int, required=True)
     parser.add_argument("--expected-rlimits-sha256", required=True)
+    parser.add_argument("--expected-apparmor-current", required=True)
     args = parser.parse_args()
 
+    apparmor_current = Path("/proc/self/attr/current").read_text(encoding="utf-8").strip()
+    if apparmor_current != args.expected_apparmor_current:
+        raise ValueError("AppArmor current profile differs from the reviewed attachment")
+
     registration = {
+        "apparmor_current_profile": apparmor_current,
         "outer_pid": outer_pid(),
         "inner_pid": os.getpid(),
         "outer_uid": outer_uid(),
@@ -516,6 +522,7 @@ def main() -> None:
     if rlimits_sha256 != args.expected_rlimits_sha256:
         raise ValueError("Observed rlimits differ from the host profile")
     observed = {
+        "apparmor_current_profile": apparmor_current,
         "namespaces": {
             "host_user_namespace_id": host_namespaces["user"],
             "child_user_namespace_id": child_namespaces["user"],

@@ -26,26 +26,32 @@ from pydantic import JsonValue
 from devhub import linux_ollama_broker as linux_broker_module
 from devhub.benchmark import canonical, digest
 from devhub.linux_isolation import (
+    LINUX_APPARMOR_CURRENT,
+    LINUX_PRIVATE_UNSHARE,
+    LINUX_SYSTEM_UNSHARE,
+    LinuxAppArmorAuthorityV2,
+    LinuxAppArmorParserAuthorityV2,
     LinuxBrokerExpectationV1,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
-    LinuxHostAuthorityV1,
+    LinuxHostAuthorityV2,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV1,
-    LinuxIsolationEvidenceV1,
+    LinuxIsolationEvidencePayloadV2,
+    LinuxIsolationEvidenceV2,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailureV1,
-    LinuxIsolationObservationV1,
-    LinuxIsolationProfilePayloadV1,
-    LinuxIsolationProfileV1,
-    LinuxIsolationReceiptPayloadV1,
-    LinuxIsolationReceiptV1,
+    LinuxIsolationObservationV2,
+    LinuxIsolationProfilePayloadV2,
+    LinuxIsolationProfileV2,
+    LinuxIsolationReceiptPayloadV2,
+    LinuxIsolationReceiptV2,
     LinuxMountAuthorityV1,
     LinuxNativePathIdentityV1,
     LinuxToolAuthorityV1,
     landlock_handled_access,
 )
 from devhub.linux_ollama_broker import LinuxBrokerPeerAuthorityV1, LinuxMetadataBrokerV1
+from devhub.native_bundle import git_blob_sha256
 
 RETAINED_LIMIT = 1024 * 1024
 HARD_LIMIT = 8 * 1024 * 1024
@@ -195,6 +201,40 @@ def file_authority(path: Path, name: ToolName) -> LinuxToolAuthorityV1:
     )
 
 
+def apparmor_parser_authority(path: Path) -> LinuxAppArmorParserAuthorityV2:
+    authority = plain_file_authority(path)
+    completed = subprocess.run(
+        [str(path), "--version"], capture_output=True, check=False, timeout=10
+    )
+    if completed.returncode != 0:
+        raise ValueError("AppArmor parser version observation failed")
+    return LinuxAppArmorParserAuthorityV2(
+        **authority.model_dump(mode="python"),
+        version_output_sha256=sha256(completed.stdout + b"\n---stderr---\n" + completed.stderr),
+    )
+
+
+def apparmor_authority(
+    repo: Path,
+    implementation_commit: str,
+    *,
+    installed: Path = Path("/etc/apparmor.d/devfabric-linux-isolation-unshare"),
+    parser: Path = Path("/usr/sbin/apparmor_parser"),
+    loaded: Path = Path("/run/devfabric/devfabric-linux-isolation-profiles"),
+) -> LinuxAppArmorAuthorityV2:
+    relative = Path("packaging/linux/apparmor/devfabric-linux-isolation-unshare")
+    source = repo / relative
+    if loaded.read_text(encoding="utf-8").splitlines() != [LINUX_APPARMOR_CURRENT]:
+        raise ValueError("Exact AppArmor profile is not loaded in the reviewed mode")
+    return LinuxAppArmorAuthorityV2(
+        source_git_blob_sha256=git_blob_sha256(repo, implementation_commit, relative.as_posix()),
+        source_sha256=file_sha256(source),
+        installed_profile=plain_file_authority(installed),
+        parser=apparmor_parser_authority(parser),
+        loaded_profiles_snapshot=plain_file_authority(loaded),
+    )
+
+
 def directory_authority(path: Path, role: DirectoryRole) -> LinuxDirectoryAuthorityV1:
     if path.is_symlink() or not path.is_dir() or path.resolve(strict=True) != path:
         raise ValueError("Isolation directory authority must be a non-symlink directory")
@@ -237,8 +277,9 @@ def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
 
 
 def revalidate_profile_sources(
-    profile: LinuxIsolationProfileV1, child_script: Path, bundle: Path
+    profile: LinuxIsolationProfileV2, child_script: Path, bundle: Path
 ) -> None:
+    revalidate_tool(profile.payload.system_unshare)
     revalidate_tool(profile.payload.unshare)
     revalidate_tool(profile.payload.mount)
     revalidate_file(profile.payload.bootstrap_python)
@@ -260,6 +301,12 @@ def revalidate_profile_sources(
         or current_uid() != broker.broker_host_uid
     ):
         raise ValueError("Linux broker host authority changed")
+    repo = Path(__file__).resolve(strict=True).parents[1]
+    if (
+        apparmor_authority(repo, profile.payload.implementation_commit)
+        != profile.payload.host.apparmor
+    ):
+        raise ValueError("AppArmor host authority changed")
 
 
 def landlock_abi() -> int:
@@ -289,13 +336,18 @@ def parse_os_release(path: Path) -> dict[str, str]:
     return values
 
 
-def host_authority(unshare: Path) -> LinuxHostAuthorityV1:
+def host_authority(
+    unshare: Path, apparmor_authority_value: LinuxAppArmorAuthorityV2
+) -> LinuxHostAuthorityV2:
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         raise ValueError("Native isolation probe requires Linux x86_64")
     os_release = Path("/etc/os-release")
     release = parse_os_release(os_release)
     if release.get("ID") != "ubuntu" or release.get("VERSION_ID") != "24.04":
         raise ValueError("Native isolation probe is qualified only for Ubuntu 24.04")
+    apparmor_path = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+    if not apparmor_path.is_file() or apparmor_path.read_text(encoding="ascii").strip() != "1":
+        raise ValueError("AppArmor unprivileged userns restriction must remain enabled")
     userns = subprocess.run(
         [str(unshare), "--user", "--map-user=1000", "--map-group=1000", "/usr/bin/true"],
         capture_output=True,
@@ -304,10 +356,6 @@ def host_authority(unshare: Path) -> LinuxHostAuthorityV1:
     )
     if userns.returncode != 0:
         raise ValueError("Rootless user namespace creation is unavailable")
-    apparmor_path = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
-    apparmor = (
-        int(apparmor_path.read_text(encoding="ascii").strip()) if apparmor_path.exists() else None
-    )
     cgroup = Path("/sys/fs/cgroup/cgroup.controllers")
     if not cgroup.is_file():
         raise ValueError("cgroup v2 is unavailable")
@@ -317,12 +365,11 @@ def host_authority(unshare: Path) -> LinuxHostAuthorityV1:
             current_cgroup /= line[3:].lstrip("/")
             break
     delegated = os.access(current_cgroup / "cgroup.subtree_control", os.W_OK)
-    return LinuxHostAuthorityV1(
+    return LinuxHostAuthorityV2(
         os_release_sha256=file_sha256(os_release),
         kernel_release=platform.release(),
         kernel_version_sha256=sha256(platform.version().encode("utf-8")),
-        apparmor_userns_restriction_present=apparmor is not None,
-        apparmor_userns_restriction=apparmor,
+        apparmor=apparmor_authority_value,
         landlock_abi=landlock_abi(),
         delegated_cgroup_available=delegated,
     )
@@ -504,7 +551,7 @@ def stub_ollama(
 
 
 def namespace_command(
-    profile: LinuxIsolationProfileV1,
+    profile: LinuxIsolationProfileV2,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -554,18 +601,20 @@ def namespace_command(
         str(profile.payload.landlock_handled_access),
         "--expected-rlimits-sha256",
         digest(canonical(profile.payload.rlimits.model_dump(mode="json"))),
+        "--expected-apparmor-current",
+        LINUX_APPARMOR_CURRENT,
     ]
 
 
 def run_probe(
-    profile: LinuxIsolationProfileV1,
+    profile: LinuxIsolationProfileV2,
     child_script: Path,
     root: Path,
     bundle: Path,
     state: Path,
     output: Path,
     broker_dir: Path,
-) -> tuple[LinuxIsolationObservationV1, bytes, bytes]:
+) -> tuple[LinuxIsolationObservationV2, bytes, bytes]:
     revalidate_profile_sources(profile, child_script, bundle)
     registration_read, registration_write = os.pipe()
     result_read, result_write = os.pipe()
@@ -631,13 +680,21 @@ def run_probe(
     broker_thread: threading.Thread | None = None
     try:
         registration = json.loads(read_line(registration_read, 15))
-        expected_keys = {"outer_pid", "inner_pid", "outer_uid", "inner_uid", "start_time_ticks"}
+        expected_keys = {
+            "apparmor_current_profile",
+            "outer_pid",
+            "inner_pid",
+            "outer_uid",
+            "inner_uid",
+            "start_time_ticks",
+        }
         if set(registration) != expected_keys:
             raise ValueError("Isolation child registration keys differ")
         outer_pid = int(registration["outer_pid"])
         outer_uid = int(registration["outer_uid"])
         if (
             registration["inner_pid"] != 1
+            or registration["apparmor_current_profile"] != LINUX_APPARMOR_CURRENT
             or registration["inner_uid"] != 1000
             or outer_uid != current_uid()
             or not is_descendant(outer_pid, process.pid)
@@ -696,7 +753,7 @@ def run_probe(
         )
         raw_observation["descendant_cleanup_passed"] = True
         raw_observation["cleanup_failures"] = []
-        observation = LinuxIsolationObservationV1.model_validate(raw_observation)
+        observation = LinuxIsolationObservationV2.model_validate(raw_observation)
         if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
             raise ValueError("Isolation launcher process group remained after process exit")
         revalidate_profile_sources(profile, child_script, bundle)
@@ -774,7 +831,7 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV1 | None = None
+    profile: LinuxIsolationProfileV2 | None = None
     stdout = b""
     stderr = b""
     phase: FailurePhase = "host_inspection"
@@ -796,9 +853,12 @@ def main() -> None:
             (bundle / "mechanics-only.txt").write_text(
                 "native Linux isolation mechanics; not a runnable bundle\n", encoding="ascii"
             )
-            unshare_path = Path("/usr/bin/unshare")
+            system_unshare_path = Path(LINUX_SYSTEM_UNSHARE)
+            unshare_path = Path(LINUX_PRIVATE_UNSHARE)
             mount_path = Path("/usr/bin/mount")
-            host = host_authority(unshare_path)
+            apparmor = apparmor_authority(repo, args.implementation_commit)
+            host = host_authority(unshare_path, apparmor)
+            system_unshare = file_authority(system_unshare_path, "unshare")
             unshare = file_authority(unshare_path, "unshare")
             mount = file_authority(mount_path, "mount")
             bootstrap_python = plain_file_authority(Path(sys.executable).resolve(strict=True))
@@ -825,8 +885,8 @@ def main() -> None:
                 broker_host_uid=current_uid(),
                 broker_module_sha256=file_sha256(broker_module),
             )
-            profile = LinuxIsolationProfileV1.create(
-                LinuxIsolationProfilePayloadV1(
+            profile = LinuxIsolationProfileV2.create(
+                LinuxIsolationProfilePayloadV2(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
                     native_bundle_id=bundle_id,
@@ -835,6 +895,7 @@ def main() -> None:
                     probe_sha256=file_sha256(root_script),
                     child_probe_sha256=file_sha256(child_script),
                     host=host,
+                    system_unshare=system_unshare,
                     unshare=unshare,
                     mount=mount,
                     source_directories=sources,
@@ -853,15 +914,15 @@ def main() -> None:
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV1.create(
-            LinuxIsolationReceiptPayloadV1(
+        receipt = LinuxIsolationReceiptV2.create(
+            LinuxIsolationReceiptPayloadV2(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV1.create(
-            LinuxIsolationEvidencePayloadV1(
+        evidence = LinuxIsolationEvidenceV2.create(
+            LinuxIsolationEvidencePayloadV2(
                 profile=profile,
                 receipt=receipt,
                 child_stdout_retained_sha256=sha256(stdout),
