@@ -13,25 +13,25 @@ import tarfile
 import tempfile
 import tomllib
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import JsonValue
 
 from devhub.benchmark import canonical, write_new
 from devhub.linux_bundle import (
-    LinuxCodexAuthorityV2,
+    LinuxCodexAuthorityV3,
     LinuxLauncherV1,
-    LinuxNativeArchivePayloadV2,
-    LinuxNativeArchiveV2,
-    LinuxNativeBundlePayloadV2,
-    LinuxNativeBundleV2,
+    LinuxNativeArchivePayloadV3,
+    LinuxNativeArchiveV3,
+    LinuxNativeBundlePayloadV3,
+    LinuxNativeBundleV3,
     LinuxPythonAuthorityV1,
     inventory_linux_bundle,
     observe_linux_runtime,
     verify_linux_native_bundle,
     verify_linux_native_release,
 )
-from devhub.linux_native import LinuxNativeCodexBuildV8
+from devhub.linux_native import LinuxNativeCodexBuildV9
 from devhub.native_bundle import (
     file_sha256,
     review_dependency_wheels,
@@ -43,6 +43,8 @@ PIP_BUILD_VERSION = "26.2.1"
 ARCHIVE_NAME = "devfabric-linux-native.tar.gz"
 MANIFEST_NAME = "linux-native-bundle.json"
 ARCHIVE_RECEIPT_NAME = "linux-native-archive.json"
+CODEX_ARTIFACT_MAX_BYTES = 1536 * 1024 * 1024
+CODE_MODE_HOST_ARTIFACT_MAX_BYTES = 512 * 1024 * 1024
 CLI_LAUNCHER = """#!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -146,8 +148,8 @@ def _plain_artifact_layout(root: Path) -> None:
         ("linux-build-result.json", 1024 * 1024),
         ("linux-process-proof.json", 1024 * 1024),
         ("code-mode-host-eof.json", 1024 * 1024),
-        ("binary/codex", 512 * 1024 * 1024),
-        ("binary/codex-code-mode-host", 512 * 1024 * 1024),
+        ("binary/codex", CODEX_ARTIFACT_MAX_BYTES),
+        ("binary/codex-code-mode-host", CODE_MODE_HOST_ARTIFACT_MAX_BYTES),
     ):
         if (root / relative).stat().st_size > limit:
             raise ValueError(f"Linux Codex artifact file exceeds its bound: {relative}")
@@ -233,12 +235,12 @@ def _verify_retained_authority(
 
 def _review_codex_artifact(
     artifact: Path, expected_commit: str, run_id: int, run_attempt: int
-) -> LinuxNativeCodexBuildV8:
+) -> LinuxNativeCodexBuildV9:
     artifact = Path(os.path.abspath(artifact))
     _plain_artifact_layout(artifact)
     receipt_path = artifact / "linux-native-codex-build.json"
     inventory_path = artifact / "native-build-artifact-inventory.json"
-    receipt = LinuxNativeCodexBuildV8.model_validate_json(receipt_path.read_bytes())
+    receipt = LinuxNativeCodexBuildV9.model_validate_json(receipt_path.read_bytes())
     inventory = NativeBuildArtifactInventoryV2.model_validate_json(inventory_path.read_bytes())
     payload = receipt.payload
     pair = inventory.payload.linux_pair
@@ -246,9 +248,9 @@ def _review_codex_artifact(
         payload.provenance.implementation_commit != expected_commit
         or payload.provenance.workflow_run_id != run_id
         or payload.provenance.workflow_run_attempt != run_attempt
-        or payload.provenance.build_id != "linux-build-008"
+        or payload.provenance.build_id != "linux-build-009"
         or inventory.payload.platform != "linux"
-        or inventory.payload.build_id != "linux-build-008"
+        or inventory.payload.build_id != "linux-build-009"
         or inventory.payload.status != "PASS"
         or pair is None
         or pair.build_receipt_sha256 != file_sha256(receipt_path)
@@ -257,10 +259,13 @@ def _review_codex_artifact(
         raise ValueError("Linux Codex artifact provenance differs from reviewed authority")
     _verify_retained_authority(artifact, inventory, pair)
     binaries = {item.role: item for item in payload.binaries}
-    for role, expected_path in (
+    binary_roles: tuple[
+        tuple[Literal["codex", "codex-code-mode-host"], Path], ...
+    ] = (
         ("codex", artifact / "binary/codex"),
         ("codex-code-mode-host", artifact / "binary/codex-code-mode-host"),
-    ):
+    )
+    for role, expected_path in binary_roles:
         expected = binaries[role]
         if (
             expected_path.stat().st_size != expected.size
@@ -279,7 +284,7 @@ def _assemble(
     run_attempt: int,
     builder_python: Path,
     uv: Path,
-) -> LinuxNativeBundleV2:
+) -> LinuxNativeBundleV3:
     bundle_root = release / "bundle"
     manifest_path = release / "linux-native-bundle.json"
     bundle_root.mkdir(parents=True)
@@ -389,7 +394,7 @@ def _assemble(
         )
     build = receipt.payload
     binaries = {item.role: item for item in build.binaries}
-    codex = LinuxCodexAuthorityV2(
+    codex = LinuxCodexAuthorityV3(
         accepted_run_id=run_id,
         accepted_run_attempt=run_attempt,
         devfabric_implementation_commit=expected_commit,
@@ -410,8 +415,8 @@ def _assemble(
         dependency_wheels=dependencies,
         runtime=runtime,
     )
-    bundle = LinuxNativeBundleV2.create(
-        LinuxNativeBundlePayloadV2(
+    bundle = LinuxNativeBundleV3.create(
+        LinuxNativeBundlePayloadV3(
             implementation_commit=expected_commit,
             python=python,
             codex=codex,
@@ -430,12 +435,12 @@ def _assemble(
     return bundle
 
 
-def _write_archive(release: Path, bundle: LinuxNativeBundleV2) -> LinuxNativeArchiveV2:
+def _write_archive(release: Path, bundle: LinuxNativeBundleV3) -> LinuxNativeArchiveV3:
     archive_path = release / ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
         stream.add(release / "bundle", arcname="bundle", recursive=True)
-    archive = LinuxNativeArchiveV2.create(
-        LinuxNativeArchivePayloadV2(
+    archive = LinuxNativeArchiveV3.create(
+        LinuxNativeArchivePayloadV3(
             bundle_id=bundle.linux_native_bundle_id,
             size=archive_path.stat().st_size,
             sha256=file_sha256(archive_path),
@@ -455,7 +460,7 @@ def build(
     codex_artifact: Path,
     accepted_run_id: int,
     accepted_run_attempt: int,
-) -> LinuxNativeBundleV2:
+) -> LinuxNativeBundleV3:
     repo = repo.resolve(strict=True)
     commit = reviewed_commit(repo, expected_commit)
     builder_python, uv = _verified_builder(repo)

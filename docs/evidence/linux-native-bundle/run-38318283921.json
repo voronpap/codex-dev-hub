@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "workflow": "linux-native-bundle",
+  "workflow_run_id": 38318283921,
+  "workflow_run_attempt": 1,
+  "implementation_commit": "93c177cf84074a32d9970cbb934664bf6c77e732",
+  "status": "FAIL",
+  "classification": "PRE_PUBLICATION_CODEX_SIZE_BOUND_FAILURE",
+  "failed_step": "Build and relocate exact native Linux bundle",
+  "source_build": {
+    "build_id": "linux-build-008",
+    "workflow_run_id": 38312090452,
+    "workflow_run_attempt": 1,
+    "codex_sha256": "fef19d08999a00782649b3ff365dccf0a3362835fcc24ebacee83a4fbd383f5b",
+    "codex_size_bytes": 1344548808
+  },
+  "previous_codex_artifact_limit_bytes": 536870912,
+  "bundle_published": false,
+  "artifact_upload": "SKIPPED",
+  "execution_ready": false,
+  "model_requests": 0,
+  "provider_sends": 0,
+  "mcp_tool_executions": 0,
+  "real_task_executions": 0
+}
