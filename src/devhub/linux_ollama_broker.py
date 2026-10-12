@@ -115,6 +115,21 @@ def _recv_exact(connection: socket.socket, count: int) -> bytes:
     return bytes(chunks)
 
 
+def drain_rejected_request(connection: socket.socket, max_discard_bytes: int) -> int:
+    """Drain one rejected peer write with fixed memory and a second strict byte bound."""
+
+    if max_discard_bytes < 1:
+        raise ValueError("Broker rejection discard limit must be positive")
+    observed = 0
+    while True:
+        chunk = connection.recv(min(4096, max_discard_bytes + 1 - observed))
+        if not chunk:
+            return observed
+        observed += len(chunk)
+        if observed > max_discard_bytes:
+            raise ValueError("Rejected broker request exceeds the discard limit")
+
+
 def read_metadata_request(
     connection: socket.socket,
     max_request_bytes: int,
@@ -350,6 +365,7 @@ class LinuxMetadataBrokerV1:
                         )
                     except ValueError:
                         checkpoint = "denial_response"
+                        drain_rejected_request(connection, self.max_request_bytes)
                         connection.sendall(
                             b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n"
                             b"Connection: close\r\n\r\n"
