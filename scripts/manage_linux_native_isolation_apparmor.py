@@ -11,6 +11,7 @@ import re
 import stat
 import subprocess
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
@@ -29,6 +30,7 @@ from devhub.linux_isolation import (
     LinuxFileAuthorityV1,
     LinuxIsolationEvidenceV4,
     LinuxIsolationEvidenceV5,
+    LinuxIsolationEvidenceV6,
     LinuxNativePathIdentityV1,
 )
 
@@ -45,7 +47,7 @@ RUNTIME_PARENT = LOADED_SNAPSHOT.parent
 _COMMIT = re.compile(r"^[a-f0-9]{40}$")
 _ENVIRONMENT = re.compile(r"^[a-f0-9]{32}$")
 Runner = Callable[[list[str]], subprocess.CompletedProcess[bytes]]
-MechanicsEvidence = LinuxIsolationEvidenceV4 | LinuxIsolationEvidenceV5
+MechanicsEvidence = LinuxIsolationEvidenceV4 | LinuxIsolationEvidenceV5 | LinuxIsolationEvidenceV6
 LifecyclePhase = Literal["setup", "rollback", "cleanup", "finalization"]
 
 
@@ -407,6 +409,16 @@ def path_is_absent(path: Path) -> bool:
     return not path.exists() and not path.is_symlink()
 
 
+def remove_owned_file_if_present(path: Path, expected_sha256: str, expected_mode: int) -> None:
+    if not path_is_absent(path):
+        remove_owned_file(path, expected_sha256, expected_mode)
+
+
+def remove_directory_if_present(path: Path) -> None:
+    if not path_is_absent(path):
+        path.rmdir()
+
+
 def validate_journal_file(
     path: Path,
     *,
@@ -634,11 +646,7 @@ def cleanup_owned(
             advance(
                 started_field,
                 field,
-                lambda path=path, expected_sha256=expected_sha256, expected_mode=expected_mode: (
-                    remove_owned_file(path, expected_sha256, expected_mode)
-                    if not path_is_absent(path)
-                    else None
-                ),
+                partial(remove_owned_file_if_present, path, expected_sha256, expected_mode),
             )
 
     for created, removed, path, started_field, field in (
@@ -668,7 +676,7 @@ def cleanup_owned(
             advance(
                 started_field,
                 field,
-                lambda path=path: path.rmdir() if not path_is_absent(path) else None,
+                partial(remove_directory_if_present, path),
             )
 
     if failures:
@@ -687,6 +695,8 @@ def read_mechanics(path: Path) -> MechanicsEvidence:
         return LinuxIsolationEvidenceV4.model_validate_json(encoded)
     if schema_version == 5:
         return LinuxIsolationEvidenceV5.model_validate_json(encoded)
+    if schema_version == 6:
+        return LinuxIsolationEvidenceV6.model_validate_json(encoded)
     raise ValueError("Linux isolation mechanics evidence version is unsupported")
 
 

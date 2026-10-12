@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import ast
 import copy
 import importlib.util
+import io
 import json
 import os
 import socket
 import stat
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from types import ModuleType
 from typing import Literal, cast
 
 import pytest
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from devhub.benchmark import canonical, digest
 from devhub.linux_isolation import (
@@ -37,42 +40,53 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidencePayloadV3,
     LinuxIsolationEvidencePayloadV4,
     LinuxIsolationEvidencePayloadV5,
+    LinuxIsolationEvidencePayloadV6,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
     LinuxIsolationEvidenceV3,
     LinuxIsolationEvidenceV4,
     LinuxIsolationEvidenceV5,
+    LinuxIsolationEvidenceV6,
     LinuxIsolationFailurePayloadV1,
+    LinuxIsolationFailurePayloadV2,
+    LinuxIsolationFailureV2,
     LinuxIsolationObservationV1,
     LinuxIsolationObservationV2,
     LinuxIsolationObservationV3,
     LinuxIsolationObservationV4,
     LinuxIsolationObservationV5,
+    LinuxIsolationObservationV6,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfilePayloadV3,
     LinuxIsolationProfilePayloadV4,
     LinuxIsolationProfilePayloadV5,
+    LinuxIsolationProfilePayloadV6,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
     LinuxIsolationProfileV3,
     LinuxIsolationProfileV4,
     LinuxIsolationProfileV5,
+    LinuxIsolationProfileV6,
     LinuxIsolationQualificationPayloadV3,
     LinuxIsolationQualificationPayloadV4,
     LinuxIsolationQualificationPayloadV5,
+    LinuxIsolationQualificationPayloadV6,
     LinuxIsolationQualificationV4,
     LinuxIsolationQualificationV5,
+    LinuxIsolationQualificationV6,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
     LinuxIsolationReceiptPayloadV4,
     LinuxIsolationReceiptPayloadV5,
+    LinuxIsolationReceiptPayloadV6,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
     LinuxIsolationReceiptV3,
     LinuxIsolationReceiptV4,
     LinuxIsolationReceiptV5,
+    LinuxIsolationReceiptV6,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
     LinuxNativePathIdentityV1,
@@ -358,6 +372,25 @@ def profile_payload_v5() -> LinuxIsolationProfilePayloadV5:
     return LinuxIsolationProfilePayloadV5.model_validate(raw)
 
 
+def profile_payload_v6() -> LinuxIsolationProfilePayloadV6:
+    raw = profile_payload_v5().model_dump(mode="python")
+    raw["schema_version"] = 6
+    raw["profile_kind"] = "linux_native_isolation_v6"
+    raw["child_python_flags"] = ("-I", "-B")
+    raw["child_stdlib_only"] = True
+    return LinuxIsolationProfilePayloadV6.model_validate(raw)
+
+
+def profile_v6_for_server(server: socket.socket) -> LinuxIsolationProfileV6:
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw = profile_payload_v6().model_dump(mode="python")
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    return LinuxIsolationProfileV6.create(LinuxIsolationProfilePayloadV6.model_validate(raw))
+
+
 def namespace_observation() -> LinuxNamespaceObservationV1:
     return LinuxNamespaceObservationV1(
         host_user_namespace_id="user:[1]",
@@ -404,6 +437,17 @@ def observation_v5() -> LinuxIsolationObservationV5:
     return LinuxIsolationObservationV5.model_validate(raw)
 
 
+def observation_v6() -> LinuxIsolationObservationV6:
+    raw = observation_v5().model_dump(mode="python")
+    raw["schema_version"] = 6
+    raw["child_bootstrap"] = {
+        "isolated_python": True,
+        "bytecode_disabled": True,
+        "stdlib_only": True,
+    }
+    return LinuxIsolationObservationV6.model_validate(raw)
+
+
 def evidence_payload(
     profile: LinuxIsolationProfileV3, receipt: LinuxIsolationReceiptV3
 ) -> LinuxIsolationEvidencePayloadV3:
@@ -440,6 +484,22 @@ def evidence_payload_v5(
     profile: LinuxIsolationProfileV5, receipt: LinuxIsolationReceiptV5
 ) -> LinuxIsolationEvidencePayloadV5:
     return LinuxIsolationEvidencePayloadV5(
+        profile=profile,
+        receipt=receipt,
+        child_stdout_retained_sha256=H,
+        child_stderr_retained_sha256=H,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup=LinuxHostCleanupObservationV1(),
+    )
+
+
+def evidence_payload_v6(
+    profile: LinuxIsolationProfileV6, receipt: LinuxIsolationReceiptV6
+) -> LinuxIsolationEvidencePayloadV6:
+    return LinuxIsolationEvidencePayloadV6(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -572,17 +632,59 @@ def test_v5_synthetic_upstream_profile_receipt_evidence_and_qualification_are_cl
     assert receipt.payload.package_readiness is False
 
 
-@pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
-def test_finalizer_joins_only_v5_mechanics(tmp_path: Path) -> None:
-    profile = LinuxIsolationProfileV5.create(profile_payload_v5())
-    receipt = LinuxIsolationReceiptV5.create(
-        LinuxIsolationReceiptPayloadV5(
+def test_v6_stdlib_child_profile_receipt_evidence_and_qualification_are_closed() -> None:
+    profile = LinuxIsolationProfileV6.create(profile_payload_v6())
+    receipt = LinuxIsolationReceiptV6.create(
+        LinuxIsolationReceiptPayloadV6(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation_v5(),
+            observation=observation_v6(),
         )
     )
-    evidence = LinuxIsolationEvidenceV5.create(evidence_payload_v5(profile, receipt))
+    evidence = LinuxIsolationEvidenceV6.create(evidence_payload_v6(profile, receipt))
+    cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=evidence.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    qualification = LinuxIsolationQualificationV6.create(
+        LinuxIsolationQualificationPayloadV6(
+            mechanics=evidence,
+            apparmor_cleanup=cleanup,
+        )
+    )
+    assert profile.model_validate_json(profile.model_dump_json()) == profile
+    assert receipt.model_validate_json(receipt.model_dump_json()) == receipt
+    assert evidence.model_validate_json(evidence.model_dump_json()) == evidence
+    assert qualification.model_validate_json(qualification.model_dump_json()) == qualification
+    assert profile.payload.child_python_flags == ("-I", "-B")
+    assert receipt.payload.observation.child_bootstrap.stdlib_only is True
+    assert (
+        receipt.payload.model_requests,
+        receipt.payload.provider_sends,
+        receipt.payload.mcp_tool_executions,
+        receipt.payload.real_task_executions,
+    ) == (0, 0, 0, 0)
+    assert receipt.payload.package_readiness is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
+def test_finalizer_joins_only_v6_mechanics(tmp_path: Path) -> None:
+    profile = LinuxIsolationProfileV6.create(profile_payload_v6())
+    receipt = LinuxIsolationReceiptV6.create(
+        LinuxIsolationReceiptPayloadV6(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation_v6(),
+        )
+    )
+    evidence = LinuxIsolationEvidenceV6.create(evidence_payload_v6(profile, receipt))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
             implementation_commit=COMMIT,
@@ -600,7 +702,7 @@ def test_finalizer_joins_only_v5_mechanics(tmp_path: Path) -> None:
     mechanics_path.write_text(evidence.model_dump_json(), encoding="utf-8")
     cleanup_path.write_text(cleanup.model_dump_json(), encoding="utf-8")
     FINALIZER.finalize(mechanics_path, cleanup_path, output)
-    qualification = LinuxIsolationQualificationV5.model_validate_json(output.read_bytes())
+    qualification = LinuxIsolationQualificationV6.model_validate_json(output.read_bytes())
     assert qualification.payload.mechanics == evidence
     assert qualification.payload.apparmor_cleanup == cleanup
 
@@ -1786,12 +1888,13 @@ def test_pre_worker_launch_failure_closes_retained_synthetic_listener(
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
     authority = PROBE.synthetic_upstream_authority(server)
-    raw = profile_payload_v5().model_dump(mode="python")
+    raw = profile_payload_v6().model_dump(mode="python")
     raw["synthetic_upstream"] = authority.model_dump(mode="python")
     raw["broker"]["broker_host_pid"] = authority.owner_pid
     raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
     raw["broker"]["broker_host_uid"] = authority.owner_uid
-    profile = LinuxIsolationProfileV5.create(LinuxIsolationProfilePayloadV5.model_validate(raw))
+    profile = LinuxIsolationProfileV6.create(LinuxIsolationProfilePayloadV6.model_validate(raw))
+    capture = PROBE.ProbeProcessCapture()
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
     monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
     monkeypatch.setattr(PROBE, "namespace_command", lambda *_args: ["unreachable"])
@@ -1800,7 +1903,7 @@ def test_pre_worker_launch_failure_closes_retained_synthetic_listener(
         raise OSError("synthetic launch failure")
 
     monkeypatch.setattr(PROBE.subprocess, "Popen", fail_launch)
-    with pytest.raises(OSError, match="synthetic launch failure"):
+    with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
             Path("/repo/scripts/linux_native_isolation_child.py"),
@@ -1810,8 +1913,14 @@ def test_pre_worker_launch_failure_closes_retained_synthetic_listener(
             tmp_path / "output",
             tmp_path / "broker",
             server,
+            capture,
         )
+    assert error.value.phase == "namespace_creation"
+    assert isinstance(error.value.__cause__, OSError)
+    assert str(error.value.__cause__) == "synthetic launch failure"
     assert server.fileno() == -1
+    assert capture.process_started is False
+    assert capture.returncode is None
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Synthetic broker authority is Linux-only")
@@ -1910,6 +2019,8 @@ def test_mount_parser_requires_exact_private_root_options() -> None:
     ]
     raw = ("\n".join(lines) + "\n").encode()
     assert observed_private_mount_targets(raw, MOUNT_TARGETS) == MOUNT_TARGETS
+    if CHILD is not None:
+        assert CHILD.observed_private_mount_targets(raw, MOUNT_TARGETS) == MOUNT_TARGETS
     with pytest.raises(ValueError, match="weaker options"):
         observed_private_mount_targets(
             raw.replace(b"ro,nosuid,nodev - ext4", b"rw - ext4", 1), MOUNT_TARGETS
@@ -1917,7 +2028,7 @@ def test_mount_parser_requires_exact_private_root_options() -> None:
 
 
 def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
-    profile = LinuxIsolationProfileV4.create(profile_payload_v4())
+    profile = LinuxIsolationProfileV6.create(profile_payload_v6())
     command = PROBE.namespace_command(
         profile,
         Path("/repo/scripts/linux_native_isolation_child.py"),
@@ -1931,7 +2042,13 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
         {"user": "user:[1]", "mnt": "mnt:[2]", "pid": "pid:[3]", "net": "net:[4]"},
     )
     assert "--keep-caps" in command
-    assert command[command.index("--net") + 1] == profile.payload.bootstrap_python.locator
+    python_index = command.index("--net") + 1
+    assert command[python_index : python_index + 3] == [
+        profile.payload.bootstrap_python.locator,
+        "-I",
+        "-B",
+    ]
+    assert command[python_index + 3] == str(Path("/repo/scripts/linux_native_isolation_child.py"))
     assert command[0] == "/opt/devfabric/libexec/unshare"
     assert command[command.index("--expected-apparmor-current") + 1] == LINUX_APPARMOR_CURRENT
     assert command[command.index("--expected-kernel-landlock-abi") + 1] == "7"
@@ -1940,6 +2057,224 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
         profile.payload.mount.model_dump(mode="json")
     )
     assert "--dependency" not in command
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child bootstrap is Linux-only")
+def test_child_bootstrap_is_stdlib_only_and_matches_host_helpers() -> None:
+    assert CHILD is not None
+    source = (ROOT / "scripts/linux_native_isolation_child.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    roots: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            roots.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            roots.add(node.module.split(".", 1)[0])
+    assert "devhub" not in roots
+    assert "pydantic" not in roots
+    assert roots - {"__future__"} <= sys.stdlib_module_names
+    for abi in (3, 4, 5, 6):
+        assert CHILD.landlock_handled_access(abi) == landlock_handled_access(abi)
+    for kernel_abi in (3, 6, 7):
+        assert CHILD.enforced_landlock_abi(kernel_abi) == enforced_landlock_abi(kernel_abi)
+    value = cast(
+        JsonValue,
+        {"rlimits": LinuxRlimitsV1().model_dump(mode="json"), "rules": [["/tmp", 1]]},
+    )
+    assert CHILD.canonical(value) == canonical(value)
+    assert CHILD.digest(CHILD.canonical(value)) == digest(canonical(value))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child bootstrap is Linux-only")
+def test_child_bootstrap_starts_with_base_interpreter_under_hostile_python_env(
+    tmp_path: Path,
+) -> None:
+    child = ROOT / "scripts/linux_native_isolation_child.py"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PYTHONPATH": str(ROOT / "src"),
+            "PYTHONHOME": str(tmp_path / "hostile-home"),
+            "PYTHONNOUSERSITE": "0",
+        }
+    )
+    result = subprocess.run(
+        [str(Path(sys.executable).resolve(strict=True)), "-I", "-B", str(child), "--help"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert b"ModuleNotFoundError" not in result.stderr
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Child process capture is Linux-only")
+def test_pre_registration_failure_retains_actual_bounded_process_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw = profile_payload_v6().model_dump(mode="python")
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    profile = LinuxIsolationProfileV6.create(LinuxIsolationProfilePayloadV6.model_validate(raw))
+    capture = PROBE.ProbeProcessCapture()
+    diagnostic = b"bounded-child-bootstrap-failure"
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(
+        PROBE,
+        "namespace_command",
+        lambda *_args: [
+            str(Path(sys.executable).resolve(strict=True)),
+            "-I",
+            "-B",
+            "-c",
+            f"import sys; sys.stderr.buffer.write({diagnostic!r})",
+        ],
+    )
+    with pytest.raises(PROBE.ChildRegistrationFailure):
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert capture.process_started is True
+    assert capture.returncode == 0
+    assert bytes(capture.stdout.data) == b""
+    assert bytes(capture.stderr.data) == diagnostic
+    assert capture.stdout.observed == 0
+    assert capture.stderr.observed == len(diagnostic)
+    assert capture.stdout.truncated is False
+    assert capture.stderr.truncated is False
+    assert digest(bytes(capture.stderr.data)) == digest(diagnostic)
+    assert server.fileno() == -1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Failure artifact publication is Linux-only")
+@pytest.mark.parametrize(
+    ("failure_phase", "expected_reason", "cleanup_succeeded"),
+    [
+        ("child_registration", "child_registration_invalid", True),
+        ("broker", "broker_failed", True),
+        ("negative_probes", "negative_probe_failed", True),
+        ("child_result", "child_output_invalid", True),
+        ("cleanup", "cleanup_failed", False),
+    ],
+)
+def test_main_publishes_exact_v2_child_failure_phase_without_success(
+    failure_phase: PROBE.FailurePhase,
+    expected_reason: PROBE.FailureReason,
+    cleanup_succeeded: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = profile_payload_v6()
+    diagnostic = b"bounded-main-child-bootstrap-failure"
+    output = tmp_path / "mechanics.json"
+    failure_output = tmp_path / "failure.json"
+    scratch_paths: list[Path] = []
+    real_temporary_directory = PROBE.tempfile.TemporaryDirectory
+
+    class TrackingTemporaryDirectory:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.inner = real_temporary_directory(*args, **kwargs)
+
+        def __enter__(self) -> str:
+            path = self.inner.__enter__()
+            scratch_paths.append(Path(path))
+            return path
+
+        def __exit__(self, *args: object) -> object:
+            return self.inner.__exit__(*args)
+
+    def fixed_file_authority(path: Path, name: str) -> LinuxToolAuthorityV1:
+        if name != "unshare":
+            raise AssertionError("unexpected tool authority request")
+        return (
+            expected.system_unshare if str(path) == PROBE.LINUX_SYSTEM_UNSHARE else expected.unshare
+        )
+
+    def fail_after_launch(*args: object) -> None:
+        server = cast(socket.socket, args[-2])
+        capture = args[-1]
+        capture.process_started = True
+        capture.returncode = 7
+        capture.stderr.data.extend(diagnostic)
+        capture.stderr.observed = len(diagnostic)
+        server.close()
+        if failure_phase == "child_registration":
+            raise PROBE.ChildRegistrationFailure("synthetic registration failure")
+        if failure_phase == "cleanup":
+            capture.cleanup_failed = True
+            raise PROBE.ProbeCleanupFailure("synthetic cleanup failure")
+        raise PROBE.ProbePhaseFailure(failure_phase, f"synthetic {failure_phase} failure")
+
+    monkeypatch.setattr(PROBE.tempfile, "TemporaryDirectory", TrackingTemporaryDirectory)
+    monkeypatch.setattr(PROBE, "verified_git_head", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "apparmor_authority", lambda *_args: expected.host.apparmor)
+    monkeypatch.setattr(PROBE, "host_authority", lambda *_args: expected.host)
+    monkeypatch.setattr(PROBE, "file_authority", fixed_file_authority)
+    monkeypatch.setattr(PROBE, "full_mode_authority", lambda *_args: expected.mount)
+    monkeypatch.setattr(PROBE, "plain_file_authority", lambda *_args: expected.bootstrap_python)
+    monkeypatch.setattr(PROBE, "run_probe", fail_after_launch)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "probe_linux_native_isolation.py",
+            "--implementation-commit",
+            COMMIT,
+            "--environment-instance-id",
+            ENVIRONMENT,
+            "--output",
+            str(output),
+            "--failure-output",
+            str(failure_output),
+        ],
+    )
+    expected_exception = (
+        PROBE.ChildRegistrationFailure
+        if failure_phase == "child_registration"
+        else PROBE.ProbeCleanupFailure
+        if failure_phase == "cleanup"
+        else PROBE.ProbePhaseFailure
+    )
+    with pytest.raises(expected_exception):
+        PROBE.main()
+    failure = LinuxIsolationFailureV2.model_validate_json(failure_output.read_bytes())
+    assert failure.payload.phase == failure_phase
+    assert failure.payload.reason_code == expected_reason
+    assert failure.payload.child_process_started is True
+    assert failure.payload.child_returncode == 7
+    assert failure.payload.child_stdout_retained_bytes == 0
+    assert failure.payload.child_stdout_observed_bytes == 0
+    assert failure.payload.child_stdout_retained_sha256 == digest(b"")
+    assert failure.payload.child_stdout_truncated is False
+    assert failure.payload.child_stderr_retained_bytes == len(diagnostic)
+    assert failure.payload.child_stderr_observed_bytes == len(diagnostic)
+    assert failure.payload.child_stderr_retained_sha256 == digest(diagnostic)
+    assert failure.payload.child_stderr_truncated is False
+    assert failure.payload.cleanup_attempted is True
+    assert failure.payload.cleanup_succeeded is cleanup_succeeded
+    assert (
+        failure.payload.model_requests,
+        failure.payload.provider_sends,
+        failure.payload.mcp_tool_executions,
+        failure.payload.real_task_executions,
+    ) == (0, 0, 0, 0)
+    assert output.exists() is False
+    assert scratch_paths and all(not path.exists() for path in scratch_paths)
 
 
 def test_failure_contract_has_typed_reason_and_rejects_raw_details() -> None:
@@ -1959,6 +2294,427 @@ def test_failure_contract_has_typed_reason_and_rejects_raw_details() -> None:
         LinuxIsolationFailurePayloadV1.model_validate(
             value.model_dump(mode="python") | {"reason": "C:/secret/path"}
         )
+
+
+def test_failure_v2_process_capture_is_closed_and_truthful() -> None:
+    base = LinuxIsolationFailurePayloadV2(
+        linux_isolation_profile_id=None,
+        environment_instance_id=ENVIRONMENT,
+        phase="child_registration",
+        reason_code="child_registration_invalid",
+        child_stdout_retained_sha256=digest(b""),
+        child_stderr_retained_sha256=digest(b"abc"),
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        child_process_started=True,
+        child_returncode=1,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=3,
+        child_stdout_observed_bytes=0,
+        child_stderr_observed_bytes=3,
+        cleanup_attempted=True,
+        cleanup_succeeded=True,
+    )
+    assert base.child_returncode == 1
+    with pytest.raises(ValidationError, match="phase and reason code differ"):
+        LinuxIsolationFailurePayloadV2.model_validate(
+            base.model_dump(mode="python") | {"reason_code": "namespace_launch_failed"}
+        )
+    with pytest.raises(ValidationError, match="return code for an unstarted child"):
+        LinuxIsolationFailurePayloadV2.model_validate(
+            base.model_dump(mode="python")
+            | {
+                "phase": "namespace_creation",
+                "reason_code": "namespace_launch_failed",
+                "child_process_started": False,
+                "child_returncode": 1,
+                "child_stderr_retained_bytes": 0,
+                "child_stderr_observed_bytes": 0,
+                "child_stderr_retained_sha256": digest(b""),
+            }
+        )
+    with pytest.raises(ValidationError, match="stderr truncation differs"):
+        LinuxIsolationFailurePayloadV2.model_validate(
+            base.model_dump(mode="python")
+            | {"child_stderr_observed_bytes": 4, "child_stderr_truncated": False}
+        )
+    with pytest.raises(ValidationError, match="lacks a return code"):
+        LinuxIsolationFailurePayloadV2.model_validate(
+            base.model_dump(mode="python") | {"child_returncode": None}
+        )
+    with pytest.raises(ValidationError, match="child-phase failure records an unstarted child"):
+        LinuxIsolationFailurePayloadV2.model_validate(
+            base.model_dump(mode="python")
+            | {
+                "child_process_started": False,
+                "child_returncode": None,
+                "child_stderr_retained_bytes": 0,
+                "child_stderr_observed_bytes": 0,
+                "child_stderr_retained_sha256": digest(b""),
+            }
+        )
+    with pytest.raises(ValidationError, match="child output for an unstarted child"):
+        LinuxIsolationFailurePayloadV2.model_validate(
+            base.model_dump(mode="python")
+            | {
+                "phase": "namespace_creation",
+                "reason_code": "namespace_launch_failed",
+                "child_process_started": False,
+                "child_returncode": None,
+            }
+        )
+    with pytest.raises(ValidationError, match="cleanup success without an attempt"):
+        LinuxIsolationFailurePayloadV2.model_validate(
+            base.model_dump(mode="python") | {"cleanup_attempted": False}
+        )
+    with pytest.raises(ValidationError, match="pre-launch failure records a started child"):
+        LinuxIsolationFailurePayloadV2.model_validate(
+            base.model_dump(mode="python")
+            | {"phase": "host_inspection", "reason_code": "host_authority_invalid"}
+        )
+    with pytest.raises(ValidationError, match="empty stdout hash differs"):
+        LinuxIsolationFailurePayloadV2.model_validate(
+            base.model_dump(mode="python") | {"child_stdout_retained_sha256": H}
+        )
+
+
+def test_exhaustive_cleanup_attempts_every_independent_resource_category() -> None:
+    attempted: list[str] = []
+
+    def failing_action(label: str) -> object:
+        attempted.append(label)
+        raise OSError(label)
+
+    labels = ("descriptor", "socket", "kill", "wait", "stream", "thread")
+    failures = PROBE.exhaustive_cleanup(
+        tuple(lambda label=label: failing_action(label) for label in labels)
+    )
+    assert attempted == list(labels)
+    assert len(failures) == len(labels)
+    assert all(isinstance(error, OSError) for error in failures)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Pre-launch descriptor cleanup is Linux-only")
+def test_pre_launch_cleanup_attempts_all_descriptors_after_one_close_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw = profile_payload_v6().model_dump(mode="python")
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    profile = LinuxIsolationProfileV6.create(LinuxIsolationProfilePayloadV6.model_validate(raw))
+    capture = PROBE.ProbeProcessCapture()
+    closed: list[int] = []
+    real_close = PROBE.os.close
+
+    def close_with_first_reported_failure(descriptor: int) -> None:
+        real_close(descriptor)
+        closed.append(descriptor)
+        if len(closed) == 1:
+            raise OSError("synthetic descriptor cleanup failure")
+
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(PROBE, "namespace_command", lambda *_args: ["unreachable"])
+    monkeypatch.setattr(
+        PROBE,
+        "revalidate_synthetic_upstream",
+        lambda *_args: (_ for _ in ()).throw(ValueError("synthetic revalidation failure")),
+    )
+    monkeypatch.setattr(PROBE.os, "close", close_with_first_reported_failure)
+    with pytest.raises(PROBE.ProbeCleanupFailure):
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert len(closed) == 4
+    assert len(set(closed)) == 4
+    assert server.fileno() == -1
+    assert capture.process_started is False
+    assert capture.cleanup_failed is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Lifecycle acquisition cleanup is Linux-only")
+@pytest.mark.parametrize("failure_stage", ["second_pipe", "namespace_command"])
+def test_acquisition_failures_close_every_owned_descriptor_and_listener(
+    failure_stage: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v6_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    created: list[int] = []
+    real_pipe = PROBE.os.pipe
+
+    def recording_pipe() -> tuple[int, int]:
+        if failure_stage == "second_pipe" and created:
+            raise OSError("synthetic second pipe failure")
+        descriptors = real_pipe()
+        created.extend(descriptors)
+        return descriptors
+
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(PROBE.os, "pipe", recording_pipe)
+    if failure_stage == "namespace_command":
+        monkeypatch.setattr(
+            PROBE,
+            "namespace_command",
+            lambda *_args: (_ for _ in ()).throw(ValueError("synthetic command failure")),
+        )
+    with pytest.raises((OSError, ValueError)):
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert len(created) == (2 if failure_stage == "second_pipe" else 4)
+    for descriptor in created:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+    assert server.fileno() == -1
+    assert capture.process_started is False
+    assert capture.cleanup_failed is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Parent descriptor ownership is Linux-only")
+@pytest.mark.parametrize("failed_parent_close", [1, 2])
+def test_each_parent_write_close_failure_still_cleans_all_resources(
+    failed_parent_close: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v6_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    created: list[int] = []
+    parent_close_count = 0
+    real_pipe = PROBE.os.pipe
+    real_close = PROBE.os.close
+
+    class FinishedProcess:
+        def __init__(self) -> None:
+            self.pid = 987654321
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
+            self.returncode = 0
+
+        def poll(self) -> int:
+            return self.returncode
+
+        def wait(self, timeout: float) -> int:
+            return self.returncode
+
+    def recording_pipe() -> tuple[int, int]:
+        descriptors = real_pipe()
+        created.extend(descriptors)
+        return descriptors
+
+    def fail_selected_parent_close(descriptor: int) -> None:
+        nonlocal parent_close_count
+        parent_close_count += 1
+        if parent_close_count == failed_parent_close:
+            raise OSError("synthetic parent write close failure")
+        real_close(descriptor)
+
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(PROBE, "namespace_command", lambda *_args: ["synthetic"])
+    monkeypatch.setattr(PROBE, "revalidate_synthetic_upstream", lambda *_args: None)
+    monkeypatch.setattr(PROBE.os, "pipe", recording_pipe)
+    monkeypatch.setattr(PROBE.os, "close", fail_selected_parent_close)
+    monkeypatch.setattr(PROBE.subprocess, "Popen", lambda *_args, **_kwargs: FinishedProcess())
+    with pytest.raises(PROBE.ProbePhaseFailure) as error:
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert error.value.phase == "namespace_creation"
+    assert isinstance(error.value.__cause__, OSError)
+    assert str(error.value.__cause__) == "synthetic parent write close failure"
+    assert len(created) == 4
+    for descriptor in created:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+    assert server.fileno() == -1
+    assert capture.process_started is True
+    assert capture.returncode == 0
+    assert capture.cleanup_failed is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Partial collector startup is Linux-only")
+def test_partial_collector_start_failure_cleans_started_thread_process_and_fds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v6_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    created: list[int] = []
+    real_pipe = PROBE.os.pipe
+    real_thread = PROBE.threading.Thread
+    starts = 0
+
+    class FinishedProcess:
+        def __init__(self) -> None:
+            self.pid = 987654321
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
+            self.returncode = 0
+
+        def poll(self) -> int:
+            return self.returncode
+
+        def wait(self, timeout: float) -> int:
+            return self.returncode
+
+    class ControlledThread:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.inner = real_thread(*args, **kwargs)
+
+        @property
+        def ident(self) -> int | None:
+            return self.inner.ident
+
+        def start(self) -> None:
+            nonlocal starts
+            starts += 1
+            if starts == 2:
+                raise RuntimeError("synthetic second collector start failure")
+            self.inner.start()
+
+        def join(self, timeout: float | None = None) -> None:
+            self.inner.join(timeout)
+
+        def is_alive(self) -> bool:
+            return self.inner.is_alive()
+
+    def recording_pipe() -> tuple[int, int]:
+        descriptors = real_pipe()
+        created.extend(descriptors)
+        return descriptors
+
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(PROBE, "namespace_command", lambda *_args: ["synthetic"])
+    monkeypatch.setattr(PROBE, "revalidate_synthetic_upstream", lambda *_args: None)
+    monkeypatch.setattr(PROBE.os, "pipe", recording_pipe)
+    monkeypatch.setattr(PROBE.subprocess, "Popen", lambda *_args, **_kwargs: FinishedProcess())
+    monkeypatch.setattr(PROBE.threading, "Thread", ControlledThread)
+    with pytest.raises(PROBE.ProbePhaseFailure) as error:
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert error.value.phase == "namespace_creation"
+    assert isinstance(error.value.__cause__, RuntimeError)
+    assert str(error.value.__cause__) == "synthetic second collector start failure"
+    assert starts == 2
+    assert len(created) == 4
+    for descriptor in created:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+    assert server.fileno() == -1
+    assert capture.process_started is True
+    assert capture.returncode == 0
+    assert capture.cleanup_failed is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Process cleanup is Linux-only")
+def test_process_poll_failure_still_kills_waits_closes_and_reports_cleanup_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v6_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    created: list[int] = []
+    killed: list[int] = []
+    waits: list[float] = []
+    real_pipe = PROBE.os.pipe
+
+    class PollFailureProcess:
+        def __init__(self) -> None:
+            self.pid = 987654321
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
+            self.returncode: int | None = None
+            self.poll_calls = 0
+
+        def poll(self) -> int | None:
+            self.poll_calls += 1
+            if self.poll_calls == 1:
+                raise OSError("synthetic poll failure")
+            return self.returncode
+
+        def wait(self, timeout: float) -> int:
+            waits.append(timeout)
+            self.returncode = 9
+            return self.returncode
+
+    process = PollFailureProcess()
+
+    def recording_pipe() -> tuple[int, int]:
+        descriptors = real_pipe()
+        created.extend(descriptors)
+        return descriptors
+
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(PROBE, "namespace_command", lambda *_args: ["synthetic"])
+    monkeypatch.setattr(PROBE, "revalidate_synthetic_upstream", lambda *_args: None)
+    monkeypatch.setattr(PROBE.os, "pipe", recording_pipe)
+    monkeypatch.setattr(PROBE.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(PROBE, "kill_process_group", lambda pid: killed.append(pid))
+    with pytest.raises(PROBE.ProbeCleanupFailure, match="OSError"):
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert killed == [process.pid]
+    assert waits == [10]
+    assert process.poll_calls == 2
+    assert capture.process_started is True
+    assert capture.returncode == 9
+    assert capture.cleanup_failed is True
+    assert process.stdout.closed is True
+    assert process.stderr.closed is True
+    assert server.fileno() == -1
+    for descriptor in created:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
 
 
 def test_workflow_checks_out_exact_head_and_manual_runs_are_main_only() -> None:
