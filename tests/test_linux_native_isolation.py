@@ -3419,6 +3419,12 @@ def test_child_revalidates_complete_mount_authority_before_use(
         CHILD.validate_mount_authority(candidate, encoded, environment, 65534, 65534)
     assert replaced.value.reason_code == "mount_post_exec_substitution"
 
+    replacement_info = candidate.stat()
+    expected["native_identity"] = {
+        "device": replacement_info.st_dev,
+        "inode": replacement_info.st_ino,
+    }
+    encoded = json.dumps(expected, sort_keys=True, separators=(",", ":"))
     monkeypatch.setattr(CHILD.subprocess, "run", version)
     projection_calls = 0
 
