@@ -31,6 +31,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV4,
     LinuxIsolationEvidenceV5,
     LinuxIsolationEvidenceV6,
+    LinuxIsolationEvidenceV7,
     LinuxNativePathIdentityV1,
 )
 
@@ -47,7 +48,12 @@ RUNTIME_PARENT = LOADED_SNAPSHOT.parent
 _COMMIT = re.compile(r"^[a-f0-9]{40}$")
 _ENVIRONMENT = re.compile(r"^[a-f0-9]{32}$")
 Runner = Callable[[list[str]], subprocess.CompletedProcess[bytes]]
-MechanicsEvidence = LinuxIsolationEvidenceV4 | LinuxIsolationEvidenceV5 | LinuxIsolationEvidenceV6
+MechanicsEvidence = (
+    LinuxIsolationEvidenceV4
+    | LinuxIsolationEvidenceV5
+    | LinuxIsolationEvidenceV6
+    | LinuxIsolationEvidenceV7
+)
 LifecyclePhase = Literal["setup", "rollback", "cleanup", "finalization"]
 
 
@@ -697,6 +703,8 @@ def read_mechanics(path: Path) -> MechanicsEvidence:
         return LinuxIsolationEvidenceV5.model_validate_json(encoded)
     if schema_version == 6:
         return LinuxIsolationEvidenceV6.model_validate_json(encoded)
+    if schema_version == 7:
+        return LinuxIsolationEvidenceV7.model_validate_json(encoded)
     raise ValueError("Linux isolation mechanics evidence version is unsupported")
 
 

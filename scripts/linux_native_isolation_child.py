@@ -165,27 +165,103 @@ def file_sha256(path: Path) -> str:
     return hasher.hexdigest()
 
 
-def validate_mount_authority(path: Path, expected_raw: str) -> None:
+class BootstrapValidationFailure(ValueError):
+    def __init__(self, stage: str, reason_code: str) -> None:
+        super().__init__(reason_code)
+        self.stage = stage
+        self.reason_code = reason_code
+
+
+def configured_overflow_id(path: Path) -> int:
+    value = int(path.read_text(encoding="ascii").strip())
+    if value <= 0 or value > 2**32 - 1:
+        raise BootstrapValidationFailure("mount_authority", "namespace_overflow_invalid")
+    return value
+
+
+def host_id_is_mapped_text(raw: str, host_id: int) -> bool:
+    for line in raw.splitlines():
+        fields = line.split()
+        if len(fields) != 3:
+            raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
+        _inner_start, outer_start, count = (int(item) for item in fields)
+        if count <= 0:
+            raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
+        if outer_start <= host_id < outer_start + count:
+            return True
+    return False
+
+
+def validate_owner_projection(
+    expected: dict[str, object],
+    expected_overflow_uid: int,
+    expected_overflow_gid: int,
+    overflow_uid: int,
+    overflow_gid: int,
+    uid_map: str,
+    gid_map: str,
+    observed_owner_uid: int,
+    observed_owner_gid: int,
+) -> dict[str, bool | int]:
+    if expected.get("owner_uid") != 0 or expected.get("owner_gid") != 0:
+        raise BootstrapValidationFailure("mount_authority", "mount_host_authority_not_root")
+    if host_id_is_mapped_text(uid_map, 0) or host_id_is_mapped_text(gid_map, 0):
+        raise BootstrapValidationFailure("mount_authority", "namespace_host_root_mapped")
+    if overflow_uid != expected_overflow_uid or overflow_gid != expected_overflow_gid:
+        raise BootstrapValidationFailure("mount_authority", "namespace_overflow_invalid")
+    if observed_owner_uid != overflow_uid or observed_owner_gid != overflow_gid:
+        raise BootstrapValidationFailure("mount_authority", "namespace_owner_projection_mismatch")
+    return {
+        "host_owner_uid": 0,
+        "host_owner_gid": 0,
+        "host_root_uid_mapped": False,
+        "host_root_gid_mapped": False,
+        "overflow_uid": overflow_uid,
+        "overflow_gid": overflow_gid,
+        "observed_owner_uid": observed_owner_uid,
+        "observed_owner_gid": observed_owner_gid,
+    }
+
+
+def validate_mount_authority(
+    path: Path,
+    expected_raw: str,
+    expected_overflow_uid: int,
+    expected_overflow_gid: int,
+) -> dict[str, bool | int]:
     expected = json.loads(expected_raw)
     if not isinstance(expected, dict):
-        raise ValueError("Expected mount authority is not an object")
+        raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
+    overflow_uid = configured_overflow_id(Path("/proc/sys/kernel/overflowuid"))
+    overflow_gid = configured_overflow_id(Path("/proc/sys/kernel/overflowgid"))
     if path.is_symlink() or not path.is_file() or path.resolve(strict=True) != path:
-        raise ValueError("Mount authority is not one non-symlink regular file")
+        raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
     info = path.stat()
+    projection = validate_owner_projection(
+        expected,
+        expected_overflow_uid,
+        expected_overflow_gid,
+        overflow_uid,
+        overflow_gid,
+        Path("/proc/self/uid_map").read_text(encoding="ascii"),
+        Path("/proc/self/gid_map").read_text(encoding="ascii"),
+        info.st_uid,
+        info.st_gid,
+    )
     complete_mode = stat.S_IMODE(info.st_mode)
     completed = subprocess.run(
         [str(path), "--version"], capture_output=True, check=False, timeout=10
     )
     if completed.returncode != 0:
-        raise ValueError("Mount authority version observation failed")
+        raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
     observed = {
         "schema_version": 4,
         "name": "mount",
         "locator": str(path),
         "sha256": file_sha256(path),
         "size": info.st_size,
-        "owner_uid": info.st_uid,
-        "owner_gid": info.st_gid,
+        "owner_uid": 0,
+        "owner_gid": 0,
         "permission_bits": f"0{complete_mode & 0o777:03o}",
         "special_bits": f"0{complete_mode & 0o7000:04o}",
         "full_mode": f"0{complete_mode:04o}",
@@ -193,7 +269,31 @@ def validate_mount_authority(path: Path, expected_raw: str) -> None:
         "version_output_sha256": sha256(completed.stdout + b"\n---stderr---\n" + completed.stderr),
     }
     if observed != expected:
-        raise ValueError("Mount authority changed before the first mount operation")
+        raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
+    return projection
+
+
+def write_frame(descriptor: int, value: object) -> None:
+    os.write(
+        descriptor,
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n",
+    )
+
+
+def write_bootstrap_failure(descriptor: int, stage: str, reason_code: str) -> None:
+    payload = {
+        "schema_version": 1,
+        "frame_kind": "linux_child_bootstrap_failure_v1",
+        "stage": stage,
+        "reason_code": reason_code,
+    }
+    frame = {
+        "schema_version": 1,
+        "child_bootstrap_failure_id": digest(canonical(payload)),
+        "payload": payload,
+    }
+    write_frame(descriptor, frame)
+    os.close(descriptor)
 
 
 def namespace_id(kind: str) -> str:
@@ -548,6 +648,8 @@ def main() -> None:
     parser.add_argument("--broker", type=Path, required=True)
     parser.add_argument("--mount-binary", required=True)
     parser.add_argument("--expected-mount-authority", required=True)
+    parser.add_argument("--expected-overflow-uid", type=int, required=True)
+    parser.add_argument("--expected-overflow-gid", type=int, required=True)
     parser.add_argument("--registration-fd", type=int, required=True)
     parser.add_argument("--result-fd", type=int, required=True)
     parser.add_argument("--host-namespaces", required=True)
@@ -560,26 +662,58 @@ def main() -> None:
     args = parser.parse_args()
 
     if sys.flags.isolated != 1 or sys.flags.dont_write_bytecode != 1:
-        raise ValueError("Isolation child requires exact -I -B interpreter flags")
+        write_bootstrap_failure(
+            args.registration_fd, "interpreter_flags", "interpreter_flags_invalid"
+        )
+        raise SystemExit(70)
 
-    apparmor_current = Path("/proc/self/attr/current").read_text(encoding="utf-8").strip()
-    if apparmor_current != args.expected_apparmor_current:
-        raise ValueError("AppArmor current profile differs from the reviewed attachment")
+    try:
+        apparmor_current = Path("/proc/self/attr/current").read_text(encoding="utf-8").strip()
+        if apparmor_current != args.expected_apparmor_current:
+            raise ValueError
+    except BaseException:
+        write_bootstrap_failure(
+            args.registration_fd, "apparmor_identity", "apparmor_identity_invalid"
+        )
+        raise SystemExit(70) from None
 
-    validate_mount_authority(Path(args.mount_binary), args.expected_mount_authority)
+    try:
+        owner_projection = validate_mount_authority(
+            Path(args.mount_binary),
+            args.expected_mount_authority,
+            args.expected_overflow_uid,
+            args.expected_overflow_gid,
+        )
+    except BootstrapValidationFailure as error:
+        write_bootstrap_failure(args.registration_fd, error.stage, error.reason_code)
+        raise SystemExit(70) from None
+    except BaseException:
+        write_bootstrap_failure(args.registration_fd, "mount_authority", "mount_authority_mismatch")
+        raise SystemExit(70) from None
 
+    try:
+        registration_payload = {
+            "schema_version": 2,
+            "frame_kind": "linux_child_registration_v2",
+            "apparmor_current_profile": apparmor_current,
+            "outer_pid": outer_pid(),
+            "inner_pid": os.getpid(),
+            "outer_uid": outer_uid(),
+            "inner_uid": os.geteuid(),
+            "start_time_ticks": start_time_ticks(),
+            "mount_owner_projection": owner_projection,
+        }
+    except BaseException:
+        write_bootstrap_failure(
+            args.registration_fd, "process_identity", "process_identity_invalid"
+        )
+        raise SystemExit(70) from None
     registration = {
-        "apparmor_current_profile": apparmor_current,
-        "outer_pid": outer_pid(),
-        "inner_pid": os.getpid(),
-        "outer_uid": outer_uid(),
-        "inner_uid": os.geteuid(),
-        "start_time_ticks": start_time_ticks(),
+        "schema_version": 2,
+        "child_registration_id": digest(canonical(registration_payload)),
+        "payload": registration_payload,
     }
-    os.write(
-        args.registration_fd,
-        json.dumps(registration, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n",
-    )
+    write_frame(args.registration_fd, registration)
     os.close(args.registration_fd)
 
     private_root(
@@ -691,6 +825,7 @@ def main() -> None:
             "bytecode_disabled": True,
             "stdlib_only": True,
         },
+        "mount_owner_projection": owner_projection,
         "broker": broker_observations(),
     }
     os.write(

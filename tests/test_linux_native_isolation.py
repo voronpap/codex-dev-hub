@@ -31,6 +31,10 @@ from devhub.linux_isolation import (
     LinuxAppArmorSetupStateV1,
     LinuxBrokerExpectationV1,
     LinuxBrokerObservationV1,
+    LinuxChildBootstrapFailurePayloadV1,
+    LinuxChildBootstrapFailureV1,
+    LinuxChildRegistrationPayloadV2,
+    LinuxChildRegistrationV2,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
@@ -41,54 +45,65 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidencePayloadV4,
     LinuxIsolationEvidencePayloadV5,
     LinuxIsolationEvidencePayloadV6,
+    LinuxIsolationEvidencePayloadV7,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
     LinuxIsolationEvidenceV3,
     LinuxIsolationEvidenceV4,
     LinuxIsolationEvidenceV5,
     LinuxIsolationEvidenceV6,
+    LinuxIsolationEvidenceV7,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailurePayloadV2,
-    LinuxIsolationFailureV2,
+    LinuxIsolationFailureV3,
     LinuxIsolationObservationV1,
     LinuxIsolationObservationV2,
     LinuxIsolationObservationV3,
     LinuxIsolationObservationV4,
     LinuxIsolationObservationV5,
     LinuxIsolationObservationV6,
+    LinuxIsolationObservationV7,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfilePayloadV3,
     LinuxIsolationProfilePayloadV4,
     LinuxIsolationProfilePayloadV5,
     LinuxIsolationProfilePayloadV6,
+    LinuxIsolationProfilePayloadV7,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
     LinuxIsolationProfileV3,
     LinuxIsolationProfileV4,
     LinuxIsolationProfileV5,
     LinuxIsolationProfileV6,
+    LinuxIsolationProfileV7,
     LinuxIsolationQualificationPayloadV3,
     LinuxIsolationQualificationPayloadV4,
     LinuxIsolationQualificationPayloadV5,
     LinuxIsolationQualificationPayloadV6,
+    LinuxIsolationQualificationPayloadV7,
     LinuxIsolationQualificationV4,
     LinuxIsolationQualificationV5,
     LinuxIsolationQualificationV6,
+    LinuxIsolationQualificationV7,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
     LinuxIsolationReceiptPayloadV4,
     LinuxIsolationReceiptPayloadV5,
     LinuxIsolationReceiptPayloadV6,
+    LinuxIsolationReceiptPayloadV7,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
     LinuxIsolationReceiptV3,
     LinuxIsolationReceiptV4,
     LinuxIsolationReceiptV5,
     LinuxIsolationReceiptV6,
+    LinuxIsolationReceiptV7,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
+    LinuxNamespaceOwnerProjectionExpectationV1,
+    LinuxNamespaceOwnerProjectionObservationV1,
     LinuxNativePathIdentityV1,
     LinuxRlimitsV1,
     LinuxSyntheticUpstreamAuthorityV1,
@@ -381,6 +396,18 @@ def profile_payload_v6() -> LinuxIsolationProfilePayloadV6:
     return LinuxIsolationProfilePayloadV6.model_validate(raw)
 
 
+def profile_payload_v7() -> LinuxIsolationProfilePayloadV7:
+    raw = profile_payload_v6().model_dump(mode="python")
+    raw["schema_version"] = 7
+    raw["profile_kind"] = "linux_native_isolation_v7"
+    raw["child_registration_protocol"] = "linux_child_registration_v2"
+    raw["mount_owner_projection"] = LinuxNamespaceOwnerProjectionExpectationV1(
+        overflow_uid=65534,
+        overflow_gid=65534,
+    ).model_dump(mode="python")
+    return LinuxIsolationProfilePayloadV7.model_validate(raw)
+
+
 def profile_v6_for_server(server: socket.socket) -> LinuxIsolationProfileV6:
     authority = PROBE.synthetic_upstream_authority(server)
     raw = profile_payload_v6().model_dump(mode="python")
@@ -389,6 +416,16 @@ def profile_v6_for_server(server: socket.socket) -> LinuxIsolationProfileV6:
     raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
     raw["broker"]["broker_host_uid"] = authority.owner_uid
     return LinuxIsolationProfileV6.create(LinuxIsolationProfilePayloadV6.model_validate(raw))
+
+
+def profile_v7_for_server(server: socket.socket) -> LinuxIsolationProfileV7:
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw = profile_payload_v7().model_dump(mode="python")
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    return LinuxIsolationProfileV7.create(LinuxIsolationProfilePayloadV7.model_validate(raw))
 
 
 def namespace_observation() -> LinuxNamespaceObservationV1:
@@ -448,6 +485,22 @@ def observation_v6() -> LinuxIsolationObservationV6:
     return LinuxIsolationObservationV6.model_validate(raw)
 
 
+def owner_projection() -> LinuxNamespaceOwnerProjectionObservationV1:
+    return LinuxNamespaceOwnerProjectionObservationV1(
+        overflow_uid=65534,
+        overflow_gid=65534,
+        observed_owner_uid=65534,
+        observed_owner_gid=65534,
+    )
+
+
+def observation_v7() -> LinuxIsolationObservationV7:
+    raw = observation_v6().model_dump(mode="python")
+    raw["schema_version"] = 7
+    raw["mount_owner_projection"] = owner_projection().model_dump(mode="python")
+    return LinuxIsolationObservationV7.model_validate(raw)
+
+
 def evidence_payload(
     profile: LinuxIsolationProfileV3, receipt: LinuxIsolationReceiptV3
 ) -> LinuxIsolationEvidencePayloadV3:
@@ -500,6 +553,22 @@ def evidence_payload_v6(
     profile: LinuxIsolationProfileV6, receipt: LinuxIsolationReceiptV6
 ) -> LinuxIsolationEvidencePayloadV6:
     return LinuxIsolationEvidencePayloadV6(
+        profile=profile,
+        receipt=receipt,
+        child_stdout_retained_sha256=H,
+        child_stderr_retained_sha256=H,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup=LinuxHostCleanupObservationV1(),
+    )
+
+
+def evidence_payload_v7(
+    profile: LinuxIsolationProfileV7, receipt: LinuxIsolationReceiptV7
+) -> LinuxIsolationEvidencePayloadV7:
+    return LinuxIsolationEvidencePayloadV7(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -674,17 +743,72 @@ def test_v6_stdlib_child_profile_receipt_evidence_and_qualification_are_closed()
     assert receipt.payload.package_readiness is False
 
 
-@pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
-def test_finalizer_joins_only_v6_mechanics(tmp_path: Path) -> None:
-    profile = LinuxIsolationProfileV6.create(profile_payload_v6())
-    receipt = LinuxIsolationReceiptV6.create(
-        LinuxIsolationReceiptPayloadV6(
+def test_v7_owner_projection_profile_receipt_evidence_and_qualification_are_closed() -> None:
+    profile = LinuxIsolationProfileV7.create(profile_payload_v7())
+    receipt = LinuxIsolationReceiptV7.create(
+        LinuxIsolationReceiptPayloadV7(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation_v6(),
+            observation=observation_v7(),
         )
     )
-    evidence = LinuxIsolationEvidenceV6.create(evidence_payload_v6(profile, receipt))
+    evidence = LinuxIsolationEvidenceV7.create(evidence_payload_v7(profile, receipt))
+    cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=evidence.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    qualification = LinuxIsolationQualificationV7.create(
+        LinuxIsolationQualificationPayloadV7(
+            mechanics=evidence,
+            apparmor_cleanup=cleanup,
+        )
+    )
+    assert LinuxIsolationProfileV7.model_validate_json(profile.model_dump_json()) == profile
+    assert LinuxIsolationReceiptV7.model_validate_json(receipt.model_dump_json()) == receipt
+    assert LinuxIsolationEvidenceV7.model_validate_json(evidence.model_dump_json()) == evidence
+    assert (
+        LinuxIsolationQualificationV7.model_validate_json(qualification.model_dump_json())
+        == qualification
+    )
+    assert profile.payload.mount_owner_projection.host_owner_uid == 0
+    assert receipt.payload.observation.mount_owner_projection.host_root_uid_mapped is False
+    assert qualification.payload.package_readiness is False
+
+
+def test_v7_rejects_owner_projection_substitution() -> None:
+    profile = LinuxIsolationProfileV7.create(profile_payload_v7())
+    raw = observation_v7().model_dump(mode="python")
+    raw["mount_owner_projection"]["overflow_uid"] = 65533
+    raw["mount_owner_projection"]["observed_owner_uid"] = 65533
+    receipt = LinuxIsolationReceiptV7.create(
+        LinuxIsolationReceiptPayloadV7(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=LinuxIsolationObservationV7.model_validate(raw),
+        )
+    )
+    with pytest.raises(ValidationError, match="owner projection authority differs"):
+        evidence_payload_v7(profile, receipt)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
+def test_finalizer_joins_only_v7_mechanics(tmp_path: Path) -> None:
+    profile = LinuxIsolationProfileV7.create(profile_payload_v7())
+    receipt = LinuxIsolationReceiptV7.create(
+        LinuxIsolationReceiptPayloadV7(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation_v7(),
+        )
+    )
+    evidence = LinuxIsolationEvidenceV7.create(evidence_payload_v7(profile, receipt))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
             implementation_commit=COMMIT,
@@ -702,7 +826,7 @@ def test_finalizer_joins_only_v6_mechanics(tmp_path: Path) -> None:
     mechanics_path.write_text(evidence.model_dump_json(), encoding="utf-8")
     cleanup_path.write_text(cleanup.model_dump_json(), encoding="utf-8")
     FINALIZER.finalize(mechanics_path, cleanup_path, output)
-    qualification = LinuxIsolationQualificationV6.model_validate_json(output.read_bytes())
+    qualification = LinuxIsolationQualificationV7.model_validate_json(output.read_bytes())
     assert qualification.payload.mechanics == evidence
     assert qualification.payload.apparmor_cleanup == cleanup
 
@@ -1888,12 +2012,12 @@ def test_pre_worker_launch_failure_closes_retained_synthetic_listener(
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
     authority = PROBE.synthetic_upstream_authority(server)
-    raw = profile_payload_v6().model_dump(mode="python")
+    raw = profile_payload_v7().model_dump(mode="python")
     raw["synthetic_upstream"] = authority.model_dump(mode="python")
     raw["broker"]["broker_host_pid"] = authority.owner_pid
     raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
     raw["broker"]["broker_host_uid"] = authority.owner_uid
-    profile = LinuxIsolationProfileV6.create(LinuxIsolationProfilePayloadV6.model_validate(raw))
+    profile = LinuxIsolationProfileV7.create(LinuxIsolationProfilePayloadV7.model_validate(raw))
     capture = PROBE.ProbeProcessCapture()
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
     monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
@@ -2028,7 +2152,7 @@ def test_mount_parser_requires_exact_private_root_options() -> None:
 
 
 def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
-    profile = LinuxIsolationProfileV6.create(profile_payload_v6())
+    profile = LinuxIsolationProfileV7.create(profile_payload_v7())
     command = PROBE.namespace_command(
         profile,
         Path("/repo/scripts/linux_native_isolation_child.py"),
@@ -2056,6 +2180,8 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
     assert json.loads(command[command.index("--expected-mount-authority") + 1]) == (
         profile.payload.mount.model_dump(mode="json")
     )
+    assert command[command.index("--expected-overflow-uid") + 1] == "65534"
+    assert command[command.index("--expected-overflow-gid") + 1] == "65534"
     assert "--dependency" not in command
 
 
@@ -2083,6 +2209,97 @@ def test_child_bootstrap_is_stdlib_only_and_matches_host_helpers() -> None:
     )
     assert CHILD.canonical(value) == canonical(value)
     assert CHILD.digest(CHILD.canonical(value)) == digest(canonical(value))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Namespace projection is Linux-only")
+@pytest.mark.parametrize(
+    ("owner_uid", "uid_map", "overflow_uid", "observed_uid", "reason"),
+    [
+        (1, "1000 1000 1\n", 65534, 65534, "mount_host_authority_not_root"),
+        (0, "0 0 1\n", 65534, 65534, "namespace_host_root_mapped"),
+        (0, "1000 1000 1\n", 65533, 65533, "namespace_overflow_invalid"),
+        (0, "1000 1000 1\n", 65534, 65533, "namespace_owner_projection_mismatch"),
+    ],
+)
+def test_child_owner_projection_rejects_authority_substitution(
+    owner_uid: int,
+    uid_map: str,
+    overflow_uid: int,
+    observed_uid: int,
+    reason: str,
+) -> None:
+    assert CHILD is not None
+    expected = {"owner_uid": owner_uid, "owner_gid": 0}
+    with pytest.raises(CHILD.BootstrapValidationFailure) as error:
+        CHILD.validate_owner_projection(
+            expected,
+            65534,
+            65534,
+            overflow_uid,
+            65534,
+            uid_map,
+            "1000 1000 1\n",
+            observed_uid,
+            65534,
+        )
+    assert error.value.stage == "mount_authority"
+    assert error.value.reason_code == reason
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Namespace projection is Linux-only")
+def test_child_owner_projection_accepts_exact_unmapped_root_overflow() -> None:
+    assert CHILD is not None
+    observed = CHILD.validate_owner_projection(
+        {"owner_uid": 0, "owner_gid": 0},
+        65534,
+        65534,
+        65534,
+        65534,
+        "1000 1000 1\n",
+        "1000 1000 1\n",
+        65534,
+        65534,
+    )
+    assert LinuxNamespaceOwnerProjectionObservationV1.model_validate(observed) == owner_projection()
+
+
+def test_child_registration_and_failure_frames_are_self_hashed_and_strict() -> None:
+    registration = LinuxChildRegistrationV2.create(
+        LinuxChildRegistrationPayloadV2(
+            apparmor_current_profile=LINUX_APPARMOR_CURRENT,
+            outer_pid=123,
+            outer_uid=1000,
+            start_time_ticks=456,
+            mount_owner_projection=owner_projection(),
+        )
+    )
+    failure = LinuxChildBootstrapFailureV1.create(
+        LinuxChildBootstrapFailurePayloadV1(
+            stage="mount_authority",
+            reason_code="namespace_owner_projection_mismatch",
+        )
+    )
+    assert (
+        LinuxChildRegistrationV2.model_validate_json(registration.model_dump_json()) == registration
+    )
+    assert LinuxChildBootstrapFailureV1.model_validate_json(failure.model_dump_json()) == failure
+    with pytest.raises(ValidationError, match="registration hash mismatch"):
+        LinuxChildRegistrationV2.model_validate(
+            registration.model_dump(mode="python") | {"child_registration_id": H}
+        )
+    with pytest.raises(ValidationError, match="bootstrap failure hash mismatch"):
+        LinuxChildBootstrapFailureV1.model_validate(
+            failure.model_dump(mode="python") | {"child_bootstrap_failure_id": H}
+        )
+    with pytest.raises(ValidationError, match="stage and reason differ"):
+        LinuxChildBootstrapFailurePayloadV1(
+            stage="process_identity",
+            reason_code="namespace_owner_projection_mismatch",
+        )
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        LinuxChildBootstrapFailureV1.model_validate(
+            failure.model_dump(mode="python") | {"details": "/host/path"}
+        )
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Isolated child bootstrap is Linux-only")
@@ -2116,12 +2333,12 @@ def test_pre_registration_failure_retains_actual_bounded_process_capture(
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
     authority = PROBE.synthetic_upstream_authority(server)
-    raw = profile_payload_v6().model_dump(mode="python")
+    raw = profile_payload_v7().model_dump(mode="python")
     raw["synthetic_upstream"] = authority.model_dump(mode="python")
     raw["broker"]["broker_host_pid"] = authority.owner_pid
     raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
     raw["broker"]["broker_host_uid"] = authority.owner_uid
-    profile = LinuxIsolationProfileV6.create(LinuxIsolationProfilePayloadV6.model_validate(raw))
+    profile = LinuxIsolationProfileV7.create(LinuxIsolationProfilePayloadV7.model_validate(raw))
     capture = PROBE.ProbeProcessCapture()
     diagnostic = b"bounded-child-bootstrap-failure"
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
@@ -2161,6 +2378,54 @@ def test_pre_registration_failure_retains_actual_bounded_process_capture(
     assert server.fileno() == -1
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Child registration pipe is Linux-only")
+def test_run_probe_accepts_only_self_hashed_bounded_bootstrap_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v7_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    failure = LinuxChildBootstrapFailureV1.create(
+        LinuxChildBootstrapFailurePayloadV1(
+            stage="mount_authority",
+            reason_code="namespace_owner_projection_mismatch",
+        )
+    )
+    encoded = canonical(failure.model_dump(mode="json")) + b"\n"
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+
+    def emit_failure(*args: object) -> list[str]:
+        registration_write = cast(int, args[7])
+        return [
+            str(Path(sys.executable).resolve(strict=True)),
+            "-I",
+            "-B",
+            "-c",
+            f"import os; os.write({registration_write}, {encoded!r}); raise SystemExit(70)",
+        ]
+
+    monkeypatch.setattr(PROBE, "namespace_command", emit_failure)
+    with pytest.raises(PROBE.ChildBootstrapFailure) as error:
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert error.value.frame == failure
+    assert capture.child_bootstrap_failure == failure
+    assert capture.process_started is True
+    assert capture.returncode is not None
+    assert capture.cleanup_failed is False
+    assert server.fileno() == -1
+
+
 @pytest.mark.skipif(os.name != "posix", reason="Failure artifact publication is Linux-only")
 @pytest.mark.parametrize(
     ("failure_phase", "expected_reason", "cleanup_succeeded"),
@@ -2172,14 +2437,14 @@ def test_pre_registration_failure_retains_actual_bounded_process_capture(
         ("cleanup", "cleanup_failed", False),
     ],
 )
-def test_main_publishes_exact_v2_child_failure_phase_without_success(
+def test_main_publishes_exact_v3_child_failure_phase_without_success(
     failure_phase: PROBE.FailurePhase,
     expected_reason: PROBE.FailureReason,
     cleanup_succeeded: bool,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expected = profile_payload_v6()
+    expected = profile_payload_v7()
     diagnostic = b"bounded-main-child-bootstrap-failure"
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
@@ -2214,7 +2479,14 @@ def test_main_publishes_exact_v2_child_failure_phase_without_success(
         capture.stderr.observed = len(diagnostic)
         server.close()
         if failure_phase == "child_registration":
-            raise PROBE.ChildRegistrationFailure("synthetic registration failure")
+            frame = LinuxChildBootstrapFailureV1.create(
+                LinuxChildBootstrapFailurePayloadV1(
+                    stage="mount_authority",
+                    reason_code="namespace_owner_projection_mismatch",
+                )
+            )
+            capture.child_bootstrap_failure = frame
+            raise PROBE.ChildBootstrapFailure(frame)
         if failure_phase == "cleanup":
             capture.cleanup_failed = True
             raise PROBE.ProbeCleanupFailure("synthetic cleanup failure")
@@ -2252,7 +2524,7 @@ def test_main_publishes_exact_v2_child_failure_phase_without_success(
     )
     with pytest.raises(expected_exception):
         PROBE.main()
-    failure = LinuxIsolationFailureV2.model_validate_json(failure_output.read_bytes())
+    failure = LinuxIsolationFailureV3.model_validate_json(failure_output.read_bytes())
     assert failure.payload.phase == failure_phase
     assert failure.payload.reason_code == expected_reason
     assert failure.payload.child_process_started is True
@@ -2273,6 +2545,14 @@ def test_main_publishes_exact_v2_child_failure_phase_without_success(
         failure.payload.mcp_tool_executions,
         failure.payload.real_task_executions,
     ) == (0, 0, 0, 0)
+    if failure_phase == "child_registration":
+        assert failure.payload.child_bootstrap_failure is not None
+        assert (
+            failure.payload.child_bootstrap_failure.payload.reason_code
+            == "namespace_owner_projection_mismatch"
+        )
+    else:
+        assert failure.payload.child_bootstrap_failure is None
     assert output.exists() is False
     assert scratch_paths and all(not path.exists() for path in scratch_paths)
 
@@ -2400,12 +2680,12 @@ def test_pre_launch_cleanup_attempts_all_descriptors_after_one_close_failure(
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
     authority = PROBE.synthetic_upstream_authority(server)
-    raw = profile_payload_v6().model_dump(mode="python")
+    raw = profile_payload_v7().model_dump(mode="python")
     raw["synthetic_upstream"] = authority.model_dump(mode="python")
     raw["broker"]["broker_host_pid"] = authority.owner_pid
     raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
     raw["broker"]["broker_host_uid"] = authority.owner_uid
-    profile = LinuxIsolationProfileV6.create(LinuxIsolationProfilePayloadV6.model_validate(raw))
+    profile = LinuxIsolationProfileV7.create(LinuxIsolationProfilePayloadV7.model_validate(raw))
     capture = PROBE.ProbeProcessCapture()
     closed: list[int] = []
     real_close = PROBE.os.close
@@ -2450,7 +2730,7 @@ def test_acquisition_failures_close_every_owned_descriptor_and_listener(
     failure_stage: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v6_for_server(server)
+    profile = profile_v7_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     created: list[int] = []
     real_pipe = PROBE.os.pipe
@@ -2498,7 +2778,7 @@ def test_each_parent_write_close_failure_still_cleans_all_resources(
     failed_parent_close: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v6_for_server(server)
+    profile = profile_v7_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     created: list[int] = []
     parent_close_count = 0
@@ -2567,7 +2847,7 @@ def test_partial_collector_start_failure_cleans_started_thread_process_and_fds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v6_for_server(server)
+    profile = profile_v7_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     created: list[int] = []
     real_pipe = PROBE.os.pipe
@@ -2651,7 +2931,7 @@ def test_process_poll_failure_still_kills_waits_closes_and_reports_cleanup_failu
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v6_for_server(server)
+    profile = profile_v7_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     created: list[int] = []
     killed: list[int] = []
@@ -2823,6 +3103,12 @@ def test_child_revalidates_complete_mount_authority_before_use(
 
     monkeypatch.setattr(PROBE.subprocess, "run", version)
     monkeypatch.setattr(CHILD.subprocess, "run", version)
+    monkeypatch.setattr(CHILD, "configured_overflow_id", lambda _path: 65534)
+    monkeypatch.setattr(
+        CHILD,
+        "validate_owner_projection",
+        lambda *_args: owner_projection().model_dump(mode="json"),
+    )
     info = candidate.stat()
     complete_mode = stat.S_IMODE(info.st_mode)
     expected = {
@@ -2831,8 +3117,8 @@ def test_child_revalidates_complete_mount_authority_before_use(
         "locator": str(candidate),
         "sha256": PROBE.file_sha256(candidate),
         "size": info.st_size,
-        "owner_uid": info.st_uid,
-        "owner_gid": info.st_gid,
+        "owner_uid": 0,
+        "owner_gid": 0,
         "permission_bits": f"0{complete_mode & 0o777:03o}",
         "special_bits": f"0{complete_mode & 0o7000:04o}",
         "full_mode": f"0{complete_mode:04o}",
@@ -2840,15 +3126,17 @@ def test_child_revalidates_complete_mount_authority_before_use(
         "version_output_sha256": PROBE.sha256(b"mount version\n\n---stderr---\n"),
     }
     encoded = json.dumps(expected, sort_keys=True, separators=(",", ":"))
-    CHILD.validate_mount_authority(candidate, encoded)
+    CHILD.validate_mount_authority(candidate, encoded, 65534, 65534)
 
     candidate.write_bytes(b"mount-v2")
-    with pytest.raises(ValueError, match="changed before the first mount"):
-        CHILD.validate_mount_authority(candidate, encoded)
+    with pytest.raises(CHILD.BootstrapValidationFailure) as changed_bytes:
+        CHILD.validate_mount_authority(candidate, encoded, 65534, 65534)
+    assert changed_bytes.value.reason_code == "mount_authority_mismatch"
     candidate.write_bytes(b"mount-v1")
     candidate.chmod(0o700)
-    with pytest.raises(ValueError, match="changed before the first mount"):
-        CHILD.validate_mount_authority(candidate, encoded)
+    with pytest.raises(CHILD.BootstrapValidationFailure) as changed_mode:
+        CHILD.validate_mount_authority(candidate, encoded, 65534, 65534)
+    assert changed_mode.value.reason_code == "mount_authority_mismatch"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Native device/inode authority is Linux-only")
