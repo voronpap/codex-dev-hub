@@ -41,6 +41,8 @@ from devhub.linux_isolation import (
     LinuxChildRegistrationPayloadV3,
     LinuxChildRegistrationV2,
     LinuxChildRegistrationV3,
+    LinuxChildRuntimeFailurePayloadV1,
+    LinuxChildRuntimeFailureV1,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
@@ -54,6 +56,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidencePayloadV7,
     LinuxIsolationEvidencePayloadV8,
     LinuxIsolationEvidencePayloadV9,
+    LinuxIsolationEvidencePayloadV10,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
     LinuxIsolationEvidenceV3,
@@ -63,9 +66,19 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV7,
     LinuxIsolationEvidenceV8,
     LinuxIsolationEvidenceV9,
+    LinuxIsolationEvidenceV10,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailurePayloadV2,
+    LinuxIsolationFailurePayloadV3,
+    LinuxIsolationFailurePayloadV4,
+    LinuxIsolationFailurePayloadV5,
+    LinuxIsolationFailurePayloadV6,
+    LinuxIsolationFailureV1,
+    LinuxIsolationFailureV2,
+    LinuxIsolationFailureV3,
+    LinuxIsolationFailureV4,
     LinuxIsolationFailureV5,
+    LinuxIsolationFailureV6,
     LinuxIsolationObservationV1,
     LinuxIsolationObservationV2,
     LinuxIsolationObservationV3,
@@ -75,6 +88,7 @@ from devhub.linux_isolation import (
     LinuxIsolationObservationV7,
     LinuxIsolationObservationV8,
     LinuxIsolationObservationV9,
+    LinuxIsolationObservationV10,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfilePayloadV3,
@@ -84,6 +98,7 @@ from devhub.linux_isolation import (
     LinuxIsolationProfilePayloadV7,
     LinuxIsolationProfilePayloadV8,
     LinuxIsolationProfilePayloadV9,
+    LinuxIsolationProfilePayloadV10,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
     LinuxIsolationProfileV3,
@@ -93,6 +108,7 @@ from devhub.linux_isolation import (
     LinuxIsolationProfileV7,
     LinuxIsolationProfileV8,
     LinuxIsolationProfileV9,
+    LinuxIsolationProfileV10,
     LinuxIsolationQualificationPayloadV3,
     LinuxIsolationQualificationPayloadV4,
     LinuxIsolationQualificationPayloadV5,
@@ -100,12 +116,14 @@ from devhub.linux_isolation import (
     LinuxIsolationQualificationPayloadV7,
     LinuxIsolationQualificationPayloadV8,
     LinuxIsolationQualificationPayloadV9,
+    LinuxIsolationQualificationPayloadV10,
     LinuxIsolationQualificationV4,
     LinuxIsolationQualificationV5,
     LinuxIsolationQualificationV6,
     LinuxIsolationQualificationV7,
     LinuxIsolationQualificationV8,
     LinuxIsolationQualificationV9,
+    LinuxIsolationQualificationV10,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
@@ -115,6 +133,7 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptPayloadV7,
     LinuxIsolationReceiptPayloadV8,
     LinuxIsolationReceiptPayloadV9,
+    LinuxIsolationReceiptPayloadV10,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
     LinuxIsolationReceiptV3,
@@ -124,6 +143,7 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptV7,
     LinuxIsolationReceiptV8,
     LinuxIsolationReceiptV9,
+    LinuxIsolationReceiptV10,
     LinuxMountAuthorityObservationV1,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
@@ -453,6 +473,14 @@ def profile_payload_v9() -> LinuxIsolationProfilePayloadV9:
     return LinuxIsolationProfilePayloadV9.model_validate(raw)
 
 
+def profile_payload_v10() -> LinuxIsolationProfilePayloadV10:
+    raw = profile_payload_v9().model_dump(mode="python")
+    raw["schema_version"] = 10
+    raw["profile_kind"] = "linux_native_isolation_v10"
+    raw["child_runtime_failure_protocol"] = "linux_child_runtime_failure_v1"
+    return LinuxIsolationProfilePayloadV10.model_validate(raw)
+
+
 def profile_v6_for_server(server: socket.socket) -> LinuxIsolationProfileV6:
     authority = PROBE.synthetic_upstream_authority(server)
     raw = profile_payload_v6().model_dump(mode="python")
@@ -491,6 +519,45 @@ def profile_v9_for_server(server: socket.socket) -> LinuxIsolationProfileV9:
     raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
     raw["broker"]["broker_host_uid"] = authority.owner_uid
     return LinuxIsolationProfileV9.create(LinuxIsolationProfilePayloadV9.model_validate(raw))
+
+
+def profile_v10_for_server(server: socket.socket) -> LinuxIsolationProfileV10:
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw = profile_payload_v10().model_dump(mode="python")
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    return LinuxIsolationProfileV10.create(LinuxIsolationProfilePayloadV10.model_validate(raw))
+
+
+def registered_child_command(
+    registration_write: int,
+    result_write: int,
+    result: bytes | None,
+    returncode: int,
+) -> list[str]:
+    payload = LinuxChildRegistrationPayloadV3(
+        apparmor_current_profile=LINUX_APPARMOR_CURRENT,
+        outer_pid=1,
+        outer_uid=0,
+        start_time_ticks=456,
+        mount_owner_projection=owner_projection(),
+        mount_authority=LinuxMountAuthorityObservationV1(),
+    ).model_dump(mode="json")
+    code = (
+        "import hashlib,json,os;"
+        f"p=json.loads({json.dumps(json.dumps(payload))});"
+        "p['outer_pid']=os.getpid();p['outer_uid']=os.getuid();"
+        "raw=(json.dumps(p,ensure_ascii=False,sort_keys=True,indent=2)+'\\n').encode();"
+        "f={'schema_version':3,'child_registration_id':hashlib.sha256(raw).hexdigest(),"
+        "'payload':p};"
+        f"os.write({registration_write},json.dumps(f,sort_keys=True,separators=(',',':')).encode()+b'\\n');"
+    )
+    if result is not None:
+        code += f"os.write({result_write},{result!r});"
+    code += f"raise SystemExit({returncode})"
+    return [str(Path(sys.executable).resolve(strict=True)), "-I", "-B", "-c", code]
 
 
 def namespace_observation() -> LinuxNamespaceObservationV1:
@@ -577,6 +644,12 @@ def observation_v9() -> LinuxIsolationObservationV9:
     raw = observation_v8().model_dump(mode="python")
     raw["schema_version"] = 9
     return LinuxIsolationObservationV9.model_validate(raw)
+
+
+def observation_v10() -> LinuxIsolationObservationV10:
+    raw = observation_v9().model_dump(mode="python")
+    raw["schema_version"] = 10
+    return LinuxIsolationObservationV10.model_validate(raw)
 
 
 def evidence_payload(
@@ -679,6 +752,22 @@ def evidence_payload_v9(
     profile: LinuxIsolationProfileV9, receipt: LinuxIsolationReceiptV9
 ) -> LinuxIsolationEvidencePayloadV9:
     return LinuxIsolationEvidencePayloadV9(
+        profile=profile,
+        receipt=receipt,
+        child_stdout_retained_sha256=H,
+        child_stderr_retained_sha256=H,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup=LinuxHostCleanupObservationV1(),
+    )
+
+
+def evidence_payload_v10(
+    profile: LinuxIsolationProfileV10, receipt: LinuxIsolationReceiptV10
+) -> LinuxIsolationEvidencePayloadV10:
+    return LinuxIsolationEvidencePayloadV10(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -983,17 +1072,231 @@ def test_v9_diagnostic_profile_receipt_evidence_and_qualification_are_closed() -
     assert qualification.payload.package_readiness is False
 
 
-@pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
-def test_finalizer_joins_only_v9_mechanics(tmp_path: Path) -> None:
-    profile = LinuxIsolationProfileV9.create(profile_payload_v9())
-    receipt = LinuxIsolationReceiptV9.create(
-        LinuxIsolationReceiptPayloadV9(
+def test_v10_runtime_failure_profile_receipt_evidence_and_qualification_are_closed() -> None:
+    profile = LinuxIsolationProfileV10.create(profile_payload_v10())
+    receipt = LinuxIsolationReceiptV10.create(
+        LinuxIsolationReceiptPayloadV10(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation_v9(),
+            observation=observation_v10(),
         )
     )
-    evidence = LinuxIsolationEvidenceV9.create(evidence_payload_v9(profile, receipt))
+    evidence = LinuxIsolationEvidenceV10.create(evidence_payload_v10(profile, receipt))
+    cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=evidence.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    qualification = LinuxIsolationQualificationV10.create(
+        LinuxIsolationQualificationPayloadV10(
+            mechanics=evidence,
+            apparmor_cleanup=cleanup,
+        )
+    )
+    assert LinuxIsolationProfileV10.model_validate_json(profile.model_dump_json()) == profile
+    assert LinuxIsolationReceiptV10.model_validate_json(receipt.model_dump_json()) == receipt
+    assert LinuxIsolationEvidenceV10.model_validate_json(evidence.model_dump_json()) == evidence
+    assert (
+        LinuxIsolationQualificationV10.model_validate_json(qualification.model_dump_json())
+        == qualification
+    )
+    assert qualification.payload.package_readiness is False
+
+
+@pytest.mark.parametrize(
+    ("stage", "reason", "outer_phase", "outer_reason"),
+    [
+        ("private_root", "private_root_failed", "private_root", "private_root_failed"),
+        ("rlimits", "rlimits_failed", "child_result", "child_output_invalid"),
+        (
+            "capability_drop",
+            "capability_drop_failed",
+            "capability_drop",
+            "capability_drop_failed",
+        ),
+        ("landlock", "landlock_failed", "landlock", "landlock_failed"),
+        (
+            "negative_probes",
+            "negative_probes_failed",
+            "negative_probes",
+            "negative_probe_failed",
+        ),
+        ("broker", "broker_failed", "broker", "broker_failed"),
+        ("result_assembly", "result_assembly_failed", "child_result", "child_output_invalid"),
+    ],
+)
+def test_v10_runtime_failure_stages_are_self_hashed_and_retained(
+    stage: str, reason: str, outer_phase: str, outer_reason: str
+) -> None:
+    frame = LinuxChildRuntimeFailureV1.create(
+        LinuxChildRuntimeFailurePayloadV1(stage=stage, reason_code=reason)
+    )
+    failure = LinuxIsolationFailureV6.create(
+        LinuxIsolationFailurePayloadV6(
+            linux_isolation_profile_id=H,
+            environment_instance_id=ENVIRONMENT,
+            phase=outer_phase,
+            reason_code=outer_reason,
+            child_stdout_retained_sha256=digest(b""),
+            child_stderr_retained_sha256=digest(b""),
+            child_stdout_truncated=False,
+            child_stderr_truncated=False,
+            child_process_started=True,
+            child_returncode=71,
+            child_stdout_retained_bytes=0,
+            child_stderr_retained_bytes=0,
+            child_stdout_observed_bytes=0,
+            child_stderr_observed_bytes=0,
+            child_runtime_failure=frame,
+            cleanup_attempted=True,
+            cleanup_succeeded=True,
+        )
+    )
+    assert failure.payload.child_runtime_failure == frame
+    assert LinuxIsolationFailureV6.model_validate_json(failure.model_dump_json()) == failure
+
+
+def test_v10_cleanup_failure_retains_prior_typed_child_failure() -> None:
+    runtime = LinuxChildRuntimeFailureV1.create(
+        LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
+    )
+    failure = LinuxIsolationFailurePayloadV6(
+        linux_isolation_profile_id=H,
+        environment_instance_id=ENVIRONMENT,
+        phase="cleanup",
+        reason_code="cleanup_failed",
+        child_stdout_retained_sha256=digest(b""),
+        child_stderr_retained_sha256=digest(b""),
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        child_process_started=True,
+        child_returncode=71,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_observed_bytes=0,
+        child_stderr_observed_bytes=0,
+        child_runtime_failure=runtime,
+        cleanup_attempted=True,
+        cleanup_succeeded=False,
+    )
+    assert failure.child_runtime_failure == runtime
+
+    bootstrap = LinuxChildBootstrapFailureV3.create(
+        LinuxChildBootstrapFailurePayloadV3(
+            stage="mount_authority",
+            reason_code="namespace_owner_projection_mismatch",
+        )
+    )
+    bootstrap_failure = failure.model_dump(mode="python")
+    bootstrap_failure["child_runtime_failure"] = None
+    bootstrap_failure["child_bootstrap_failure"] = bootstrap.model_dump(mode="python")
+    bootstrap_failure["child_returncode"] = 70
+    assert (
+        LinuxIsolationFailurePayloadV6.model_validate(bootstrap_failure).child_bootstrap_failure
+        == bootstrap
+    )
+
+
+def test_v10_child_failure_requires_exact_exit_code() -> None:
+    runtime = LinuxChildRuntimeFailureV1.create(
+        LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
+    )
+    raw = LinuxIsolationFailurePayloadV6(
+        linux_isolation_profile_id=H,
+        environment_instance_id=ENVIRONMENT,
+        phase="landlock",
+        reason_code="landlock_failed",
+        child_stdout_retained_sha256=digest(b""),
+        child_stderr_retained_sha256=digest(b""),
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        child_process_started=True,
+        child_returncode=71,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_observed_bytes=0,
+        child_stderr_observed_bytes=0,
+        child_runtime_failure=runtime,
+        cleanup_attempted=True,
+        cleanup_succeeded=True,
+    ).model_dump(mode="python")
+    raw["child_returncode"] = 1
+    with pytest.raises(ValidationError, match="unexpected return code"):
+        LinuxIsolationFailurePayloadV6.model_validate(raw)
+
+
+def test_v10_runtime_failure_rejects_tampering_rehashing_and_extra_fields() -> None:
+    frame = LinuxChildRuntimeFailureV1.create(
+        LinuxChildRuntimeFailurePayloadV1(stage="private_root", reason_code="private_root_failed")
+    )
+    tampered = frame.model_dump(mode="python")
+    tampered["payload"]["stage"] = "landlock"
+    tampered["payload"]["reason_code"] = "landlock_failed"
+    with pytest.raises(ValidationError, match="hash mismatch"):
+        LinuxChildRuntimeFailureV1.model_validate(tampered)
+
+    rehashed = frame.model_dump(mode="python")
+    rehashed["payload"]["stage"] = "landlock"
+    rehashed["child_runtime_failure_id"] = digest(canonical(rehashed["payload"]))
+    with pytest.raises(ValidationError, match="stage and reason differ"):
+        LinuxChildRuntimeFailureV1.model_validate(rehashed)
+
+    extra = frame.model_dump(mode="python")
+    extra["payload"]["message"] = "raw detail"
+    extra["child_runtime_failure_id"] = digest(canonical(extra["payload"]))
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        LinuxChildRuntimeFailureV1.model_validate(extra)
+
+
+def test_v10_broker_cancellation_is_secondary_only_after_child_exit() -> None:
+    cancelled = TimeoutError("Linux metadata broker was cancelled")
+    assert PROBE.expected_broker_cancellation([cancelled], child_exited=True) is True
+    assert PROBE.expected_broker_cancellation([cancelled], child_exited=False) is False
+    assert (
+        PROBE.expected_broker_cancellation(
+            [TimeoutError("Linux metadata broker deadline expired")], child_exited=True
+        )
+        is False
+    )
+    assert (
+        PROBE.expected_broker_cancellation([ValueError("broker failed")], child_exited=True)
+        is False
+    )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Child runtime framing is Linux-only")
+def test_child_runtime_failure_writer_uses_the_reviewed_v10_contract() -> None:
+    assert CHILD is not None
+    for stage in (
+        "private_root",
+        "rlimits",
+        "capability_drop",
+        "landlock",
+        "negative_probes",
+        "broker",
+        "result_assembly",
+    ):
+        frame = CHILD.runtime_failure_frame(stage)
+        assert LinuxChildRuntimeFailureV1.model_validate(frame).payload.stage == stage
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
+def test_finalizer_joins_only_v10_mechanics(tmp_path: Path) -> None:
+    profile = LinuxIsolationProfileV10.create(profile_payload_v10())
+    receipt = LinuxIsolationReceiptV10.create(
+        LinuxIsolationReceiptPayloadV10(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation_v10(),
+        )
+    )
+    evidence = LinuxIsolationEvidenceV10.create(evidence_payload_v10(profile, receipt))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
             implementation_commit=COMMIT,
@@ -1012,7 +1315,7 @@ def test_finalizer_joins_only_v9_mechanics(tmp_path: Path) -> None:
     cleanup_path.write_text(cleanup.model_dump_json(), encoding="utf-8")
     assert APPARMOR_MANAGER.read_mechanics(mechanics_path) == evidence
     FINALIZER.finalize(mechanics_path, cleanup_path, output)
-    qualification = LinuxIsolationQualificationV9.model_validate_json(output.read_bytes())
+    qualification = LinuxIsolationQualificationV10.model_validate_json(output.read_bytes())
     assert qualification.payload.mechanics == evidence
     assert qualification.payload.apparmor_cleanup == cleanup
 
@@ -2696,16 +2999,16 @@ def test_v3_registration_cannot_supply_missing_result_mount_authority() -> None:
             mount_authority=LinuxMountAuthorityObservationV1(),
         )
     )
-    raw_observation = observation_v9().model_dump(mode="python")
+    raw_observation = observation_v10().model_dump(mode="python")
     del raw_observation["mount_authority"]
     with pytest.raises(ValidationError, match="mount_authority"):
         PROBE.validate_registered_observation(raw_observation, registration.payload)
 
     assert (
         PROBE.validate_registered_observation(
-            observation_v9().model_dump(mode="python"), registration.payload
+            observation_v10().model_dump(mode="python"), registration.payload
         )
-        == observation_v9()
+        == observation_v10()
     )
 
 
@@ -2836,9 +3139,151 @@ def test_run_probe_accepts_only_self_hashed_bounded_bootstrap_failure(
     assert error.value.frame == failure
     assert capture.child_bootstrap_failure == failure
     assert capture.process_started is True
-    assert capture.returncode is not None
+    assert capture.returncode == 70
     assert capture.cleanup_failed is False
     assert server.fileno() == -1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Runtime failure pipe is Linux-only")
+def test_run_probe_prefers_typed_runtime_failure_over_expected_broker_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v10_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    failure = LinuxChildRuntimeFailureV1.create(
+        LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
+    )
+    encoded = (
+        json.dumps(failure.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
+    (tmp_path / "broker").mkdir(mode=0o700)
+    host_pid = os.getpid()
+    host_start_time = PROBE.process_start_time(host_pid)
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(
+        PROBE,
+        "process_start_time",
+        lambda pid: host_start_time if pid == host_pid else 456,
+    )
+    monkeypatch.setattr(PROBE, "is_descendant", lambda *_args: True)
+    monkeypatch.setattr(
+        PROBE,
+        "namespace_command",
+        lambda *args: registered_child_command(cast(int, args[7]), cast(int, args[8]), encoded, 71),
+    )
+    with pytest.raises(PROBE.ChildRuntimeFailure) as error:
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert error.value.frame == failure
+    assert capture.child_runtime_failure == failure
+    assert capture.returncode == 71
+    assert capture.cleanup_failed is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Runtime failure pipe is Linux-only")
+def test_run_probe_keeps_independent_broker_failure_primary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v10_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    failure = LinuxChildRuntimeFailureV1.create(
+        LinuxChildRuntimeFailurePayloadV1(stage="landlock", reason_code="landlock_failed")
+    )
+    encoded = (
+        json.dumps(failure.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
+    (tmp_path / "broker").mkdir(mode=0o700)
+    host_pid = os.getpid()
+    host_start_time = PROBE.process_start_time(host_pid)
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(
+        PROBE,
+        "process_start_time",
+        lambda pid: host_start_time if pid == host_pid else 456,
+    )
+    monkeypatch.setattr(PROBE, "is_descendant", lambda *_args: True)
+    monkeypatch.setattr(
+        PROBE,
+        "namespace_command",
+        lambda *args: registered_child_command(cast(int, args[7]), cast(int, args[8]), encoded, 71),
+    )
+
+    def fail_broker(*_args: object, **_kwargs: object) -> list[str]:
+        raise ValueError("independent broker failure")
+
+    monkeypatch.setattr(PROBE.LinuxMetadataBrokerV1, "serve_requests", fail_broker)
+    with pytest.raises(PROBE.ProbePhaseFailure) as error:
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert error.value.phase == "broker"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Runtime failure pipe is Linux-only")
+@pytest.mark.parametrize("result", [None, b'{"schema_version":1}\n'])
+def test_run_probe_rejects_missing_or_malformed_runtime_failure(
+    result: bytes | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v10_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    (tmp_path / "broker").mkdir(mode=0o700)
+    host_pid = os.getpid()
+    host_start_time = PROBE.process_start_time(host_pid)
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(
+        PROBE,
+        "process_start_time",
+        lambda pid: host_start_time if pid == host_pid else 456,
+    )
+    monkeypatch.setattr(PROBE, "is_descendant", lambda *_args: True)
+    monkeypatch.setattr(
+        PROBE,
+        "namespace_command",
+        lambda *args: registered_child_command(cast(int, args[7]), cast(int, args[8]), result, 1),
+    )
+    with pytest.raises(PROBE.ProbePhaseFailure) as error:
+        PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            tmp_path / "broker",
+            server,
+            capture,
+        )
+    assert error.value.phase == "child_result"
+    assert capture.child_runtime_failure is None
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Failure artifact publication is Linux-only")
@@ -2846,20 +3291,21 @@ def test_run_probe_accepts_only_self_hashed_bounded_bootstrap_failure(
     ("failure_phase", "expected_reason", "cleanup_succeeded"),
     [
         ("child_registration", "child_registration_invalid", True),
+        ("private_root", "private_root_failed", True),
         ("broker", "broker_failed", True),
         ("negative_probes", "negative_probe_failed", True),
         ("child_result", "child_output_invalid", True),
         ("cleanup", "cleanup_failed", False),
     ],
 )
-def test_main_publishes_exact_v5_child_failure_phase_without_success(
+def test_main_publishes_exact_v6_child_failure_phase_without_success(
     failure_phase: PROBE.FailurePhase,
     expected_reason: PROBE.FailureReason,
     cleanup_succeeded: bool,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expected = profile_payload_v9()
+    expected = profile_payload_v10()
     diagnostic = b"bounded-main-child-bootstrap-failure"
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
@@ -2901,7 +3347,17 @@ def test_main_publishes_exact_v5_child_failure_phase_without_success(
                 )
             )
             capture.child_bootstrap_failure = frame
+            capture.returncode = 70
             raise PROBE.ChildBootstrapFailure(frame)
+        if failure_phase == "private_root":
+            frame = LinuxChildRuntimeFailureV1.create(
+                LinuxChildRuntimeFailurePayloadV1(
+                    stage="private_root", reason_code="private_root_failed"
+                )
+            )
+            capture.child_runtime_failure = frame
+            capture.returncode = 71
+            raise PROBE.ChildRuntimeFailure(frame)
         if failure_phase == "cleanup":
             capture.cleanup_failed = True
             raise PROBE.ProbeCleanupFailure("synthetic cleanup failure")
@@ -2933,17 +3389,26 @@ def test_main_publishes_exact_v5_child_failure_phase_without_success(
     expected_exception = (
         PROBE.ChildRegistrationFailure
         if failure_phase == "child_registration"
+        else PROBE.ChildRuntimeFailure
+        if failure_phase == "private_root"
         else PROBE.ProbeCleanupFailure
         if failure_phase == "cleanup"
         else PROBE.ProbePhaseFailure
     )
     with pytest.raises(expected_exception):
         PROBE.main()
-    failure = LinuxIsolationFailureV5.model_validate_json(failure_output.read_bytes())
+    failure = LinuxIsolationFailureV6.model_validate_json(failure_output.read_bytes())
     assert failure.payload.phase == failure_phase
     assert failure.payload.reason_code == expected_reason
     assert failure.payload.child_process_started is True
-    assert failure.payload.child_returncode == 7
+    expected_returncode = (
+        70
+        if failure_phase == "child_registration"
+        else 71
+        if failure_phase == "private_root"
+        else 7
+    )
+    assert failure.payload.child_returncode == expected_returncode
     assert failure.payload.child_stdout_retained_bytes == 0
     assert failure.payload.child_stdout_observed_bytes == 0
     assert failure.payload.child_stdout_retained_sha256 == digest(b"")
@@ -2968,6 +3433,11 @@ def test_main_publishes_exact_v5_child_failure_phase_without_success(
         )
     else:
         assert failure.payload.child_bootstrap_failure is None
+    if failure_phase == "private_root":
+        assert failure.payload.child_runtime_failure is not None
+        assert failure.payload.child_runtime_failure.payload.stage == "private_root"
+    else:
+        assert failure.payload.child_runtime_failure is None
     assert output.exists() is False
     assert scratch_paths and all(not path.exists() for path in scratch_paths)
 
@@ -2989,6 +3459,53 @@ def test_failure_contract_has_typed_reason_and_rejects_raw_details() -> None:
         LinuxIsolationFailurePayloadV1.model_validate(
             value.model_dump(mode="python") | {"reason": "C:/secret/path"}
         )
+
+
+def test_historical_failure_v1_through_v5_remain_parseable() -> None:
+    v1_payload = LinuxIsolationFailurePayloadV1(
+        linux_isolation_profile_id=None,
+        environment_instance_id=ENVIRONMENT,
+        phase="host_inspection",
+        reason_code="host_authority_invalid",
+        child_stdout_retained_sha256=digest(b""),
+        child_stderr_retained_sha256=digest(b""),
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup_attempted=False,
+        cleanup_succeeded=False,
+    )
+    v1 = LinuxIsolationFailureV1.create(v1_payload)
+    assert LinuxIsolationFailureV1.model_validate_json(v1.model_dump_json()) == v1
+
+    v2_raw = v1_payload.model_dump(mode="python")
+    v2_raw.update(
+        {
+            "schema_version": 2,
+            "receipt_kind": "linux_native_isolation_failure_v2",
+            "child_process_started": False,
+            "child_returncode": None,
+            "child_stdout_retained_bytes": 0,
+            "child_stderr_retained_bytes": 0,
+            "child_stdout_observed_bytes": 0,
+            "child_stderr_observed_bytes": 0,
+        }
+    )
+    v2_payload = LinuxIsolationFailurePayloadV2.model_validate(v2_raw)
+    versions = (
+        (LinuxIsolationFailurePayloadV2, LinuxIsolationFailureV2, 2),
+        (LinuxIsolationFailurePayloadV3, LinuxIsolationFailureV3, 3),
+        (LinuxIsolationFailurePayloadV4, LinuxIsolationFailureV4, 4),
+        (LinuxIsolationFailurePayloadV5, LinuxIsolationFailureV5, 5),
+    )
+    for payload_type, envelope_type, version in versions:
+        raw = v2_payload.model_dump(mode="python")
+        raw["schema_version"] = version
+        raw["receipt_kind"] = f"linux_native_isolation_failure_v{version}"
+        if version >= 3:
+            raw["child_bootstrap_failure"] = None
+        payload = payload_type.model_validate(raw)
+        envelope = envelope_type.create(payload)
+        assert envelope_type.model_validate_json(envelope.model_dump_json()) == envelope
 
 
 def test_failure_v2_process_capture_is_closed_and_truthful() -> None:

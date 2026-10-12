@@ -20,6 +20,7 @@ import struct
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 PR_SET_NO_NEW_PRIVS = 38
@@ -446,6 +447,34 @@ def write_bootstrap_failure(
     os.close(descriptor)
 
 
+def runtime_failure_frame(stage: str) -> dict[str, object]:
+    reason_code = {
+        "private_root": "private_root_failed",
+        "rlimits": "rlimits_failed",
+        "capability_drop": "capability_drop_failed",
+        "landlock": "landlock_failed",
+        "negative_probes": "negative_probes_failed",
+        "broker": "broker_failed",
+        "result_assembly": "result_assembly_failed",
+    }[stage]
+    payload = {
+        "schema_version": 1,
+        "frame_kind": "linux_child_runtime_failure_v1",
+        "stage": stage,
+        "reason_code": reason_code,
+    }
+    return {
+        "schema_version": 1,
+        "child_runtime_failure_id": digest(canonical(payload)),
+        "payload": payload,
+    }
+
+
+def write_runtime_failure(descriptor: int, stage: str) -> None:
+    write_frame(descriptor, runtime_failure_frame(stage))
+    os.close(descriptor)
+
+
 def namespace_id(kind: str) -> str:
     return os.readlink(f"/proc/self/ns/{kind}")
 
@@ -789,6 +818,154 @@ def broker_observations() -> dict[str, bool | str | int]:
     }
 
 
+def run_post_registration(
+    args: argparse.Namespace,
+    apparmor_current: str,
+    owner_projection: Mapping[str, int],
+    mount_authority: Mapping[str, object],
+) -> None:
+    """Run the closed child stages and emit only typed failure evidence."""
+
+    stage = "private_root"
+    try:
+        private_root(
+            args.mount_binary,
+            args.root,
+            args.bundle,
+            args.state,
+            args.output,
+            args.broker,
+        )
+        os.chroot(args.root)
+        os.chdir("/")
+
+        stage = "rlimits"
+        rlimits = set_limits()
+        rlimits_sha256 = digest(canonical(rlimits))
+        if rlimits_sha256 != args.expected_rlimits_sha256:
+            raise ValueError("Observed rlimits differ from the host profile")
+
+        stage = "capability_drop"
+        drop_capabilities()
+        status = process_security_status()
+        if any(status[key] for key in status if key.startswith("cap_")):
+            raise ValueError("A Linux capability remained after the drop")
+        if status["no_new_privs"] != 1:
+            raise ValueError("no_new_privs was not applied")
+        regain_denied = capability_regain_denied()
+        if not regain_denied:
+            raise ValueError("A Linux capability could be regained after the drop")
+
+        stage = "landlock"
+        kernel_abi, policy_abi, handled_access, rule_targets, ruleset_sha = apply_landlock()
+        if (
+            kernel_abi != args.expected_kernel_landlock_abi
+            or policy_abi != args.expected_enforced_landlock_abi
+            or handled_access != args.expected_landlock_mask
+        ):
+            raise ValueError("Observed Landlock authority differs from the host profile")
+
+        stage = "negative_probes"
+        Path("/state/allowed.txt").write_text("state", encoding="ascii")
+        Path("/output/allowed.txt").write_text("output", encoding="ascii")
+        denied_by_landlock = False
+        try:
+            Path("/dev/forbidden").write_text("no", encoding="ascii")
+        except PermissionError:
+            denied_by_landlock = True
+        if not denied_by_landlock:
+            raise ValueError("Landlock did not deny an unapproved writable mount")
+        host_hidden = not Path("/etc/passwd").exists()
+        home_hidden = not Path("/home/runner").exists()
+        bundle_read_only = False
+        try:
+            Path("/bundle/forbidden.txt").write_text("no", encoding="ascii")
+        except OSError:
+            bundle_read_only = True
+        host_namespaces = json.loads(args.host_namespaces)
+        child_namespaces = {kind: namespace_id(kind) for kind in ("user", "mnt", "pid", "net")}
+        mount_table = Path("/proc/self/mountinfo").read_bytes()
+        expected_mount_targets = tuple(json.loads(args.expected_mount_targets))
+        mount_targets = observed_private_mount_targets(mount_table, expected_mount_targets)
+        direct_loopback_denied = denied_tcp(("127.0.0.1", 11434))
+        direct_lan_denied = denied_tcp(("192.168.0.1", 80))
+        direct_dns_denied = denied_dns()
+        direct_public_denied = denied_tcp(("1.1.1.1", 443))
+
+        stage = "broker"
+        observed_broker = broker_observations()
+
+        stage = "result_assembly"
+        observed = {
+            "apparmor_current_profile": apparmor_current,
+            "namespaces": {
+                "host_user_namespace_id": host_namespaces["user"],
+                "child_user_namespace_id": child_namespaces["user"],
+                "host_mount_namespace_id": host_namespaces["mnt"],
+                "child_mount_namespace_id": child_namespaces["mnt"],
+                "host_pid_namespace_id": host_namespaces["pid"],
+                "child_pid_namespace_id": child_namespaces["pid"],
+                "host_network_namespace_id": host_namespaces["net"],
+                "child_network_namespace_id": child_namespaces["net"],
+                "uid_map_sha256": sha256(Path("/proc/self/uid_map").read_bytes()),
+                "gid_map_sha256": sha256(Path("/proc/self/gid_map").read_bytes()),
+                "child_uid": os.geteuid(),
+                "child_gid": os.getegid(),
+            },
+            "private_mount_root": True,
+            "mount_authority_revalidated": True,
+            "mount_authority": mount_authority,
+            "mount_table_sha256": sha256(mount_table),
+            "observed_mount_targets": mount_targets,
+            "bundle_read_only": bundle_read_only,
+            "state_read_write": Path("/state/allowed.txt").read_text(encoding="ascii") == "state",
+            "output_read_write": (
+                Path("/output/allowed.txt").read_text(encoding="ascii") == "output"
+            ),
+            "home_tmpfs": True,
+            "tmp_tmpfs": True,
+            "fresh_proc": True,
+            "minimal_dev": tuple(Path("/dev").iterdir()) == (),
+            "host_root_hidden": host_hidden,
+            "host_home_hidden": home_hidden,
+            "no_new_privs": status["no_new_privs"] == 1,
+            "cap_effective": status["cap_effective"],
+            "cap_permitted": status["cap_permitted"],
+            "cap_inheritable": status["cap_inheritable"],
+            "cap_ambient": status["cap_ambient"],
+            "cap_bounding": status["cap_bounding"],
+            "capability_regain_denied": regain_denied,
+            "kernel_landlock_abi": kernel_abi,
+            "enforced_landlock_abi": policy_abi,
+            "landlock_handled_access": handled_access,
+            "landlock_rule_targets": rule_targets,
+            "landlock_ruleset_sha256": ruleset_sha,
+            "landlock_allowed_operations_passed": (
+                Path("/state/allowed.txt").read_text(encoding="ascii") == "state"
+                and Path("/output/allowed.txt").read_text(encoding="ascii") == "output"
+            ),
+            "landlock_denied_operations_passed": denied_by_landlock,
+            "direct_loopback_denied": direct_loopback_denied,
+            "direct_lan_denied": direct_lan_denied,
+            "direct_dns_denied": direct_dns_denied,
+            "direct_public_denied": direct_public_denied,
+            "rlimits_applied": True,
+            "rlimits_sha256": rlimits_sha256,
+            "child_bootstrap": {
+                "isolated_python": True,
+                "bytecode_disabled": True,
+                "stdlib_only": True,
+            },
+            "mount_owner_projection": owner_projection,
+            "broker": observed_broker,
+        }
+        write_frame(args.result_fd, observed)
+        os.close(args.result_fd)
+    except BaseException:
+        write_runtime_failure(args.result_fd, stage)
+        raise SystemExit(71) from None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -870,124 +1047,7 @@ def main() -> None:
     write_frame(args.registration_fd, registration)
     os.close(args.registration_fd)
 
-    private_root(
-        args.mount_binary,
-        args.root,
-        args.bundle,
-        args.state,
-        args.output,
-        args.broker,
-    )
-    result_fd = args.result_fd
-    os.chroot(args.root)
-    os.chdir("/")
-    rlimits = set_limits()
-    drop_capabilities()
-    kernel_abi, policy_abi, handled_access, rule_targets, ruleset_sha = apply_landlock()
-    if (
-        kernel_abi != args.expected_kernel_landlock_abi
-        or policy_abi != args.expected_enforced_landlock_abi
-        or handled_access != args.expected_landlock_mask
-    ):
-        raise ValueError("Observed Landlock authority differs from the host profile")
-    status = process_security_status()
-    if any(status[key] for key in status if key.startswith("cap_")):
-        raise ValueError("A Linux capability remained after the drop")
-    if status["no_new_privs"] != 1:
-        raise ValueError("no_new_privs was not applied")
-    regain_denied = capability_regain_denied()
-    if not regain_denied:
-        raise ValueError("A Linux capability could be regained after the drop")
-    Path("/state/allowed.txt").write_text("state", encoding="ascii")
-    Path("/output/allowed.txt").write_text("output", encoding="ascii")
-    denied_by_landlock = False
-    try:
-        Path("/dev/forbidden").write_text("no", encoding="ascii")
-    except PermissionError:
-        denied_by_landlock = True
-    if not denied_by_landlock:
-        raise ValueError("Landlock did not deny an unapproved writable mount")
-    host_hidden = not Path("/etc/passwd").exists()
-    home_hidden = not Path("/home/runner").exists()
-    bundle_read_only = False
-    try:
-        Path("/bundle/forbidden.txt").write_text("no", encoding="ascii")
-    except OSError:
-        bundle_read_only = True
-    host_namespaces = json.loads(args.host_namespaces)
-    child_namespaces = {kind: namespace_id(kind) for kind in ("user", "mnt", "pid", "net")}
-    mount_table = Path("/proc/self/mountinfo").read_bytes()
-    expected_mount_targets = tuple(json.loads(args.expected_mount_targets))
-    mount_targets = observed_private_mount_targets(mount_table, expected_mount_targets)
-    rlimits_sha256 = digest(canonical(rlimits))
-    if rlimits_sha256 != args.expected_rlimits_sha256:
-        raise ValueError("Observed rlimits differ from the host profile")
-    observed = {
-        "apparmor_current_profile": apparmor_current,
-        "namespaces": {
-            "host_user_namespace_id": host_namespaces["user"],
-            "child_user_namespace_id": child_namespaces["user"],
-            "host_mount_namespace_id": host_namespaces["mnt"],
-            "child_mount_namespace_id": child_namespaces["mnt"],
-            "host_pid_namespace_id": host_namespaces["pid"],
-            "child_pid_namespace_id": child_namespaces["pid"],
-            "host_network_namespace_id": host_namespaces["net"],
-            "child_network_namespace_id": child_namespaces["net"],
-            "uid_map_sha256": sha256(Path("/proc/self/uid_map").read_bytes()),
-            "gid_map_sha256": sha256(Path("/proc/self/gid_map").read_bytes()),
-            "child_uid": os.geteuid(),
-            "child_gid": os.getegid(),
-        },
-        "private_mount_root": True,
-        "mount_authority_revalidated": True,
-        "mount_authority": mount_authority,
-        "mount_table_sha256": sha256(mount_table),
-        "observed_mount_targets": mount_targets,
-        "bundle_read_only": bundle_read_only,
-        "state_read_write": Path("/state/allowed.txt").read_text(encoding="ascii") == "state",
-        "output_read_write": Path("/output/allowed.txt").read_text(encoding="ascii") == "output",
-        "home_tmpfs": True,
-        "tmp_tmpfs": True,
-        "fresh_proc": True,
-        "minimal_dev": tuple(Path("/dev").iterdir()) == (),
-        "host_root_hidden": host_hidden,
-        "host_home_hidden": home_hidden,
-        "no_new_privs": status["no_new_privs"] == 1,
-        "cap_effective": status["cap_effective"],
-        "cap_permitted": status["cap_permitted"],
-        "cap_inheritable": status["cap_inheritable"],
-        "cap_ambient": status["cap_ambient"],
-        "cap_bounding": status["cap_bounding"],
-        "capability_regain_denied": regain_denied,
-        "kernel_landlock_abi": kernel_abi,
-        "enforced_landlock_abi": policy_abi,
-        "landlock_handled_access": handled_access,
-        "landlock_rule_targets": rule_targets,
-        "landlock_ruleset_sha256": ruleset_sha,
-        "landlock_allowed_operations_passed": (
-            Path("/state/allowed.txt").read_text(encoding="ascii") == "state"
-            and Path("/output/allowed.txt").read_text(encoding="ascii") == "output"
-        ),
-        "landlock_denied_operations_passed": denied_by_landlock,
-        "direct_loopback_denied": denied_tcp(("127.0.0.1", 11434)),
-        "direct_lan_denied": denied_tcp(("192.168.0.1", 80)),
-        "direct_dns_denied": denied_dns(),
-        "direct_public_denied": denied_tcp(("1.1.1.1", 443)),
-        "rlimits_applied": True,
-        "rlimits_sha256": rlimits_sha256,
-        "child_bootstrap": {
-            "isolated_python": True,
-            "bytecode_disabled": True,
-            "stdlib_only": True,
-        },
-        "mount_owner_projection": owner_projection,
-        "broker": broker_observations(),
-    }
-    os.write(
-        result_fd,
-        json.dumps(observed, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n",
-    )
-    os.close(result_fd)
+    run_post_registration(args, apparmor_current, owner_projection, mount_authority)
 
 
 if __name__ == "__main__":
