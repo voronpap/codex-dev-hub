@@ -259,9 +259,7 @@ def _review_codex_artifact(
         raise ValueError("Linux Codex artifact provenance differs from reviewed authority")
     _verify_retained_authority(artifact, inventory, pair)
     binaries = {item.role: item for item in payload.binaries}
-    binary_roles: tuple[
-        tuple[Literal["codex", "codex-code-mode-host"], Path], ...
-    ] = (
+    binary_roles: tuple[tuple[Literal["codex", "codex-code-mode-host"], Path], ...] = (
         ("codex", artifact / "binary/codex"),
         ("codex-code-mode-host", artifact / "binary/codex-code-mode-host"),
     )
