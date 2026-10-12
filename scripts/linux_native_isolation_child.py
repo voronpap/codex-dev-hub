@@ -586,6 +586,7 @@ def set_limits() -> dict[str, int]:
     if observed_core != 0:
         raise ValueError("Core-file rlimit differs from the reviewed zero limit")
     observed = {
+        "schema_version": 1,
         "cpu_seconds": resource.getrlimit(resource.RLIMIT_CPU)[0],
         "address_space_bytes": resource.getrlimit(resource.RLIMIT_AS)[0],
         "file_size_bytes": resource.getrlimit(resource.RLIMIT_FSIZE)[0],

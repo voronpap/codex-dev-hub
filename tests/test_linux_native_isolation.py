@@ -2703,6 +2703,41 @@ def test_child_bootstrap_is_stdlib_only_and_matches_host_helpers() -> None:
     assert CHILD.digest(CHILD.canonical(value)) == digest(canonical(value))
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child rlimits are Linux-only")
+def test_child_rlimits_match_exact_profile_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+    applied: dict[int, tuple[int, int]] = {}
+
+    def setrlimit(kind: int, value: tuple[int, int]) -> None:
+        applied[kind] = value
+
+    def getrlimit(kind: int) -> tuple[int, int]:
+        return applied[kind]
+
+    monkeypatch.setattr(CHILD.resource, "setrlimit", setrlimit)
+    monkeypatch.setattr(CHILD.resource, "getrlimit", getrlimit)
+
+    observed = CHILD.set_limits()
+    expected = LinuxRlimitsV1().model_dump(mode="json")
+    assert applied == {
+        CHILD.resource.RLIMIT_CPU: (60, 60),
+        CHILD.resource.RLIMIT_AS: (2 * 1024**3, 2 * 1024**3),
+        CHILD.resource.RLIMIT_FSIZE: (64 * 1024**2, 64 * 1024**2),
+        CHILD.resource.RLIMIT_NOFILE: (128, 128),
+        CHILD.resource.RLIMIT_NPROC: (32, 32),
+        CHILD.resource.RLIMIT_CORE: (0, 0),
+    }
+    assert observed == expected
+
+    expected_hash = digest(canonical(cast(JsonValue, expected)))
+    assert CHILD.digest(CHILD.canonical(observed)) == expected_hash
+    mutated = dict(observed)
+    mutated["open_files"] += 1
+    assert CHILD.digest(CHILD.canonical(mutated)) != expected_hash
+
+
 @pytest.mark.skipif(os.name != "posix", reason="Namespace projection is Linux-only")
 @pytest.mark.parametrize(
     ("owner_uid", "uid_map", "overflow_uid", "observed_uid", "reason"),
