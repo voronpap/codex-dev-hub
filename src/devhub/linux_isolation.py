@@ -649,6 +649,14 @@ class LinuxNamespaceOwnerProjectionExpectationV1(Contract):
     overflow_gid: Annotated[int, Field(ge=1, le=2**32 - 1)]
 
 
+class LinuxToolVersionEnvironmentV1(Contract):
+    """Exact non-sensitive environment for a tool identity observation."""
+
+    lang: Literal["C.UTF-8"] = "C.UTF-8"
+    lc_all: Literal["C.UTF-8"] = "C.UTF-8"
+    path: Literal["/usr/bin:/bin"] = "/usr/bin:/bin"
+
+
 class LinuxIsolationProfilePayloadV7(LinuxIsolationProfilePayloadV6):
     """Forward-only profile binding namespace ownership projection and registration."""
 
@@ -658,6 +666,23 @@ class LinuxIsolationProfilePayloadV7(LinuxIsolationProfilePayloadV6):
         "linux_child_registration_v2"
     )
     mount_owner_projection: LinuxNamespaceOwnerProjectionExpectationV1
+
+
+class LinuxIsolationProfilePayloadV8(LinuxIsolationProfilePayloadV7):
+    """Forward-only profile binding staged mount authority observation."""
+
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v8"] = "linux_native_isolation_v8"  # type: ignore[assignment]
+    child_registration_protocol: Literal["linux_child_registration_v3"] = (
+        "linux_child_registration_v3"  # type: ignore[assignment]
+    )
+    child_bootstrap_failure_protocol: Literal["linux_child_bootstrap_failure_v2"] = (
+        "linux_child_bootstrap_failure_v2"
+    )
+    mount_authority_protocol: Literal["linux_mount_authority_observation_v1"] = (
+        "linux_mount_authority_observation_v1"
+    )
+    mount_version_environment: LinuxToolVersionEnvironmentV1 = LinuxToolVersionEnvironmentV1()
 
 
 class LinuxIsolationProfileV1(Contract):
@@ -795,6 +820,26 @@ class LinuxIsolationProfileV7(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation V7 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV8(ContractV2):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV8
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV8) -> LinuxIsolationProfileV8:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV8:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V8 profile hash mismatch")
         return self
 
 
@@ -1021,6 +1066,40 @@ class LinuxChildRegistrationV2(ContractV2):
         return self
 
 
+class LinuxMountAuthorityObservationV1(Contract):
+    pre_exec_authority_matched: Literal[True] = True
+    version_environment_matched: Literal[True] = True
+    version_execution_succeeded: Literal[True] = True
+    version_output_matched: Literal[True] = True
+    post_exec_authority_matched: Literal[True] = True
+
+
+class LinuxChildRegistrationPayloadV3(LinuxChildRegistrationPayloadV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    frame_kind: Literal["linux_child_registration_v3"] = "linux_child_registration_v3"  # type: ignore[assignment]
+    mount_authority: LinuxMountAuthorityObservationV1
+
+
+class LinuxChildRegistrationV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    child_registration_id: Digest
+    payload: LinuxChildRegistrationPayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxChildRegistrationPayloadV3) -> LinuxChildRegistrationV3:
+        return cls(
+            child_registration_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxChildRegistrationV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.child_registration_id != expected:
+            raise ValueError("Linux child V3 registration hash mismatch")
+        return self
+
+
 class LinuxChildBootstrapFailurePayloadV1(Contract):
     schema_version: Literal[1] = 1
     frame_kind: Literal["linux_child_bootstrap_failure_v1"] = "linux_child_bootstrap_failure_v1"
@@ -1079,6 +1158,84 @@ class LinuxChildBootstrapFailureV1(Contract):
         return self
 
 
+class LinuxChildBootstrapFailurePayloadV2(ContractV2):
+    schema_version: Literal[2] = 2
+    frame_kind: Literal["linux_child_bootstrap_failure_v2"] = "linux_child_bootstrap_failure_v2"
+    stage: Literal[
+        "interpreter_flags",
+        "apparmor_identity",
+        "mount_authority",
+        "process_identity",
+    ]
+    reason_code: Literal[
+        "interpreter_flags_invalid",
+        "apparmor_identity_invalid",
+        "mount_host_authority_not_root",
+        "namespace_host_root_mapped",
+        "namespace_overflow_invalid",
+        "namespace_owner_projection_mismatch",
+        "mount_pre_exec_path_invalid",
+        "mount_pre_exec_content_mismatch",
+        "mount_pre_exec_mode_mismatch",
+        "mount_pre_exec_identity_mismatch",
+        "mount_version_environment_invalid",
+        "mount_version_execution_failed",
+        "mount_version_exit_nonzero",
+        "mount_version_output_mismatch",
+        "mount_post_exec_substitution",
+        "mount_authority_internal_failure",
+        "process_identity_invalid",
+    ]
+
+    @model_validator(mode="after")
+    def exact_stage_reason(self) -> LinuxChildBootstrapFailurePayloadV2:
+        mount_reasons = {
+            "mount_host_authority_not_root",
+            "namespace_host_root_mapped",
+            "namespace_overflow_invalid",
+            "namespace_owner_projection_mismatch",
+            "mount_pre_exec_path_invalid",
+            "mount_pre_exec_content_mismatch",
+            "mount_pre_exec_mode_mismatch",
+            "mount_pre_exec_identity_mismatch",
+            "mount_version_environment_invalid",
+            "mount_version_execution_failed",
+            "mount_version_exit_nonzero",
+            "mount_version_output_mismatch",
+            "mount_post_exec_substitution",
+            "mount_authority_internal_failure",
+        }
+        allowed = {
+            "interpreter_flags": {"interpreter_flags_invalid"},
+            "apparmor_identity": {"apparmor_identity_invalid"},
+            "mount_authority": mount_reasons,
+            "process_identity": {"process_identity_invalid"},
+        }
+        if self.reason_code not in allowed[self.stage]:
+            raise ValueError("Linux child V2 bootstrap stage and reason differ")
+        return self
+
+
+class LinuxChildBootstrapFailureV2(ContractV2):
+    schema_version: Literal[2] = 2
+    child_bootstrap_failure_id: Digest
+    payload: LinuxChildBootstrapFailurePayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxChildBootstrapFailurePayloadV2) -> LinuxChildBootstrapFailureV2:
+        return cls(
+            child_bootstrap_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxChildBootstrapFailureV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.child_bootstrap_failure_id != expected:
+            raise ValueError("Linux child V2 bootstrap failure hash mismatch")
+        return self
+
+
 class LinuxIsolationObservationV6(LinuxIsolationObservationV5):
     """V6 observation proves the isolated stdlib-only child entry boundary."""
 
@@ -1091,6 +1248,13 @@ class LinuxIsolationObservationV7(LinuxIsolationObservationV6):
 
     schema_version: Literal[7] = 7  # type: ignore[assignment]
     mount_owner_projection: LinuxNamespaceOwnerProjectionObservationV1
+
+
+class LinuxIsolationObservationV8(LinuxIsolationObservationV7):
+    """V8 records staged child-side mount authority verification."""
+
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    mount_authority: LinuxMountAuthorityObservationV1
 
 
 class LinuxHostCleanupObservationV1(Contract):
@@ -1382,6 +1546,32 @@ class LinuxIsolationReceiptV7(ContractV2):
         return self
 
 
+class LinuxIsolationReceiptPayloadV8(LinuxIsolationReceiptPayloadV7):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v8"] = "linux_native_isolation_receipt_v8"  # type: ignore[assignment]
+    observation: LinuxIsolationObservationV8
+
+
+class LinuxIsolationReceiptV8(ContractV2):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV8
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV8) -> LinuxIsolationReceiptV8:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV8:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V8 receipt hash mismatch")
+        return self
+
+
 class LinuxIsolationEvidencePayloadV2(ContractV2):
     schema_version: Literal[2] = 2
     profile: LinuxIsolationProfileV2
@@ -1643,6 +1833,32 @@ class LinuxIsolationEvidenceV7(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_evidence_id != expected:
             raise ValueError("Linux isolation V7 evidence hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV8(LinuxIsolationEvidencePayloadV7):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV8  # type: ignore[assignment]
+    receipt: LinuxIsolationReceiptV8  # type: ignore[assignment]
+
+
+class LinuxIsolationEvidenceV8(ContractV2):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV8
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV8) -> LinuxIsolationEvidenceV8:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV8:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V8 evidence hash mismatch")
         return self
 
 
@@ -2046,6 +2262,31 @@ class LinuxIsolationQualificationV7(ContractV2):
         return self
 
 
+class LinuxIsolationQualificationPayloadV8(LinuxIsolationQualificationPayloadV7):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV8  # type: ignore[assignment]
+
+
+class LinuxIsolationQualificationV8(ContractV2):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV8
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationQualificationPayloadV8) -> LinuxIsolationQualificationV8:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV8:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V8 qualification hash mismatch")
+        return self
+
+
 class LinuxIsolationFailurePayloadV1(Contract):
     schema_version: Literal[1] = 1
     receipt_kind: Literal["linux_native_isolation_failure_v1"] = "linux_native_isolation_failure_v1"
@@ -2238,4 +2479,38 @@ class LinuxIsolationFailureV3(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_failure_id != expected:
             raise ValueError("Linux isolation V3 failure hash mismatch")
+        return self
+
+
+class LinuxIsolationFailurePayloadV4(LinuxIsolationFailurePayloadV2):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_failure_v4"] = "linux_native_isolation_failure_v4"  # type: ignore[assignment]
+    child_bootstrap_failure: LinuxChildBootstrapFailureV2 | None = None
+
+    @model_validator(mode="after")
+    def exact_child_bootstrap_failure(self) -> LinuxIsolationFailurePayloadV4:
+        if self.child_bootstrap_failure is not None and (
+            self.phase != "child_registration" or not self.child_process_started
+        ):
+            raise ValueError("Linux V4 child bootstrap failure is attached to an invalid phase")
+        return self
+
+
+class LinuxIsolationFailureV4(ContractV2):
+    schema_version: Literal[4] = 4  # type: ignore[assignment]
+    linux_isolation_failure_id: Digest
+    payload: LinuxIsolationFailurePayloadV4
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationFailurePayloadV4) -> LinuxIsolationFailureV4:
+        return cls(
+            linux_isolation_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationFailureV4:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_failure_id != expected:
+            raise ValueError("Linux isolation V4 failure hash mismatch")
         return self

@@ -32,9 +32,13 @@ from devhub.linux_isolation import (
     LinuxBrokerExpectationV1,
     LinuxBrokerObservationV1,
     LinuxChildBootstrapFailurePayloadV1,
+    LinuxChildBootstrapFailurePayloadV2,
     LinuxChildBootstrapFailureV1,
+    LinuxChildBootstrapFailureV2,
     LinuxChildRegistrationPayloadV2,
+    LinuxChildRegistrationPayloadV3,
     LinuxChildRegistrationV2,
+    LinuxChildRegistrationV3,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
@@ -46,6 +50,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidencePayloadV5,
     LinuxIsolationEvidencePayloadV6,
     LinuxIsolationEvidencePayloadV7,
+    LinuxIsolationEvidencePayloadV8,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
     LinuxIsolationEvidenceV3,
@@ -53,6 +58,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV5,
     LinuxIsolationEvidenceV6,
     LinuxIsolationEvidenceV7,
+    LinuxIsolationEvidenceV8,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailurePayloadV2,
     LinuxIsolationFailureV3,
@@ -63,6 +69,7 @@ from devhub.linux_isolation import (
     LinuxIsolationObservationV5,
     LinuxIsolationObservationV6,
     LinuxIsolationObservationV7,
+    LinuxIsolationObservationV8,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfilePayloadV3,
@@ -70,6 +77,7 @@ from devhub.linux_isolation import (
     LinuxIsolationProfilePayloadV5,
     LinuxIsolationProfilePayloadV6,
     LinuxIsolationProfilePayloadV7,
+    LinuxIsolationProfilePayloadV8,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
     LinuxIsolationProfileV3,
@@ -77,15 +85,18 @@ from devhub.linux_isolation import (
     LinuxIsolationProfileV5,
     LinuxIsolationProfileV6,
     LinuxIsolationProfileV7,
+    LinuxIsolationProfileV8,
     LinuxIsolationQualificationPayloadV3,
     LinuxIsolationQualificationPayloadV4,
     LinuxIsolationQualificationPayloadV5,
     LinuxIsolationQualificationPayloadV6,
     LinuxIsolationQualificationPayloadV7,
+    LinuxIsolationQualificationPayloadV8,
     LinuxIsolationQualificationV4,
     LinuxIsolationQualificationV5,
     LinuxIsolationQualificationV6,
     LinuxIsolationQualificationV7,
+    LinuxIsolationQualificationV8,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
@@ -93,6 +104,7 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptPayloadV5,
     LinuxIsolationReceiptPayloadV6,
     LinuxIsolationReceiptPayloadV7,
+    LinuxIsolationReceiptPayloadV8,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
     LinuxIsolationReceiptV3,
@@ -100,6 +112,8 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptV5,
     LinuxIsolationReceiptV6,
     LinuxIsolationReceiptV7,
+    LinuxIsolationReceiptV8,
+    LinuxMountAuthorityObservationV1,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
     LinuxNamespaceOwnerProjectionExpectationV1,
@@ -110,6 +124,7 @@ from devhub.linux_isolation import (
     LinuxSyntheticUpstreamObservationV1,
     LinuxToolAuthorityV1,
     LinuxToolAuthorityV4,
+    LinuxToolVersionEnvironmentV1,
     enforced_landlock_abi,
     landlock_handled_access,
     observed_private_mount_targets,
@@ -408,6 +423,17 @@ def profile_payload_v7() -> LinuxIsolationProfilePayloadV7:
     return LinuxIsolationProfilePayloadV7.model_validate(raw)
 
 
+def profile_payload_v8() -> LinuxIsolationProfilePayloadV8:
+    raw = profile_payload_v7().model_dump(mode="python")
+    raw["schema_version"] = 8
+    raw["profile_kind"] = "linux_native_isolation_v8"
+    raw["child_registration_protocol"] = "linux_child_registration_v3"
+    raw["child_bootstrap_failure_protocol"] = "linux_child_bootstrap_failure_v2"
+    raw["mount_authority_protocol"] = "linux_mount_authority_observation_v1"
+    raw["mount_version_environment"] = LinuxToolVersionEnvironmentV1().model_dump(mode="python")
+    return LinuxIsolationProfilePayloadV8.model_validate(raw)
+
+
 def profile_v6_for_server(server: socket.socket) -> LinuxIsolationProfileV6:
     authority = PROBE.synthetic_upstream_authority(server)
     raw = profile_payload_v6().model_dump(mode="python")
@@ -501,6 +527,13 @@ def observation_v7() -> LinuxIsolationObservationV7:
     return LinuxIsolationObservationV7.model_validate(raw)
 
 
+def observation_v8() -> LinuxIsolationObservationV8:
+    raw = observation_v7().model_dump(mode="python")
+    raw["schema_version"] = 8
+    raw["mount_authority"] = LinuxMountAuthorityObservationV1().model_dump(mode="python")
+    return LinuxIsolationObservationV8.model_validate(raw)
+
+
 def evidence_payload(
     profile: LinuxIsolationProfileV3, receipt: LinuxIsolationReceiptV3
 ) -> LinuxIsolationEvidencePayloadV3:
@@ -569,6 +602,22 @@ def evidence_payload_v7(
     profile: LinuxIsolationProfileV7, receipt: LinuxIsolationReceiptV7
 ) -> LinuxIsolationEvidencePayloadV7:
     return LinuxIsolationEvidencePayloadV7(
+        profile=profile,
+        receipt=receipt,
+        child_stdout_retained_sha256=H,
+        child_stderr_retained_sha256=H,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup=LinuxHostCleanupObservationV1(),
+    )
+
+
+def evidence_payload_v8(
+    profile: LinuxIsolationProfileV8, receipt: LinuxIsolationReceiptV8
+) -> LinuxIsolationEvidencePayloadV8:
+    return LinuxIsolationEvidencePayloadV8(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -798,17 +847,55 @@ def test_v7_rejects_owner_projection_substitution() -> None:
         evidence_payload_v7(profile, receipt)
 
 
-@pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
-def test_finalizer_joins_only_v7_mechanics(tmp_path: Path) -> None:
-    profile = LinuxIsolationProfileV7.create(profile_payload_v7())
-    receipt = LinuxIsolationReceiptV7.create(
-        LinuxIsolationReceiptPayloadV7(
+def test_v8_mount_authority_profile_receipt_evidence_and_qualification_are_closed() -> None:
+    profile = LinuxIsolationProfileV8.create(profile_payload_v8())
+    receipt = LinuxIsolationReceiptV8.create(
+        LinuxIsolationReceiptPayloadV8(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation_v7(),
+            observation=observation_v8(),
         )
     )
-    evidence = LinuxIsolationEvidenceV7.create(evidence_payload_v7(profile, receipt))
+    evidence = LinuxIsolationEvidenceV8.create(evidence_payload_v8(profile, receipt))
+    cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=evidence.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    qualification = LinuxIsolationQualificationV8.create(
+        LinuxIsolationQualificationPayloadV8(
+            mechanics=evidence,
+            apparmor_cleanup=cleanup,
+        )
+    )
+    assert LinuxIsolationProfileV8.model_validate_json(profile.model_dump_json()) == profile
+    assert LinuxIsolationReceiptV8.model_validate_json(receipt.model_dump_json()) == receipt
+    assert LinuxIsolationEvidenceV8.model_validate_json(evidence.model_dump_json()) == evidence
+    assert (
+        LinuxIsolationQualificationV8.model_validate_json(qualification.model_dump_json())
+        == qualification
+    )
+    assert receipt.payload.observation.mount_authority.post_exec_authority_matched is True
+    assert qualification.payload.package_readiness is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
+def test_finalizer_joins_only_v8_mechanics(tmp_path: Path) -> None:
+    profile = LinuxIsolationProfileV8.create(profile_payload_v8())
+    receipt = LinuxIsolationReceiptV8.create(
+        LinuxIsolationReceiptPayloadV8(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation_v8(),
+        )
+    )
+    evidence = LinuxIsolationEvidenceV8.create(evidence_payload_v8(profile, receipt))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
             implementation_commit=COMMIT,
@@ -826,7 +913,7 @@ def test_finalizer_joins_only_v7_mechanics(tmp_path: Path) -> None:
     mechanics_path.write_text(evidence.model_dump_json(), encoding="utf-8")
     cleanup_path.write_text(cleanup.model_dump_json(), encoding="utf-8")
     FINALIZER.finalize(mechanics_path, cleanup_path, output)
-    qualification = LinuxIsolationQualificationV7.model_validate_json(output.read_bytes())
+    qualification = LinuxIsolationQualificationV8.model_validate_json(output.read_bytes())
     assert qualification.payload.mechanics == evidence
     assert qualification.payload.apparmor_cleanup == cleanup
 
@@ -2152,7 +2239,7 @@ def test_mount_parser_requires_exact_private_root_options() -> None:
 
 
 def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
-    profile = LinuxIsolationProfileV7.create(profile_payload_v7())
+    profile = LinuxIsolationProfileV8.create(profile_payload_v8())
     command = PROBE.namespace_command(
         profile,
         Path("/repo/scripts/linux_native_isolation_child.py"),
@@ -2179,6 +2266,9 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
     assert command[command.index("--expected-enforced-landlock-abi") + 1] == "6"
     assert json.loads(command[command.index("--expected-mount-authority") + 1]) == (
         profile.payload.mount.model_dump(mode="json")
+    )
+    assert json.loads(command[command.index("--expected-mount-version-environment") + 1]) == (
+        profile.payload.mount_version_environment.model_dump(mode="json")
     )
     assert command[command.index("--expected-overflow-uid") + 1] == "65534"
     assert command[command.index("--expected-overflow-gid") + 1] == "65534"
@@ -2300,6 +2390,70 @@ def test_child_registration_and_failure_frames_are_self_hashed_and_strict() -> N
         LinuxChildBootstrapFailureV1.model_validate(
             failure.model_dump(mode="python") | {"details": "/host/path"}
         )
+
+
+def test_v3_child_registration_and_v2_failure_frames_are_self_hashed_and_bounded() -> None:
+    registration = LinuxChildRegistrationV3.create(
+        LinuxChildRegistrationPayloadV3(
+            apparmor_current_profile=LINUX_APPARMOR_CURRENT,
+            outer_pid=123,
+            outer_uid=1000,
+            start_time_ticks=456,
+            mount_owner_projection=owner_projection(),
+            mount_authority=LinuxMountAuthorityObservationV1(),
+        )
+    )
+    failure = LinuxChildBootstrapFailureV2.create(
+        LinuxChildBootstrapFailurePayloadV2(
+            stage="mount_authority",
+            reason_code="mount_version_output_mismatch",
+        )
+    )
+    assert (
+        LinuxChildRegistrationV3.model_validate_json(registration.model_dump_json()) == registration
+    )
+    assert LinuxChildBootstrapFailureV2.model_validate_json(failure.model_dump_json()) == failure
+    with pytest.raises(ValidationError, match="V3 registration hash mismatch"):
+        LinuxChildRegistrationV3.model_validate(
+            registration.model_dump(mode="python") | {"child_registration_id": H}
+        )
+    with pytest.raises(ValidationError, match="V2 bootstrap failure hash mismatch"):
+        LinuxChildBootstrapFailureV2.model_validate(
+            failure.model_dump(mode="python") | {"child_bootstrap_failure_id": H}
+        )
+    with pytest.raises(ValidationError, match="stage and reason differ"):
+        LinuxChildBootstrapFailurePayloadV2(
+            stage="process_identity",
+            reason_code="mount_post_exec_substitution",
+        )
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        LinuxChildBootstrapFailureV2.model_validate(
+            failure.model_dump(mode="python") | {"details": "/host/path"}
+        )
+
+
+def test_v3_registration_cannot_supply_missing_result_mount_authority() -> None:
+    registration = LinuxChildRegistrationV3.create(
+        LinuxChildRegistrationPayloadV3(
+            apparmor_current_profile=LINUX_APPARMOR_CURRENT,
+            outer_pid=123,
+            outer_uid=1000,
+            start_time_ticks=456,
+            mount_owner_projection=owner_projection(),
+            mount_authority=LinuxMountAuthorityObservationV1(),
+        )
+    )
+    raw_observation = observation_v8().model_dump(mode="python")
+    del raw_observation["mount_authority"]
+    with pytest.raises(ValidationError, match="mount_authority"):
+        PROBE.validate_registered_observation(raw_observation, registration.payload)
+
+    assert (
+        PROBE.validate_registered_observation(
+            observation_v8().model_dump(mode="python"), registration.payload
+        )
+        == observation_v8()
+    )
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Isolated child bootstrap is Linux-only")
@@ -3098,6 +3252,41 @@ def test_v4_tool_authority_rejects_unsafe_or_inconsistent_modes(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Child authority probe is Linux-only")
+def test_host_mount_version_observation_uses_exact_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[object] = []
+
+    def version(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.append(kwargs.get("env"))
+        return subprocess.CompletedProcess(command, 0, b"mount version\n", b"")
+
+    monkeypatch.setattr(PROBE.subprocess, "run", version)
+    authority = PROBE.full_mode_authority(Path("/usr/bin/mount"), "mount")
+    assert authority.version_output_sha256 == PROBE.sha256(b"mount version\n\n---stderr---\n")
+    assert observed == [{"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"}]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Host authority probe is Linux-only")
+def test_host_mount_authority_rejects_substitution_during_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = (tmp_path / "mount").resolve()
+    candidate.write_bytes(b"same")
+    candidate.chmod(0o755)
+
+    def replace(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        candidate.rename(tmp_path / "mount-before-version")
+        candidate.write_bytes(b"same")
+        candidate.chmod(0o755)
+        return subprocess.CompletedProcess(command, 0, b"mount version\n", b"")
+
+    monkeypatch.setattr(PROBE.subprocess, "run", replace)
+    with pytest.raises(ValueError, match="changed during version observation"):
+        PROBE.full_mode_authority(candidate, "mount")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Child authority probe is Linux-only")
 def test_child_revalidates_complete_mount_authority_before_use(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3106,7 +3295,10 @@ def test_child_revalidates_complete_mount_authority_before_use(
     candidate.write_bytes(b"mount-v1")
     candidate.chmod(0o755)
 
-    def version(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+    observed_environments: list[object] = []
+
+    def version(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed_environments.append(kwargs.get("env"))
         return subprocess.CompletedProcess(command, 0, b"mount version\n", b"")
 
     monkeypatch.setattr(PROBE.subprocess, "run", version)
@@ -3134,17 +3326,87 @@ def test_child_revalidates_complete_mount_authority_before_use(
         "version_output_sha256": PROBE.sha256(b"mount version\n\n---stderr---\n"),
     }
     encoded = json.dumps(expected, sort_keys=True, separators=(",", ":"))
-    CHILD.validate_mount_authority(candidate, encoded, 65534, 65534)
+    environment = LinuxToolVersionEnvironmentV1().model_dump_json()
+    projection, authority = CHILD.validate_mount_authority(
+        candidate, encoded, environment, 65534, 65534
+    )
+    assert LinuxNamespaceOwnerProjectionObservationV1.model_validate(projection) == (
+        owner_projection()
+    )
+    assert LinuxMountAuthorityObservationV1.model_validate(authority) == (
+        LinuxMountAuthorityObservationV1()
+    )
+    assert observed_environments == [
+        {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"}
+    ]
 
     candidate.write_bytes(b"mount-v2")
     with pytest.raises(CHILD.BootstrapValidationFailure) as changed_bytes:
-        CHILD.validate_mount_authority(candidate, encoded, 65534, 65534)
-    assert changed_bytes.value.reason_code == "mount_authority_mismatch"
+        CHILD.validate_mount_authority(candidate, encoded, environment, 65534, 65534)
+    assert changed_bytes.value.reason_code == "mount_pre_exec_content_mismatch"
     candidate.write_bytes(b"mount-v1")
     candidate.chmod(0o700)
     with pytest.raises(CHILD.BootstrapValidationFailure) as changed_mode:
-        CHILD.validate_mount_authority(candidate, encoded, 65534, 65534)
-    assert changed_mode.value.reason_code == "mount_authority_mismatch"
+        CHILD.validate_mount_authority(candidate, encoded, environment, 65534, 65534)
+    assert changed_mode.value.reason_code == "mount_pre_exec_mode_mismatch"
+
+    with pytest.raises(CHILD.BootstrapValidationFailure) as changed_environment:
+        CHILD.validate_mount_authority(
+            candidate,
+            encoded,
+            json.dumps({"lang": "C", "lc_all": "C", "path": "/usr/bin:/bin"}),
+            65534,
+            65534,
+        )
+    assert changed_environment.value.reason_code == "mount_version_environment_invalid"
+
+    candidate.chmod(0o755)
+    monkeypatch.setattr(
+        CHILD.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 1, b"", b"denied"),
+    )
+    with pytest.raises(CHILD.BootstrapValidationFailure) as nonzero_version:
+        CHILD.validate_mount_authority(candidate, encoded, environment, 65534, 65534)
+    assert nonzero_version.value.reason_code == "mount_version_exit_nonzero"
+
+    monkeypatch.setattr(
+        CHILD.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, b"other\n", b""),
+    )
+    with pytest.raises(CHILD.BootstrapValidationFailure) as changed_version:
+        CHILD.validate_mount_authority(candidate, encoded, environment, 65534, 65534)
+    assert changed_version.value.reason_code == "mount_version_output_mismatch"
+
+    def replace_during_version(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        candidate.rename(tmp_path / "mount-before-version")
+        candidate.write_bytes(b"mount-v1")
+        candidate.chmod(0o755)
+        return subprocess.CompletedProcess(command, 0, b"mount version\n", b"")
+
+    monkeypatch.setattr(CHILD.subprocess, "run", replace_during_version)
+    with pytest.raises(CHILD.BootstrapValidationFailure) as replaced:
+        CHILD.validate_mount_authority(candidate, encoded, environment, 65534, 65534)
+    assert replaced.value.reason_code == "mount_post_exec_substitution"
+
+    monkeypatch.setattr(CHILD.subprocess, "run", version)
+    projection_calls = 0
+
+    def change_owner_projection(*_args: object) -> dict[str, bool | int]:
+        nonlocal projection_calls
+        projection_calls += 1
+        projected = owner_projection().model_dump(mode="json")
+        if projection_calls == 2:
+            projected["observed_owner_uid"] = 65533
+        return projected
+
+    monkeypatch.setattr(CHILD, "validate_owner_projection", change_owner_projection)
+    with pytest.raises(CHILD.BootstrapValidationFailure) as changed_owner:
+        CHILD.validate_mount_authority(candidate, encoded, environment, 65534, 65534)
+    assert changed_owner.value.reason_code == "mount_post_exec_substitution"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Native device/inode authority is Linux-only")

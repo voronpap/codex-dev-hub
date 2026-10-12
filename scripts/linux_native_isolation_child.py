@@ -226,16 +226,25 @@ def validate_owner_projection(
 def validate_mount_authority(
     path: Path,
     expected_raw: str,
+    expected_version_environment_raw: str,
     expected_overflow_uid: int,
     expected_overflow_gid: int,
-) -> dict[str, bool | int]:
+) -> tuple[dict[str, bool | int], dict[str, bool]]:
     expected = json.loads(expected_raw)
     if not isinstance(expected, dict):
-        raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
+        raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_content_mismatch")
+    version_environment = json.loads(expected_version_environment_raw)
+    exact_version_environment = {
+        "lang": "C.UTF-8",
+        "lc_all": "C.UTF-8",
+        "path": "/usr/bin:/bin",
+    }
+    if version_environment != exact_version_environment:
+        raise BootstrapValidationFailure("mount_authority", "mount_version_environment_invalid")
     overflow_uid = configured_overflow_id(Path("/proc/sys/kernel/overflowuid"))
     overflow_gid = configured_overflow_id(Path("/proc/sys/kernel/overflowgid"))
     if path.is_symlink() or not path.is_file() or path.resolve(strict=True) != path:
-        raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
+        raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_path_invalid")
     info = path.stat()
     projection = validate_owner_projection(
         expected,
@@ -249,12 +258,7 @@ def validate_mount_authority(
         info.st_gid,
     )
     complete_mode = stat.S_IMODE(info.st_mode)
-    completed = subprocess.run(
-        [str(path), "--version"], capture_output=True, check=False, timeout=10
-    )
-    if completed.returncode != 0:
-        raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
-    observed = {
+    observed_static = {
         "schema_version": 4,
         "name": "mount",
         "locator": str(path),
@@ -266,11 +270,80 @@ def validate_mount_authority(
         "special_bits": f"0{complete_mode & 0o7000:04o}",
         "full_mode": f"0{complete_mode:04o}",
         "native_identity": {"device": info.st_dev, "inode": info.st_ino},
-        "version_output_sha256": sha256(completed.stdout + b"\n---stderr---\n" + completed.stderr),
     }
-    if observed != expected:
-        raise BootstrapValidationFailure("mount_authority", "mount_authority_mismatch")
-    return projection
+    if any(
+        observed_static.get(key) != expected.get(key)
+        for key in ("schema_version", "name", "locator", "sha256", "size", "owner_uid", "owner_gid")
+    ):
+        raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_content_mismatch")
+    if any(
+        observed_static[key] != expected.get(key)
+        for key in ("permission_bits", "special_bits", "full_mode")
+    ):
+        raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_mode_mismatch")
+    if observed_static["native_identity"] != expected.get("native_identity"):
+        raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_identity_mismatch")
+    try:
+        completed = subprocess.run(
+            [str(path), "--version"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+            env={
+                "LANG": version_environment["lang"],
+                "LC_ALL": version_environment["lc_all"],
+                "PATH": version_environment["path"],
+            },
+        )
+    except BaseException as error:
+        raise BootstrapValidationFailure(
+            "mount_authority", "mount_version_execution_failed"
+        ) from error
+    if completed.returncode != 0:
+        raise BootstrapValidationFailure("mount_authority", "mount_version_exit_nonzero")
+    version_sha256 = sha256(completed.stdout + b"\n---stderr---\n" + completed.stderr)
+    if version_sha256 != expected.get("version_output_sha256"):
+        raise BootstrapValidationFailure("mount_authority", "mount_version_output_mismatch")
+    if path.is_symlink() or not path.is_file() or path.resolve(strict=True) != path:
+        raise BootstrapValidationFailure("mount_authority", "mount_post_exec_substitution")
+    post_info = path.stat()
+    post_mode = stat.S_IMODE(post_info.st_mode)
+    try:
+        post_projection = validate_owner_projection(
+            expected,
+            expected_overflow_uid,
+            expected_overflow_gid,
+            configured_overflow_id(Path("/proc/sys/kernel/overflowuid")),
+            configured_overflow_id(Path("/proc/sys/kernel/overflowgid")),
+            Path("/proc/self/uid_map").read_text(encoding="ascii"),
+            Path("/proc/self/gid_map").read_text(encoding="ascii"),
+            post_info.st_uid,
+            post_info.st_gid,
+        )
+    except BootstrapValidationFailure as error:
+        raise BootstrapValidationFailure(
+            "mount_authority", "mount_post_exec_substitution"
+        ) from error
+    if post_projection != projection:
+        raise BootstrapValidationFailure("mount_authority", "mount_post_exec_substitution")
+    observed_after = {
+        **observed_static,
+        "sha256": file_sha256(path),
+        "size": post_info.st_size,
+        "permission_bits": f"0{post_mode & 0o777:03o}",
+        "special_bits": f"0{post_mode & 0o7000:04o}",
+        "full_mode": f"0{post_mode:04o}",
+        "native_identity": {"device": post_info.st_dev, "inode": post_info.st_ino},
+    }
+    if observed_after != observed_static:
+        raise BootstrapValidationFailure("mount_authority", "mount_post_exec_substitution")
+    return projection, {
+        "pre_exec_authority_matched": True,
+        "version_environment_matched": True,
+        "version_execution_succeeded": True,
+        "version_output_matched": True,
+        "post_exec_authority_matched": True,
+    }
 
 
 def write_frame(descriptor: int, value: object) -> None:
@@ -282,13 +355,13 @@ def write_frame(descriptor: int, value: object) -> None:
 
 def write_bootstrap_failure(descriptor: int, stage: str, reason_code: str) -> None:
     payload = {
-        "schema_version": 1,
-        "frame_kind": "linux_child_bootstrap_failure_v1",
+        "schema_version": 2,
+        "frame_kind": "linux_child_bootstrap_failure_v2",
         "stage": stage,
         "reason_code": reason_code,
     }
     frame = {
-        "schema_version": 1,
+        "schema_version": 2,
         "child_bootstrap_failure_id": digest(canonical(payload)),
         "payload": payload,
     }
@@ -648,6 +721,7 @@ def main() -> None:
     parser.add_argument("--broker", type=Path, required=True)
     parser.add_argument("--mount-binary", required=True)
     parser.add_argument("--expected-mount-authority", required=True)
+    parser.add_argument("--expected-mount-version-environment", required=True)
     parser.add_argument("--expected-overflow-uid", type=int, required=True)
     parser.add_argument("--expected-overflow-gid", type=int, required=True)
     parser.add_argument("--registration-fd", type=int, required=True)
@@ -678,9 +752,10 @@ def main() -> None:
         raise SystemExit(70) from None
 
     try:
-        owner_projection = validate_mount_authority(
+        owner_projection, mount_authority = validate_mount_authority(
             Path(args.mount_binary),
             args.expected_mount_authority,
+            args.expected_mount_version_environment,
             args.expected_overflow_uid,
             args.expected_overflow_gid,
         )
@@ -688,13 +763,15 @@ def main() -> None:
         write_bootstrap_failure(args.registration_fd, error.stage, error.reason_code)
         raise SystemExit(70) from None
     except BaseException:
-        write_bootstrap_failure(args.registration_fd, "mount_authority", "mount_authority_mismatch")
+        write_bootstrap_failure(
+            args.registration_fd, "mount_authority", "mount_authority_internal_failure"
+        )
         raise SystemExit(70) from None
 
     try:
         registration_payload = {
-            "schema_version": 2,
-            "frame_kind": "linux_child_registration_v2",
+            "schema_version": 3,
+            "frame_kind": "linux_child_registration_v3",
             "apparmor_current_profile": apparmor_current,
             "outer_pid": outer_pid(),
             "inner_pid": os.getpid(),
@@ -702,6 +779,7 @@ def main() -> None:
             "inner_uid": os.geteuid(),
             "start_time_ticks": start_time_ticks(),
             "mount_owner_projection": owner_projection,
+            "mount_authority": mount_authority,
         }
     except BaseException:
         write_bootstrap_failure(
@@ -709,7 +787,7 @@ def main() -> None:
         )
         raise SystemExit(70) from None
     registration = {
-        "schema_version": 2,
+        "schema_version": 3,
         "child_registration_id": digest(canonical(registration_payload)),
         "payload": registration_payload,
     }
@@ -786,6 +864,7 @@ def main() -> None:
         },
         "private_mount_root": True,
         "mount_authority_revalidated": True,
+        "mount_authority": mount_authority,
         "mount_table_sha256": sha256(mount_table),
         "observed_mount_targets": mount_targets,
         "bundle_read_only": bundle_read_only,
