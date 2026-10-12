@@ -3156,9 +3156,15 @@ def test_run_probe_prefers_typed_runtime_failure_over_expected_broker_cancellati
     )
     encoded = canonical(failure.model_dump(mode="json")) + b"\n"
     (tmp_path / "broker").mkdir()
+    host_pid = os.getpid()
+    host_start_time = PROBE.process_start_time(host_pid)
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
     monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
-    monkeypatch.setattr(PROBE, "process_start_time", lambda _pid: 456)
+    monkeypatch.setattr(
+        PROBE,
+        "process_start_time",
+        lambda pid: host_start_time if pid == host_pid else 456,
+    )
     monkeypatch.setattr(PROBE, "is_descendant", lambda *_args: True)
     monkeypatch.setattr(
         PROBE,
@@ -3195,9 +3201,15 @@ def test_run_probe_keeps_independent_broker_failure_primary(
     )
     encoded = canonical(failure.model_dump(mode="json")) + b"\n"
     (tmp_path / "broker").mkdir()
+    host_pid = os.getpid()
+    host_start_time = PROBE.process_start_time(host_pid)
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
     monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
-    monkeypatch.setattr(PROBE, "process_start_time", lambda _pid: 456)
+    monkeypatch.setattr(
+        PROBE,
+        "process_start_time",
+        lambda pid: host_start_time if pid == host_pid else 456,
+    )
     monkeypatch.setattr(PROBE, "is_descendant", lambda *_args: True)
     monkeypatch.setattr(
         PROBE,
@@ -3233,9 +3245,15 @@ def test_run_probe_rejects_missing_or_malformed_runtime_failure(
     profile = profile_v10_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     (tmp_path / "broker").mkdir()
+    host_pid = os.getpid()
+    host_start_time = PROBE.process_start_time(host_pid)
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
     monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
-    monkeypatch.setattr(PROBE, "process_start_time", lambda _pid: 456)
+    monkeypatch.setattr(
+        PROBE,
+        "process_start_time",
+        lambda pid: host_start_time if pid == host_pid else 456,
+    )
     monkeypatch.setattr(PROBE, "is_descendant", lambda *_args: True)
     monkeypatch.setattr(
         PROBE,

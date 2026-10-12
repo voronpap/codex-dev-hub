@@ -945,6 +945,16 @@ def run_probe(
                     "Isolation child bootstrap failure frame is invalid"
                 ) from error
             validate_child_bootstrap_failure(profile, bootstrap_failure, child_script, bundle)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired as error:
+                raise ChildRegistrationFailure(
+                    "Isolation child bootstrap failure process did not exit"
+                ) from error
+            if process.returncode != 70:
+                raise ChildRegistrationFailure(
+                    "Isolation child bootstrap failure exit code is invalid"
+                )
             capture.child_bootstrap_failure = bootstrap_failure
             raise ChildBootstrapFailure(bootstrap_failure)
         try:
