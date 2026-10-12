@@ -505,10 +505,11 @@ mandatory before Linux readiness.
 
 ### Native Linux isolation mechanics baseline
 
-`LinuxNativeIsolationV1` through `LinuxNativeIsolationV5` remain strict historical
+`LinuxNativeIsolationV1` through `LinuxNativeIsolationV6` remain strict historical
 contracts. The private-launcher/AppArmor qualification now emits the forward-only
-`LinuxNativeIsolationV6` contract; V1-V5 payloads and canonical identities are
-not reinterpreted. V6 preserves the V5 synthetic-upstream, V4 mount and V3 Landlock
+`LinuxNativeIsolationV7` contract; V1-V6 payloads and canonical identities are
+not reinterpreted. V7 preserves the V6 stdlib-only child, V5 synthetic-upstream,
+V4 mount and V3 Landlock
 authority: it records the kernel-reported ABI
 separately from the reviewed policy ABI. Kernels reporting ABI 7 or newer keep
 their exact observation while enforcement is capped at reviewed ABI 6 and its
@@ -531,7 +532,7 @@ bounded `/api/version`, `/api/tags` and `/api/show` requests to fixed
 `127.0.0.1:11434`; generation, streaming, oversized and ambiguous HTTP requests
 are denied before forwarding.
 
-V6 also preserves V4's binding of `/usr/bin/mount`'s ordinary permission bits, special bits and
+V7 also preserves V4's binding of `/usr/bin/mount`'s ordinary permission bits, special bits and
 complete `stat.S_IMODE` separately. The exact Ubuntu 24.04 root-owned mount
 binary may retain setuid; setgid, sticky, group/world-writable, non-root or
 substituted tools fail closed. Both unshare binaries, `apparmor_parser` and the
@@ -539,13 +540,27 @@ bootstrap interpreter continue to require zero special bits. The child
 independently re-reads the mount binary bytes, size, owner, full mode,
 device/inode and version output before its first mount operation.
 
-V6 binds the child bootstrap to the exact reviewed base interpreter with `-I -B`.
+V7 distinguishes the root-owned host authority from its expected observation
+inside the rootless user namespace. The host still requires exact UID/GID 0.
+The isolated child independently parses `/proc/self/uid_map` and
+`/proc/self/gid_map`, requires host ID 0 to be unmapped, reads the kernel's exact
+`overflowuid` and `overflowgid`, and accepts the mount binary only when its
+namespace-visible owner equals those bound overflow IDs. A mapped host root,
+non-root host authority, changed overflow configuration, or any hash, mode,
+version, inode or locator substitution fails before registration. Registration
+V2 and bounded bootstrap-failure V1 frames are self-hashed strict records. The
+failure frame contains only a fixed stage/reason enum and cannot carry raw paths,
+tracebacks or diagnostic streams. Failure V3 preserves that frame alongside the
+existing bounded process capture and zero execution counters.
+
+V7 preserves V6's binding of the child bootstrap to the exact reviewed base
+interpreter with `-I -B`.
 The child imports only Python standard-library modules before it registers with
 the host; it does not depend on the qualification virtual environment, ambient
 `PYTHONPATH`, user site packages, `pydantic` or `devhub`. Host and child retain
 independently implemented joins for canonical hashing, Landlock policy selection
-and private mount parsing, with parity regression coverage. Failure V2 evidence
-records whether the child process started, its observed exit state when known,
+and private mount parsing, with parity regression coverage. Failure V3 evidence
+preserves V2's record of whether the child process started and its observed exit state,
 and exact bounded retained/observed stdout and stderr counts and hashes. It never
 stores raw diagnostic streams.
 
@@ -571,7 +586,7 @@ runs for pull-request code. It is available only through an explicit
 install/load and then remove that host policy. The namespace mechanics and
 child remain the ordinary runner user. Cleanup evidence separately records
 parser unload, loaded-profile absence, installed-profile removal,
-private-launcher removal, snapshot removal and owned-parent cleanup. A final V3
+private-launcher removal, snapshot removal and owned-parent cleanup. A final V7
 qualification is valid only when its self-hashed mechanics evidence and
 self-hashed cleanup receipt join to the same implementation, environment,
 exact profile ID and mechanics-evidence ID. Completed cleanup first revalidates
@@ -611,6 +626,16 @@ clean launch environment. The namespace child emitted no valid registration;
 privileged cleanup succeeded and all execution counters remained zero. V6 is the
 forward-only stdlib-only bootstrap correction and does not reinterpret that V5
 failure evidence.
+Main-only run `38269140324` is retained as an immutable pre-registration
+failure consistent with namespace-owner projection. Its V2 artifact records the
+pre-registration phase, exit status and bounded stderr hash/length, but no typed
+owner observation or exception. Static control-flow analysis and deterministic
+Linux user-namespace ownership semantics identify the V6 host-UID comparison as
+the strongest diagnosis: an unmapped root-owned host file is represented by the
+configured overflow UID/GID inside the rootless namespace. The child never
+registered, cleanup succeeded, and all execution counters remained zero. V7 is
+the forward-only authority-projection correction; it does not reinterpret the
+V6 failure or weaken the root-owned host requirement.
 
 ## Platform acceptance matrix
 

@@ -34,20 +34,23 @@ from devhub.linux_isolation import (
     LinuxAppArmorAuthorityV2,
     LinuxAppArmorParserAuthorityV2,
     LinuxBrokerExpectationV1,
+    LinuxChildBootstrapFailureV1,
+    LinuxChildRegistrationV2,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV6,
-    LinuxIsolationEvidenceV6,
-    LinuxIsolationFailurePayloadV2,
-    LinuxIsolationFailureV2,
-    LinuxIsolationObservationV6,
-    LinuxIsolationProfilePayloadV6,
-    LinuxIsolationProfileV6,
-    LinuxIsolationReceiptPayloadV6,
-    LinuxIsolationReceiptV6,
+    LinuxIsolationEvidencePayloadV7,
+    LinuxIsolationEvidenceV7,
+    LinuxIsolationFailurePayloadV3,
+    LinuxIsolationFailureV3,
+    LinuxIsolationObservationV7,
+    LinuxIsolationProfilePayloadV7,
+    LinuxIsolationProfileV7,
+    LinuxIsolationReceiptPayloadV7,
+    LinuxIsolationReceiptV7,
     LinuxMountAuthorityV1,
+    LinuxNamespaceOwnerProjectionExpectationV1,
     LinuxNativePathIdentityV1,
     LinuxSyntheticUpstreamAuthorityV1,
     LinuxSyntheticUpstreamObservationV1,
@@ -108,6 +111,13 @@ def current_gid() -> int:
     if not callable(getter):
         raise ValueError("Native Linux qualification requires getgid")
     return int(getter())
+
+
+def configured_overflow_id(path: Path) -> int:
+    value = int(path.read_text(encoding="ascii").strip())
+    if value <= 0 or value > 2**32 - 1:
+        raise ValueError("Linux namespace overflow identity is invalid")
+    return value
 
 
 def kill_process_group(pid: int) -> None:
@@ -314,7 +324,7 @@ def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
 
 
 def revalidate_profile_sources(
-    profile: LinuxIsolationProfileV6, child_script: Path, bundle: Path
+    profile: LinuxIsolationProfileV7, child_script: Path, bundle: Path
 ) -> None:
     revalidate_tool(profile.payload.system_unshare)
     revalidate_tool(profile.payload.unshare)
@@ -552,6 +562,7 @@ class ProbeProcessCapture:
         self.process_started = False
         self.returncode: int | None = None
         self.cleanup_failed = False
+        self.child_bootstrap_failure: LinuxChildBootstrapFailureV1 | None = None
 
 
 class ProbePhaseFailure(ValueError):
@@ -565,6 +576,12 @@ class ChildRegistrationFailure(ProbePhaseFailure):
 
     def __init__(self, message: str) -> None:
         super().__init__("child_registration", message)
+
+
+class ChildBootstrapFailure(ChildRegistrationFailure):
+    def __init__(self, frame: LinuxChildBootstrapFailureV1) -> None:
+        super().__init__("Isolation child reported a bounded bootstrap failure")
+        self.frame = frame
 
 
 class ProbeCleanupFailure(ValueError):
@@ -663,7 +680,7 @@ def stub_ollama(
 
 
 def namespace_command(
-    profile: LinuxIsolationProfileV6,
+    profile: LinuxIsolationProfileV7,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -706,6 +723,10 @@ def namespace_command(
             sort_keys=True,
             separators=(",", ":"),
         ),
+        "--expected-overflow-uid",
+        str(profile.payload.mount_owner_projection.overflow_uid),
+        "--expected-overflow-gid",
+        str(profile.payload.mount_owner_projection.overflow_gid),
         "--registration-fd",
         str(registration_write),
         "--result-fd",
@@ -728,7 +749,7 @@ def namespace_command(
 
 
 def run_probe(
-    profile: LinuxIsolationProfileV6,
+    profile: LinuxIsolationProfileV7,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -737,7 +758,7 @@ def run_probe(
     broker_dir: Path,
     stub_server: socket.socket,
     capture: ProbeProcessCapture,
-) -> LinuxIsolationObservationV6:
+) -> LinuxIsolationObservationV7:
     owned_fds: set[int] = set()
     process: subprocess.Popen[bytes] | None = None
     collectors: list[threading.Thread] = []
@@ -808,35 +829,49 @@ def run_probe(
         )
         active_phase = "child_registration"
         try:
-            registration = json.loads(read_line(registration_read, 15))
+            raw_registration = json.loads(read_line(registration_read, 15))
         except (TimeoutError, ValueError) as error:
             raise ChildRegistrationFailure("Isolation child registration failed") from error
-        expected_keys = {
-            "apparmor_current_profile",
-            "outer_pid",
-            "inner_pid",
-            "outer_uid",
-            "inner_uid",
-            "start_time_ticks",
-        }
-        if set(registration) != expected_keys:
-            raise ValueError("Isolation child registration keys differ")
-        outer_pid = int(registration["outer_pid"])
-        outer_uid = int(registration["outer_uid"])
         if (
-            registration["inner_pid"] != 1
-            or registration["apparmor_current_profile"] != LINUX_APPARMOR_CURRENT
-            or registration["inner_uid"] != 1000
+            isinstance(raw_registration, dict)
+            and isinstance(raw_registration.get("payload"), dict)
+            and raw_registration["payload"].get("frame_kind") == "linux_child_bootstrap_failure_v1"
+        ):
+            try:
+                bootstrap_failure = LinuxChildBootstrapFailureV1.model_validate(raw_registration)
+            except ValueError as error:
+                raise ChildRegistrationFailure(
+                    "Isolation child bootstrap failure frame is invalid"
+                ) from error
+            capture.child_bootstrap_failure = bootstrap_failure
+            raise ChildBootstrapFailure(bootstrap_failure)
+        try:
+            registration = LinuxChildRegistrationV2.model_validate(raw_registration)
+        except ValueError as error:
+            raise ChildRegistrationFailure(
+                "Isolation child registration frame is invalid"
+            ) from error
+        registered = registration.payload
+        outer_pid = registered.outer_pid
+        outer_uid = registered.outer_uid
+        expected_projection = profile.payload.mount_owner_projection
+        observed_projection = registered.mount_owner_projection
+        if (
+            registered.apparmor_current_profile != LINUX_APPARMOR_CURRENT
             or outer_uid != current_uid()
             or not is_descendant(outer_pid, process.pid)
-            or process_start_time(outer_pid) != registration["start_time_ticks"]
+            or process_start_time(outer_pid) != registered.start_time_ticks
             or Path(f"/proc/{outer_pid}").stat().st_uid != outer_uid
+            or observed_projection.host_owner_uid != expected_projection.host_owner_uid
+            or observed_projection.host_owner_gid != expected_projection.host_owner_gid
+            or observed_projection.overflow_uid != expected_projection.overflow_uid
+            or observed_projection.overflow_gid != expected_projection.overflow_gid
         ):
             raise ValueError("Isolation child outer/inner process identity mismatch")
         peer = LinuxBrokerPeerAuthorityV1(
             outer_pid=outer_pid,
             outer_uid=outer_uid,
-            start_time_ticks=int(registration["start_time_ticks"]),
+            start_time_ticks=registered.start_time_ticks,
         )
         active_phase = "broker"
         revalidate_synthetic_upstream(stub_server, profile.payload.synthetic_upstream)
@@ -895,7 +930,7 @@ def run_probe(
         ).model_dump(mode="json")
         raw_observation["descendant_cleanup_passed"] = True
         raw_observation["cleanup_failures"] = []
-        observation = LinuxIsolationObservationV6.model_validate(raw_observation)
+        observation = LinuxIsolationObservationV7.model_validate(raw_observation)
         if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
             raise ValueError("Isolation launcher process group remained after process exit")
         revalidate_profile_sources(profile, child_script, bundle)
@@ -1037,7 +1072,7 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV6 | None = None
+    profile: LinuxIsolationProfileV7 | None = None
     capture = ProbeProcessCapture()
     phase: FailurePhase = "host_inspection"
     cleanup_succeeded = False
@@ -1067,6 +1102,12 @@ def main() -> None:
             system_unshare = file_authority(system_unshare_path, "unshare")
             unshare = file_authority(unshare_path, "unshare")
             mount = full_mode_authority(mount_path, "mount")
+            if mount.owner_uid != 0 or mount.owner_gid != 0:
+                raise ValueError("Linux mount authority is not root-owned")
+            mount_owner_projection = LinuxNamespaceOwnerProjectionExpectationV1(
+                overflow_uid=configured_overflow_id(Path("/proc/sys/kernel/overflowuid")),
+                overflow_gid=configured_overflow_id(Path("/proc/sys/kernel/overflowgid")),
+            )
             bootstrap_python = plain_file_authority(Path(sys.executable).resolve(strict=True))
             bundle_id = tree_identity(bundle)
             sources = tuple(
@@ -1093,8 +1134,8 @@ def main() -> None:
             )
             stub_server = bind_stub_ollama(port=0)
             synthetic_upstream = synthetic_upstream_authority(stub_server)
-            profile = LinuxIsolationProfileV6.create(
-                LinuxIsolationProfilePayloadV6(
+            profile = LinuxIsolationProfileV7.create(
+                LinuxIsolationProfilePayloadV7(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
                     native_bundle_id=bundle_id,
@@ -1110,6 +1151,7 @@ def main() -> None:
                     mounts=mounts,
                     broker=broker_expectation,
                     synthetic_upstream=synthetic_upstream,
+                    mount_owner_projection=mount_owner_projection,
                     landlock_handled_access=landlock_handled_access(host.enforced_landlock_abi),
                 )
             )
@@ -1136,15 +1178,15 @@ def main() -> None:
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV6.create(
-            LinuxIsolationReceiptPayloadV6(
+        receipt = LinuxIsolationReceiptV7.create(
+            LinuxIsolationReceiptPayloadV7(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV6.create(
-            LinuxIsolationEvidencePayloadV6(
+        evidence = LinuxIsolationEvidenceV7.create(
+            LinuxIsolationEvidencePayloadV7(
                 profile=profile,
                 receipt=receipt,
                 child_stdout_retained_sha256=sha256(bytes(capture.stdout.data)),
@@ -1172,8 +1214,8 @@ def main() -> None:
             scratch is not None and not scratch.exists() and not capture.cleanup_failed
         )
         reason_code, observed_errno = failure_reason(phase, final_error)
-        failure = LinuxIsolationFailureV2.create(
-            LinuxIsolationFailurePayloadV2(
+        failure = LinuxIsolationFailureV3.create(
+            LinuxIsolationFailurePayloadV3(
                 linux_isolation_profile_id=(
                     profile.linux_isolation_profile_id if profile is not None else None
                 ),
@@ -1191,6 +1233,7 @@ def main() -> None:
                 child_stderr_retained_bytes=len(capture.stderr.data),
                 child_stdout_observed_bytes=capture.stdout.observed,
                 child_stderr_observed_bytes=capture.stderr.observed,
+                child_bootstrap_failure=capture.child_bootstrap_failure,
                 cleanup_attempted=scratch is not None,
                 cleanup_succeeded=cleanup_succeeded,
             )
