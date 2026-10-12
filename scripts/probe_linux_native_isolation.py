@@ -970,7 +970,9 @@ def validate_registered_observation(
     raw_observation: dict[str, object],
     registered: LinuxChildRegistrationPayloadV3,
 ) -> LinuxIsolationObservationV11:
-    observation = LinuxIsolationObservationV11.model_validate(raw_observation)
+    observation = LinuxIsolationObservationV11.model_validate_json(
+        canonical(cast(JsonValue, raw_observation))
+    )
     if observation.mount_authority != registered.mount_authority:
         raise ValueError("Isolation child result/registration mount authority mismatch")
     return observation
@@ -1208,6 +1210,7 @@ def run_probe(
             raise ValueError("Isolation broker endpoint outcomes differ")
         if stub_outcomes != ["/api/version", "/api/tags", "/api/show"]:
             raise ValueError("Fixed Ollama stub observed a non-canonical request set")
+        active_phase = "child_result"
         raw_observation = json.loads(result)
         raw_observation["broker"].update(
             {
