@@ -4,6 +4,7 @@ import ast
 import copy
 import errno
 import importlib.util
+import inspect
 import io
 import json
 import os
@@ -14,7 +15,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Literal, cast
 
 import pytest
@@ -3137,6 +3138,92 @@ def test_child_independently_derives_reviewed_policy_from_kernel_abi() -> None:
     assert "kernel_abi = landlock_abi()" in source
     assert "policy_abi = enforced_landlock_abi(kernel_abi)" in source
     assert "landlock_handled_access(policy_abi)" in source
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child policy is Linux-only")
+def test_child_seals_empty_private_dev_before_landlock(tmp_path: Path) -> None:
+    assert CHILD is not None
+    assert CHILD.validate_private_dev(tmp_path) is True
+    (tmp_path / "unexpected").write_bytes(b"")
+    with pytest.raises(ValueError, match="unexpected entry"):
+        CHILD.validate_private_dev(tmp_path)
+
+    source = inspect.getsource(CHILD.run_post_registration)
+    assert source.count("minimal_dev = validate_private_dev()") == 1
+    assert source.index("minimal_dev = validate_private_dev()") < source.index('stage = "landlock"')
+    assert 'Path("/dev").iterdir()' not in source
+    assert 'Path("/dev/forbidden").write_text' in source
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child policy is Linux-only")
+def test_child_landlock_keeps_dev_outside_reviewed_read_targets() -> None:
+    assert CHILD is not None
+    assert tuple(path for path, _access in CHILD.landlock_rules()) == RULE_TARGETS
+    assert "/dev" not in RULE_TARGETS
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child policy is Linux-only")
+def test_nonempty_private_dev_fails_before_landlock_or_result_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert CHILD is not None
+    recorded: dict[str, object] = {}
+    monkeypatch.setattr(CHILD, "private_root", lambda *_args: None)
+    monkeypatch.setattr(CHILD.os, "chroot", lambda _path: None)
+    monkeypatch.setattr(CHILD.os, "chdir", lambda _path: None)
+    monkeypatch.setattr(
+        CHILD,
+        "validate_private_dev",
+        lambda: (_ for _ in ()).throw(ValueError("Private /dev contains an unexpected entry")),
+    )
+    monkeypatch.setattr(
+        CHILD,
+        "apply_landlock",
+        lambda: (_ for _ in ()).throw(AssertionError("Landlock must not run")),
+    )
+    monkeypatch.setattr(
+        CHILD,
+        "write_frame",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("Result must not be published")),
+    )
+
+    def record_failure(
+        descriptor: int,
+        stage: str,
+        profile_id: str,
+        environment_id: str,
+        broker_failure: object,
+    ) -> None:
+        recorded.update(
+            descriptor=descriptor,
+            stage=stage,
+            profile_id=profile_id,
+            environment_id=environment_id,
+            broker_failure=broker_failure,
+        )
+
+    monkeypatch.setattr(CHILD, "write_runtime_failure", record_failure)
+    args = SimpleNamespace(
+        root=tmp_path / "root",
+        bundle=tmp_path / "bundle",
+        state=tmp_path / "state",
+        output=tmp_path / "output",
+        broker=tmp_path / "broker",
+        mount_binary="/bin/mount",
+        result_fd=9,
+        linux_isolation_profile_id=H,
+        environment_instance_id=ENVIRONMENT,
+    )
+    with pytest.raises(SystemExit) as error:
+        CHILD.run_post_registration(args, LINUX_APPARMOR_CURRENT, {}, {})
+    assert error.value.code == 71
+    assert recorded == {
+        "descriptor": 9,
+        "stage": "private_root",
+        "profile_id": H,
+        "environment_id": ENVIRONMENT,
+        "broker_failure": None,
+    }
 
 
 def test_v3_rejects_kernel_policy_and_observation_tampering() -> None:
