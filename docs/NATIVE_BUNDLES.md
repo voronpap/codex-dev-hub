@@ -584,6 +584,22 @@ field is not claimed. The retained additive record is
 `docs/evidence/linux-native-isolation/run-38274945632.json`; cleanup passed and
 all execution counters remained zero.
 
+Main-only run `38281536722` on merge commit
+`c9eb8d312f7d9f91a2d104b5f19b7b0aa9320abb` passed V8 host authority,
+namespace-owner projection and source checks, then failed before registration
+with `mount_pre_exec_identity_mismatch`. V8 bound device/inode equality but its
+bounded failure frame did not retain the expected and observed identity pair, so
+the run cannot distinguish a device-only, inode-only or combined difference.
+The immutable record is
+`docs/evidence/linux-native-isolation/run-38281536722.json`; cleanup passed and
+all execution counters remained zero. V9 is a forward-only diagnostic contract:
+only this mismatch reason may carry the two bounded device/inode identities,
+they must differ, the frame is self-hashed, and the host requires the expected
+identity to equal the exact V9 profile authority before retaining it. All
+content, path, mode, owner projection, version and post-execution substitution
+checks remain unchanged. V1/V2 child failures and V1-V8 qualification contracts
+remain parseable. V9 evidence is diagnostic and does not grant readiness.
+
 The real Ubuntu mechanics probe uses a synthetic non-task fixture and a local
 metadata stub. It makes no Codex, MCP, model or provider call. Its receipt
 therefore proves namespace/mount/Landlock/broker mechanics only. It explicitly
