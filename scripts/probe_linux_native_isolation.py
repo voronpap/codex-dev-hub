@@ -18,6 +18,8 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -36,15 +38,15 @@ from devhub.linux_isolation import (
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV5,
-    LinuxIsolationEvidenceV5,
-    LinuxIsolationFailurePayloadV1,
-    LinuxIsolationFailureV1,
-    LinuxIsolationObservationV5,
-    LinuxIsolationProfilePayloadV5,
-    LinuxIsolationProfileV5,
-    LinuxIsolationReceiptPayloadV5,
-    LinuxIsolationReceiptV5,
+    LinuxIsolationEvidencePayloadV6,
+    LinuxIsolationEvidenceV6,
+    LinuxIsolationFailurePayloadV2,
+    LinuxIsolationFailureV2,
+    LinuxIsolationObservationV6,
+    LinuxIsolationProfilePayloadV6,
+    LinuxIsolationProfileV6,
+    LinuxIsolationReceiptPayloadV6,
+    LinuxIsolationReceiptV6,
     LinuxMountAuthorityV1,
     LinuxNativePathIdentityV1,
     LinuxSyntheticUpstreamAuthorityV1,
@@ -312,7 +314,7 @@ def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
 
 
 def revalidate_profile_sources(
-    profile: LinuxIsolationProfileV5, child_script: Path, bundle: Path
+    profile: LinuxIsolationProfileV6, child_script: Path, bundle: Path
 ) -> None:
     revalidate_tool(profile.payload.system_unshare)
     revalidate_tool(profile.payload.unshare)
@@ -538,6 +540,53 @@ class BoundedCollector:
                 self.hard_limit = True
                 stop.set()
 
+    @property
+    def truncated(self) -> bool:
+        return len(self.data) < self.observed
+
+
+class ProbeProcessCapture:
+    def __init__(self) -> None:
+        self.stdout = BoundedCollector()
+        self.stderr = BoundedCollector()
+        self.process_started = False
+        self.returncode: int | None = None
+        self.cleanup_failed = False
+
+
+class ProbePhaseFailure(ValueError):
+    def __init__(self, phase: FailurePhase, message: str) -> None:
+        super().__init__(message)
+        self.phase = phase
+
+
+class ChildRegistrationFailure(ProbePhaseFailure):
+    """The launched child exited or failed before a valid registration frame."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("child_registration", message)
+
+
+class ProbeCleanupFailure(ValueError):
+    """One or more child cleanup operations failed after launch."""
+
+
+def exhaustive_cleanup(actions: tuple[Callable[[], object], ...]) -> list[BaseException]:
+    """Attempt every independent cleanup action and return bounded typed failures."""
+
+    failures: list[BaseException] = []
+    for action in actions:
+        try:
+            action()
+        except BaseException as error:
+            failures.append(error)
+    return failures
+
+
+def cleanup_failure(errors: list[BaseException]) -> ProbeCleanupFailure:
+    kinds = ",".join(sorted({type(error).__name__ for error in errors}))
+    return ProbeCleanupFailure(f"Isolation child cleanup failed: {kinds}")
+
 
 def bind_stub_ollama(host: str = "127.0.0.1", port: int = 11434) -> socket.socket:
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -614,7 +663,7 @@ def stub_ollama(
 
 
 def namespace_command(
-    profile: LinuxIsolationProfileV5,
+    profile: LinuxIsolationProfileV6,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -637,6 +686,7 @@ def namespace_command(
         "--kill-child=KILL",
         "--net",
         profile.payload.bootstrap_python.locator,
+        *profile.payload.child_python_flags,
         str(child_script),
         "--root",
         str(root),
@@ -678,7 +728,7 @@ def namespace_command(
 
 
 def run_probe(
-    profile: LinuxIsolationProfileV5,
+    profile: LinuxIsolationProfileV6,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -686,30 +736,47 @@ def run_probe(
     output: Path,
     broker_dir: Path,
     stub_server: socket.socket,
-) -> tuple[LinuxIsolationObservationV5, bytes, bytes]:
-    revalidate_profile_sources(profile, child_script, bundle)
-    registration_read, registration_write = os.pipe()
-    result_read, result_write = os.pipe()
-    host_namespaces = {kind: namespace_id(kind) for kind in ("user", "mnt", "pid", "net")}
-    command = namespace_command(
-        profile,
-        child_script,
-        root,
-        bundle,
-        state,
-        output,
-        broker_dir,
-        registration_write,
-        result_write,
-        host_namespaces,
-    )
+    capture: ProbeProcessCapture,
+) -> LinuxIsolationObservationV6:
+    owned_fds: set[int] = set()
+    process: subprocess.Popen[bytes] | None = None
+    collectors: list[threading.Thread] = []
+    stop_capture = threading.Event()
+    broker_error: list[BaseException] = []
+    broker_outcomes: list[str] = []
+    stub_stop = threading.Event()
+    broker_stop = threading.Event()
+    stub_outcomes: list[str] = []
+    stub_errors: list[BaseException] = []
+    stub_thread: threading.Thread | None = None
+    broker_thread: threading.Thread | None = None
+    primary_error: BaseException | None = None
+    active_phase: FailurePhase = "namespace_creation"
+
+    def close_owned(descriptor: int) -> None:
+        os.close(descriptor)
+        owned_fds.remove(descriptor)
+
     try:
+        revalidate_profile_sources(profile, child_script, bundle)
+        registration_read, registration_write = os.pipe()
+        owned_fds.update((registration_read, registration_write))
+        result_read, result_write = os.pipe()
+        owned_fds.update((result_read, result_write))
+        host_namespaces = {kind: namespace_id(kind) for kind in ("user", "mnt", "pid", "net")}
+        command = namespace_command(
+            profile,
+            child_script,
+            root,
+            bundle,
+            state,
+            output,
+            broker_dir,
+            registration_write,
+            result_write,
+            host_namespaces,
+        )
         revalidate_synthetic_upstream(stub_server, profile.payload.synthetic_upstream)
-    except BaseException:
-        for descriptor in (registration_read, registration_write, result_read, result_write):
-            os.close(descriptor)
-        raise
-    try:
         process = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
@@ -719,37 +786,31 @@ def run_probe(
             start_new_session=True,
             env={"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin", "PYTHONNOUSERSITE": "1"},
         )
-    except BaseException:
-        for descriptor in (registration_read, registration_write, result_read, result_write):
-            os.close(descriptor)
-        stub_server.close()
-        raise
-    os.close(registration_write)
-    os.close(result_write)
-    assert process.stdout is not None and process.stderr is not None
-    stop_capture = threading.Event()
-    stdout = BoundedCollector()
-    stderr = BoundedCollector()
-    collectors = [
-        threading.Thread(target=stdout.read, args=(process.stdout, stop_capture), daemon=True),
-        threading.Thread(target=stderr.read, args=(process.stderr, stop_capture), daemon=True),
-    ]
-    for thread in collectors:
-        thread.start()
-    broker_error: list[BaseException] = []
-    broker_outcomes: list[str] = []
-    stub_stop = threading.Event()
-    broker_stop = threading.Event()
-    stub_outcomes: list[str] = []
-    stub_errors: list[BaseException] = []
-    stub_thread = threading.Thread(
-        target=stub_ollama,
-        args=(stub_server, stub_stop, stub_outcomes, stub_errors),
-        daemon=True,
-    )
-    broker_thread: threading.Thread | None = None
-    try:
-        registration = json.loads(read_line(registration_read, 15))
+        capture.process_started = True
+        close_owned(registration_write)
+        close_owned(result_write)
+        if process.stdout is None or process.stderr is None:
+            raise ValueError("Isolation child diagnostic streams are unavailable")
+        collectors = [
+            threading.Thread(
+                target=capture.stdout.read, args=(process.stdout, stop_capture), daemon=True
+            ),
+            threading.Thread(
+                target=capture.stderr.read, args=(process.stderr, stop_capture), daemon=True
+            ),
+        ]
+        for thread in collectors:
+            thread.start()
+        stub_thread = threading.Thread(
+            target=stub_ollama,
+            args=(stub_server, stub_stop, stub_outcomes, stub_errors),
+            daemon=True,
+        )
+        active_phase = "child_registration"
+        try:
+            registration = json.loads(read_line(registration_read, 15))
+        except (TimeoutError, ValueError) as error:
+            raise ChildRegistrationFailure("Isolation child registration failed") from error
         expected_keys = {
             "apparmor_current_profile",
             "outer_pid",
@@ -777,6 +838,7 @@ def run_probe(
             outer_uid=outer_uid,
             start_time_ticks=int(registration["start_time_ticks"]),
         )
+        active_phase = "broker"
         revalidate_synthetic_upstream(stub_server, profile.payload.synthetic_upstream)
         stub_thread.start()
         broker = LinuxMetadataBrokerV1(
@@ -811,12 +873,14 @@ def run_probe(
             raise ValueError(f"Isolation broker failed: {type(broker_error[0]).__name__}")
         if stub_errors:
             raise ValueError(f"Fixed Ollama stub failed: {type(stub_errors[0]).__name__}")
+        active_phase = "negative_probes"
         if broker_outcomes != ["/api/version", "/api/tags", "/api/show", "denied", "denied"]:
             raise ValueError("Isolation broker endpoint outcomes differ")
         if stub_outcomes != ["/api/version", "/api/tags", "/api/show"]:
             raise ValueError("Fixed Ollama stub observed a non-canonical request set")
+        active_phase = "child_result"
         result = read_line(result_read, 5)
-        if process.returncode != 0 or stdout.hard_limit or stderr.hard_limit:
+        if process.returncode != 0 or capture.stdout.hard_limit or capture.stderr.hard_limit:
             raise ValueError("Isolation child failed or exceeded its output bound")
         raw_observation = json.loads(result)
         raw_observation["broker"].update(
@@ -831,31 +895,95 @@ def run_probe(
         ).model_dump(mode="json")
         raw_observation["descendant_cleanup_passed"] = True
         raw_observation["cleanup_failures"] = []
-        observation = LinuxIsolationObservationV5.model_validate(raw_observation)
+        observation = LinuxIsolationObservationV6.model_validate(raw_observation)
         if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
             raise ValueError("Isolation launcher process group remained after process exit")
         revalidate_profile_sources(profile, child_script, bundle)
         if (broker_dir / "ollama.sock").exists():
             raise ValueError("Isolation broker socket remained after shutdown")
-        return observation, bytes(stdout.data), bytes(stderr.data)
+        return observation
+    except ChildRegistrationFailure as error:
+        primary_error = error
+        raise
+    except ProbePhaseFailure as error:
+        primary_error = error
+        raise
+    except BaseException as error:
+        phased_error = ProbePhaseFailure(active_phase, f"Isolation {active_phase} phase failed")
+        primary_error = phased_error
+        raise phased_error from error
     finally:
         stub_stop.set()
         broker_stop.set()
-        if process.poll() is None:
-            kill_process_group(process.pid)
-            process.wait(timeout=10)
-        for thread in collectors:
-            thread.join(timeout=5)
+        cleanup_errors: list[BaseException] = []
+        process_actions: list[Callable[[], object]] = []
+        if process is not None:
+            should_kill = True
+
+            def observe_process_state() -> None:
+                nonlocal should_kill
+                should_kill = process.poll() is None
+
+            cleanup_errors.extend(exhaustive_cleanup((observe_process_state,)))
+            if should_kill:
+                process_actions.append(lambda: kill_process_group(process.pid))
+            process_actions.append(lambda: process.wait(timeout=10))
+        cleanup_errors.extend(exhaustive_cleanup(tuple(process_actions)))
+        if process is not None:
+
+            def record_returncode() -> None:
+                capture.returncode = process.poll()
+
+            cleanup_errors.extend(exhaustive_cleanup((record_returncode,)))
+
+        def join_thread(thread: threading.Thread, label: str, timeout: float = 5) -> None:
+            thread.join(timeout=timeout)
+            if thread.is_alive():
+                raise ValueError(f"{label} did not stop")
+
+        cleanup_errors.extend(
+            exhaustive_cleanup(
+                tuple(
+                    partial(join_thread, thread, "Isolation child diagnostic stream")
+                    for thread in collectors
+                    if thread.ident is not None
+                )
+            )
+        )
         if broker_thread is not None:
-            broker_thread.join(timeout=5)
-        if stub_thread.ident is not None:
-            stub_thread.join(timeout=5)
+            cleanup_errors.extend(
+                exhaustive_cleanup(
+                    (partial(join_thread, broker_thread, "Isolation broker thread"),)
+                )
+            )
+        if stub_thread is not None and stub_thread.ident is not None:
+            cleanup_errors.extend(
+                exhaustive_cleanup((partial(join_thread, stub_thread, "Isolation stub thread"),))
+            )
         else:
-            stub_server.close()
-        process.stdout.close()
-        process.stderr.close()
-        os.close(registration_read)
-        os.close(result_read)
+            cleanup_errors.extend(exhaustive_cleanup((stub_server.close,)))
+        if process is not None:
+            stream_actions = tuple(
+                stream.close for stream in (process.stdout, process.stderr) if stream is not None
+            )
+            cleanup_errors.extend(exhaustive_cleanup(stream_actions))
+        cleanup_errors.extend(
+            exhaustive_cleanup(
+                tuple(partial(os.close, descriptor) for descriptor in tuple(owned_fds))
+            )
+        )
+        cleanup_errors.extend(
+            exhaustive_cleanup(
+                tuple(
+                    partial(join_thread, thread, "Isolation child diagnostic stream", timeout=1)
+                    for thread in collectors
+                    if thread.ident is not None
+                )
+            )
+        )
+        capture.cleanup_failed = bool(cleanup_errors)
+        if cleanup_errors:
+            raise cleanup_failure(cleanup_errors) from primary_error
 
 
 def verified_git_head(repo: Path, expected: str) -> None:
@@ -909,9 +1037,8 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV5 | None = None
-    stdout = b""
-    stderr = b""
+    profile: LinuxIsolationProfileV6 | None = None
+    capture = ProbeProcessCapture()
     phase: FailurePhase = "host_inspection"
     cleanup_succeeded = False
     scratch: Path | None = None
@@ -966,8 +1093,8 @@ def main() -> None:
             )
             stub_server = bind_stub_ollama(port=0)
             synthetic_upstream = synthetic_upstream_authority(stub_server)
-            profile = LinuxIsolationProfileV5.create(
-                LinuxIsolationProfilePayloadV5(
+            profile = LinuxIsolationProfileV6.create(
+                LinuxIsolationProfilePayloadV6(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
                     native_bundle_id=bundle_id,
@@ -990,42 +1117,63 @@ def main() -> None:
             if file_sha256(root_script) != profile.payload.probe_sha256:
                 raise ValueError("Isolation parent probe changed before launch")
             phase = "namespace_creation"
-            observation, stdout, stderr = run_probe(
-                profile, child_script, root, bundle, state, output, broker, stub_server
+            observation = run_probe(
+                profile,
+                child_script,
+                root,
+                bundle,
+                state,
+                output,
+                broker,
+                stub_server,
+                capture,
             )
-            stub_server.close()
+            close_errors = exhaustive_cleanup((stub_server.close,))
+            if close_errors:
+                capture.cleanup_failed = True
+                raise cleanup_failure(close_errors)
             stub_server = None
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV5.create(
-            LinuxIsolationReceiptPayloadV5(
+        receipt = LinuxIsolationReceiptV6.create(
+            LinuxIsolationReceiptPayloadV6(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV5.create(
-            LinuxIsolationEvidencePayloadV5(
+        evidence = LinuxIsolationEvidenceV6.create(
+            LinuxIsolationEvidencePayloadV6(
                 profile=profile,
                 receipt=receipt,
-                child_stdout_retained_sha256=sha256(stdout),
-                child_stderr_retained_sha256=sha256(stderr),
-                child_stdout_retained_bytes=len(stdout),
-                child_stderr_retained_bytes=len(stderr),
-                child_stdout_truncated=len(stdout) >= RETAINED_LIMIT,
-                child_stderr_truncated=len(stderr) >= RETAINED_LIMIT,
+                child_stdout_retained_sha256=sha256(bytes(capture.stdout.data)),
+                child_stderr_retained_sha256=sha256(bytes(capture.stderr.data)),
+                child_stdout_retained_bytes=len(capture.stdout.data),
+                child_stderr_retained_bytes=len(capture.stderr.data),
+                child_stdout_truncated=capture.stdout.truncated,
+                child_stderr_truncated=capture.stderr.truncated,
                 cleanup=LinuxHostCleanupObservationV1(),
             )
         )
         write_new(args.output, canonical(evidence.model_dump(mode="json")))
     except BaseException as error:
+        final_error = error
         if stub_server is not None:
-            stub_server.close()
-        cleanup_succeeded = scratch is not None and not scratch.exists()
-        reason_code, observed_errno = failure_reason(phase, error)
-        failure = LinuxIsolationFailureV1.create(
-            LinuxIsolationFailurePayloadV1(
+            close_errors = exhaustive_cleanup((stub_server.close,))
+            if close_errors:
+                capture.cleanup_failed = True
+                final_error = cleanup_failure(close_errors)
+        if isinstance(final_error, ProbeCleanupFailure):
+            phase = "cleanup"
+        elif isinstance(final_error, ProbePhaseFailure):
+            phase = final_error.phase
+        cleanup_succeeded = (
+            scratch is not None and not scratch.exists() and not capture.cleanup_failed
+        )
+        reason_code, observed_errno = failure_reason(phase, final_error)
+        failure = LinuxIsolationFailureV2.create(
+            LinuxIsolationFailurePayloadV2(
                 linux_isolation_profile_id=(
                     profile.linux_isolation_profile_id if profile is not None else None
                 ),
@@ -1033,16 +1181,24 @@ def main() -> None:
                 phase=phase,
                 reason_code=reason_code,
                 errno=observed_errno,
-                child_stdout_retained_sha256=sha256(stdout),
-                child_stderr_retained_sha256=sha256(stderr),
-                child_stdout_truncated=len(stdout) >= RETAINED_LIMIT,
-                child_stderr_truncated=len(stderr) >= RETAINED_LIMIT,
+                child_stdout_retained_sha256=sha256(bytes(capture.stdout.data)),
+                child_stderr_retained_sha256=sha256(bytes(capture.stderr.data)),
+                child_stdout_truncated=capture.stdout.truncated,
+                child_stderr_truncated=capture.stderr.truncated,
+                child_process_started=capture.process_started,
+                child_returncode=capture.returncode,
+                child_stdout_retained_bytes=len(capture.stdout.data),
+                child_stderr_retained_bytes=len(capture.stderr.data),
+                child_stdout_observed_bytes=capture.stdout.observed,
+                child_stderr_observed_bytes=capture.stderr.observed,
                 cleanup_attempted=scratch is not None,
                 cleanup_succeeded=cleanup_succeeded,
             )
         )
         write_new(args.failure_output, canonical(failure.model_dump(mode="json")))
-        raise
+        if final_error is error:
+            raise
+        raise final_error from error
 
 
 if __name__ == "__main__":

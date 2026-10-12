@@ -505,10 +505,11 @@ mandatory before Linux readiness.
 
 ### Native Linux isolation mechanics baseline
 
-`LinuxNativeIsolationV1` through `LinuxNativeIsolationV4` remain strict historical
+`LinuxNativeIsolationV1` through `LinuxNativeIsolationV5` remain strict historical
 contracts. The private-launcher/AppArmor qualification now emits the forward-only
-`LinuxNativeIsolationV5` contract; V1-V4 payloads and canonical identities are
-not reinterpreted. V5 preserves the V4 mount and V3 Landlock authority: it records the kernel-reported ABI
+`LinuxNativeIsolationV6` contract; V1-V5 payloads and canonical identities are
+not reinterpreted. V6 preserves the V5 synthetic-upstream, V4 mount and V3 Landlock
+authority: it records the kernel-reported ABI
 separately from the reviewed policy ABI. Kernels reporting ABI 7 or newer keep
 their exact observation while enforcement is capped at reviewed ABI 6 and its
 exact `handled_access_fs` mask. Kernels older than ABI 3 fail closed. The child
@@ -530,13 +531,23 @@ bounded `/api/version`, `/api/tags` and `/api/show` requests to fixed
 `127.0.0.1:11434`; generation, streaming, oversized and ambiguous HTTP requests
 are denied before forwarding.
 
-V5 also preserves V4's binding of `/usr/bin/mount`'s ordinary permission bits, special bits and
+V6 also preserves V4's binding of `/usr/bin/mount`'s ordinary permission bits, special bits and
 complete `stat.S_IMODE` separately. The exact Ubuntu 24.04 root-owned mount
 binary may retain setuid; setgid, sticky, group/world-writable, non-root or
 substituted tools fail closed. Both unshare binaries, `apparmor_parser` and the
 bootstrap interpreter continue to require zero special bits. The child
 independently re-reads the mount binary bytes, size, owner, full mode,
 device/inode and version output before its first mount operation.
+
+V6 binds the child bootstrap to the exact reviewed base interpreter with `-I -B`.
+The child imports only Python standard-library modules before it registers with
+the host; it does not depend on the qualification virtual environment, ambient
+`PYTHONPATH`, user site packages, `pydantic` or `devhub`. Host and child retain
+independently implemented joins for canonical hashing, Landlock policy selection
+and private mount parsing, with parity regression coverage. Failure V2 evidence
+records whether the child process started, its observed exit state when known,
+and exact bounded retained/observed stdout and stderr counts and hashes. It never
+stores raw diagnostic streams.
 
 The real Ubuntu mechanics probe uses a synthetic non-task fixture and a local
 metadata stub. It makes no Codex, MCP, model or provider call. Its receipt
@@ -593,6 +604,13 @@ the exact listening socket, and binds its port, inode and owner process identity
 through profile, observation, receipt and evidence. The production Ollama
 destination and accepted HTTP Host authority remain exactly
 `127.0.0.1:11434`. None of these failed runs grants readiness.
+Main-only run `38261352784` is retained as an immutable pre-registration child
+bootstrap failure: `uv run` selected a virtual-environment launcher whose resolved
+base interpreter could not import the old child's third-party modules under the
+clean launch environment. The namespace child emitted no valid registration;
+privileged cleanup succeeded and all execution counters remained zero. V6 is the
+forward-only stdlib-only bootstrap correction and does not reinterpret that V5
+failure evidence.
 
 ## Platform acceptance matrix
 

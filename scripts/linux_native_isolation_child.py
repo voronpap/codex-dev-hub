@@ -18,19 +18,9 @@ import socket
 import stat
 import struct
 import subprocess
+import sys
 import time
 from pathlib import Path
-from typing import cast
-
-from pydantic import JsonValue
-
-from devhub.benchmark import canonical, digest
-from devhub.linux_isolation import (
-    LinuxRlimitsV1,
-    enforced_landlock_abi,
-    landlock_handled_access,
-    observed_private_mount_targets,
-)
 
 PR_SET_NO_NEW_PRIVS = 38
 PR_SET_SECUREBITS = 28
@@ -100,6 +90,71 @@ class LandlockPathBeneathAttr(ctypes.Structure):
 
 def sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def canonical(value: object) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()
+
+
+def digest(raw: bytes) -> str:
+    return sha256(raw)
+
+
+def landlock_handled_access(abi: int) -> int:
+    if abi not in {3, 4, 5, 6}:
+        raise ValueError("Linux qualification supports exactly Landlock ABI 3 through 6")
+    base = (1 << 15) - 1
+    return base | ((1 << 15) if abi >= 5 else 0)
+
+
+def enforced_landlock_abi(kernel_abi: int) -> int:
+    if kernel_abi < 3:
+        raise ValueError("Linux qualification requires Landlock kernel ABI 3 or newer")
+    return min(kernel_abi, 6)
+
+
+def mount_path(value: str) -> str:
+    return (
+        value.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+    )
+
+
+def observed_private_mount_targets(
+    raw: bytes, expected_targets: tuple[str, ...]
+) -> tuple[str, ...]:
+    entries: dict[str, tuple[str, set[str]]] = {}
+    for line in raw.decode("utf-8", errors="strict").splitlines():
+        fields = line.split(" ")
+        separator = fields.index("-")
+        target = mount_path(fields[4])
+        options = set(fields[5].split(",")) | set(fields[separator + 3].split(","))
+        entries[target] = (fields[separator + 1], options)
+    if entries.get("/", (None, set()))[0] != "tmpfs":
+        raise ValueError("Private root is not a tmpfs mount")
+    reviewed = {
+        "/bundle": (None, {"ro", "nosuid", "nodev"}, {"noexec"}),
+        "/dev": ("tmpfs", {"rw", "nosuid", "noexec"}, {"nodev"}),
+        "/home/devfabric": ("tmpfs", {"rw", "nosuid", "nodev", "noexec"}, set()),
+        "/output": (None, {"rw", "nosuid", "nodev", "noexec"}, set()),
+        "/proc": ("proc", {"rw", "nosuid", "nodev", "noexec"}, set()),
+        "/run/devfabric": (None, {"ro", "nosuid", "nodev", "noexec"}, set()),
+        "/state": (None, {"rw", "nosuid", "nodev", "noexec"}, set()),
+        "/tmp": ("tmpfs", {"rw", "nosuid", "nodev", "noexec"}, set()),
+    }
+    if tuple(sorted(reviewed)) != expected_targets:
+        raise ValueError("Expected mount target contract differs")
+    for target, (filesystem, required, forbidden) in reviewed.items():
+        if target not in entries:
+            raise ValueError("A required private-root mount is absent")
+        actual_filesystem, options = entries[target]
+        if (filesystem is not None and actual_filesystem != filesystem) or not required <= options:
+            raise ValueError("A private-root mount has weaker options than reviewed")
+        if forbidden & options:
+            raise ValueError("A private-root mount has an unexpected option")
+    return tuple(sorted(reviewed))
 
 
 def file_sha256(path: Path) -> str:
@@ -237,7 +292,7 @@ def private_root(
     )
 
 
-def set_limits() -> LinuxRlimitsV1:
+def set_limits() -> dict[str, int]:
     limits = {
         resource.RLIMIT_CPU: (60, 60),
         resource.RLIMIT_AS: (2 * 1024**3, 2 * 1024**3),
@@ -251,14 +306,14 @@ def set_limits() -> LinuxRlimitsV1:
     observed_core = resource.getrlimit(resource.RLIMIT_CORE)[0]
     if observed_core != 0:
         raise ValueError("Core-file rlimit differs from the reviewed zero limit")
-    observed = LinuxRlimitsV1(
-        cpu_seconds=resource.getrlimit(resource.RLIMIT_CPU)[0],
-        address_space_bytes=resource.getrlimit(resource.RLIMIT_AS)[0],
-        file_size_bytes=resource.getrlimit(resource.RLIMIT_FSIZE)[0],
-        open_files=resource.getrlimit(resource.RLIMIT_NOFILE)[0],
-        processes=resource.getrlimit(resource.RLIMIT_NPROC)[0],
-        core_bytes=0,
-    )
+    observed = {
+        "cpu_seconds": resource.getrlimit(resource.RLIMIT_CPU)[0],
+        "address_space_bytes": resource.getrlimit(resource.RLIMIT_AS)[0],
+        "file_size_bytes": resource.getrlimit(resource.RLIMIT_FSIZE)[0],
+        "open_files": resource.getrlimit(resource.RLIMIT_NOFILE)[0],
+        "processes": resource.getrlimit(resource.RLIMIT_NPROC)[0],
+        "core_bytes": 0,
+    }
     return observed
 
 
@@ -356,7 +411,7 @@ def apply_landlock() -> tuple[int, int, int, tuple[str, ...], str]:
             os.close(descriptor)
         os.close(ruleset_fd)
     targets = tuple(path for path, _ in rules)
-    ruleset_identity = digest(canonical(cast(JsonValue, rules)))
+    ruleset_identity = digest(canonical(rules))
     return kernel_abi, policy_abi, handled_access, targets, ruleset_identity
 
 
@@ -504,6 +559,9 @@ def main() -> None:
     parser.add_argument("--expected-apparmor-current", required=True)
     args = parser.parse_args()
 
+    if sys.flags.isolated != 1 or sys.flags.dont_write_bytecode != 1:
+        raise ValueError("Isolation child requires exact -I -B interpreter flags")
+
     apparmor_current = Path("/proc/self/attr/current").read_text(encoding="utf-8").strip()
     if apparmor_current != args.expected_apparmor_current:
         raise ValueError("AppArmor current profile differs from the reviewed attachment")
@@ -573,7 +631,7 @@ def main() -> None:
     mount_table = Path("/proc/self/mountinfo").read_bytes()
     expected_mount_targets = tuple(json.loads(args.expected_mount_targets))
     mount_targets = observed_private_mount_targets(mount_table, expected_mount_targets)
-    rlimits_sha256 = digest(canonical(rlimits.model_dump(mode="json")))
+    rlimits_sha256 = digest(canonical(rlimits))
     if rlimits_sha256 != args.expected_rlimits_sha256:
         raise ValueError("Observed rlimits differ from the host profile")
     observed = {
@@ -628,6 +686,11 @@ def main() -> None:
         "direct_public_denied": denied_tcp(("1.1.1.1", 443)),
         "rlimits_applied": True,
         "rlimits_sha256": rlimits_sha256,
+        "child_bootstrap": {
+            "isolated_python": True,
+            "bytecode_disabled": True,
+            "stdlib_only": True,
+        },
         "broker": broker_observations(),
     }
     os.write(

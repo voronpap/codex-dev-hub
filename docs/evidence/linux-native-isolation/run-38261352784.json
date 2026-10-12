@@ -1,0 +1,22 @@
+{
+  "artifact_digest": "sha256:b2ddc72225903c2e4afb8d89a6fb550cb38778536f17c428244179d523ae90c9",
+  "artifact_id": 11752776067,
+  "artifact_name": "devfabric-linux-native-isolation-qualification",
+  "classification": "PRE_REGISTRATION_BOOTSTRAP_IMPORT_FAILURE",
+  "cleanup_attempted": true,
+  "cleanup_succeeded": true,
+  "environment_instance_id": "2c15bb70fb381785fb10917b0ff03276",
+  "head_sha": "ab0e32c94b7cd6771eda4effa43cd300f3b809bd",
+  "job_id": 114852373918,
+  "linux_isolation_failure_id": "9870b992bf2e5a2a62222548909a9d7b05626f80e066d69d1238a8af7ce4e7d7",
+  "linux_isolation_profile_id": "9bbd70833b0f556009ef55abbc55fd5aa2405350836493f1d8718ba5a8c98b92",
+  "mcp_tool_executions": 0,
+  "model_requests": 0,
+  "observed_errno": null,
+  "phase": "namespace_creation",
+  "provider_sends": 0,
+  "real_task_executions": 0,
+  "reason_code": "namespace_launch_failed",
+  "run_id": 38261352784,
+  "schema_version": 1
+}
