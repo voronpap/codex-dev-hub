@@ -2738,6 +2738,100 @@ def test_child_rlimits_match_exact_profile_authority(
     assert CHILD.digest(CHILD.canonical(mutated)) != expected_hash
 
 
+def broker_observation_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    peer_pid: int = 0,
+    peer_uid: int = 1000,
+    inodes: tuple[int, ...] = (7, 7, 7, 7, 7),
+    parent_mode: int = 0o700,
+    socket_mode: int = 0o600,
+    responses: tuple[bytes, ...] = (
+        b"HTTP/1.1 200 OK",
+        b"HTTP/1.1 200 OK",
+        b"HTTP/1.1 200 OK",
+        b"HTTP/1.1 403 Forbidden",
+        b"HTTP/1.1 403 Forbidden",
+    ),
+) -> dict[str, bool | str | int]:
+    assert CHILD is not None
+    response_iterator = iter(zip(responses, inodes, strict=True))
+
+    def fail_outer_pid() -> int:
+        raise AssertionError("post-chroot code must not inspect the outer PID")
+
+    def unix_http(_socket_path: str, _raw: bytes) -> tuple[bytes, tuple[int, int, int], int]:
+        response, inode = next(response_iterator)
+        return response, (peer_pid, peer_uid, 1000), inode
+
+    def lstat(path: object) -> os.stat_result:
+        is_socket = str(path).endswith("ollama.sock")
+        mode = (stat.S_IFSOCK | socket_mode) if is_socket else (stat.S_IFDIR | parent_mode)
+        inode = 7 if is_socket else 6
+        return os.stat_result((mode, inode, 1, 1, 1000, 1000, 0, 0, 0, 0))
+
+    monkeypatch.setattr(CHILD, "outer_pid", fail_outer_pid)
+    monkeypatch.setattr(CHILD, "unix_http", unix_http)
+    monkeypatch.setattr(CHILD.Path, "exists", lambda _path: True)
+    monkeypatch.setattr(CHILD.os, "lstat", lstat)
+    return cast(dict[str, bool | str | int], CHILD.broker_observations())
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
+def test_child_broker_translation_uses_exact_peer_observations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed = broker_observation_fixture(monkeypatch)
+    assert observed["pid_namespace_translation_validated"] is True
+    assert observed["child_verified_broker_pid_translation"] is True
+    assert observed["child_verified_broker_uid"] is True
+    assert observed["socket_inode"] == 7
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
+@pytest.mark.parametrize(
+    ("overrides", "raises_directly"),
+    [
+        ({"peer_pid": 1}, False),
+        ({"peer_uid": 1001}, False),
+        ({"inodes": (7, 7, 8, 7, 7)}, True),
+        ({"parent_mode": 0o755}, False),
+        ({"socket_mode": 0o644}, False),
+        (
+            {
+                "responses": (
+                    b"HTTP/1.1 500 Error",
+                    b"HTTP/1.1 200 OK",
+                    b"HTTP/1.1 200 OK",
+                    b"HTTP/1.1 403 Forbidden",
+                    b"HTTP/1.1 403 Forbidden",
+                )
+            },
+            False,
+        ),
+    ],
+)
+def test_child_broker_observation_rejects_authority_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    overrides: dict[str, object],
+    raises_directly: bool,
+) -> None:
+    if raises_directly:
+        with pytest.raises(ValueError, match="socket identity changed"):
+            broker_observation_fixture(monkeypatch, **overrides)
+        return
+    observed = broker_observation_fixture(monkeypatch, **overrides)
+    observed.update(
+        {
+            "peer_pid_matched": True,
+            "peer_start_time_matched": True,
+            "peer_uid_matched": True,
+        }
+    )
+    with pytest.raises(ValidationError):
+        LinuxBrokerObservationV1.model_validate(observed)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="Namespace projection is Linux-only")
 @pytest.mark.parametrize(
     ("owner_uid", "uid_map", "overflow_uid", "observed_uid", "reason"),

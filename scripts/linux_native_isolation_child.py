@@ -804,12 +804,14 @@ def broker_observations() -> dict[str, bool | str | int]:
     inodes = (socket_inode, tags_inode, show_inode, generate_inode, oversized_inode)
     if len(set(inodes)) != 1:
         raise ValueError("Ollama broker socket identity changed during qualification")
+    peer_pid_translation = all(peer[0] == 0 for peer in peers)
+    peer_uid_translation = all(peer[1] == 1000 for peer in peers)
     return {
         "socket_parent_mode": f"0{stat.S_IMODE(os.lstat(Path(socket_path).parent).st_mode):03o}",
         "socket_mode": f"0{stat.S_IMODE(os.lstat(socket_path).st_mode):03o}",
-        "pid_namespace_translation_validated": outer_pid() >= 1,
-        "child_verified_broker_pid_translation": all(peer[0] == 0 for peer in peers),
-        "child_verified_broker_uid": all(peer[1] == 1000 for peer in peers),
+        "pid_namespace_translation_validated": peer_pid_translation,
+        "child_verified_broker_pid_translation": peer_pid_translation,
+        "child_verified_broker_uid": peer_uid_translation,
         "socket_inode": socket_inode,
         "version_allowed": version.startswith(b"HTTP/1.1 200"),
         "tags_allowed": tags.startswith(b"HTTP/1.1 200"),
