@@ -763,8 +763,11 @@ def test_created_directory_identity_and_contents_reject_substitution(
             require_complete=True,
         )
     (owned / "foreign").unlink()
+    replacement = tmp_path / "replacement"
+    replacement.mkdir()
+    assert APPARMOR_MANAGER.native_identity(replacement) != identity
     owned.rmdir()
-    owned.mkdir()
+    replacement.rename(owned)
     with pytest.raises(ValueError, match="identity changed"):
         APPARMOR_MANAGER.validate_journal_directory(
             owned,
