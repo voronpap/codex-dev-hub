@@ -20,6 +20,7 @@ from typing import Literal, cast
 import pytest
 from pydantic import JsonValue, ValidationError
 
+import devhub.linux_ollama_broker as LINUX_BROKER
 from devhub.benchmark import canonical, digest
 from devhub.linux_isolation import (
     LINUX_APPARMOR_CURRENT,
@@ -181,6 +182,8 @@ from devhub.linux_ollama_broker import (
     LinuxBrokerPeerAuthorityV1,
     LinuxMetadataBrokerFailure,
     LinuxMetadataBrokerV1,
+    drain_rejected_request,
+    process_start_time_ticks,
     read_metadata_request,
 )
 
@@ -2617,6 +2620,223 @@ def test_broker_accepts_only_exact_bounded_metadata(
 def test_broker_rejects_generation_ambiguity_and_model_substitution(raw_request: bytes) -> None:
     with pytest.raises(ValueError):
         send_request(raw_request)
+
+
+class RejectedRequestStream:
+    def __init__(self, chunks: list[bytes | BaseException]) -> None:
+        self.chunks = iter(chunks)
+        self.max_requested = 0
+
+    def recv(self, count: int) -> bytes:
+        self.max_requested = max(self.max_requested, count)
+        item = next(self.chunks)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+
+def test_rejected_request_drain_is_fixed_memory_and_bounded() -> None:
+    stream = RejectedRequestStream([b"a" * 4096, b"b" * 4096, b""])
+    assert drain_rejected_request(cast(socket.socket, stream), 8192) == 8192
+    assert stream.max_requested == 4096
+
+
+def test_rejected_request_drain_fails_closed_above_discard_bound() -> None:
+    stream = RejectedRequestStream([b"a" * 4096, b"b" * 4096, b"c"])
+    with pytest.raises(ValueError, match="exceeds the discard limit"):
+        drain_rejected_request(cast(socket.socket, stream), 8192)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [TimeoutError(errno.ETIMEDOUT, "timed out"), ConnectionResetError(errno.ECONNRESET, "reset")],
+)
+def test_rejected_request_drain_propagates_no_eof_and_os_errors(error: OSError) -> None:
+    stream = RejectedRequestStream([b"partial", error])
+    with pytest.raises(type(error)):
+        drain_rejected_request(cast(socket.socket, stream), 8192)
+
+
+def _current_linux_broker_peer() -> LinuxBrokerPeerAuthorityV1:
+    geteuid = getattr(os, "geteuid", None)
+    assert callable(geteuid)
+    return LinuxBrokerPeerAuthorityV1(
+        outer_pid=os.getpid(),
+        outer_uid=int(geteuid()),
+        start_time_ticks=process_start_time_ticks(os.getpid()),
+    )
+
+
+def _wait_for_broker_socket(path: Path, failures: list[BaseException]) -> None:
+    deadline = time.monotonic() + 3
+    while not path.exists() and not failures and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not failures
+    assert path.exists()
+
+
+def _connect_to_ready_broker(path: Path, failures: list[BaseException]) -> socket.socket:
+    _wait_for_broker_socket(path, failures)
+    deadline = time.monotonic() + 3
+    while True:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(3)
+        try:
+            client.connect(str(path))
+            return client
+        except ConnectionRefusedError:
+            client.close()
+            if failures or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+        except BaseException:
+            client.close()
+            raise
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not hasattr(socket, "SO_PEERCRED") or os.geteuid() < 1,
+    reason="Non-root Linux SO_PEERCRED required",
+)
+def test_broker_real_oversized_denial_drains_before_complete_403(tmp_path: Path) -> None:
+    tmp_path.chmod(0o700)
+    path = tmp_path / "ollama.sock"
+    runtime = LinuxMetadataBrokerV1(path, _current_linux_broker_peer())
+    failures: list[BaseException] = []
+    outcomes: list[tuple[str, ...]] = []
+
+    def serve() -> None:
+        try:
+            outcomes.append(runtime.serve_requests(1))
+        except BaseException as error:
+            failures.append(error)
+
+    worker = threading.Thread(target=serve, daemon=True)
+    worker.start()
+    client = _connect_to_ready_broker(path, failures)
+    try:
+        client.sendall(
+            b"GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nX: " + b"a" * (70 * 1024)
+        )
+        client.shutdown(socket.SHUT_WR)
+        response = bytearray()
+        while chunk := client.recv(4096):
+            response.extend(chunk)
+    finally:
+        client.close()
+    worker.join(timeout=3)
+    assert not worker.is_alive()
+    assert not failures
+    assert outcomes == [("denied",)]
+    assert bytes(response) == (
+        b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+    assert not path.exists()
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not hasattr(socket, "SO_PEERCRED") or os.geteuid() < 1,
+    reason="Non-root Linux SO_PEERCRED required",
+)
+def test_broker_discard_bound_failure_is_typed_and_cleans_socket(tmp_path: Path) -> None:
+    tmp_path.chmod(0o700)
+    path = tmp_path / "ollama.sock"
+    runtime = LinuxMetadataBrokerV1(path, _current_linux_broker_peer())
+    failures: list[BaseException] = []
+
+    def serve() -> None:
+        try:
+            runtime.serve_requests(1)
+        except BaseException as error:
+            failures.append(error)
+
+    worker = threading.Thread(target=serve, daemon=True)
+    worker.start()
+    client = _connect_to_ready_broker(path, failures)
+    try:
+        client.sendall(
+            b"GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nX: " + b"a" * (129 * 1024)
+        )
+        client.shutdown(socket.SHUT_WR)
+        try:
+            while client.recv(4096):
+                pass
+        except ConnectionResetError:
+            pass
+    finally:
+        client.close()
+    worker.join(timeout=3)
+    assert not worker.is_alive()
+    assert len(failures) == 1
+    failure = failures[0]
+    assert isinstance(failure, LinuxMetadataBrokerFailure)
+    assert (failure.checkpoint, failure.completed_outcomes) == ("denial_response", ())
+    assert (failure.failure_kind, failure.errno_category) == ("internal_error", None)
+    assert not path.exists()
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not hasattr(socket, "SO_PEERCRED") or os.geteuid() < 1,
+    reason="Non-root Linux SO_PEERCRED required",
+)
+@pytest.mark.parametrize(
+    ("error", "errno_category"),
+    [
+        (TimeoutError(errno.ETIMEDOUT, "timed out"), "timed_out"),
+        (ConnectionResetError(errno.ECONNRESET, "reset"), "connection_reset"),
+    ],
+)
+def test_broker_drain_os_failure_is_typed_without_outcome_or_response(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: OSError,
+    errno_category: str,
+) -> None:
+    tmp_path.chmod(0o700)
+    path = tmp_path / "ollama.sock"
+    runtime = LinuxMetadataBrokerV1(path, _current_linux_broker_peer())
+    failures: list[BaseException] = []
+
+    def fail_drain(_connection: socket.socket, _limit: int) -> int:
+        raise error
+
+    monkeypatch.setattr(LINUX_BROKER, "drain_rejected_request", fail_drain)
+
+    def serve() -> None:
+        try:
+            runtime.serve_requests(1)
+        except BaseException as observed:
+            failures.append(observed)
+
+    worker = threading.Thread(target=serve, daemon=True)
+    worker.start()
+    client = _connect_to_ready_broker(path, failures)
+    response = bytearray()
+    try:
+        client.sendall(
+            b"POST /api/generate HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nContent-Length: 2\r\n\r\n{}"
+        )
+        client.shutdown(socket.SHUT_WR)
+        try:
+            while chunk := client.recv(4096):
+                response.extend(chunk)
+        except ConnectionResetError:
+            pass
+    finally:
+        client.close()
+    worker.join(timeout=3)
+    assert not worker.is_alive()
+    assert len(failures) == 1
+    failure = failures[0]
+    assert isinstance(failure, LinuxMetadataBrokerFailure)
+    assert (
+        failure.checkpoint,
+        failure.completed_outcomes,
+        failure.failure_kind,
+        failure.errno_category,
+    ) == ("denial_response", (), "os_error", errno_category)
+    assert response == b""
+    assert not path.exists()
 
 
 @pytest.mark.skipif(not hasattr(socket, "SO_PEERCRED"), reason="Linux SO_PEERCRED required")
