@@ -221,6 +221,7 @@ def validate_owner_projection(
     if observed_owner_uid != overflow_uid or observed_owner_gid != overflow_gid:
         raise BootstrapValidationFailure("mount_authority", "namespace_owner_projection_mismatch")
     return {
+        "schema_version": 1,
         "host_owner_uid": 0,
         "host_owner_gid": 0,
         "host_root_uid_mapped": False,
@@ -238,7 +239,7 @@ def validate_mount_authority(
     expected_version_environment_raw: str,
     expected_overflow_uid: int,
     expected_overflow_gid: int,
-) -> tuple[dict[str, bool | int], dict[str, bool]]:
+) -> tuple[dict[str, bool | int], dict[str, bool | int]]:
     expected = json.loads(expected_raw)
     if not isinstance(expected, dict):
         raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_content_mismatch")
@@ -372,11 +373,44 @@ def validate_mount_authority(
     if observed_after != observed_static:
         raise BootstrapValidationFailure("mount_authority", "mount_post_exec_substitution")
     return projection, {
+        "schema_version": 1,
         "pre_exec_authority_matched": True,
         "version_environment_matched": True,
         "version_execution_succeeded": True,
         "version_output_matched": True,
         "post_exec_authority_matched": True,
+    }
+
+
+def child_registration_frame(
+    *,
+    apparmor_current_profile: str,
+    outer_process_id: int,
+    inner_process_id: int,
+    outer_user_id: int,
+    inner_user_id: int,
+    process_start_time_ticks: int,
+    mount_owner_projection: dict[str, bool | int],
+    mount_authority: dict[str, bool | int],
+) -> dict[str, object]:
+    """Build the exact self-hashed child registration sent to the host."""
+
+    payload: dict[str, object] = {
+        "schema_version": 3,
+        "frame_kind": "linux_child_registration_v3",
+        "apparmor_current_profile": apparmor_current_profile,
+        "outer_pid": outer_process_id,
+        "inner_pid": inner_process_id,
+        "outer_uid": outer_user_id,
+        "inner_uid": inner_user_id,
+        "start_time_ticks": process_start_time_ticks,
+        "mount_owner_projection": mount_owner_projection,
+        "mount_authority": mount_authority,
+    }
+    return {
+        "schema_version": 3,
+        "child_registration_id": digest(canonical(payload)),
+        "payload": payload,
     }
 
 
@@ -818,28 +852,21 @@ def main() -> None:
         raise SystemExit(70) from None
 
     try:
-        registration_payload = {
-            "schema_version": 3,
-            "frame_kind": "linux_child_registration_v3",
-            "apparmor_current_profile": apparmor_current,
-            "outer_pid": outer_pid(),
-            "inner_pid": os.getpid(),
-            "outer_uid": outer_uid(),
-            "inner_uid": os.geteuid(),
-            "start_time_ticks": start_time_ticks(),
-            "mount_owner_projection": owner_projection,
-            "mount_authority": mount_authority,
-        }
+        registration = child_registration_frame(
+            apparmor_current_profile=apparmor_current,
+            outer_process_id=outer_pid(),
+            inner_process_id=os.getpid(),
+            outer_user_id=outer_uid(),
+            inner_user_id=os.geteuid(),
+            process_start_time_ticks=start_time_ticks(),
+            mount_owner_projection=owner_projection,
+            mount_authority=mount_authority,
+        )
     except BaseException:
         write_bootstrap_failure(
             args.registration_fd, "process_identity", "process_identity_invalid"
         )
         raise SystemExit(70) from None
-    registration = {
-        "schema_version": 3,
-        "child_registration_id": digest(canonical(registration_payload)),
-        "payload": registration_payload,
-    }
     write_frame(args.registration_fd, registration)
     os.close(args.registration_fd)
 
