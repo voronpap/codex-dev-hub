@@ -549,7 +549,7 @@ def registered_child_command(
         "import hashlib,json,os;"
         f"p=json.loads({json.dumps(json.dumps(payload))});"
         "p['outer_pid']=os.getpid();p['outer_uid']=os.getuid();"
-        "raw=json.dumps(p,sort_keys=True,separators=(',',':')).encode();"
+        "raw=(json.dumps(p,ensure_ascii=False,sort_keys=True,indent=2)+'\\n').encode();"
         "f={'schema_version':3,'child_registration_id':hashlib.sha256(raw).hexdigest(),"
         "'payload':p};"
         f"os.write({registration_write},json.dumps(f,sort_keys=True,separators=(',',':')).encode()+b'\\n');"
