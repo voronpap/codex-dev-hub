@@ -1,0 +1,23 @@
+{
+  "artifact_digest": "sha256:16093b61480affeb8587adcbf2f12d55a81313f83f854dc2c613063b6b927f58",
+  "artifact_id": 11772354764,
+  "artifact_name": "devfabric-linux-native-isolation-qualification",
+  "cleanup_complete": true,
+  "cgroup_resource_boundary_qualified": false,
+  "environment_instance_id": "33d1b99f7b8eaba77e4e12f487fe56de",
+  "head_sha": "b90116c6fe4e15ee5e0e23110acf3e71f4cb41f9",
+  "linux_isolation_evidence_id": "e1fc285647c2c3f403a3c90219dc76fca23acbf268fb305c89a92dca6b784813",
+  "linux_isolation_profile_id": "ebbb338f18b1557fe378d17e9a845ad54a35d821adf1a667ec3edf2e6af34879",
+  "linux_isolation_qualification_id": "e95e837e4ca81e6c680e7d6b214e415afd1732a183fcc265edb3050986dc1abf",
+  "mcp_tool_executions": 0,
+  "metadata_isolation_baseline_qualified": true,
+  "model_requests": 0,
+  "native_executor_isolation_qualified": false,
+  "package_readiness": false,
+  "provider_sends": 0,
+  "qualification_file_sha256": "77f67797967e8c114014d978fd1b86571ac82542865e7e5f6243769ada8b2fd8",
+  "real_task_executions": 0,
+  "run_id": 38307459549,
+  "schema_version": 1,
+  "syscall_filter_qualified": false
+}

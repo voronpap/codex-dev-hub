@@ -9,15 +9,23 @@ import tarfile
 from pathlib import Path
 
 import pytest
+from linux_native_artifact_support import linux_pass_artifact
 from pydantic import ValidationError
 
 from devhub.linux_bundle import (
     LinuxBundleEntryV1,
     LinuxCodexAuthorityV1,
+    LinuxCodexAuthorityV2,
     LinuxLauncherV1,
     LinuxModuleOriginV1,
+    LinuxNativeArchivePayloadV1,
+    LinuxNativeArchivePayloadV2,
+    LinuxNativeArchiveV1,
+    LinuxNativeArchiveV2,
     LinuxNativeBundlePayloadV1,
+    LinuxNativeBundlePayloadV2,
     LinuxNativeBundleV1,
+    LinuxNativeBundleV2,
     LinuxPythonAuthorityV1,
     LinuxPythonRuntimePayloadV1,
     LinuxPythonRuntimeV1,
@@ -45,6 +53,13 @@ assert SPEC is not None and SPEC.loader is not None
 BUILDER = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = BUILDER
 SPEC.loader.exec_module(BUILDER)
+INVENTORY_SPEC = importlib.util.spec_from_file_location(
+    "inventory_native_build_artifact", ROOT / "scripts/inventory_native_build_artifact.py"
+)
+assert INVENTORY_SPEC is not None and INVENTORY_SPEC.loader is not None
+INVENTORY = importlib.util.module_from_spec(INVENTORY_SPEC)
+sys.modules[INVENTORY_SPEC.name] = INVENTORY
+INVENTORY_SPEC.loader.exec_module(INVENTORY)
 
 HASH = "a" * 64
 OTHER_HASH = "b" * 64
@@ -173,6 +188,49 @@ def materialize(root: Path) -> LinuxNativeBundleV1:
     return LinuxNativeBundleV1.create(payload)
 
 
+def materialize_v2(root: Path) -> LinuxNativeBundleV2:
+    historical = materialize(root)
+    raw = historical.payload.model_dump(mode="python")
+    raw["schema_version"] = 2
+    raw["codex"] = {
+        **raw["codex"],
+        "schema_version": 2,
+        "build_id": "linux-build-008",
+    }
+    return LinuxNativeBundleV2.create(LinuxNativeBundlePayloadV2.model_validate(raw))
+
+
+def reviewable_v8_artifact(root: Path) -> None:
+    linux_pass_artifact(
+        root,
+        implementation_commit=COMMIT,
+        workflow_run_id=123,
+        workflow_run_attempt=1,
+    )
+    INVENTORY.seal_linux(root, "linux-build-008")
+
+
+def write_test_archive(
+    release: Path, bundle_id: str, schema_version: int
+) -> LinuxNativeArchiveV1 | LinuxNativeArchiveV2:
+    archive_path = release / BUILDER.ARCHIVE_NAME
+    with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
+        stream.add(release / "bundle", arcname="bundle", recursive=True)
+    fields = {
+        "bundle_id": bundle_id,
+        "size": archive_path.stat().st_size,
+        "sha256": file_sha256(archive_path),
+    }
+    if schema_version == 1:
+        receipt: LinuxNativeArchiveV1 | LinuxNativeArchiveV2 = LinuxNativeArchiveV1.create(
+            LinuxNativeArchivePayloadV1(**fields)
+        )
+    else:
+        receipt = LinuxNativeArchiveV2.create(LinuxNativeArchivePayloadV2(**fields))
+    (release / BUILDER.ARCHIVE_RECEIPT_NAME).write_text(receipt.model_dump_json(), encoding="utf-8")
+    return receipt
+
+
 def test_linux_native_bundle_is_self_hashed_and_closed(tmp_path: Path) -> None:
     bundle = materialize(tmp_path)
     assert LinuxNativeBundleV1.model_validate_json(bundle.model_dump_json()) == bundle
@@ -183,6 +241,37 @@ def test_linux_native_bundle_is_self_hashed_and_closed(tmp_path: Path) -> None:
     raw["linux_native_bundle_id"] = OTHER_HASH
     with pytest.raises(ValidationError, match="bundle ID mismatch"):
         LinuxNativeBundleV1.model_validate(raw)
+
+
+def test_linux_native_bundle_v2_requires_build_008_and_preserves_v1(tmp_path: Path) -> None:
+    current = materialize_v2(tmp_path / "current")
+    assert LinuxNativeBundleV2.model_validate_json(current.model_dump_json()) == current
+    assert isinstance(current.payload.codex, LinuxCodexAuthorityV2)
+    assert current.payload.codex.build_id == "linux-build-008"
+    assert current.payload.native_executor_isolation_qualified is False
+    assert current.payload.package_readiness is False
+
+    historical = materialize(tmp_path / "historical")
+    assert LinuxNativeBundleV1.model_validate_json(historical.model_dump_json()) == historical
+    raw = current.payload.model_dump(mode="python")
+    raw["codex"]["build_id"] = "linux-build-007"
+    with pytest.raises(ValidationError):
+        LinuxNativeBundlePayloadV2.model_validate(raw)
+
+
+@pytest.mark.parametrize("manifest_version", (1, 2))
+def test_linux_release_rejects_mixed_manifest_and_archive_versions(
+    tmp_path: Path, manifest_version: int
+) -> None:
+    release = tmp_path / "release"
+    root = release / "bundle"
+    bundle = materialize(root) if manifest_version == 1 else materialize_v2(root)
+    (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
+    write_test_archive(release, bundle.linux_native_bundle_id, 2 if manifest_version == 1 else 1)
+    shutil.rmtree(root)
+
+    with pytest.raises(ValueError, match="schema versions differ"):
+        verify_linux_native_release(release, tmp_path / "extracted")
 
 
 def test_linux_native_bundle_rejects_mutable_state_and_inventory_tamper(tmp_path: Path) -> None:
@@ -369,7 +458,7 @@ def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     assert "pull_request:" not in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "ref: ${{ github.sha }}" in workflow
-    assert "devfabric-linux-build-007-binaries" in workflow
+    assert "devfabric-linux-build-008-binaries" in workflow
     codex_workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
     assert "linux-native-codex-evidence/linux-native-codex-build.json" in codex_workflow
     assert "--expected-commit '${{ github.sha }}'" in workflow
@@ -445,6 +534,67 @@ def test_linux_bundle_builder_rejects_downloaded_artifact_layout_and_symlink(
         BUILDER._plain_artifact_layout(root)
 
 
+def test_linux_bundle_reviews_exact_v8_artifact_authority(tmp_path: Path) -> None:
+    root = tmp_path / "artifact"
+    reviewable_v8_artifact(root)
+
+    receipt = BUILDER._review_codex_artifact(root, COMMIT, 123, 1)
+
+    assert receipt.payload.provenance.implementation_commit == COMMIT
+    assert receipt.payload.provenance.workflow_run_id == 123
+    assert receipt.payload.provenance.workflow_run_attempt == 1
+    assert receipt.payload.provenance.build_id == "linux-build-008"
+    assert len(tuple(root.rglob("*"))) == 8  # binary directory plus seven retained files
+
+
+@pytest.mark.parametrize(
+    ("expected_commit", "run_id", "run_attempt"),
+    (
+        ("d" * 40, 123, 1),
+        (COMMIT, 124, 1),
+        (COMMIT, 123, 2),
+    ),
+)
+def test_linux_bundle_rejects_v8_artifact_authority_mismatch(
+    tmp_path: Path, expected_commit: str, run_id: int, run_attempt: int
+) -> None:
+    root = tmp_path / "artifact"
+    reviewable_v8_artifact(root)
+
+    with pytest.raises(ValueError, match="provenance differs"):
+        BUILDER._review_codex_artifact(root, expected_commit, run_id, run_attempt)
+
+
+def test_linux_bundle_rejects_v7_artifact_and_receipt_inventory_substitution(
+    tmp_path: Path,
+) -> None:
+    historical = tmp_path / "historical"
+    linux_pass_artifact(
+        historical,
+        "linux-build-007",
+        implementation_commit=COMMIT,
+        workflow_run_id=123,
+        workflow_run_attempt=1,
+    )
+    INVENTORY.seal_linux(historical, "linux-build-007")
+    with pytest.raises(ValidationError):
+        BUILDER._review_codex_artifact(historical, COMMIT, 123, 1)
+
+    current = tmp_path / "current"
+    reviewable_v8_artifact(current)
+    inventory_path = current / "native-build-artifact-inventory.json"
+    inventory = NativeBuildArtifactInventoryV2.model_validate_json(inventory_path.read_bytes())
+    raw = inventory.payload.model_dump(mode="python")
+    assert raw["linux_pair"] is not None
+    raw["linux_pair"]["linux_native_codex_build_id"] = OTHER_HASH
+    substituted = NativeBuildArtifactInventoryV2.create(
+        NativeBuildArtifactInventoryPayloadV2.model_validate(raw)
+    )
+    inventory_path.write_text(substituted.model_dump_json(), encoding="utf-8")
+    with pytest.raises(ValueError, match="provenance differs"):
+        BUILDER._review_codex_artifact(current, COMMIT, 123, 1)
+
+
 def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path) -> None:
     root = tmp_path / "artifact"
     content = {
@@ -478,7 +628,7 @@ def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path
     inventory = NativeBuildArtifactInventoryV2.create(
         NativeBuildArtifactInventoryPayloadV2(
             platform="linux",
-            build_id="linux-build-007",
+            build_id="linux-build-008",
             status="PASS",
             build_result_sha256=file_sha256(root / "linux-build-result.json"),
             linux_pair=pair,
@@ -493,16 +643,17 @@ def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode preservation requires Linux")
+@pytest.mark.parametrize("schema_version", (1, 2))
 def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_version: int
 ) -> None:
     release = tmp_path / "release"
     root = release / "bundle"
-    bundle = materialize(root)
+    bundle = materialize(root) if schema_version == 1 else materialize_v2(root)
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)
     (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
-    archive = BUILDER._write_archive(release, bundle)
+    archive = write_test_archive(release, bundle.linux_native_bundle_id, schema_version)
     assert archive.payload.sha256 == file_sha256(release / archive.payload.filename)
 
     inspected: list[tuple[LinuxBundleEntryV1, ...]] = []
@@ -530,7 +681,7 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
 def test_linux_release_rejects_substitution(tmp_path: Path, substitution: str) -> None:
     release = tmp_path / "release"
     root = release / "bundle"
-    bundle = materialize(root)
+    bundle = materialize_v2(root)
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)
     manifest = release / "linux-native-bundle.json"

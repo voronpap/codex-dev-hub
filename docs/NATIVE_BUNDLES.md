@@ -355,7 +355,13 @@ implementation commit; it cannot authorize a normal merge commit. Forward-only
 `linux-build-006` preserves the build-005 pair, proof, cleanup and inventory contracts
 and is reserved for one explicit `workflow_dispatch` on `refs/heads/main` after the
 registration change merges. Ordinary PR validation remains in Offline Core and does
-not compile the pair.
+not compile the pair. Main-only run `38173867791` completed `linux-build-007` at
+commit `61c8d13c74699b34923f4026cccaeb0fbebf0337`, including compilation, the exact
+Default/A/B proof, EOF proof and complete retained inventory. That authority remains
+valid for its historical implementation commit. The subsequently merged Linux
+isolation implementation requires a current-commit pair. Forward-only
+`linux-build-008` preserves all build-007 proof semantics and is consumed only by the
+same-commit bundle V2 contract; V1-V7 receipts remain strict historical contracts.
 
 Its strict self-hashed receipt binds both executable hashes, ELF class/machine,
 program interpreter, `DT_NEEDED`, absence of embedded RPATH/RUNPATH, required
@@ -477,13 +483,16 @@ Build-020 and all OCI evidence remain immutable historical evidence.
 
 ## Native Linux directory authority
 
-The forward-only `linux-build-007` receipt adds the workflow run and attempt to
-the exact merged implementation identity.  It keeps all earlier Linux receipts
-strictly parseable and does not alter their hashes.  The manual main-only
-`linux-native-bundle.yml` workflow accepts only the successful build-007 pair
-from the same implementation commit.
+The historical `linux-build-007` receipt added the workflow run and attempt to
+its exact merged implementation identity. It remains strictly parseable and its
+hash is unchanged. The forward-only `linux-build-008` receipt uses the same proof
+semantics for the current implementation. The manual main-only
+`linux-native-bundle.yml` workflow accepts only the successful build-008 pair,
+run and attempt from the exact same implementation commit.
 
-`LinuxNativeBundleV1` seals a closed directory containing the exact Codex pair,
+`LinuxNativeBundleV1` remains the historical build-007 directory contract.
+`LinuxNativeBundleV2` preserves its closed-layout and runtime rules while requiring
+build-008. It seals a closed directory containing the exact Codex pair,
 an exact copied CPython 3.12.10 runtime, a wheel built from the reviewed commit,
 all registry wheels selected from `uv.lock`, and two relative launchers.  The
 builder clears ambient `site-packages`, installs only reviewed wheels, verifies
@@ -700,25 +709,32 @@ registered, cleanup succeeded, and all execution counters remained zero. V7 is
 the forward-only authority-projection correction; it does not reinterpret the
 V6 failure or weaken the root-owned host requirement.
 
+Main-only run `38307459549` on merge commit
+`b90116c6fe4e15ee5e0e23110acf3e71f4cb41f9` passed the V11 namespace, mount,
+Landlock, AppArmor, metadata-broker and cleanup mechanics. Its exact retained
+record is `docs/evidence/linux-native-isolation/run-38307459549.json`. All four
+execution counters are zero. This baseline deliberately keeps cgroup resource,
+syscall-filter, complete native-executor isolation and package readiness false.
+
 ## Platform acceptance matrix
 
 `PENDING` means the requirement has no accepted native-package evidence yet.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PENDING — `linux-build-004` compiled/proved but retained non-regular runtime scratch; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required; OCI binary does not qualify it |
-| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PENDING — historical builds 003/004 proved surfaces but failed receipt/inventory closure; `linux-build-005` is PR-head evidence and exact-current-commit `linux-build-006` is required |
+| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PARTIAL — `linux-build-007` passed for historical commit `61c8d13c74699b34923f4026cccaeb0fbebf0337`; exact-current-commit `linux-build-008` is registered but not run |
+| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PARTIAL — build-007 proved Default/A/B, EOF, security negatives and retention; exact-current-commit build-008 pending |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
-| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PENDING process/files/permissions/network proof without Docker |
+| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — V11 namespace/mount/Landlock/AppArmor/broker mechanics PASS; cgroup, syscall and complete packaged executor boundary pending |
 | Ollama boundary | PARTIAL — closed metadata-only broker implemented; exact listener/AppContainer receipt pending | PENDING native Linux receipt; service/model remain external |
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PENDING directory/launcher/file manifest |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | Native Linux PR-head `linux-build-005` evidence pending completion; merged-main-only `linux-build-006` registration under review |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for historical build-007 and V11 isolation mechanics; build-008 plus bundle V2 registration under review |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

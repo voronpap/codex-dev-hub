@@ -135,6 +135,7 @@ def prepare_build_source(
         "linux-build-005",
         "linux-build-006",
         "linux-build-007",
+        "linux-build-008",
     }:
         derived_lock, lock_changes = derive_production_host_lock(root)
         expected_lock = PRODUCTION_HOST_LOCK_SHA256
