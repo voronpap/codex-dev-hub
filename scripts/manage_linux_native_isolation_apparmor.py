@@ -26,7 +26,7 @@ from devhub.linux_isolation import (
     LinuxAppArmorSetupStatePayloadV1,
     LinuxAppArmorSetupStateV1,
     LinuxFileAuthorityV1,
-    LinuxIsolationEvidenceV3,
+    LinuxIsolationEvidenceV4,
     LinuxNativePathIdentityV1,
 )
 
@@ -682,7 +682,7 @@ def cleanup(
 ) -> None:
     if output.exists() or output.is_symlink():
         raise ValueError("AppArmor cleanup receipt already exists")
-    mechanics = LinuxIsolationEvidenceV3.model_validate_json(mechanics_path.read_bytes())
+    mechanics = LinuxIsolationEvidenceV4.model_validate_json(mechanics_path.read_bytes())
     state = read_state(state_path)
     profile = mechanics.payload.profile.payload
     apparmor = profile.host.apparmor

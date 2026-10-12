@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import socket
+import stat
 import subprocess
 import threading
 from pathlib import Path
@@ -34,32 +35,41 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidencePayloadV1,
     LinuxIsolationEvidencePayloadV2,
     LinuxIsolationEvidencePayloadV3,
+    LinuxIsolationEvidencePayloadV4,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
     LinuxIsolationEvidenceV3,
+    LinuxIsolationEvidenceV4,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationObservationV1,
     LinuxIsolationObservationV2,
     LinuxIsolationObservationV3,
+    LinuxIsolationObservationV4,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfilePayloadV3,
+    LinuxIsolationProfilePayloadV4,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
     LinuxIsolationProfileV3,
+    LinuxIsolationProfileV4,
     LinuxIsolationQualificationPayloadV3,
-    LinuxIsolationQualificationV3,
+    LinuxIsolationQualificationPayloadV4,
+    LinuxIsolationQualificationV4,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
+    LinuxIsolationReceiptPayloadV4,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
     LinuxIsolationReceiptV3,
+    LinuxIsolationReceiptV4,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
     LinuxNativePathIdentityV1,
     LinuxRlimitsV1,
     LinuxToolAuthorityV1,
+    LinuxToolAuthorityV4,
     enforced_landlock_abi,
     landlock_handled_access,
     observed_private_mount_targets,
@@ -92,6 +102,14 @@ APPARMOR_MANAGER = load_script(
 FINALIZER = load_script(
     "linux_native_isolation_finalizer",
     ROOT / "scripts/finalize_linux_native_isolation.py",
+)
+CHILD = (
+    load_script(
+        "linux_native_isolation_child",
+        ROOT / "scripts/linux_native_isolation_child.py",
+    )
+    if os.name == "posix"
+    else None
 )
 H = "1" * 64
 ENVIRONMENT = "2" * 32
@@ -142,6 +160,30 @@ def tool(
     return LinuxToolAuthorityV1(
         **plain_file(locator or f"/usr/bin/{name}", index=index).model_dump(mode="python"),
         name=name,
+        version_output_sha256=H,
+    )
+
+
+def full_mode_tool(
+    *,
+    name: Literal["unshare", "mount"] = "mount",
+    locator: str = "/usr/bin/mount",
+    index: int = 22,
+    permission_bits: str = "0755",
+    special_bits: str = "04000",
+    full_mode: str = "04755",
+) -> LinuxToolAuthorityV4:
+    return LinuxToolAuthorityV4(
+        name=name,
+        locator=locator,
+        sha256=H,
+        size=1,
+        owner_uid=0,
+        owner_gid=0,
+        permission_bits=permission_bits,
+        special_bits=special_bits,
+        full_mode=full_mode,
+        native_identity=native(index),
         version_output_sha256=H,
     )
 
@@ -275,6 +317,14 @@ def profile_payload() -> LinuxIsolationProfilePayloadV3:
     )
 
 
+def profile_payload_v4() -> LinuxIsolationProfilePayloadV4:
+    raw = profile_payload().model_dump(mode="python")
+    raw["schema_version"] = 4
+    raw["profile_kind"] = "linux_native_isolation_v4"
+    raw["mount"] = full_mode_tool().model_dump(mode="python")
+    return LinuxIsolationProfilePayloadV4.model_validate(raw)
+
+
 def namespace_observation() -> LinuxNamespaceObservationV1:
     return LinuxNamespaceObservationV1(
         host_user_namespace_id="user:[1]",
@@ -305,10 +355,33 @@ def observation() -> LinuxIsolationObservationV3:
     )
 
 
+def observation_v4() -> LinuxIsolationObservationV4:
+    raw = observation().model_dump(mode="python")
+    raw["schema_version"] = 4
+    raw["mount_authority_revalidated"] = True
+    return LinuxIsolationObservationV4.model_validate(raw)
+
+
 def evidence_payload(
     profile: LinuxIsolationProfileV3, receipt: LinuxIsolationReceiptV3
 ) -> LinuxIsolationEvidencePayloadV3:
     return LinuxIsolationEvidencePayloadV3(
+        profile=profile,
+        receipt=receipt,
+        child_stdout_retained_sha256=H,
+        child_stderr_retained_sha256=H,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup=LinuxHostCleanupObservationV1(),
+    )
+
+
+def evidence_payload_v4(
+    profile: LinuxIsolationProfileV4, receipt: LinuxIsolationReceiptV4
+) -> LinuxIsolationEvidencePayloadV4:
+    return LinuxIsolationEvidencePayloadV4(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -362,6 +435,43 @@ def test_linux_profile_receipt_and_composite_are_self_hashed_and_non_ready() -> 
         receipt.payload.mcp_tool_executions,
         receipt.payload.real_task_executions,
     ) == (0, 0, 0, 0)
+
+
+def test_v4_mount_mode_profile_receipt_evidence_and_qualification_are_closed() -> None:
+    profile = LinuxIsolationProfileV4.create(profile_payload_v4())
+    receipt = LinuxIsolationReceiptV4.create(
+        LinuxIsolationReceiptPayloadV4(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation_v4(),
+        )
+    )
+    evidence = LinuxIsolationEvidenceV4.create(evidence_payload_v4(profile, receipt))
+    cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=evidence.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    qualification = LinuxIsolationQualificationV4.create(
+        LinuxIsolationQualificationPayloadV4(
+            mechanics=evidence,
+            apparmor_cleanup=cleanup,
+        )
+    )
+    assert profile.model_validate_json(profile.model_dump_json()) == profile
+    assert receipt.model_validate_json(receipt.model_dump_json()) == receipt
+    assert evidence.model_validate_json(evidence.model_dump_json()) == evidence
+    assert qualification.model_validate_json(qualification.model_dump_json()) == qualification
+    assert profile.payload.mount.full_mode == "04755"
+    assert profile.payload.mount.special_bits == "04000"
+    assert receipt.payload.observation.mount_authority_revalidated is True
+    assert qualification.payload.package_readiness is False
 
 
 def test_historical_v1_contracts_remain_strictly_parseable_and_canonical() -> None:
@@ -536,16 +646,16 @@ def test_apparmor_authority_rejects_unloaded_or_wrong_mode_profile(tmp_path: Pat
         )
 
 
-def test_cleanup_receipt_is_required_for_final_v2_qualification() -> None:
-    profile = LinuxIsolationProfileV3.create(profile_payload())
-    receipt = LinuxIsolationReceiptV3.create(
-        LinuxIsolationReceiptPayloadV3(
+def test_cleanup_receipt_is_required_for_final_v4_qualification() -> None:
+    profile = LinuxIsolationProfileV4.create(profile_payload_v4())
+    receipt = LinuxIsolationReceiptV4.create(
+        LinuxIsolationReceiptPayloadV4(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation(),
+            observation=observation_v4(),
         )
     )
-    mechanics = LinuxIsolationEvidenceV3.create(evidence_payload(profile, receipt))
+    mechanics = LinuxIsolationEvidenceV4.create(evidence_payload_v4(profile, receipt))
     authority_sha = digest(canonical(profile.payload.host.apparmor.model_dump(mode="json")))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
@@ -556,8 +666,8 @@ def test_cleanup_receipt_is_required_for_final_v2_qualification() -> None:
             apparmor_authority_sha256=authority_sha,
         )
     )
-    qualification = LinuxIsolationQualificationV3.create(
-        LinuxIsolationQualificationPayloadV3(mechanics=mechanics, apparmor_cleanup=cleanup)
+    qualification = LinuxIsolationQualificationV4.create(
+        LinuxIsolationQualificationPayloadV4(mechanics=mechanics, apparmor_cleanup=cleanup)
     )
     assert qualification.payload.package_readiness is False
     forged = cleanup.model_dump(mode="python")
@@ -566,7 +676,7 @@ def test_cleanup_receipt_is_required_for_final_v2_qualification() -> None:
         LinuxAppArmorCleanupPayloadV1.model_validate(forged["payload"])
     )
     with pytest.raises(ValidationError, match="authority differ"):
-        LinuxIsolationQualificationPayloadV3(
+        LinuxIsolationQualificationPayloadV4(
             mechanics=mechanics,
             apparmor_cleanup=forged_cleanup,
         )
@@ -1036,15 +1146,15 @@ def production_cleanup_retry_authority(
         )
     ]
     loaded = [LINUX_APPARMOR_CURRENT]
-    profile = LinuxIsolationProfileV3.create(profile_payload())
-    receipt = LinuxIsolationReceiptV3.create(
-        LinuxIsolationReceiptPayloadV3(
+    profile = LinuxIsolationProfileV4.create(profile_payload_v4())
+    receipt = LinuxIsolationReceiptV4.create(
+        LinuxIsolationReceiptPayloadV4(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation(),
+            observation=observation_v4(),
         )
     )
-    mechanics = LinuxIsolationEvidenceV3.create(evidence_payload(profile, receipt))
+    mechanics = LinuxIsolationEvidenceV4.create(evidence_payload_v4(profile, receipt))
     mechanics_path.write_text(mechanics.model_dump_json(), encoding="utf-8")
     snapshot_sha = digest((LINUX_APPARMOR_CURRENT + "\n").encode())
 
@@ -1117,7 +1227,7 @@ def test_production_cleanup_retry_after_unload_journal_crash_writes_receipt(
 
     APPARMOR_MANAGER.cleanup(state_path, mechanics_path, output, runner=unload)
     cleanup = LinuxAppArmorCleanupReceiptV1.model_validate_json(output.read_bytes())
-    mechanics = LinuxIsolationEvidenceV3.model_validate_json(mechanics_path.read_bytes())
+    mechanics = LinuxIsolationEvidenceV4.model_validate_json(mechanics_path.read_bytes())
     assert cleanup.payload.linux_isolation_profile_id == (
         mechanics.payload.profile.linux_isolation_profile_id
     )
@@ -1177,15 +1287,15 @@ def test_cleanup_rejects_complete_state_substitution_before_mutation(
     monkeypatch: pytest.MonkeyPatch,
     updates: dict[str, str],
 ) -> None:
-    profile = LinuxIsolationProfileV3.create(profile_payload())
-    receipt = LinuxIsolationReceiptV3.create(
-        LinuxIsolationReceiptPayloadV3(
+    profile = LinuxIsolationProfileV4.create(profile_payload_v4())
+    receipt = LinuxIsolationReceiptV4.create(
+        LinuxIsolationReceiptPayloadV4(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation(),
+            observation=observation_v4(),
         )
     )
-    mechanics = LinuxIsolationEvidenceV3.create(evidence_payload(profile, receipt))
+    mechanics = LinuxIsolationEvidenceV4.create(evidence_payload_v4(profile, receipt))
     mechanics_path = tmp_path / "mechanics.json"
     mechanics_path.write_text(mechanics.model_dump_json(), encoding="utf-8")
     state = apparmor_setup_state(
@@ -1551,7 +1661,7 @@ def test_mount_parser_requires_exact_private_root_options() -> None:
 
 
 def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
-    profile = LinuxIsolationProfileV3.create(profile_payload())
+    profile = LinuxIsolationProfileV4.create(profile_payload_v4())
     command = PROBE.namespace_command(
         profile,
         Path("/repo/scripts/linux_native_isolation_child.py"),
@@ -1570,6 +1680,9 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
     assert command[command.index("--expected-apparmor-current") + 1] == LINUX_APPARMOR_CURRENT
     assert command[command.index("--expected-kernel-landlock-abi") + 1] == "7"
     assert command[command.index("--expected-enforced-landlock-abi") + 1] == "6"
+    assert json.loads(command[command.index("--expected-mount-authority") + 1]) == (
+        profile.payload.mount.model_dump(mode="json")
+    )
     assert "--dependency" not in command
 
 
@@ -1653,6 +1766,77 @@ def test_file_authority_rejects_relative_locator_and_missing_native_identity() -
     del raw["native_identity"]
     with pytest.raises(ValidationError):
         LinuxFileAuthorityV1.model_validate(raw)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    (
+        ({"full_mode": "00755"}, "full mode differs"),
+        ({"special_bits": "02000", "full_mode": "02755"}, "setgid or sticky"),
+        ({"special_bits": "01000", "full_mode": "01755"}, "setgid or sticky"),
+        ({"permission_bits": "0777", "full_mode": "04777"}, "permissions are unsafe"),
+        ({"owner_uid": 1000}, "root-owned"),
+        ({"owner_gid": 1000}, "root-owned"),
+        (
+            {
+                "name": "unshare",
+                "locator": "/usr/bin/unshare",
+                "special_bits": "04000",
+                "full_mode": "04755",
+            },
+            "Only exact /usr/bin/mount",
+        ),
+        ({"locator": "/opt/devfabric/libexec/mount"}, "Only exact /usr/bin/mount"),
+    ),
+)
+def test_v4_tool_authority_rejects_unsafe_or_inconsistent_modes(
+    changes: dict[str, object], message: str
+) -> None:
+    raw = full_mode_tool().model_dump(mode="python") | changes
+    with pytest.raises(ValidationError, match=message):
+        LinuxToolAuthorityV4.model_validate(raw)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Child authority probe is Linux-only")
+def test_child_revalidates_complete_mount_authority_before_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert CHILD is not None
+    candidate = (tmp_path / "mount").resolve()
+    candidate.write_bytes(b"mount-v1")
+    candidate.chmod(0o755)
+
+    def version(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(command, 0, b"mount version\n", b"")
+
+    monkeypatch.setattr(PROBE.subprocess, "run", version)
+    monkeypatch.setattr(CHILD.subprocess, "run", version)
+    info = candidate.stat()
+    complete_mode = stat.S_IMODE(info.st_mode)
+    expected = {
+        "schema_version": 4,
+        "name": "mount",
+        "locator": str(candidate),
+        "sha256": PROBE.file_sha256(candidate),
+        "size": info.st_size,
+        "owner_uid": info.st_uid,
+        "owner_gid": info.st_gid,
+        "permission_bits": f"0{complete_mode & 0o777:03o}",
+        "special_bits": f"0{complete_mode & 0o7000:04o}",
+        "full_mode": f"0{complete_mode:04o}",
+        "native_identity": {"device": info.st_dev, "inode": info.st_ino},
+        "version_output_sha256": PROBE.sha256(b"mount version\n\n---stderr---\n"),
+    }
+    encoded = json.dumps(expected, sort_keys=True, separators=(",", ":"))
+    CHILD.validate_mount_authority(candidate, encoded)
+
+    candidate.write_bytes(b"mount-v2")
+    with pytest.raises(ValueError, match="changed before the first mount"):
+        CHILD.validate_mount_authority(candidate, encoded)
+    candidate.write_bytes(b"mount-v1")
+    candidate.chmod(0o700)
+    with pytest.raises(ValueError, match="changed before the first mount"):
+        CHILD.validate_mount_authority(candidate, encoded)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Native device/inode authority is Linux-only")
