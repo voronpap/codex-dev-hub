@@ -3986,6 +3986,136 @@ def test_v3_registration_cannot_supply_missing_result_mount_authority() -> None:
     )
 
 
+def test_registered_observation_uses_strict_json_representation_boundary() -> None:
+    registration = LinuxChildRegistrationPayloadV3(
+        apparmor_current_profile=LINUX_APPARMOR_CURRENT,
+        outer_pid=123,
+        outer_uid=1000,
+        start_time_ticks=456,
+        mount_owner_projection=owner_projection(),
+        mount_authority=LinuxMountAuthorityObservationV1(),
+    )
+    raw = cast(dict[str, object], json.loads(observation_v11().model_dump_json()))
+    for field in ("observed_mount_targets", "landlock_rule_targets", "cleanup_failures"):
+        assert isinstance(raw[field], list)
+    with pytest.raises(ValidationError, match="valid tuple"):
+        LinuxIsolationObservationV11.model_validate(raw)
+
+    observed = PROBE.validate_registered_observation(raw, registration)
+    assert observed == observation_v11()
+    assert isinstance(observed.observed_mount_targets, tuple)
+    assert isinstance(observed.landlock_rule_targets, tuple)
+    assert isinstance(observed.cleanup_failures, tuple)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("observed_mount_targets", "/bundle"),
+        ("landlock_rule_targets", [1]),
+        ("cleanup_failures", ["forged"]),
+        ("unexpected", True),
+    ],
+)
+def test_registered_observation_json_boundary_rejects_tampering(field: str, value: object) -> None:
+    registration = LinuxChildRegistrationPayloadV3(
+        apparmor_current_profile=LINUX_APPARMOR_CURRENT,
+        outer_pid=123,
+        outer_uid=1000,
+        start_time_ticks=456,
+        mount_owner_projection=owner_projection(),
+        mount_authority=LinuxMountAuthorityObservationV1(),
+    )
+    raw = cast(dict[str, object], json.loads(observation_v11().model_dump_json()))
+    raw[field] = value
+    with pytest.raises(ValidationError):
+        PROBE.validate_registered_observation(raw, registration)
+
+
+def test_registered_observation_keeps_registration_authority_join() -> None:
+    raw = cast(dict[str, object], json.loads(observation_v11().model_dump_json()))
+    mismatched = LinuxMountAuthorityObservationV1().model_copy(
+        update={"post_exec_authority_matched": False}
+    )
+    registration = LinuxChildRegistrationPayloadV3(
+        apparmor_current_profile=LINUX_APPARMOR_CURRENT,
+        outer_pid=123,
+        outer_uid=1000,
+        start_time_ticks=456,
+        mount_owner_projection=owner_projection(),
+        mount_authority=mismatched,
+    )
+    with pytest.raises(ValueError, match="result/registration mount authority mismatch"):
+        PROBE.validate_registered_observation(raw, registration)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Linux probe success path is Linux-only")
+def test_run_probe_accepts_zero_exit_child_json_arrays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    profile = profile_v11_for_server(server)
+    capture = PROBE.ProbeProcessCapture()
+    broker_dir = tmp_path / "broker"
+    broker_dir.mkdir(mode=0o700)
+    child_result = observation_v11().model_dump_json().encode("utf-8") + b"\n"
+    monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "revalidate_synthetic_upstream", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(PROBE, "process_start_time", lambda _pid: 456)
+    monkeypatch.setattr(PROBE, "is_descendant", lambda *_args: True)
+    monkeypatch.setattr(
+        PROBE,
+        "namespace_command",
+        lambda *args: registered_child_command(
+            cast(int, args[7]), cast(int, args[8]), child_result, 0
+        ),
+    )
+    monkeypatch.setattr(
+        PROBE.LinuxMetadataBrokerV1,
+        "serve_requests",
+        lambda *_args, **_kwargs: (
+            "/api/version",
+            "/api/tags",
+            "/api/show",
+            "denied",
+            "denied",
+        ),
+    )
+
+    def complete_stub(
+        _server: socket.socket,
+        _stop: threading.Event,
+        outcomes: list[str],
+        _errors: list[BaseException],
+    ) -> None:
+        outcomes.extend(("/api/version", "/api/tags", "/api/show"))
+
+    monkeypatch.setattr(PROBE, "stub_ollama", complete_stub)
+    try:
+        observed = PROBE.run_probe(
+            profile,
+            ROOT / "scripts/linux_native_isolation_child.py",
+            tmp_path / "root",
+            tmp_path / "bundle",
+            tmp_path / "state",
+            tmp_path / "output",
+            broker_dir,
+            server,
+            capture,
+        )
+    finally:
+        server.close()
+    assert observed == observation_v11().model_copy(
+        update={
+            "synthetic_upstream": LinuxSyntheticUpstreamObservationV1(
+                authority=profile.payload.synthetic_upstream
+            )
+        }
+    )
+    assert capture.returncode == 0
+
+
 @pytest.mark.skipif(os.name != "posix", reason="Isolated child bootstrap is Linux-only")
 def test_child_bootstrap_starts_with_base_interpreter_under_hostile_python_env(
     tmp_path: Path,
