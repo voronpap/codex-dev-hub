@@ -600,6 +600,19 @@ content, path, mode, owner projection, version and post-execution substitution
 checks remain unchanged. V1/V2 child failures and V1-V8 qualification contracts
 remain parseable. V9 evidence is diagnostic and does not grant readiness.
 
+Main-only run `38286347864` on merge commit
+`b4a3345997eb8f0de5dea27c2cf4771b40325186` passed V9 registration and then
+failed after registration. The host reported broker cancellation before the
+child return code, while the bounded stderr hash could not identify the child
+stage. V10 adds a self-hashed, fixed-enum post-registration child failure frame
+for private-root setup, rlimits, capability drop, Landlock, negative probes,
+broker observation and result assembly. It contains no raw exception text or
+paths. A valid child frame takes precedence over the exact expected broker
+cancellation caused by host shutdown; an independent broker error still fails
+as a broker error. Failure V6 retains the typed child frame, while V1-V9 success
+and V1-V5 failure evidence remain parseable. V10 remains diagnostic and does
+not grant readiness.
+
 The real Ubuntu mechanics probe uses a synthetic non-task fixture and a local
 metadata stub. It makes no Codex, MCP, model or provider call. Its receipt
 therefore proves namespace/mount/Landlock/broker mechanics only. It explicitly

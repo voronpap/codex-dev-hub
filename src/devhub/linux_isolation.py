@@ -695,6 +695,16 @@ class LinuxIsolationProfilePayloadV9(LinuxIsolationProfilePayloadV8):
     )
 
 
+class LinuxIsolationProfilePayloadV10(LinuxIsolationProfilePayloadV9):
+    """Forward-only profile binding typed post-registration child failures."""
+
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v10"] = "linux_native_isolation_v10"  # type: ignore[assignment]
+    child_runtime_failure_protocol: Literal["linux_child_runtime_failure_v1"] = (
+        "linux_child_runtime_failure_v1"
+    )
+
+
 class LinuxIsolationProfileV1(Contract):
     linux_isolation_profile_id: Digest
     payload: LinuxIsolationProfilePayloadV1
@@ -870,6 +880,26 @@ class LinuxIsolationProfileV9(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation V9 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV10(ContractV2):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV10
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV10) -> LinuxIsolationProfileV10:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV10:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V10 profile hash mismatch")
         return self
 
 
@@ -1307,6 +1337,66 @@ class LinuxChildBootstrapFailureV3(ContractV2):
         return self
 
 
+class LinuxChildRuntimeFailurePayloadV1(Contract):
+    """Bounded post-registration diagnostic with no raw text or host paths."""
+
+    schema_version: Literal[1] = 1
+    frame_kind: Literal["linux_child_runtime_failure_v1"] = "linux_child_runtime_failure_v1"
+    stage: Literal[
+        "private_root",
+        "rlimits",
+        "capability_drop",
+        "landlock",
+        "negative_probes",
+        "broker",
+        "result_assembly",
+    ]
+    reason_code: Literal[
+        "private_root_failed",
+        "rlimits_failed",
+        "capability_drop_failed",
+        "landlock_failed",
+        "negative_probes_failed",
+        "broker_failed",
+        "result_assembly_failed",
+    ]
+
+    @model_validator(mode="after")
+    def exact_stage_reason(self) -> LinuxChildRuntimeFailurePayloadV1:
+        expected = {
+            "private_root": "private_root_failed",
+            "rlimits": "rlimits_failed",
+            "capability_drop": "capability_drop_failed",
+            "landlock": "landlock_failed",
+            "negative_probes": "negative_probes_failed",
+            "broker": "broker_failed",
+            "result_assembly": "result_assembly_failed",
+        }[self.stage]
+        if self.reason_code != expected:
+            raise ValueError("Linux child runtime stage and reason differ")
+        return self
+
+
+class LinuxChildRuntimeFailureV1(Contract):
+    schema_version: Literal[1] = 1
+    child_runtime_failure_id: Digest
+    payload: LinuxChildRuntimeFailurePayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxChildRuntimeFailurePayloadV1) -> LinuxChildRuntimeFailureV1:
+        return cls(
+            child_runtime_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxChildRuntimeFailureV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.child_runtime_failure_id != expected:
+            raise ValueError("Linux child runtime failure hash mismatch")
+        return self
+
+
 class LinuxIsolationObservationV6(LinuxIsolationObservationV5):
     """V6 observation proves the isolated stdlib-only child entry boundary."""
 
@@ -1332,6 +1422,12 @@ class LinuxIsolationObservationV9(LinuxIsolationObservationV8):
     """V9 preserves the successful V8 observation contract."""
 
     schema_version: Literal[9] = 9  # type: ignore[assignment]
+
+
+class LinuxIsolationObservationV10(LinuxIsolationObservationV9):
+    """V10 preserves the successful V9 observation contract."""
+
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
 
 
 class LinuxHostCleanupObservationV1(Contract):
@@ -1675,6 +1771,34 @@ class LinuxIsolationReceiptV9(ContractV2):
         return self
 
 
+class LinuxIsolationReceiptPayloadV10(LinuxIsolationReceiptPayloadV9):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v10"] = (
+        "linux_native_isolation_receipt_v10"  # type: ignore[assignment]
+    )
+    observation: LinuxIsolationObservationV10
+
+
+class LinuxIsolationReceiptV10(ContractV2):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV10
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV10) -> LinuxIsolationReceiptV10:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV10:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V10 receipt hash mismatch")
+        return self
+
+
 class LinuxIsolationEvidencePayloadV2(ContractV2):
     schema_version: Literal[2] = 2
     profile: LinuxIsolationProfileV2
@@ -1988,6 +2112,32 @@ class LinuxIsolationEvidenceV9(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_evidence_id != expected:
             raise ValueError("Linux isolation V9 evidence hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV10(LinuxIsolationEvidencePayloadV9):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV10  # type: ignore[assignment]
+    receipt: LinuxIsolationReceiptV10  # type: ignore[assignment]
+
+
+class LinuxIsolationEvidenceV10(ContractV2):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV10
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV10) -> LinuxIsolationEvidenceV10:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV10:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V10 evidence hash mismatch")
         return self
 
 
@@ -2441,6 +2591,33 @@ class LinuxIsolationQualificationV9(ContractV2):
         return self
 
 
+class LinuxIsolationQualificationPayloadV10(LinuxIsolationQualificationPayloadV9):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV10  # type: ignore[assignment]
+
+
+class LinuxIsolationQualificationV10(ContractV2):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV10
+
+    @classmethod
+    def create(
+        cls, payload: LinuxIsolationQualificationPayloadV10
+    ) -> LinuxIsolationQualificationV10:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV10:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V10 qualification hash mismatch")
+        return self
+
+
 class LinuxIsolationFailurePayloadV1(Contract):
     schema_version: Literal[1] = 1
     receipt_kind: Literal["linux_native_isolation_failure_v1"] = "linux_native_isolation_failure_v1"
@@ -2701,4 +2878,63 @@ class LinuxIsolationFailureV5(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_failure_id != expected:
             raise ValueError("Linux isolation V5 failure hash mismatch")
+        return self
+
+
+class LinuxIsolationFailurePayloadV6(LinuxIsolationFailurePayloadV2):
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_failure_v6"] = "linux_native_isolation_failure_v6"  # type: ignore[assignment]
+    child_bootstrap_failure: LinuxChildBootstrapFailureV3 | None = None
+    child_runtime_failure: LinuxChildRuntimeFailureV1 | None = None
+
+    @model_validator(mode="after")
+    def exact_child_failure(self) -> LinuxIsolationFailurePayloadV6:
+        cleanup_overrides_primary = (
+            self.phase == "cleanup" and self.cleanup_attempted and not self.cleanup_succeeded
+        )
+        if self.child_bootstrap_failure is not None:
+            if (
+                self.phase != "child_registration" and not cleanup_overrides_primary
+            ) or not self.child_process_started:
+                raise ValueError("Linux V6 bootstrap failure is attached to an invalid phase")
+            if self.child_returncode != 70:
+                raise ValueError("Linux V6 bootstrap failure has an unexpected return code")
+        if self.child_runtime_failure is not None:
+            expected_phase = {
+                "private_root": "private_root",
+                "rlimits": "child_result",
+                "capability_drop": "capability_drop",
+                "landlock": "landlock",
+                "negative_probes": "negative_probes",
+                "broker": "broker",
+                "result_assembly": "child_result",
+            }[self.child_runtime_failure.payload.stage]
+            if (
+                self.phase != expected_phase and not cleanup_overrides_primary
+            ) or not self.child_process_started:
+                raise ValueError("Linux V6 runtime failure is attached to an invalid phase")
+            if self.child_returncode != 71:
+                raise ValueError("Linux V6 runtime failure has an unexpected return code")
+        if self.child_bootstrap_failure is not None and self.child_runtime_failure is not None:
+            raise ValueError("Linux V6 failure records two child failure authorities")
+        return self
+
+
+class LinuxIsolationFailureV6(ContractV2):
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+    linux_isolation_failure_id: Digest
+    payload: LinuxIsolationFailurePayloadV6
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationFailurePayloadV6) -> LinuxIsolationFailureV6:
+        return cls(
+            linux_isolation_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationFailureV6:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_failure_id != expected:
+            raise ValueError("Linux isolation V6 failure hash mismatch")
         return self
