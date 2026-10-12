@@ -707,6 +707,20 @@ def observed_landlock_authority() -> tuple[int, int, int]:
     return kernel_abi, policy_abi, landlock_handled_access(policy_abi)
 
 
+def landlock_rules() -> tuple[tuple[str, int], ...]:
+    """Return the exact reviewed paths that remain visible after restriction."""
+
+    return (
+        ("/bundle", READ_ONLY_ACCESS),
+        ("/home", READ_WRITE_ACCESS),
+        ("/output", READ_WRITE_ACCESS),
+        ("/proc", ACCESS_READ_FILE | ACCESS_READ_DIR),
+        ("/run/devfabric", ACCESS_READ_FILE | ACCESS_READ_DIR),
+        ("/state", READ_WRITE_ACCESS),
+        ("/tmp", READ_WRITE_ACCESS),
+    )
+
+
 def apply_landlock() -> tuple[int, int, int, tuple[str, ...], str]:
     kernel_abi, policy_abi, handled_access = observed_landlock_authority()
     libc = ctypes.CDLL(None, use_errno=True)
@@ -719,15 +733,7 @@ def apply_landlock() -> tuple[int, int, int, tuple[str, ...], str]:
     )
     if ruleset_fd < 0:
         raise OSError(ctypes.get_errno(), "Landlock ruleset creation failed")
-    rules: list[tuple[str, int]] = [
-        ("/bundle", READ_ONLY_ACCESS),
-        ("/home", READ_WRITE_ACCESS),
-        ("/output", READ_WRITE_ACCESS),
-        ("/proc", ACCESS_READ_FILE | ACCESS_READ_DIR),
-        ("/run/devfabric", ACCESS_READ_FILE | ACCESS_READ_DIR),
-        ("/state", READ_WRITE_ACCESS),
-        ("/tmp", READ_WRITE_ACCESS),
-    ]
+    rules = landlock_rules()
     opened: list[int] = []
     try:
         for path, access in rules:
@@ -754,6 +760,14 @@ def apply_landlock() -> tuple[int, int, int, tuple[str, ...], str]:
     targets = tuple(path for path, _ in rules)
     ruleset_identity = digest(canonical(rules))
     return kernel_abi, policy_abi, handled_access, targets, ruleset_identity
+
+
+def validate_private_dev(path: Path = Path("/dev")) -> bool:
+    """Seal that the private device tmpfs is empty before Landlock hides it."""
+
+    if tuple(path.iterdir()) != ():
+        raise ValueError("Private /dev contains an unexpected entry")
+    return True
 
 
 def process_security_status() -> dict[str, int]:
@@ -1012,6 +1026,7 @@ def run_post_registration(
         )
         os.chroot(args.root)
         os.chdir("/")
+        minimal_dev = validate_private_dev()
 
         stage = "rlimits"
         rlimits = set_limits()
@@ -1099,7 +1114,7 @@ def run_post_registration(
             "home_tmpfs": True,
             "tmp_tmpfs": True,
             "fresh_proc": True,
-            "minimal_dev": tuple(Path("/dev").iterdir()) == (),
+            "minimal_dev": minimal_dev,
             "host_root_hidden": host_hidden,
             "host_home_hidden": home_hidden,
             "no_new_privs": status["no_new_privs"] == 1,
