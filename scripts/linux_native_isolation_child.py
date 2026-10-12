@@ -801,7 +801,7 @@ def denied_dns() -> bool:
 
 def unix_http(
     checkpoint: str, socket_path: str, raw: bytes
-) -> tuple[bytes, tuple[int, int, int], int]:
+) -> tuple[bytes, tuple[int, int, int], tuple[int, int], int, int]:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(5)
     try:
@@ -882,7 +882,13 @@ def unix_http(
                     checkpoint, "response_bound", "broker_response_bound_exceeded"
                 )
             chunks.extend(chunk)
-        return bytes(chunks), peer, socket_info.st_ino
+        return (
+            bytes(chunks),
+            peer,
+            (socket_info.st_dev, socket_info.st_ino),
+            stat.S_IMODE(socket_info.st_mode),
+            stat.S_IMODE(parent_info.st_mode),
+        )
     finally:
         client.close()
 
@@ -894,7 +900,7 @@ def broker_observations() -> dict[str, bool | str | int]:
         time.sleep(0.05)
     if not Path(socket_path).exists():
         raise BrokerObservationFailure("socket_wait", "wait", "broker_socket_missing")
-    version, version_peer, socket_inode = unix_http(
+    version, version_peer, version_identity, version_mode, version_parent_mode = unix_http(
         "version",
         socket_path,
         b"GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:11434\r\n\r\n",
@@ -903,7 +909,7 @@ def broker_observations() -> dict[str, bool | str | int]:
         raise BrokerObservationFailure(
             "version", "response_status", "broker_response_status_invalid"
         )
-    tags, tags_peer, tags_inode = unix_http(
+    tags, tags_peer, tags_identity, tags_mode, tags_parent_mode = unix_http(
         "tags",
         socket_path,
         b"GET /api/tags HTTP/1.1\r\nHost: 127.0.0.1:11434\r\n\r\n",
@@ -911,7 +917,7 @@ def broker_observations() -> dict[str, bool | str | int]:
     if not tags.startswith(b"HTTP/1.1 200"):
         raise BrokerObservationFailure("tags", "response_status", "broker_response_status_invalid")
     show_body = b'{"model":"qwen2.5:14b-instruct"}'
-    show, show_peer, show_inode = unix_http(
+    show, show_peer, show_identity, show_mode, show_parent_mode = unix_http(
         "show",
         socket_path,
         b"POST /api/show HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nContent-Length: "
@@ -921,7 +927,7 @@ def broker_observations() -> dict[str, bool | str | int]:
     )
     if not show.startswith(b"HTTP/1.1 200"):
         raise BrokerObservationFailure("show", "response_status", "broker_response_status_invalid")
-    generate, generate_peer, generate_inode = unix_http(
+    generate, generate_peer, generate_identity, generate_mode, generate_parent_mode = unix_http(
         "generate_denial",
         socket_path,
         b"POST /api/generate HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nContent-Length: 2\r\n\r\n{}",
@@ -930,30 +936,54 @@ def broker_observations() -> dict[str, bool | str | int]:
         raise BrokerObservationFailure(
             "generate_denial", "response_status", "broker_response_status_invalid"
         )
-    oversized, oversized_peer, oversized_inode = unix_http(
-        "oversized_denial",
-        socket_path,
-        b"GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nX: " + b"a" * (70 * 1024),
+    oversized, oversized_peer, oversized_identity, oversized_mode, oversized_parent_mode = (
+        unix_http(
+            "oversized_denial",
+            socket_path,
+            b"GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nX: " + b"a" * (70 * 1024),
+        )
     )
     if not oversized.startswith(b"HTTP/1.1 403"):
         raise BrokerObservationFailure(
             "oversized_denial", "response_status", "broker_response_status_invalid"
         )
     peers = (version_peer, tags_peer, show_peer, generate_peer, oversized_peer)
-    inodes = (socket_inode, tags_inode, show_inode, generate_inode, oversized_inode)
-    if len(set(inodes)) != 1:
+    checkpoints = ("version", "tags", "show", "generate_denial", "oversized_denial")
+    identities = (
+        version_identity,
+        tags_identity,
+        show_identity,
+        generate_identity,
+        oversized_identity,
+    )
+    socket_modes = (version_mode, tags_mode, show_mode, generate_mode, oversized_mode)
+    parent_modes = (
+        version_parent_mode,
+        tags_parent_mode,
+        show_parent_mode,
+        generate_parent_mode,
+        oversized_parent_mode,
+    )
+    for checkpoint, socket_mode, parent_mode in zip(
+        checkpoints, socket_modes, parent_modes, strict=True
+    ):
+        if socket_mode != 0o600:
+            raise BrokerObservationFailure(checkpoint, "socket_mode", "broker_socket_mode_invalid")
+        if parent_mode != 0o700:
+            raise BrokerObservationFailure(checkpoint, "parent_mode", "broker_parent_mode_invalid")
+    if len(set(identities)) != 1:
         raise BrokerObservationFailure(
             "inode_stability", "inode_compare", "broker_inode_substitution"
         )
     peer_pid_translation = all(peer[0] == 0 for peer in peers)
     peer_uid_translation = all(peer[1] == 1000 for peer in peers)
     return {
-        "socket_parent_mode": f"0{stat.S_IMODE(os.lstat(Path(socket_path).parent).st_mode):03o}",
-        "socket_mode": f"0{stat.S_IMODE(os.lstat(socket_path).st_mode):03o}",
+        "socket_parent_mode": f"0{version_parent_mode:03o}",
+        "socket_mode": f"0{version_mode:03o}",
         "pid_namespace_translation_validated": peer_pid_translation,
         "child_verified_broker_pid_translation": peer_pid_translation,
         "child_verified_broker_uid": peer_uid_translation,
-        "socket_inode": socket_inode,
+        "socket_inode": version_identity[1],
         "version_allowed": version.startswith(b"HTTP/1.1 200"),
         "tags_allowed": tags.startswith(b"HTTP/1.1 200"),
         "show_allowed": show.startswith(b"HTTP/1.1 200"),

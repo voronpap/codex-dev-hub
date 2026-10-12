@@ -3289,8 +3289,11 @@ def broker_observation_fixture(
     peer_pid: int = 0,
     peer_uid: int = 1000,
     inodes: tuple[int, ...] = (7, 7, 7, 7, 7),
+    devices: tuple[int, ...] = (1, 1, 1, 1, 1),
     parent_mode: int = 0o700,
     socket_mode: int = 0o600,
+    parent_modes: tuple[int, ...] | None = None,
+    socket_modes: tuple[int, ...] | None = None,
     responses: tuple[bytes, ...] = (
         b"HTTP/1.1 200 OK",
         b"HTTP/1.1 200 OK",
@@ -3300,27 +3303,41 @@ def broker_observation_fixture(
     ),
 ) -> dict[str, bool | str | int]:
     assert CHILD is not None
-    response_iterator = iter(zip(responses, inodes, strict=True))
+    response_iterator = iter(
+        zip(
+            responses,
+            devices,
+            inodes,
+            parent_modes or (parent_mode,) * 5,
+            socket_modes or (socket_mode,) * 5,
+            strict=True,
+        )
+    )
 
     def fail_outer_pid() -> int:
         raise AssertionError("post-chroot code must not inspect the outer PID")
 
     def unix_http(
         _checkpoint: str, _socket_path: str, _raw: bytes
-    ) -> tuple[bytes, tuple[int, int, int], int]:
-        response, inode = next(response_iterator)
-        return response, (peer_pid, peer_uid, 1000), inode
+    ) -> tuple[bytes, tuple[int, int, int], tuple[int, int], int, int]:
+        response, device, inode, observed_parent_mode, observed_socket_mode = next(
+            response_iterator
+        )
+        return (
+            response,
+            (peer_pid, peer_uid, 1000),
+            (device, inode),
+            observed_socket_mode,
+            observed_parent_mode,
+        )
 
-    def lstat(path: object) -> os.stat_result:
-        is_socket = str(path).endswith("ollama.sock")
-        mode = (stat.S_IFSOCK | socket_mode) if is_socket else (stat.S_IFDIR | parent_mode)
-        inode = 7 if is_socket else 6
-        return os.stat_result((mode, inode, 1, 1, 1000, 1000, 0, 0, 0, 0))
+    def fail_post_session_lstat(_path: object) -> os.stat_result:
+        raise FileNotFoundError("broker socket was removed after the final response")
 
     monkeypatch.setattr(CHILD, "outer_pid", fail_outer_pid)
     monkeypatch.setattr(CHILD, "unix_http", unix_http)
     monkeypatch.setattr(CHILD.Path, "exists", lambda _path: True)
-    monkeypatch.setattr(CHILD.os, "lstat", lstat)
+    monkeypatch.setattr(CHILD.os, "lstat", fail_post_session_lstat)
     return cast(dict[str, bool | str | int], CHILD.broker_observations())
 
 
@@ -3499,14 +3516,25 @@ def test_child_broker_translation_uses_exact_peer_observations(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
+def test_child_broker_assembles_from_per_request_snapshots_after_socket_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed = broker_observation_fixture(monkeypatch)
+    assert observed["socket_parent_mode"] == "0700"
+    assert observed["socket_mode"] == "0600"
+    assert observed["socket_inode"] == 7
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
 @pytest.mark.parametrize(
     ("overrides", "direct_reason"),
     [
         ({"peer_pid": 1}, None),
         ({"peer_uid": 1001}, None),
         ({"inodes": (7, 7, 8, 7, 7)}, "broker_inode_substitution"),
-        ({"parent_mode": 0o755}, None),
-        ({"socket_mode": 0o644}, None),
+        ({"devices": (1, 1, 2, 1, 1)}, "broker_inode_substitution"),
+        ({"parent_modes": (0o700, 0o700, 0o755, 0o700, 0o700)}, "broker_parent_mode_invalid"),
+        ({"socket_modes": (0o600, 0o600, 0o644, 0o600, 0o600)}, "broker_socket_mode_invalid"),
         (
             {
                 "responses": (
@@ -3541,6 +3569,25 @@ def test_child_broker_observation_rejects_authority_mismatch(
     )
     with pytest.raises(ValidationError):
         LinuxBrokerObservationV1.model_validate(observed)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child broker is Linux-only")
+def test_child_broker_snapshot_failure_writer_reader_preserves_exact_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(CHILD.BrokerObservationFailure) as error:
+        broker_observation_fixture(
+            monkeypatch,
+            socket_modes=(0o600, 0o600, 0o600, 0o600, 0o644),
+        )
+    frame = CHILD.runtime_failure_frame("broker", H, ENVIRONMENT, error.value)
+    parsed = LinuxChildRuntimeFailureV2.model_validate(frame)
+    assert (
+        parsed.payload.broker_checkpoint,
+        parsed.payload.broker_operation,
+        parsed.payload.reason_code,
+        parsed.payload.errno_category,
+    ) == ("oversized_denial", "socket_mode", "broker_socket_mode_invalid", None)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Namespace projection is Linux-only")
