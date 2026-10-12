@@ -3516,20 +3516,19 @@ def test_child_revalidates_complete_mount_authority_before_use(
     )
     info = candidate.stat()
     complete_mode = stat.S_IMODE(info.st_mode)
-    expected = {
-        "schema_version": 4,
-        "name": "mount",
-        "locator": str(candidate),
-        "sha256": PROBE.file_sha256(candidate),
-        "size": info.st_size,
-        "owner_uid": 0,
-        "owner_gid": 0,
-        "permission_bits": f"0{complete_mode & 0o777:03o}",
-        "special_bits": f"0{complete_mode & 0o7000:04o}",
-        "full_mode": f"0{complete_mode:04o}",
-        "native_identity": {"device": info.st_dev, "inode": info.st_ino},
-        "version_output_sha256": PROBE.sha256(b"mount version\n\n---stderr---\n"),
-    }
+    expected = LinuxToolAuthorityV4(
+        name="mount",
+        locator=str(candidate),
+        sha256=PROBE.file_sha256(candidate),
+        size=info.st_size,
+        owner_uid=0,
+        owner_gid=0,
+        permission_bits=f"0{complete_mode & 0o777:03o}",
+        special_bits=f"0{complete_mode & 0o7000:04o}",
+        full_mode=f"0{complete_mode:04o}",
+        native_identity=LinuxNativePathIdentityV1(device=info.st_dev, inode=info.st_ino),
+        version_output_sha256=PROBE.sha256(b"mount version\n\n---stderr---\n"),
+    ).model_dump(mode="json")
     encoded = json.dumps(expected, sort_keys=True, separators=(",", ":"))
     environment = LinuxToolVersionEnvironmentV1().model_dump_json()
     projection, authority = CHILD.validate_mount_authority(
@@ -3545,21 +3544,65 @@ def test_child_revalidates_complete_mount_authority_before_use(
         {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"}
     ]
 
-    mismatched_identity = copy.deepcopy(expected)
-    mismatched_identity["native_identity"] = {"device": info.st_dev + 1, "inode": info.st_ino}
-    with pytest.raises(CHILD.BootstrapValidationFailure) as identity_mismatch:
-        CHILD.validate_mount_authority(
-            candidate,
-            json.dumps(mismatched_identity, sort_keys=True, separators=(",", ":")),
-            environment,
-            65534,
-            65534,
+    for field in ("device", "inode"):
+        mismatched_identity = copy.deepcopy(expected)
+        mismatched_identity["native_identity"][field] += 1
+        with pytest.raises(CHILD.BootstrapValidationFailure) as identity_mismatch:
+            CHILD.validate_mount_authority(
+                candidate,
+                json.dumps(mismatched_identity, sort_keys=True, separators=(",", ":")),
+                environment,
+                65534,
+                65534,
+            )
+        assert identity_mismatch.value.reason_code == "mount_pre_exec_identity_mismatch"
+        expected_projection = {
+            "device": mismatched_identity["native_identity"]["device"],
+            "inode": mismatched_identity["native_identity"]["inode"],
+        }
+        observed_projection = {
+            "device": expected["native_identity"]["device"],
+            "inode": expected["native_identity"]["inode"],
+        }
+        assert identity_mismatch.value.expected_native_identity == expected_projection
+        assert identity_mismatch.value.observed_native_identity == observed_projection
+        frame = LinuxChildBootstrapFailureV3.create(
+            LinuxChildBootstrapFailurePayloadV3(
+                stage=identity_mismatch.value.stage,
+                reason_code=identity_mismatch.value.reason_code,
+                expected_native_identity=identity_mismatch.value.expected_native_identity,
+                observed_native_identity=identity_mismatch.value.observed_native_identity,
+            )
         )
-    assert identity_mismatch.value.reason_code == "mount_pre_exec_identity_mismatch"
-    assert (
-        identity_mismatch.value.expected_native_identity == (mismatched_identity["native_identity"])
+        assert LinuxChildBootstrapFailureV3.model_validate_json(frame.model_dump_json()) == frame
+
+    malformed_identities: tuple[object, ...] = (
+        {"device": info.st_dev, "inode": info.st_ino},
+        {"schema_version": 2, "device": info.st_dev, "inode": info.st_ino},
+        {
+            "schema_version": 1,
+            "device": info.st_dev,
+            "inode": info.st_ino,
+            "extra": 1,
+        },
+        {"schema_version": True, "device": info.st_dev, "inode": info.st_ino},
+        {"schema_version": 1, "device": True, "inode": info.st_ino},
+        {"schema_version": 1, "device": info.st_dev, "inode": True},
     )
-    assert identity_mismatch.value.observed_native_identity == expected["native_identity"]
+    for malformed_identity in malformed_identities:
+        malformed = copy.deepcopy(expected)
+        malformed["native_identity"] = malformed_identity
+        with pytest.raises(CHILD.BootstrapValidationFailure) as invalid_identity:
+            CHILD.validate_mount_authority(
+                candidate,
+                json.dumps(malformed, sort_keys=True, separators=(",", ":")),
+                environment,
+                65534,
+                65534,
+            )
+        assert invalid_identity.value.reason_code == "mount_pre_exec_content_mismatch"
+        assert invalid_identity.value.expected_native_identity is None
+        assert invalid_identity.value.observed_native_identity is None
 
     candidate.write_bytes(b"mount-v2")
     with pytest.raises(CHILD.BootstrapValidationFailure) as changed_bytes:
@@ -3632,6 +3675,7 @@ def test_child_revalidates_complete_mount_authority_before_use(
 
     replacement_info = candidate.stat()
     expected["native_identity"] = {
+        "schema_version": 1,
         "device": replacement_info.st_dev,
         "inode": replacement_info.st_ino,
     }

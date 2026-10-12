@@ -291,23 +291,27 @@ def validate_mount_authority(
         for key in ("permission_bits", "special_bits", "full_mode")
     ):
         raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_mode_mismatch")
-    if observed_static["native_identity"] != expected.get("native_identity"):
-        expected_identity = expected.get("native_identity")
-        if (
-            not isinstance(expected_identity, dict)
-            or not isinstance(expected_identity.get("device"), int)
-            or not isinstance(expected_identity.get("inode"), int)
-            or expected_identity["device"] < 0
-            or expected_identity["inode"] < 1
-        ):
-            raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_content_mismatch")
+    expected_identity = expected.get("native_identity")
+    if (
+        not isinstance(expected_identity, dict)
+        or set(expected_identity) != {"schema_version", "device", "inode"}
+        or type(expected_identity.get("schema_version")) is not int
+        or expected_identity["schema_version"] != 1
+        or type(expected_identity.get("device")) is not int
+        or type(expected_identity.get("inode")) is not int
+        or expected_identity["device"] < 0
+        or expected_identity["inode"] < 1
+    ):
+        raise BootstrapValidationFailure("mount_authority", "mount_pre_exec_content_mismatch")
+    expected_identity_projection = {
+        "device": expected_identity["device"],
+        "inode": expected_identity["inode"],
+    }
+    if observed_static["native_identity"] != expected_identity_projection:
         raise BootstrapValidationFailure(
             "mount_authority",
             "mount_pre_exec_identity_mismatch",
-            expected_native_identity={
-                "device": expected_identity["device"],
-                "inode": expected_identity["inode"],
-            },
+            expected_native_identity=expected_identity_projection,
             observed_native_identity={
                 "device": info.st_dev,
                 "inode": info.st_ino,
