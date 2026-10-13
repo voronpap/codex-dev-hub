@@ -756,7 +756,7 @@ def test_linux_workflow_reserves_build_009_for_merged_main_dispatch() -> None:
     assert "devfabric-linux-build-005" not in workflow
 
 
-def test_linux_build_008_uses_complete_source_preparation(
+def test_linux_build_011_uses_complete_source_preparation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     checkout = tmp_path / "pinned-source"
@@ -766,6 +766,8 @@ def test_linux_build_008_uses_complete_source_preparation(
     original = b"original lock\n"
     derived = b"complete production lock\n"
     (root / "Cargo.lock").write_bytes(original)
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
     candidate = b"""diff --git a/codex-rs/candidate.txt b/codex-rs/candidate.txt
 new file mode 100644
 --- /dev/null
@@ -796,7 +798,8 @@ new file mode 100644
         root,
         candidate_patch=candidate,
         host_patch=host,
-        build_id="linux-build-010",
+        evidence_directory=evidence,
+        build_id="linux-build-011",
     )
 
     assert (root / "candidate.txt").read_text(encoding="utf-8") == "candidate\n"
@@ -805,6 +808,23 @@ new file mode 100644
     assert result["host_patch_applied"] is True
     assert result["lock_strategy"] == "complete_patched_manifest_bound_derived_lock"
     assert result["proof_cargo_lock_sha256"] == hashlib.sha256(derived).hexdigest()
+    assert (evidence / "Cargo.lock.original").read_bytes() == original
+    assert (evidence / "Cargo.lock.proof").read_bytes() == derived
+    assert json.loads(
+        (evidence / "derived-lock-manifest-bindings.json").read_text(encoding="utf-8")
+    ) == [{"source": str(root)}]
+
+    unsupported_root = tmp_path / "unsupported" / "codex-rs"
+    unsupported_root.mkdir(parents=True)
+    (unsupported_root / "Cargo.lock").write_bytes(original)
+    with pytest.raises(ValueError, match="unsupported build ID"):
+        LINUX_BUILD.retained.prepare_build_source(
+            unsupported_root,
+            candidate_patch=candidate,
+            host_patch=host,
+            build_id="linux-build-999",
+        )
+    assert (unsupported_root / "Cargo.lock").read_bytes() == original
 
 
 def test_cargo_receives_reviewed_v8_release_environment(
