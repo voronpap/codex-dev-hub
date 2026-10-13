@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       native_bundle_run_id:
-        description: Exact successful Linux Bundle V5 workflow run ID
+        description: Exact successful Linux Bundle V6 workflow run ID
         required: true
         type: string
       native_bundle_run_attempt:
-        description: Exact successful Linux Bundle V5 workflow run attempt
+        description: Exact successful Linux Bundle V6 workflow run attempt
         required: true
         type: string
 
@@ -39,18 +39,20 @@ jobs:
           tests/test_linux_native_isolation.py
           tests/test_ollama_transport.py
           tests/test_linux_native_bundle.py
-      - name: Download and verify exact-main Linux Bundle V5
+      - name: Download and verify exact-main Linux Bundle V6
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_BUNDLE_COMMIT: c272ed6169a718204f2830a4aa34a5548a650652
           BUNDLE_RUN_ID: ${{ inputs.native_bundle_run_id }}
           BUNDLE_RUN_ATTEMPT: ${{ inputs.native_bundle_run_attempt }}
         run: |
+          test "$BUNDLE_RUN_ID" = "38359494446"
+          test "$BUNDLE_RUN_ATTEMPT" = "1"
           gh run view "$BUNDLE_RUN_ID" --repo '${{ github.repository }}' \
             --json headSha,attempt,conclusion,event > "$RUNNER_TEMP/linux-bundle-run.json"
           gh api "repos/${{ github.repository }}/actions/runs/$BUNDLE_RUN_ID" \
             > "$RUNNER_TEMP/linux-bundle-run-api.json"
-          jq -e --arg head "$EXPECTED_COMMIT" --argjson attempt "$BUNDLE_RUN_ATTEMPT" \
+          jq -e --arg head "$EXPECTED_BUNDLE_COMMIT" --argjson attempt "$BUNDLE_RUN_ATTEMPT" \
             '.headSha == $head and .attempt == $attempt and .conclusion == "success" and .event == "workflow_dispatch"' \
             "$RUNNER_TEMP/linux-bundle-run.json"
           jq -e '.path == ".github/workflows/linux-native-bundle.yml"' \

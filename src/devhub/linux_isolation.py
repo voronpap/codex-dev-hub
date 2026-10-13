@@ -804,6 +804,100 @@ class LinuxIsolationProfilePayloadV12(LinuxIsolationProfilePayloadV11):
         return self
 
 
+class LinuxPackageAuthorityV2(Contract):
+    """Exact Build-012/Bundle V6 authority consumed by isolation V13."""
+
+    schema_version: Literal[2] = 2
+    bundle_schema_version: Literal[6] = 6
+    archive_schema_version: Literal[6] = 6
+    bundle_workflow_path: Literal[".github/workflows/linux-native-bundle.yml"] = (
+        ".github/workflows/linux-native-bundle.yml"
+    )
+    package_implementation_commit: Literal["c272ed6169a718204f2830a4aa34a5548a650652"] = (
+        "c272ed6169a718204f2830a4aa34a5548a650652"
+    )
+    build_id: Literal["linux-build-012"] = "linux-build-012"
+    build_run_id: Literal[38354927618] = 38354927618
+    build_run_attempt: Literal[1] = 1
+    bundle_run_id: Literal[38359494446] = 38359494446
+    bundle_run_attempt: Literal[1] = 1
+    archive_id: Literal["412276753153a6d534ab1f2a0dfe1187c63dbb2339f9c28762f9a4e4667cbd44"] = (
+        "412276753153a6d534ab1f2a0dfe1187c63dbb2339f9c28762f9a4e4667cbd44"
+    )
+    archive_sha256: Literal["9b071ce938b4baf716dff1904d4d51fc49f8ab2bd3d5ee834b5bc849dbe576b6"] = (
+        "9b071ce938b4baf716dff1904d4d51fc49f8ab2bd3d5ee834b5bc849dbe576b6"
+    )
+    archive_size: Literal[517499293] = 517499293
+    bundle_id: Literal["db39cc867dc2e89419b44d774980324c055d258a383e895bf8eae40ca991290c"] = (
+        "db39cc867dc2e89419b44d774980324c055d258a383e895bf8eae40ca991290c"
+    )
+    bundle_manifest_sha256: Literal[
+        "c2b45924e971972513f38b92942de01b13cb4150ef99e66a79edabc852e4fa74"
+    ] = "c2b45924e971972513f38b92942de01b13cb4150ef99e66a79edabc852e4fa74"
+    build_receipt_sha256: Literal[
+        "17a5d5268c0f7fb01dff2c0de464409244c2a530ae8c2f4c13032906c8110e19"
+    ] = "17a5d5268c0f7fb01dff2c0de464409244c2a530ae8c2f4c13032906c8110e19"
+    build_inventory_sha256: Literal[
+        "09f75ca01f614e53a502e593bf10e2b3630bfea80d7f80472fca2d581a73b899"
+    ] = "09f75ca01f614e53a502e593bf10e2b3630bfea80d7f80472fca2d581a73b899"
+    linux_native_codex_build_id: Literal[
+        "f186f5b54f591bac3d86d67317769ee99df451b81c095590fcfc57c5990d94bb"
+    ] = "f186f5b54f591bac3d86d67317769ee99df451b81c095590fcfc57c5990d94bb"
+    codex_sha256: Literal["e9e67728a0483232ae22572bda0c1c8e688bd78d01ab1c065b1cd5207652c2d9"] = (
+        "e9e67728a0483232ae22572bda0c1c8e688bd78d01ab1c065b1cd5207652c2d9"
+    )
+    code_mode_host_sha256: Literal[
+        "d770fa924c6aaff3398f77dff5eef7a68399686727875a439826b07a73930555"
+    ] = "d770fa924c6aaff3398f77dff5eef7a68399686727875a439826b07a73930555"
+    python_runtime_id: Literal[
+        "a984027af64696e563f483f7a76df4b61620d6c86c152ef6624504847607990d"
+    ] = "a984027af64696e563f483f7a76df4b61620d6c86c152ef6624504847607990d"
+    python_executable_sha256: Literal[
+        "96b570567fe6afa8e7fe2278b1302be7f5320d8afa5f3ccd8d627796039499b2"
+    ] = "96b570567fe6afa8e7fe2278b1302be7f5320d8afa5f3ccd8d627796039499b2"
+    child_module_path: Literal[
+        "python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"
+    ] = "python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"
+    child_module_sha256: Literal[
+        "9f6894edb23a3938ec990abaa50636867ee9aaea00bf0a6f736567dd8d6bd11c"
+    ] = "9f6894edb23a3938ec990abaa50636867ee9aaea00bf0a6f736567dd8d6bd11c"
+    child_module_name: Literal["devhub.linux_native_isolation_child"] = (
+        "devhub.linux_native_isolation_child"
+    )
+
+
+class LinuxIsolationProfilePayloadV13(LinuxIsolationProfilePayloadV11):
+    """Forward package-bound profile consuming only Build-012/Bundle V6."""
+
+    schema_version: Literal[13] = 13  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v13"] = "linux_native_isolation_v13"  # type: ignore[assignment]
+    child_module_argv: tuple[
+        Literal["-I"],
+        Literal["-B"],
+        Literal["-m"],
+        Literal["devhub.linux_native_isolation_child"],
+    ] = ("-I", "-B", "-m", "devhub.linux_native_isolation_child")
+    source_directories: Annotated[
+        tuple[LinuxDirectoryAuthorityV1 | LinuxBundleDirectoryAuthorityV1, ...],
+        Field(min_length=5),
+    ]
+    package: LinuxPackageAuthorityV2
+
+    @model_validator(mode="after")
+    def exact_package_join(self) -> LinuxIsolationProfilePayloadV13:
+        if (
+            self.package.bundle_id != self.native_bundle_id
+            or self.package.bundle_manifest_sha256 != self.bundle_manifest_sha256
+            or self.package.python_executable_sha256 != self.bootstrap_python.sha256
+            or self.package.child_module_sha256 != self.child_probe_sha256
+        ):
+            raise ValueError("Linux isolation V13 package authority differs from the profile")
+        fixture = next(item for item in self.source_directories if item.role == "fixture")
+        if not isinstance(fixture, LinuxBundleDirectoryAuthorityV1):
+            raise ValueError("Linux isolation V13 fixture is not the exact published bundle root")
+        return self
+
+
 class LinuxIsolationProfileV1(Contract):
     linux_isolation_profile_id: Digest
     payload: LinuxIsolationProfilePayloadV1
@@ -1039,6 +1133,26 @@ class LinuxIsolationProfileV12(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation V12 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV13(ContractV2):
+    schema_version: Literal[13] = 13  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV13
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV13) -> LinuxIsolationProfileV13:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV13:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V13 profile hash mismatch")
         return self
 
 
@@ -1892,6 +2006,12 @@ class LinuxIsolationObservationV12(LinuxIsolationObservationV11):
     packaged_mcp: LinuxPackagedMcpMetadataObservationV1
 
 
+class LinuxIsolationObservationV13(LinuxIsolationObservationV12):
+    """V13 preserves V12 mechanics while binding Bundle V6 authority."""
+
+    schema_version: Literal[13] = 13  # type: ignore[assignment]
+
+
 class LinuxHostCleanupObservationV1(Contract):
     child_exited: Literal[True] = True
     process_group_absent: Literal[True] = True
@@ -2317,6 +2437,34 @@ class LinuxIsolationReceiptV12(ContractV2):
         return self
 
 
+class LinuxIsolationReceiptPayloadV13(LinuxIsolationReceiptPayloadV11):
+    schema_version: Literal[13] = 13  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v13"] = (
+        "linux_native_isolation_receipt_v13"  # type: ignore[assignment]
+    )
+    observation: LinuxIsolationObservationV13
+
+
+class LinuxIsolationReceiptV13(ContractV2):
+    schema_version: Literal[13] = 13  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV13
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV13) -> LinuxIsolationReceiptV13:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV13:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V13 receipt hash mismatch")
+        return self
+
+
 class LinuxIsolationEvidencePayloadV2(ContractV2):
     schema_version: Literal[2] = 2
     profile: LinuxIsolationProfileV2
@@ -2719,6 +2867,43 @@ class LinuxIsolationEvidenceV12(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_evidence_id != expected:
             raise ValueError("Linux isolation V12 evidence hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV13(LinuxIsolationEvidencePayloadV11):
+    schema_version: Literal[13] = 13  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV13  # type: ignore[assignment]
+    receipt: LinuxIsolationReceiptV13  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def exact_package_observation_join(self) -> LinuxIsolationEvidencePayloadV13:
+        package = self.profile.payload.package
+        observed = self.receipt.payload.observation
+        if (
+            observed.child_module_sha256 != package.child_module_sha256
+            or observed.packaged_mcp.python_executable_sha256 != package.python_executable_sha256
+        ):
+            raise ValueError("Linux isolation V13 package observation authority differs")
+        return self
+
+
+class LinuxIsolationEvidenceV13(ContractV2):
+    schema_version: Literal[13] = 13  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV13
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV13) -> LinuxIsolationEvidenceV13:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV13:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V13 evidence hash mismatch")
         return self
 
 
@@ -3250,6 +3435,33 @@ class LinuxIsolationQualificationV12(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_qualification_id != expected:
             raise ValueError("Linux isolation V12 qualification hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationPayloadV13(LinuxIsolationQualificationPayloadV11):
+    schema_version: Literal[13] = 13  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV13  # type: ignore[assignment]
+
+
+class LinuxIsolationQualificationV13(ContractV2):
+    schema_version: Literal[13] = 13  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV13
+
+    @classmethod
+    def create(
+        cls, payload: LinuxIsolationQualificationPayloadV13
+    ) -> LinuxIsolationQualificationV13:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV13:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V13 qualification hash mismatch")
         return self
 
 

@@ -563,6 +563,20 @@ semantics. They do not reinterpret Build-011 or Bundle/Archive V5. A separate
 forward isolation contract must consume only the accepted Bundle V6 authority;
 V12 remains bound to Bundle V5.
 
+Build-012 run `38354927618` passed compilation and the same-binary
+Default/Arm A/Arm B proof on commit
+`c272ed6169a718204f2830a4aa34a5548a650652`. Bundle V6 run `38359494446`
+published the exact successor
+(`bundle_id=db39cc867dc2e89419b44d774980324c055d258a383e895bf8eae40ca991290c`,
+`archive_id=412276753153a6d534ab1f2a0dfe1187c63dbb2339f9c28762f9a4e4667cbd44`).
+`LinuxNativeIsolationV13` is the forward-only consumer for that authority. It
+keeps the V12 namespace, mount, Landlock, AppArmor, broker, bounded-capture and
+packaged metadata mechanics unchanged while requiring Build-012 and Bundle V6.
+The profile records the current qualification-code commit separately from the
+pinned package implementation commit; the workflow accepts only Bundle V6 run
+`38359494446/1` at `c272ed6169a718204f2830a4aa34a5548a650652`.
+V12 and its failed Bundle V5-bound receipt remain historical and parseable.
+
 The tested bundle is intentionally tied to Linux x86_64 and the exact host
 environment recorded by later qualification.  It does not claim support for
 every distribution.  Directory assembly alone leaves
@@ -804,19 +818,19 @@ syscall-filter, complete native-executor isolation and package readiness false.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PASS for accepted `linux-build-011` run `38344185222`; forward-only `linux-build-012` is registered for the corrected exact-main authority and has no build receipt yet |
-| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PASS for accepted build-011 Default/A/B, EOF, security negatives and complete retention; build-012 must repeat the same proof at its exact implementation commit |
-| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V12 enforces strict packaged initialize/tools-list/EOF with no `tools/call`; run `38350946287` failed closed on the corrected ledger-hash boundary, so a Bundle V6-bound forward receipt remains pending |
+| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PASS for Build-012 run `38354927618` at commit `c272ed6169a718204f2830a4aa34a5548a650652` |
+| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PASS for Build-012 Default/A/B, EOF, eight security negatives, scratch cleanup and zero execution counters |
+| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V13 preserves strict packaged initialize/tools-list/EOF with no `tools/call`; run `38350946287` remains the historical V12 failure, and a Bundle V6-bound V13 receipt is pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
-| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — accepted V11 run `38307459549` proves namespace/mount/Landlock/AppArmor/broker mechanics; package-bound V12, cgroup, syscall and complete packaged executor boundaries remain pending |
+| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — accepted V11 run `38307459549` proves namespace/mount/Landlock/AppArmor/broker mechanics; Bundle V6-bound V13 plus cgroup, syscall and complete packaged executor boundaries remain pending |
 | Ollama boundary | PARTIAL — closed metadata-only broker implemented; exact listener/AppContainer receipt pending | PENDING native Linux receipt; service/model remain external |
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
-| Runnable artifact | PENDING directory/launcher/file manifest | PASS for accepted Bundle V5 run `38349429884` (`bundle_id=c1ae651d4ca77e3ef4bb0428af864dc62292dbe011914836c4cb9ef13652e130`, `archive_id=6f80f26c10190eb2cadce99f3a1902bff6e8917079aa5a1e0083a813a1777fcf`); forward-only Bundle V6/build-012 for the corrected child is pending |
+| Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V6 run `38359494446` (`bundle_id=db39cc867dc2e89419b44d774980324c055d258a383e895bf8eae40ca991290c`, `archive_id=412276753153a6d534ab1f2a0dfe1187c63dbb2339f9c28762f9a4e4667cbd44`); package readiness remains false pending V13 and later boundaries |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for accepted build-011 and Bundle V5; V12 run `38350946287` failed closed with zero execution counters; build-012/Bundle V6 and a forward package-bound isolation receipt remain pending |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V6 run `38359494446`; V12 run `38350946287` remains failed closed with zero execution counters; the forward V13 package-bound isolation receipt remains pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant
