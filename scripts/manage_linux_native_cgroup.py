@@ -68,6 +68,7 @@ from devhub.linux_isolation import (
     LinuxSystemdToolAuthorityV1,
     LinuxSystemdUnitPolicyObservationV1,
     LinuxToolVersionEnvironmentV1,
+    syscall_allowlist_sha256,
 )
 from devhub.native_bundle import git_blob_sha256
 
@@ -346,7 +347,7 @@ def resolve_syscall_allowlist() -> LinuxSyscallAllowlistAuthorityV1:
         raise ValueError("Reviewed personality exclusion is absent from the selector expansion")
     names.remove("personality")
     configured = tuple(sorted(names))
-    configured_sha = hashlib.sha256(canonical(list(configured))).hexdigest()
+    configured_sha = syscall_allowlist_sha256(configured)
     output_projection = {
         selector: hashlib.sha256(outputs[selector]).hexdigest() for selector in sorted(outputs)
     }

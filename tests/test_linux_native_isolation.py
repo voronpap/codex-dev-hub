@@ -9415,7 +9415,7 @@ def v19_test_allowlist(monkeypatch: pytest.MonkeyPatch) -> tuple[str, ...]:
     generated = {f"testcall{index:03d}" for index in range(384)}
     names = tuple(sorted(required | generated))
     assert len(names) == 390
-    allowlist_hash = digest(canonical(list(names)))
+    allowlist_hash = LINUX_ISOLATION.syscall_allowlist_sha256(names)
     monkeypatch.setattr(LINUX_ISOLATION, "LINUX_SYSCALL_ALLOWLIST_COUNT", len(names))
     monkeypatch.setattr(LINUX_ISOLATION, "LINUX_SYSCALL_ALLOWLIST_SHA256", allowlist_hash)
     monkeypatch.setattr(CGROUP_MANAGER, "LINUX_SYSCALL_ALLOWLIST_COUNT", len(names))
@@ -9451,7 +9451,7 @@ def v19_syscall_policy(
     )
     return LINUX_ISOLATION.LinuxSyscallAllowlistAuthorityV1(
         configured_explicit_allowlist=names,
-        configured_allowlist_sha256=digest(canonical(list(names))),
+        configured_allowlist_sha256=LINUX_ISOLATION.syscall_allowlist_sha256(names),
         selector_outputs_sha256="6" * 64,
         systemd_analyze=analyze,
         systemd_manager=manager,
@@ -9688,6 +9688,58 @@ def test_v19_reviewed_syscall_identity_is_frozen() -> None:
     )
 
 
+def test_v19_syscall_identity_uses_compact_json_not_receipt_canonicalization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = v19_test_allowlist(monkeypatch)
+    compact = json.dumps(
+        list(names),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    assert LINUX_ISOLATION.canonical_syscall_allowlist(names) == compact
+    assert not compact.endswith(b"\n")
+    assert LINUX_ISOLATION.syscall_allowlist_sha256(names) == digest(compact)
+    assert LINUX_ISOLATION.syscall_allowlist_sha256(names) != digest(canonical(list(names)))
+
+
+def test_v19_retained_pre_correction_hash_mismatch_receipt_remains_parseable() -> None:
+    observation = LINUX_ISOLATION.LinuxSyscallAllowlistMismatchObservationV1(
+        configured_allowlist_count=390,
+        configured_allowlist_sha256=(
+            "6cb8625a501f48ab80fe51dca7e71dab3b04bf7f5ec2e0d9e8a5c477b184e4b5"
+        ),
+        systemd_analyze_version_output_sha256=(
+            LINUX_ISOLATION.LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
+        ),
+        systemd_manager_version_output_sha256=(
+            LINUX_ISOLATION.LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
+        ),
+        selector_outputs=(
+            LINUX_ISOLATION.LinuxSystemdSelectorOutputDigestV1(
+                selector="@system-service",
+                raw_output_sha256=(
+                    "42cede4eddb8516a2b3ae930b84f25b361a66dc109c7957772841b5a53d6541c"
+                ),
+            ),
+        ),
+    )
+    retained = LINUX_ISOLATION.LinuxCgroupLifecycleFailureV2.create(
+        LINUX_ISOLATION.LinuxCgroupLifecycleFailurePayloadV2(
+            reason_code="syscall_allowlist_hash_mismatch",
+            implementation_commit="602d78a56608da099c9e0fd01e75c941c9fbf15c",
+            environment_instance_id="5cb0634a81ef01e25e89f358e9fd5234",
+            authority_observation=observation,
+        )
+    )
+    parsed = LINUX_ISOLATION.LinuxCgroupLifecycleFailureV2.model_validate_json(
+        canonical(retained.model_dump(mode="json"))
+    )
+    assert parsed == retained
+    assert parsed.payload.reason_code == "syscall_allowlist_hash_mismatch"
+
+
 def test_v19_selector_parser_rejects_unsupported_or_duplicate_output() -> None:
     assert CGROUP_MANAGER._parse_selector_output(
         "@sandbox", b"@sandbox\n    # reviewed\n    read\n    write\n"
@@ -9903,7 +9955,9 @@ def test_v19_resolver_seals_exact_authority_mismatch_before_state_publication(
         CGROUP_MANAGER.resolve_syscall_allowlist()
     assert captured.value.reason_code == reason_code
     assert captured.value.observation.configured_allowlist_count == len(actual_names)
-    assert captured.value.observation.configured_allowlist_sha256 == digest(canonical(actual_names))
+    assert captured.value.observation.configured_allowlist_sha256 == (
+        LINUX_ISOLATION.syscall_allowlist_sha256(tuple(actual_names))
+    )
     assert tuple(value.selector for value in captured.value.observation.selector_outputs) == (
         "@mount",
         "@sandbox",
