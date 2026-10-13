@@ -103,6 +103,19 @@ def canonical(value: object) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()
 
 
+def ledger_identity_payload_sha256(identity: Mapping[str, object]) -> str:
+    """Hash a ledger identity with the production compact canonical form."""
+
+    return sha256(
+        json.dumps(
+            identity,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+
+
 def digest(raw: bytes) -> str:
     return sha256(raw)
 
@@ -1201,7 +1214,7 @@ def _observe_packaged_mcp_metadata(
         "authority_scope_id": authority_id,
         "account_binding_hash": None,
     }
-    expected_ledger_identity_sha256 = digest(canonical(ledger_identity))
+    expected_ledger_identity_sha256 = ledger_identity_payload_sha256(ledger_identity)
     config.write_text(
         json.dumps(
             {
