@@ -4881,7 +4881,10 @@ def test_v16_source_revalidation_failure_prevents_process_start(
         lambda *_args, **_kwargs: pytest.fail("process started before loader validation"),
     )
     try:
-        with pytest.raises(ValueError, match=reason):
+        with pytest.raises(
+            PROBE.ProbePhaseFailure,
+            match="Isolation namespace_creation phase failed",
+        ) as captured:
             PROBE.run_probe(
                 profile,
                 ROOT / "src/devhub/linux_native_isolation_child.py",
@@ -4895,6 +4898,9 @@ def test_v16_source_revalidation_failure_prevents_process_start(
                 None,
                 V11_RUNTIME_LIBRARY_AUTHORITY,
             )
+        assert captured.value.phase == "namespace_creation"
+        assert isinstance(captured.value.__cause__, ValueError)
+        assert str(captured.value.__cause__) == reason
     finally:
         server.close()
 
