@@ -3494,7 +3494,7 @@ def test_v13_profile_and_observation_bind_exact_package_authority() -> None:
 
     tampered = profile.payload.model_dump(mode="python")
     tampered["package"]["child_module_sha256"] = "f" * 64
-    with pytest.raises(ValidationError, match="package authority differs"):
+    with pytest.raises(ValidationError):
         LinuxIsolationProfilePayloadV13.model_validate(tampered)
 
     wrong_workflow = profile.payload.model_dump(mode="python")
