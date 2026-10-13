@@ -664,6 +664,16 @@ def profile_v11_for_server(server: socket.socket) -> LinuxIsolationProfileV11:
     return LinuxIsolationProfileV11.create(LinuxIsolationProfilePayloadV11.model_validate(raw))
 
 
+def profile_v13_for_server(server: socket.socket) -> LinuxIsolationProfileV13:
+    raw = profile_payload_v13().model_dump(mode="python")
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    return LinuxIsolationProfileV13.create(LinuxIsolationProfilePayloadV13.model_validate(raw))
+
+
 def registered_child_command(
     registration_write: int,
     result_write: int,
@@ -4804,11 +4814,11 @@ def test_run_probe_accepts_zero_exit_child_json_arrays(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v11_for_server(server)
+    profile = profile_v13_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     broker_dir = tmp_path / "broker"
     broker_dir.mkdir(mode=0o700)
-    child_result = observation_v11().model_dump_json().encode("utf-8") + b"\n"
+    child_result = observation_v13().model_dump_json().encode("utf-8") + b"\n"
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
     monkeypatch.setattr(PROBE, "revalidate_synthetic_upstream", lambda *_args: None)
     monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
@@ -4856,7 +4866,7 @@ def test_run_probe_accepts_zero_exit_child_json_arrays(
         )
     finally:
         server.close()
-    assert observed == observation_v11().model_copy(
+    assert observed == observation_v13().model_copy(
         update={
             "synthetic_upstream": LinuxSyntheticUpstreamObservationV1(
                 authority=profile.payload.synthetic_upstream
