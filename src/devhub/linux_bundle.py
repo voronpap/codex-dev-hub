@@ -555,6 +555,12 @@ class LinuxNativeBundlePayloadV7(LinuxNativeBundlePayloadV1):
         return self
 
 
+class LinuxNativeBundlePayloadV8(LinuxNativeBundlePayloadV7):
+    """Forward bundle with the versioned packaged-subprocess capture frame."""
+
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+
+
 class LinuxNativeBundleV1(Contract):
     linux_native_bundle_id: Digest
     payload: LinuxNativeBundlePayloadV1
@@ -705,6 +711,28 @@ class LinuxNativeBundleV7(Contract):
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_bundle_id != expected:
             raise ValueError("Linux native V7 bundle ID mismatch")
+        return self
+
+
+class LinuxNativeBundleV8(Contract):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    linux_native_bundle_id: Digest
+    payload: LinuxNativeBundlePayloadV8
+
+    @classmethod
+    def create(cls, payload: LinuxNativeBundlePayloadV8) -> LinuxNativeBundleV8:
+        return cls(
+            linux_native_bundle_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeBundleV8:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_bundle_id != expected:
+            raise ValueError("Linux native V8 bundle ID mismatch")
         return self
 
 
@@ -894,6 +922,32 @@ class LinuxNativeArchiveV7(Contract):
         return self
 
 
+class LinuxNativeArchivePayloadV8(LinuxNativeArchivePayloadV1):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+
+
+class LinuxNativeArchiveV8(Contract):
+    schema_version: Literal[8] = 8  # type: ignore[assignment]
+    linux_native_archive_id: Digest
+    payload: LinuxNativeArchivePayloadV8
+
+    @classmethod
+    def create(cls, payload: LinuxNativeArchivePayloadV8) -> LinuxNativeArchiveV8:
+        return cls(
+            linux_native_archive_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeArchiveV8:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_archive_id != expected:
+            raise ValueError("Linux native V8 archive ID mismatch")
+        return self
+
+
 def observe_linux_runtime(
     interpreter: Path, devhub_wheel: Path, lock_path: Path, source_commit: str
 ) -> LinuxPythonRuntimeV1:
@@ -990,6 +1044,7 @@ LinuxNativeBundle = (
     | LinuxNativeBundleV5
     | LinuxNativeBundleV6
     | LinuxNativeBundleV7
+    | LinuxNativeBundleV8
 )
 LinuxNativeArchive = (
     LinuxNativeArchiveV1
@@ -999,6 +1054,7 @@ LinuxNativeArchive = (
     | LinuxNativeArchiveV5
     | LinuxNativeArchiveV6
     | LinuxNativeArchiveV7
+    | LinuxNativeArchiveV8
 )
 
 
@@ -1023,7 +1079,7 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         | LinuxNativeCodexBuildV11
         | LinuxNativeCodexBuildV12
     )
-    if isinstance(bundle, (LinuxNativeBundleV6, LinuxNativeBundleV7)):
+    if isinstance(bundle, (LinuxNativeBundleV6, LinuxNativeBundleV7, LinuxNativeBundleV8)):
         receipt = LinuxNativeCodexBuildV12.model_validate_json(receipt_path.read_bytes())
     elif isinstance(bundle, LinuxNativeBundleV5):
         receipt = LinuxNativeCodexBuildV11.model_validate_json(receipt_path.read_bytes())
@@ -1197,6 +1253,9 @@ def verify_linux_native_release(release: Path, destination: Path) -> LinuxNative
     elif manifest_version == 7 and archive_version == 7:
         bundle = LinuxNativeBundleV7.model_validate_json(manifest_raw)
         archive = LinuxNativeArchiveV7.model_validate_json(archive_raw)
+    elif manifest_version == 8 and archive_version == 8:
+        bundle = LinuxNativeBundleV8.model_validate_json(manifest_raw)
+        archive = LinuxNativeArchiveV8.model_validate_json(archive_raw)
     else:
         raise ValueError("Linux native release schema versions differ or are unsupported")
     if (

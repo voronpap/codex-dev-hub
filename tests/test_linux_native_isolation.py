@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Literal, cast
@@ -192,6 +193,7 @@ from devhub.linux_isolation import (
     LinuxPackageAuthorityV2,
     LinuxPackageAuthorityV3,
     LinuxPackagedMcpMetadataObservationV1,
+    LinuxPackagedSubprocessCaptureV1,
     LinuxRlimitsV1,
     LinuxSyntheticUpstreamAuthorityV1,
     LinuxSyntheticUpstreamObservationV1,
@@ -1582,6 +1584,7 @@ def test_v11_binds_self_hashed_bounded_broker_failure_contracts() -> None:
 
 def test_child_runtime_failure_v3_binds_bounded_packaged_mcp_checkpoint() -> None:
     capture = {
+        "schema_version": 1,
         "process_started": True,
         "returncode": 71,
         "stdout_retained_bytes": 3,
@@ -1656,6 +1659,7 @@ def test_child_runtime_failure_v3_fixed_checkpoint_shape(
     checkpoint: str, capture_required: bool
 ) -> None:
     capture = {
+        "schema_version": 1,
         "process_started": True,
         "returncode": 0,
         "stdout_retained_bytes": 0,
@@ -1691,6 +1695,7 @@ def test_child_runtime_failure_v3_fixed_checkpoint_shape(
 
 def test_child_runtime_failure_v3_rejects_false_unstarted_process_evidence() -> None:
     capture = {
+        "schema_version": 1,
         "process_started": False,
         "returncode": 1,
         "stdout_retained_bytes": 0,
@@ -1917,6 +1922,85 @@ def test_child_runtime_failure_writer_uses_the_reviewed_v11_contract() -> None:
             failure = CHILD.PackagedMcpObservationFailure("observation_assembly")
             frame = CHILD.runtime_failure_frame(stage, H, ENVIRONMENT, None, failure)
         assert LinuxChildRuntimeFailureV3.model_validate(frame).payload.stage == stage
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Child runtime framing is Linux-only")
+@pytest.mark.parametrize(
+    "capture",
+    [
+        pytest.param(
+            lambda child: child.completed_subprocess_capture(0, b"ok", b""),
+            id="completed",
+        ),
+        pytest.param(
+            lambda child: child.unstarted_subprocess_capture(),
+            id="unstarted",
+        ),
+        pytest.param(
+            lambda child: child.packaged_subprocess_capture(
+                True,
+                None,
+                {"stdout": b"partial", "stderr": b""},
+                {"stdout": 7, "stderr": 0},
+                timed_out=True,
+                output_limit_exceeded=False,
+            ),
+            id="timeout",
+        ),
+        pytest.param(
+            lambda child: child.packaged_subprocess_capture(
+                True,
+                -9,
+                {"stdout": b"kept", "stderr": b""},
+                {"stdout": 5, "stderr": 0},
+                timed_out=False,
+                output_limit_exceeded=True,
+            ),
+            id="overflow",
+        ),
+        pytest.param(
+            lambda child: child.completed_subprocess_capture(71, b"", b"bounded error"),
+            id="error",
+        ),
+    ],
+)
+def test_child_runtime_failure_v3_wire_round_trip_binds_actual_capture_producer(
+    capture: Callable[[ModuleType], dict[str, object]],
+) -> None:
+    assert CHILD is not None
+    produced = capture(CHILD)
+    failure = CHILD.PackagedMcpObservationFailure("mcp_exchange", produced)
+    frame = CHILD.runtime_failure_frame("result_assembly", H, ENVIRONMENT, None, failure)
+    wire = json.dumps(frame, sort_keys=True, separators=(",", ":"))
+    raw = json.loads(wire)
+
+    assert raw["payload"]["packaged_subprocess"]["schema_version"] == 1
+    assert raw["child_runtime_failure_id"] == digest(canonical(raw["payload"]))
+    parsed = LinuxChildRuntimeFailureV3.model_validate(raw)
+    assert parsed.payload.packaged_subprocess is not None
+    assert parsed.payload.packaged_subprocess.schema_version == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Child runtime framing is Linux-only")
+@pytest.mark.parametrize("mutation", ["missing", "changed"])
+def test_child_runtime_failure_v3_rejects_nested_capture_version_drift(mutation: str) -> None:
+    assert CHILD is not None
+    capture = CHILD.completed_subprocess_capture(71, b"", b"bounded error")
+    failure = CHILD.PackagedMcpObservationFailure("mcp_exchange", capture)
+    frame = CHILD.runtime_failure_frame("result_assembly", H, ENVIRONMENT, None, failure)
+    raw = json.loads(json.dumps(frame, sort_keys=True, separators=(",", ":")))
+    nested = raw["payload"]["packaged_subprocess"]
+    if mutation == "missing":
+        del nested["schema_version"]
+    else:
+        nested["schema_version"] = 2
+
+    with pytest.raises(ValidationError):
+        LinuxPackagedSubprocessCaptureV1.model_validate(nested)
+
+    raw["child_runtime_failure_id"] = digest(canonical(raw["payload"]))
+    with pytest.raises(ValidationError):
+        LinuxChildRuntimeFailureV3.model_validate(raw)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
@@ -3238,13 +3322,24 @@ def test_broker_preserves_foreign_preexisting_socket(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not hasattr(socket, "SO_PEERCRED"), reason="Linux SO_PEERCRED required")
-def test_broker_preserves_substituted_socket_during_cleanup(tmp_path: Path) -> None:
+def test_broker_preserves_substituted_socket_during_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     tmp_path.chmod(0o700)
     path = tmp_path / "ollama.sock"
     peer = LinuxBrokerPeerAuthorityV1(outer_pid=1, outer_uid=1, start_time_ticks=1)
     runtime = LinuxMetadataBrokerV1(path, peer)
     stopped = threading.Event()
+    owned_socket_recorded = threading.Event()
     failures: list[BaseException] = []
+    real_chmod = Path.chmod
+
+    def observed_chmod(target: Path, mode: int) -> None:
+        real_chmod(target, mode)
+        if target == path and mode == 0o600:
+            owned_socket_recorded.set()
+
+    monkeypatch.setattr(Path, "chmod", observed_chmod)
 
     def serve() -> None:
         try:
@@ -3254,14 +3349,14 @@ def test_broker_preserves_substituted_socket_during_cleanup(tmp_path: Path) -> N
 
     worker = threading.Thread(target=serve, daemon=True)
     worker.start()
-    deadline = time.monotonic() + 3
-    while not path.exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
+    assert owned_socket_recorded.wait(timeout=3)
     assert path.exists()
     path.unlink()
     replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     replacement.bind(str(path))
     replacement.listen(1)
+    replacement_info = os.lstat(path)
+    replacement_identity = (replacement_info.st_dev, replacement_info.st_ino)
     stopped.set()
     worker.join(timeout=3)
     try:
@@ -3272,6 +3367,8 @@ def test_broker_preserves_substituted_socket_during_cleanup(tmp_path: Path) -> N
         assert failure.checkpoint == "cleanup"
         assert failure.failure_kind == "cleanup_error"
         assert path.exists()
+        current = os.lstat(path)
+        assert (current.st_dev, current.st_ino) == replacement_identity
     finally:
         replacement.close()
         path.unlink(missing_ok=True)
@@ -4224,6 +4321,7 @@ def test_packaged_observer_missing_stream_is_typed_as_started(
             timeout=5,
         )
     assert captured.value.capture == {
+        "schema_version": 1,
         "process_started": True,
         "returncode": -9,
         "stdout_retained_bytes": 0,
