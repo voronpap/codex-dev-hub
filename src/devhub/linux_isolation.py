@@ -1816,6 +1816,116 @@ class LinuxChildRuntimeFailureV2(ContractV2):
         return self
 
 
+class LinuxPackagedSubprocessCaptureV1(Contract):
+    """Bounded subprocess evidence; retained hashes never claim full-stream identity."""
+
+    process_started: bool
+    returncode: int | None = None
+    stdout_retained_bytes: Annotated[int, Field(ge=0, le=1024 * 1024)]
+    stdout_observed_bytes: Annotated[int, Field(ge=0, le=(1024 + 64) * 1024)]
+    stdout_retained_sha256: Digest
+    stdout_truncated: bool
+    stderr_retained_bytes: Annotated[int, Field(ge=0, le=1024 * 1024)]
+    stderr_observed_bytes: Annotated[int, Field(ge=0, le=(1024 + 64) * 1024)]
+    stderr_retained_sha256: Digest
+    stderr_truncated: bool
+    timed_out: bool
+    output_limit_exceeded: bool
+
+    @model_validator(mode="after")
+    def exact_bounded_shape(self) -> LinuxPackagedSubprocessCaptureV1:
+        empty = digest(b"")
+        for name in ("stdout", "stderr"):
+            retained = getattr(self, f"{name}_retained_bytes")
+            observed = getattr(self, f"{name}_observed_bytes")
+            truncated = getattr(self, f"{name}_truncated")
+            retained_hash = getattr(self, f"{name}_retained_sha256")
+            if retained > observed or truncated != (retained < observed):
+                raise ValueError("Packaged subprocess stream bounds differ")
+            if retained == 0 and retained_hash != empty:
+                raise ValueError("Empty packaged subprocess stream hash differs")
+        any_truncated = self.stdout_truncated or self.stderr_truncated
+        if self.output_limit_exceeded != any_truncated:
+            raise ValueError("Packaged subprocess output-limit state differs")
+        if not self.process_started and (
+            self.returncode is not None
+            or self.stdout_observed_bytes != 0
+            or self.stderr_observed_bytes != 0
+            or self.timed_out
+            or self.output_limit_exceeded
+        ):
+            raise ValueError("Unstarted packaged subprocess carries process evidence")
+        if self.timed_out and self.returncode is not None:
+            raise ValueError("Timed-out packaged subprocess has a final return code")
+        return self
+
+
+class LinuxChildRuntimeFailurePayloadV3(LinuxChildRuntimeFailurePayloadV2):
+    """Forward-only result-assembly diagnostic for the packaged MCP lifecycle."""
+
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    frame_kind: Literal["linux_child_runtime_failure_v3"] = "linux_child_runtime_failure_v3"  # type: ignore[assignment]
+    packaged_mcp_checkpoint: (
+        Literal[
+            "python_authority",
+            "state_config_preparation",
+            "module_origin",
+            "ledger_initialization",
+            "mcp_exchange",
+            "capture_publication",
+            "response_parsing",
+            "initialize_shape",
+            "tools_shape",
+            "observation_assembly",
+            "result_frame_publication",
+        ]
+        | None
+    ) = None
+    packaged_subprocess: LinuxPackagedSubprocessCaptureV1 | None = None
+
+    @model_validator(mode="after")
+    def exact_packaged_diagnostic(self) -> LinuxChildRuntimeFailurePayloadV3:
+        if self.stage == "result_assembly":
+            if self.packaged_mcp_checkpoint is None:
+                raise ValueError("Linux child V3 result failure lacks a packaged checkpoint")
+        elif self.packaged_mcp_checkpoint is not None or self.packaged_subprocess is not None:
+            raise ValueError("Linux child V3 non-result failure carries packaged diagnostics")
+        capture_required = {
+            "module_origin",
+            "ledger_initialization",
+            "mcp_exchange",
+            "response_parsing",
+            "initialize_shape",
+            "tools_shape",
+            "capture_publication",
+        }
+        if (self.packaged_mcp_checkpoint in capture_required) != (
+            self.packaged_subprocess is not None
+        ):
+            raise ValueError("Linux child V3 checkpoint subprocess evidence differs")
+        return self
+
+
+class LinuxChildRuntimeFailureV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    child_runtime_failure_id: Digest
+    payload: LinuxChildRuntimeFailurePayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxChildRuntimeFailurePayloadV3) -> LinuxChildRuntimeFailureV3:
+        return cls(
+            child_runtime_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxChildRuntimeFailureV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.child_runtime_failure_id != expected:
+            raise ValueError("Linux child V3 runtime failure hash mismatch")
+        return self
+
+
 class LinuxHostBrokerFailurePayloadV1(Contract):
     """Bounded host broker diagnostic with no exception text or paths."""
 

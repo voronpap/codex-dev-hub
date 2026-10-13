@@ -577,6 +577,28 @@ pinned package implementation commit; the workflow accepts only Bundle V6 run
 `38359494446/1` at `c272ed6169a718204f2830a4aa34a5548a650652`.
 V12 and its failed Bundle V5-bound receipt remain historical and parseable.
 
+Main-only V13 run `38366520513` consumed that exact Bundle V6 authority and
+again failed closed after broker success. Its self-hashed child failure records
+only the coarse `result_assembly_failed` boundary; it cannot identify whether
+the packaged failure occurred during Python authority, config preparation,
+module origin, ledger initialization, MCP exchange, response validation,
+observation assembly, or result publication. Cleanup passed and all execution
+counters remained zero. The run is immutable failure evidence and is not
+qualification evidence.
+
+`LinuxNativeBundleV7` is a forward diagnostic package authority. It builds the
+Python wheel/runtime from the exact clean current implementation commit while
+retaining the separately reviewed Build-012 Codex pair from run
+`38354927618/1` at `c272ed6169a718204f2830a4aa34a5548a650652`. The manifest
+binds both commits explicitly; the retained Codex commit cannot be presented as
+the current Python source commit. This split does not rebuild or reinterpret
+the accepted Codex executable. The packaged child can emit a self-hashed
+`LinuxChildRuntimeFailureV3` with one fixed result checkpoint and only bounded
+return status, byte counts, retained hashes, and truncation flags. It never
+retains raw output, exception text, host paths, or credentials. A later
+forward-only isolation profile must bind the exact V7 package and V3 frame
+before one new diagnostic run; V13/V6 stays historical.
+
 The tested bundle is intentionally tied to Linux x86_64 and the exact host
 environment recorded by later qualification.  It does not claim support for
 every distribution.  Directory assembly alone leaves
@@ -820,17 +842,17 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | --- | --- | --- |
 | Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PASS for Build-012 run `38354927618` at commit `c272ed6169a718204f2830a4aa34a5548a650652` |
 | Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PASS for Build-012 Default/A/B, EOF, eight security negatives, scratch cleanup and zero execution counters |
-| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V13 preserves strict packaged initialize/tools-list/EOF with no `tools/call`; run `38350946287` remains the historical V12 failure, and a Bundle V6-bound V13 receipt is pending |
+| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V13 preserves strict packaged initialize/tools-list/EOF with no `tools/call`; runs `38350946287` (V12) and `38366520513` (V13) remain failed closed with zero execution counters; exact Bundle V7/V3 diagnostics and a later successful receipt are pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
-| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — accepted V11 run `38307459549` proves namespace/mount/Landlock/AppArmor/broker mechanics; Bundle V6-bound V13 plus cgroup, syscall and complete packaged executor boundaries remain pending |
+| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — accepted V11 run `38307459549` proves namespace/mount/Landlock/AppArmor/broker mechanics; Bundle V6-bound V13 failed at coarse result assembly, so Bundle V7-bound forward diagnostics plus cgroup, syscall and complete packaged executor boundaries remain pending |
 | Ollama boundary | PARTIAL — closed metadata-only broker implemented; exact listener/AppContainer receipt pending | PENDING native Linux receipt; service/model remain external |
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V6 run `38359494446` (`bundle_id=db39cc867dc2e89419b44d774980324c055d258a383e895bf8eae40ca991290c`, `archive_id=412276753153a6d534ab1f2a0dfe1187c63dbb2339f9c28762f9a4e4667cbd44`); package readiness remains false pending V13 and later boundaries |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V6 run `38359494446`; V12 run `38350946287` remains failed closed with zero execution counters; the forward V13 package-bound isolation receipt remains pending |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V6 run `38359494446`; V12 run `38350946287` and V13 run `38366520513` remain failed closed with zero execution counters; forward Bundle V7/V3 diagnostics are pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

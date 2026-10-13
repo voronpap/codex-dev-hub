@@ -49,8 +49,10 @@ from devhub.linux_isolation import (
     LinuxChildRegistrationV3,
     LinuxChildRuntimeFailurePayloadV1,
     LinuxChildRuntimeFailurePayloadV2,
+    LinuxChildRuntimeFailurePayloadV3,
     LinuxChildRuntimeFailureV1,
     LinuxChildRuntimeFailureV2,
+    LinuxChildRuntimeFailureV3,
     LinuxDirectoryAuthorityV1,
     LinuxFileAuthorityV1,
     LinuxHostAuthorityV3,
@@ -1489,6 +1491,141 @@ def test_v11_binds_self_hashed_bounded_broker_failure_contracts() -> None:
         LinuxHostBrokerFailureV1.model_validate(tampered_host)
 
 
+def test_child_runtime_failure_v3_binds_bounded_packaged_mcp_checkpoint() -> None:
+    capture = {
+        "process_started": True,
+        "returncode": 71,
+        "stdout_retained_bytes": 3,
+        "stdout_observed_bytes": 5,
+        "stdout_retained_sha256": digest(b"abc"),
+        "stdout_truncated": True,
+        "stderr_retained_bytes": 0,
+        "stderr_observed_bytes": 0,
+        "stderr_retained_sha256": digest(b""),
+        "stderr_truncated": False,
+        "timed_out": False,
+        "output_limit_exceeded": True,
+    }
+    failure = LinuxChildRuntimeFailureV3.create(
+        LinuxChildRuntimeFailurePayloadV3(
+            linux_isolation_profile_id=H,
+            environment_instance_id=ENVIRONMENT,
+            stage="result_assembly",
+            reason_code="result_assembly_failed",
+            packaged_mcp_checkpoint="mcp_exchange",
+            packaged_subprocess=capture,
+        )
+    )
+    assert LinuxChildRuntimeFailureV3.model_validate_json(failure.model_dump_json()) == failure
+    raw = failure.model_dump(mode="python")
+    raw["payload"]["environment_instance_id"] = "5" * 32
+    with pytest.raises(ValidationError, match="hash mismatch"):
+        LinuxChildRuntimeFailureV3.model_validate(raw)
+
+    raw = failure.model_dump(mode="python")
+    raw["payload"]["packaged_subprocess"]["stdout_observed_bytes"] = 2
+    raw["child_runtime_failure_id"] = digest(canonical(raw["payload"]))
+    with pytest.raises(ValidationError, match="stream bounds differ"):
+        LinuxChildRuntimeFailureV3.model_validate(raw)
+
+    raw = failure.model_dump(mode="python")
+    raw["payload"]["packaged_subprocess"]["output_limit_exceeded"] = False
+    raw["child_runtime_failure_id"] = digest(canonical(raw["payload"]))
+    with pytest.raises(ValidationError, match="output-limit state differs"):
+        LinuxChildRuntimeFailureV3.model_validate(raw)
+
+    raw = failure.model_dump(mode="python")
+    raw["payload"]["packaged_subprocess"]["stdout_observed_bytes"] = (1024 + 64) * 1024 + 1
+    raw["child_runtime_failure_id"] = digest(canonical(raw["payload"]))
+    with pytest.raises(ValidationError):
+        LinuxChildRuntimeFailureV3.model_validate(raw)
+
+    raw = failure.model_dump(mode="python")
+    raw["payload"]["raw_stdout"] = "secret"
+    raw["child_runtime_failure_id"] = digest(canonical(raw["payload"]))
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        LinuxChildRuntimeFailureV3.model_validate(raw)
+
+
+@pytest.mark.parametrize(
+    ("checkpoint", "capture_required"),
+    [
+        ("python_authority", False),
+        ("state_config_preparation", False),
+        ("module_origin", True),
+        ("ledger_initialization", True),
+        ("mcp_exchange", True),
+        ("capture_publication", True),
+        ("response_parsing", True),
+        ("initialize_shape", True),
+        ("tools_shape", True),
+        ("observation_assembly", False),
+        ("result_frame_publication", False),
+    ],
+)
+def test_child_runtime_failure_v3_fixed_checkpoint_shape(
+    checkpoint: str, capture_required: bool
+) -> None:
+    capture = {
+        "process_started": True,
+        "returncode": 0,
+        "stdout_retained_bytes": 0,
+        "stdout_observed_bytes": 0,
+        "stdout_retained_sha256": digest(b""),
+        "stdout_truncated": False,
+        "stderr_retained_bytes": 0,
+        "stderr_observed_bytes": 0,
+        "stderr_retained_sha256": digest(b""),
+        "stderr_truncated": False,
+        "timed_out": False,
+        "output_limit_exceeded": False,
+    }
+    payload = {
+        "linux_isolation_profile_id": H,
+        "environment_instance_id": ENVIRONMENT,
+        "stage": "result_assembly",
+        "reason_code": "result_assembly_failed",
+        "packaged_mcp_checkpoint": checkpoint,
+        "packaged_subprocess": capture if capture_required else None,
+    }
+    parsed = LinuxChildRuntimeFailurePayloadV3.model_validate(payload)
+    assert parsed.packaged_mcp_checkpoint == checkpoint
+    if capture_required:
+        payload["packaged_subprocess"] = None
+        with pytest.raises(ValidationError, match="subprocess evidence differs"):
+            LinuxChildRuntimeFailurePayloadV3.model_validate(payload)
+    else:
+        payload["packaged_subprocess"] = capture
+        with pytest.raises(ValidationError, match="subprocess evidence differs"):
+            LinuxChildRuntimeFailurePayloadV3.model_validate(payload)
+
+
+def test_child_runtime_failure_v3_rejects_false_unstarted_process_evidence() -> None:
+    capture = {
+        "process_started": False,
+        "returncode": 1,
+        "stdout_retained_bytes": 0,
+        "stdout_observed_bytes": 0,
+        "stdout_retained_sha256": digest(b""),
+        "stdout_truncated": False,
+        "stderr_retained_bytes": 0,
+        "stderr_observed_bytes": 0,
+        "stderr_retained_sha256": digest(b""),
+        "stderr_truncated": False,
+        "timed_out": False,
+        "output_limit_exceeded": False,
+    }
+    with pytest.raises(ValidationError, match="Unstarted packaged subprocess"):
+        LinuxChildRuntimeFailurePayloadV3(
+            linux_isolation_profile_id=H,
+            environment_instance_id=ENVIRONMENT,
+            stage="result_assembly",
+            reason_code="result_assembly_failed",
+            packaged_mcp_checkpoint="mcp_exchange",
+            packaged_subprocess=capture,
+        )
+
+
 @pytest.mark.parametrize(
     "checkpoint",
     [
@@ -1687,7 +1824,10 @@ def test_child_runtime_failure_writer_uses_the_reviewed_v11_contract() -> None:
         "result_assembly",
     ):
         frame = CHILD.runtime_failure_frame(stage, H, ENVIRONMENT)
-        assert LinuxChildRuntimeFailureV2.model_validate(frame).payload.stage == stage
+        if stage == "result_assembly":
+            failure = CHILD.PackagedMcpObservationFailure("observation_assembly")
+            frame = CHILD.runtime_failure_frame(stage, H, ENVIRONMENT, None, failure)
+        assert LinuxChildRuntimeFailureV3.model_validate(frame).payload.stage == stage
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
@@ -3328,6 +3468,7 @@ def test_nonempty_private_dev_fails_before_landlock_or_result_publication(
         profile_id: str,
         environment_id: str,
         broker_failure: object,
+        packaged_mcp_failure: object,
     ) -> None:
         recorded.update(
             descriptor=descriptor,
@@ -3335,6 +3476,7 @@ def test_nonempty_private_dev_fails_before_landlock_or_result_publication(
             profile_id=profile_id,
             environment_id=environment_id,
             broker_failure=broker_failure,
+            packaged_mcp_failure=packaged_mcp_failure,
         )
 
     monkeypatch.setattr(CHILD, "write_runtime_failure", record_failure)
@@ -3358,6 +3500,7 @@ def test_nonempty_private_dev_fails_before_landlock_or_result_publication(
         "profile_id": H,
         "environment_id": ENVIRONMENT,
         "broker_failure": None,
+        "packaged_mcp_failure": None,
     }
 
 
@@ -3620,7 +3763,7 @@ def test_packaged_observer_subprocess_is_bounded_and_observes_eof() -> None:
     )
     assert (returncode, stdout, stderr) == (0, b"exact-input", b"")
 
-    with pytest.raises(ValueError, match="retained bound"):
+    with pytest.raises(CHILD.PackagedSubprocessExecutionFailure, match="retained bound") as error:
         CHILD.run_bounded_subprocess(
             [
                 sys.executable,
@@ -3633,6 +3776,78 @@ def test_packaged_observer_subprocess_is_bounded_and_observes_eof() -> None:
             input_data=None,
             timeout=5,
         )
+    capture = error.value.capture
+    assert capture["stdout_retained_bytes"] == 1024 * 1024
+    assert cast(int, capture["stdout_observed_bytes"]) > 1024 * 1024
+    assert capture["stdout_truncated"] is True
+    assert capture["output_limit_exceeded"] is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bounded child subprocess is Linux-only")
+def test_packaged_observer_timeout_capture_is_final_and_started() -> None:
+    assert CHILD is not None
+    with pytest.raises(CHILD.PackagedSubprocessExecutionFailure, match="timed out") as error:
+        CHILD.run_bounded_subprocess(
+            [sys.executable, "-I", "-B", "-c", "import time; time.sleep(10)"],
+            environment={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
+            input_data=None,
+            timeout=0.05,
+        )
+    assert error.value.capture["process_started"] is True
+    assert error.value.capture["returncode"] is None
+    assert error.value.capture["timed_out"] is True
+    assert error.value.capture["stdout_observed_bytes"] == 0
+    assert error.value.capture["stderr_observed_bytes"] == 0
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bounded child subprocess is Linux-only")
+def test_packaged_observer_post_kill_wait_failure_keeps_timeout_primary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+
+    class Process:
+        def __init__(self) -> None:
+            self.pid = 6420
+            self.stdin = io.BytesIO()
+            self.stdout = io.BytesIO(b"final")
+            self.stderr = io.BytesIO()
+            self.returncode: int | None = None
+            self.wait_count = 0
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.wait_count += 1
+            if self.wait_count == 1:
+                raise CHILD.subprocess.TimeoutExpired(["python"], timeout)
+            if self.wait_count == 2:
+                raise OSError("injected post-kill wait failure")
+            self.returncode = -9
+            return self.returncode
+
+    process = Process()
+
+    def killpg(_pid: int, _signal_number: int) -> None:
+        process.returncode = -9
+
+    monkeypatch.setattr(CHILD.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(CHILD.os, "killpg", killpg)
+
+    with pytest.raises(CHILD.PackagedSubprocessExecutionFailure) as captured:
+        CHILD.run_bounded_subprocess(
+            ["/bundle/python/bin/python3.12", "-I", "-B"],
+            environment={"PATH": "/usr/bin:/bin"},
+            input_data=None,
+            timeout=0.05,
+        )
+    assert captured.value.capture["process_started"] is True
+    assert captured.value.capture["timed_out"] is True
+    assert captured.value.capture["returncode"] is None
+    assert captured.value.capture["stdout_retained_bytes"] == len(b"final")
+    assert isinstance(captured.value.__cause__, OSError)
+    assert "post-kill wait failure" in str(captured.value.__cause__)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Bounded child subprocess is Linux-only")
@@ -3681,7 +3896,7 @@ def test_packaged_observer_closes_pipe_and_kills_group_after_write_failure(
     monkeypatch.setattr(CHILD.subprocess, "Popen", popen)
     monkeypatch.setattr(CHILD.os, "killpg", killpg)
 
-    with pytest.raises(OSError, match="injected write failure"):
+    with pytest.raises(CHILD.PackagedSubprocessExecutionFailure) as captured:
         CHILD.run_bounded_subprocess(
             ["/bundle/python/bin/python3.12", "-I", "-B"],
             environment={"PATH": "/usr/bin:/bin"},
@@ -3689,6 +3904,9 @@ def test_packaged_observer_closes_pipe_and_kills_group_after_write_failure(
             timeout=5,
         )
 
+    assert isinstance(captured.value.__cause__, OSError)
+    assert "injected write failure" in str(captured.value.__cause__)
+    assert captured.value.capture["process_started"] is True
     assert popen_arguments["stdin"] is subprocess.PIPE
     assert popen_arguments["stdout"] is subprocess.PIPE
     assert popen_arguments["stderr"] is subprocess.PIPE
@@ -3728,6 +3946,7 @@ def test_packaged_observer_preserves_primary_and_cleanup_failures(
             self.stdin = FailingInput()
             self.stdout = TrackedOutput()
             self.stderr = TrackedOutput(fail_close=True)
+            self.returncode: int | None = None
             self.wait_attempted = False
 
         def poll(self) -> None:
@@ -3750,7 +3969,7 @@ def test_packaged_observer_preserves_primary_and_cleanup_failures(
     monkeypatch.setattr(CHILD.subprocess, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(CHILD.os, "killpg", killpg)
 
-    with pytest.raises(BaseExceptionGroup) as captured:
+    with pytest.raises(CHILD.PackagedSubprocessExecutionFailure) as captured:
         CHILD.run_bounded_subprocess(
             ["/bundle/python/bin/python3.12", "-I", "-B"],
             environment={"PATH": "/usr/bin:/bin"},
@@ -3758,7 +3977,8 @@ def test_packaged_observer_preserves_primary_and_cleanup_failures(
             timeout=5,
         )
 
-    messages = {str(error) for error in captured.value.exceptions}
+    assert isinstance(captured.value.__cause__, BaseExceptionGroup)
+    messages = {str(error) for error in captured.value.__cause__.exceptions}
     assert "primary write failure" in messages
     assert "cleanup kill failure" in messages
     assert "cleanup wait failure" in messages
@@ -3768,6 +3988,148 @@ def test_packaged_observer_preserves_primary_and_cleanup_failures(
     assert process.stdin.closed is True
     assert process.stdout.close_attempted is True
     assert process.stderr.close_attempted is True
+    assert captured.value.capture["process_started"] is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bounded child subprocess is Linux-only")
+def test_packaged_observer_missing_stream_is_typed_as_started(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+
+    class Process:
+        def __init__(self) -> None:
+            self.pid = 2468
+            self.stdin = None
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = -9
+            return self.returncode
+
+    process = Process()
+    monkeypatch.setattr(CHILD.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(CHILD.os, "killpg", lambda *_args: None)
+
+    with pytest.raises(CHILD.PackagedSubprocessExecutionFailure) as captured:
+        CHILD.run_bounded_subprocess(
+            ["/bundle/python/bin/python3.12", "-I", "-B"],
+            environment={"PATH": "/usr/bin:/bin"},
+            input_data=None,
+            timeout=5,
+        )
+    assert captured.value.capture == {
+        "process_started": True,
+        "returncode": -9,
+        "stdout_retained_bytes": 0,
+        "stdout_observed_bytes": 0,
+        "stdout_retained_sha256": CHILD.sha256(b""),
+        "stdout_truncated": False,
+        "stderr_retained_bytes": 0,
+        "stderr_observed_bytes": 0,
+        "stderr_retained_sha256": CHILD.sha256(b""),
+        "stderr_truncated": False,
+        "timed_out": False,
+        "output_limit_exceeded": False,
+    }
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bounded child subprocess is Linux-only")
+def test_packaged_observer_unexpected_wait_failure_is_typed_as_started(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+
+    class Process:
+        def __init__(self) -> None:
+            self.pid = 9753
+            self.stdin = io.BytesIO()
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
+            self.returncode: int | None = None
+            self.wait_count = 0
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.wait_count += 1
+            if self.wait_count == 1:
+                raise OSError("injected wait failure")
+            self.returncode = -9
+            return self.returncode
+
+    process = Process()
+
+    def killpg(_pid: int, _signal_number: int) -> None:
+        process.returncode = -9
+
+    monkeypatch.setattr(CHILD.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(CHILD.os, "killpg", killpg)
+
+    with pytest.raises(CHILD.PackagedSubprocessExecutionFailure) as captured:
+        CHILD.run_bounded_subprocess(
+            ["/bundle/python/bin/python3.12", "-I", "-B"],
+            environment={"PATH": "/usr/bin:/bin"},
+            input_data=None,
+            timeout=5,
+        )
+    assert captured.value.capture["process_started"] is True
+    assert isinstance(captured.value.__cause__, OSError)
+    assert "injected wait failure" in str(captured.value.__cause__)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bounded child subprocess is Linux-only")
+def test_packaged_observer_thread_start_failure_is_typed_as_started(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+
+    class Process:
+        def __init__(self) -> None:
+            self.pid = 8642
+            self.stdin = io.BytesIO()
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = -9
+            return self.returncode
+
+    class Thread:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
+
+        def start(self) -> None:
+            raise RuntimeError("injected thread start failure")
+
+    process = Process()
+    monkeypatch.setattr(CHILD.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(CHILD.threading, "Thread", Thread)
+    monkeypatch.setattr(CHILD.os, "killpg", lambda *_args: None)
+
+    with pytest.raises(CHILD.PackagedSubprocessExecutionFailure) as captured:
+        CHILD.run_bounded_subprocess(
+            ["/bundle/python/bin/python3.12", "-I", "-B"],
+            environment={"PATH": "/usr/bin:/bin"},
+            input_data=None,
+            timeout=5,
+        )
+    assert captured.value.capture["process_started"] is True
+    assert isinstance(captured.value.__cause__, RuntimeError)
+    assert "injected thread start failure" in str(captured.value.__cause__)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
@@ -3996,7 +4358,14 @@ def test_packaged_mcp_metadata_rejects_malformed_lifecycle(
         "run_bounded_subprocess",
         lambda *args, **kwargs: next(responses),
     )
-    with pytest.raises(ValueError, match="metadata lifecycle differs"):
+    expected_checkpoint = {
+        "missing_jsonrpc": "response_parsing",
+        "error_with_result": "response_parsing",
+        "wrong_initialize_shape": "initialize_shape",
+        "extra_response": "response_parsing",
+        "substituted_tool": "tools_shape",
+    }[malformation]
+    with pytest.raises(CHILD.PackagedMcpObservationFailure) as error:
         CHILD._observe_packaged_mcp_metadata(
             profile_id,
             CHILD.sha256(python.read_bytes()),
@@ -4008,6 +4377,8 @@ def test_packaged_mcp_metadata_rejects_malformed_lifecycle(
             module_relative_path=("python/lib/python3.12/site-packages/devhub/delegate_server.py"),
             expected_module_origin=expected_origin,
         )
+    assert error.value.checkpoint == expected_checkpoint
+    assert error.value.capture is not None
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
@@ -4059,7 +4430,7 @@ def test_packaged_mcp_metadata_rejects_malformed_ledger_initialization(
         "run_bounded_subprocess",
         lambda *args, **kwargs: next(responses),
     )
-    with pytest.raises(ValueError, match="ledger initialization failed"):
+    with pytest.raises(CHILD.PackagedMcpObservationFailure) as error:
         CHILD._observe_packaged_mcp_metadata(
             profile_id,
             CHILD.sha256(python.read_bytes()),
@@ -4071,6 +4442,8 @@ def test_packaged_mcp_metadata_rejects_malformed_ledger_initialization(
             module_relative_path=("python/lib/python3.12/site-packages/devhub/delegate_server.py"),
             expected_module_origin=expected_origin,
         )
+    assert error.value.checkpoint == "ledger_initialization"
+    assert error.value.capture is not None
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
@@ -4268,7 +4641,7 @@ def test_child_broker_os_failure_writer_reader_uses_exact_tuple(
         error.value.errno_category,
     ) == (checkpoint, operation, reason, "permission_denied")
     frame = CHILD.runtime_failure_frame("broker", H, ENVIRONMENT, error.value)
-    parsed = LinuxChildRuntimeFailureV2.model_validate(frame)
+    parsed = LinuxChildRuntimeFailureV3.model_validate(frame)
     assert parsed.payload.broker_operation == operation
     assert parsed.payload.reason_code == reason
 
@@ -4428,7 +4801,7 @@ def test_child_broker_snapshot_failure_writer_reader_preserves_exact_diagnostic(
             socket_modes=(0o600, 0o600, 0o600, 0o600, 0o644),
         )
     frame = CHILD.runtime_failure_frame("broker", H, ENVIRONMENT, error.value)
-    parsed = LinuxChildRuntimeFailureV2.model_validate(frame)
+    parsed = LinuxChildRuntimeFailureV3.model_validate(frame)
     assert (
         parsed.payload.broker_checkpoint,
         parsed.payload.broker_operation,

@@ -21,10 +21,10 @@ from devhub.benchmark import canonical, write_new
 from devhub.linux_bundle import (
     LinuxCodexAuthorityV6,
     LinuxLauncherV1,
-    LinuxNativeArchivePayloadV6,
-    LinuxNativeArchiveV6,
-    LinuxNativeBundlePayloadV6,
-    LinuxNativeBundleV6,
+    LinuxNativeArchivePayloadV7,
+    LinuxNativeArchiveV7,
+    LinuxNativeBundlePayloadV7,
+    LinuxNativeBundleV7,
     LinuxPythonAuthorityV1,
     inventory_linux_bundle,
     observe_linux_runtime,
@@ -234,7 +234,7 @@ def _verify_retained_authority(
 
 
 def _review_codex_artifact(
-    artifact: Path, expected_commit: str, run_id: int, run_attempt: int
+    artifact: Path, expected_codex_commit: str, run_id: int, run_attempt: int
 ) -> LinuxNativeCodexBuildV12:
     artifact = Path(os.path.abspath(artifact))
     _plain_artifact_layout(artifact)
@@ -245,7 +245,7 @@ def _review_codex_artifact(
     payload = receipt.payload
     pair = inventory.payload.linux_pair
     if (
-        payload.provenance.implementation_commit != expected_commit
+        payload.provenance.implementation_commit != expected_codex_commit
         or payload.provenance.workflow_run_id != run_id
         or payload.provenance.workflow_run_attempt != run_attempt
         or payload.provenance.build_id != "linux-build-012"
@@ -278,18 +278,19 @@ def _assemble(
     release: Path,
     expected_commit: str,
     codex_artifact: Path,
+    expected_codex_commit: str,
     run_id: int,
     run_attempt: int,
     builder_python: Path,
     uv: Path,
-) -> LinuxNativeBundleV6:
+) -> LinuxNativeBundleV7:
     bundle_root = release / "bundle"
     manifest_path = release / "linux-native-bundle.json"
     bundle_root.mkdir(parents=True)
     authority = bundle_root / "authority"
     wheelhouse = authority / "wheels"
     wheelhouse.mkdir(parents=True)
-    receipt = _review_codex_artifact(codex_artifact, expected_commit, run_id, run_attempt)
+    receipt = _review_codex_artifact(codex_artifact, expected_codex_commit, run_id, run_attempt)
     with tempfile.TemporaryDirectory(prefix="devfabric-linux-bundle-") as temporary:
         scratch = Path(temporary)
         devhub_wheel_source, source, source_archive_sha256 = _build_wheel(
@@ -395,7 +396,7 @@ def _assemble(
     codex = LinuxCodexAuthorityV6(
         accepted_run_id=run_id,
         accepted_run_attempt=run_attempt,
-        devfabric_implementation_commit=expected_commit,
+        devfabric_implementation_commit=expected_codex_commit,
         build_receipt_sha256=file_sha256(authority / "linux-native-codex-build.json"),
         inventory_sha256=file_sha256(authority / "native-build-artifact-inventory.json"),
         linux_native_codex_build_id=receipt.linux_native_codex_build_id,
@@ -413,9 +414,10 @@ def _assemble(
         dependency_wheels=dependencies,
         runtime=runtime,
     )
-    bundle = LinuxNativeBundleV6.create(
-        LinuxNativeBundlePayloadV6(
+    bundle = LinuxNativeBundleV7.create(
+        LinuxNativeBundlePayloadV7(
             implementation_commit=expected_commit,
+            retained_codex_implementation_commit=expected_codex_commit,
             python=python,
             codex=codex,
             launcher=LinuxLauncherV1(
@@ -433,12 +435,12 @@ def _assemble(
     return bundle
 
 
-def _write_archive(release: Path, bundle: LinuxNativeBundleV6) -> LinuxNativeArchiveV6:
+def _write_archive(release: Path, bundle: LinuxNativeBundleV7) -> LinuxNativeArchiveV7:
     archive_path = release / ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
         stream.add(release / "bundle", arcname="bundle", recursive=True)
-    archive = LinuxNativeArchiveV6.create(
-        LinuxNativeArchivePayloadV6(
+    archive = LinuxNativeArchiveV7.create(
+        LinuxNativeArchivePayloadV7(
             bundle_id=bundle.linux_native_bundle_id,
             size=archive_path.stat().st_size,
             sha256=file_sha256(archive_path),
@@ -456,9 +458,10 @@ def build(
     output: Path,
     expected_commit: str,
     codex_artifact: Path,
+    expected_codex_commit: str,
     accepted_run_id: int,
     accepted_run_attempt: int,
-) -> LinuxNativeBundleV6:
+) -> LinuxNativeBundleV7:
     repo = repo.resolve(strict=True)
     commit = reviewed_commit(repo, expected_commit)
     builder_python, uv = _verified_builder(repo)
@@ -475,6 +478,7 @@ def build(
             staging,
             commit,
             Path(os.path.abspath(codex_artifact)),
+            expected_codex_commit,
             accepted_run_id,
             accepted_run_attempt,
             builder_python,
@@ -497,6 +501,7 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--codex-artifact", required=True, type=Path)
+    parser.add_argument("--expected-codex-commit", required=True)
     parser.add_argument("--accepted-run-id", required=True, type=int)
     parser.add_argument("--accepted-run-attempt", required=True, type=int)
     args = parser.parse_args()
@@ -505,6 +510,7 @@ def main() -> None:
         args.output,
         args.expected_commit,
         args.codex_artifact,
+        args.expected_codex_commit,
         args.accepted_run_id,
         args.accepted_run_attempt,
     )

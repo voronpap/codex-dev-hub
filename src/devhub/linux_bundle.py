@@ -406,9 +406,12 @@ class LinuxNativeBundlePayloadV1(Contract):
 
     @model_validator(mode="after")
     def exact_closed_layout(self) -> LinuxNativeBundlePayloadV1:
+        expected_codex_commit = getattr(
+            self, "retained_codex_implementation_commit", self.implementation_commit
+        )
         if (
             self.python.runtime.payload.devhub_source_commit != self.implementation_commit
-            or self.codex.devfabric_implementation_commit != self.implementation_commit
+            or self.codex.devfabric_implementation_commit != expected_codex_commit
         ):
             raise ValueError("Linux bundle components differ from implementation commit")
         paths = [item.path for item in self.files]
@@ -532,6 +535,24 @@ class LinuxNativeBundlePayloadV6(LinuxNativeBundlePayloadV1):
 
     schema_version: Literal[6] = 6  # type: ignore[assignment]
     codex: LinuxCodexAuthorityV6
+
+
+class LinuxNativeBundlePayloadV7(LinuxNativeBundlePayloadV1):
+    """Forward bundle with current Python code and retained Build-012 binaries."""
+
+    schema_version: Literal[7] = 7  # type: ignore[assignment]
+    codex: LinuxCodexAuthorityV6
+    retained_codex_implementation_commit: GitCommit
+
+    @model_validator(mode="after")
+    def exact_split_authority(self) -> LinuxNativeBundlePayloadV7:
+        if (
+            self.python.runtime.payload.devhub_source_commit != self.implementation_commit
+            or self.codex.devfabric_implementation_commit
+            != self.retained_codex_implementation_commit
+        ):
+            raise ValueError("Linux V7 bundle split authority differs")
+        return self
 
 
 class LinuxNativeBundleV1(Contract):
@@ -662,6 +683,28 @@ class LinuxNativeBundleV6(Contract):
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_bundle_id != expected:
             raise ValueError("Linux native bundle ID mismatch")
+        return self
+
+
+class LinuxNativeBundleV7(Contract):
+    schema_version: Literal[7] = 7  # type: ignore[assignment]
+    linux_native_bundle_id: Digest
+    payload: LinuxNativeBundlePayloadV7
+
+    @classmethod
+    def create(cls, payload: LinuxNativeBundlePayloadV7) -> LinuxNativeBundleV7:
+        return cls(
+            linux_native_bundle_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeBundleV7:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_bundle_id != expected:
+            raise ValueError("Linux native V7 bundle ID mismatch")
         return self
 
 
@@ -825,6 +868,32 @@ class LinuxNativeArchiveV6(Contract):
         return self
 
 
+class LinuxNativeArchivePayloadV7(LinuxNativeArchivePayloadV1):
+    schema_version: Literal[7] = 7  # type: ignore[assignment]
+
+
+class LinuxNativeArchiveV7(Contract):
+    schema_version: Literal[7] = 7  # type: ignore[assignment]
+    linux_native_archive_id: Digest
+    payload: LinuxNativeArchivePayloadV7
+
+    @classmethod
+    def create(cls, payload: LinuxNativeArchivePayloadV7) -> LinuxNativeArchiveV7:
+        return cls(
+            linux_native_archive_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeArchiveV7:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_archive_id != expected:
+            raise ValueError("Linux native V7 archive ID mismatch")
+        return self
+
+
 def observe_linux_runtime(
     interpreter: Path, devhub_wheel: Path, lock_path: Path, source_commit: str
 ) -> LinuxPythonRuntimeV1:
@@ -920,6 +989,7 @@ LinuxNativeBundle = (
     | LinuxNativeBundleV4
     | LinuxNativeBundleV5
     | LinuxNativeBundleV6
+    | LinuxNativeBundleV7
 )
 LinuxNativeArchive = (
     LinuxNativeArchiveV1
@@ -928,6 +998,7 @@ LinuxNativeArchive = (
     | LinuxNativeArchiveV4
     | LinuxNativeArchiveV5
     | LinuxNativeArchiveV6
+    | LinuxNativeArchiveV7
 )
 
 
@@ -952,7 +1023,7 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         | LinuxNativeCodexBuildV11
         | LinuxNativeCodexBuildV12
     )
-    if isinstance(bundle, LinuxNativeBundleV6):
+    if isinstance(bundle, (LinuxNativeBundleV6, LinuxNativeBundleV7)):
         receipt = LinuxNativeCodexBuildV12.model_validate_json(receipt_path.read_bytes())
     elif isinstance(bundle, LinuxNativeBundleV5):
         receipt = LinuxNativeCodexBuildV11.model_validate_json(receipt_path.read_bytes())
@@ -1123,6 +1194,9 @@ def verify_linux_native_release(release: Path, destination: Path) -> LinuxNative
     elif manifest_version == 6 and archive_version == 6:
         bundle = LinuxNativeBundleV6.model_validate_json(manifest_raw)
         archive = LinuxNativeArchiveV6.model_validate_json(archive_raw)
+    elif manifest_version == 7 and archive_version == 7:
+        bundle = LinuxNativeBundleV7.model_validate_json(manifest_raw)
+        archive = LinuxNativeArchiveV7.model_validate_json(archive_raw)
     else:
         raise ValueError("Linux native release schema versions differ or are unsupported")
     if (
