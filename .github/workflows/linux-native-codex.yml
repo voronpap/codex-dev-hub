@@ -58,13 +58,13 @@ jobs:
           uv run --locked python scripts/inventory_native_build_artifact.py
           --platform linux
           --root "$RUNNER_TEMP/linux-native-codex-evidence"
-          --build-id linux-build-009
+          --build-id linux-build-010
           --evidence-projection "$RUNNER_TEMP/linux-native-codex-upload/evidence"
       - name: Upload exact Linux build evidence
         if: always() && steps.seal.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: devfabric-linux-build-009-evidence
+          name: devfabric-linux-build-010-evidence
           path: ${{ runner.temp }}/linux-native-codex-upload/evidence/**
           if-no-files-found: error
           include-hidden-files: true
@@ -73,7 +73,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: devfabric-linux-build-009-binaries
+          name: devfabric-linux-build-010-binaries
           path: |
             ${{ runner.temp }}/linux-native-codex-evidence/binary/**
             ${{ runner.temp }}/linux-native-codex-evidence/linux-native-codex-build.json

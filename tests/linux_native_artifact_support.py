@@ -11,6 +11,7 @@ from devhub.linux_native import (
     LinuxBuildProvenanceV7,
     LinuxBuildProvenanceV8,
     LinuxBuildProvenanceV9,
+    LinuxBuildProvenanceV10,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV3,
     LinuxNativeBinaryV1,
@@ -19,11 +20,13 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildPayloadV7,
     LinuxNativeCodexBuildPayloadV8,
     LinuxNativeCodexBuildPayloadV9,
+    LinuxNativeCodexBuildPayloadV10,
     LinuxNativeCodexBuildV5,
     LinuxNativeCodexBuildV6,
     LinuxNativeCodexBuildV7,
     LinuxNativeCodexBuildV8,
     LinuxNativeCodexBuildV9,
+    LinuxNativeCodexBuildV10,
 )
 
 LinuxBuildId = Literal[
@@ -32,6 +35,7 @@ LinuxBuildId = Literal[
     "linux-build-007",
     "linux-build-008",
     "linux-build-009",
+    "linux-build-010",
 ]
 LinuxBuildReceipt = (
     LinuxNativeCodexBuildV5
@@ -39,6 +43,7 @@ LinuxBuildReceipt = (
     | LinuxNativeCodexBuildV7
     | LinuxNativeCodexBuildV8
     | LinuxNativeCodexBuildV9
+    | LinuxNativeCodexBuildV10
 )
 
 
@@ -48,7 +53,7 @@ def _sha256(path: Path) -> str:
 
 def linux_pass_artifact(
     root: Path,
-    build_id: LinuxBuildId = "linux-build-009",
+    build_id: LinuxBuildId = "linux-build-010",
     *,
     implementation_commit: str = "a" * 40,
     workflow_run_id: int = 123,
@@ -181,10 +186,22 @@ def linux_pass_artifact(
                 process_proof=proof,
             )
         )
-    else:
+    elif build_id == "linux-build-009":
         receipt = LinuxNativeCodexBuildV9.create(
             LinuxNativeCodexBuildPayloadV9(
                 provenance=LinuxBuildProvenanceV9(
+                    **provenance_fields,
+                    workflow_run_id=workflow_run_id,
+                    workflow_run_attempt=workflow_run_attempt,
+                ),
+                binaries=(codex, host),
+                process_proof=proof,
+            )
+        )
+    else:
+        receipt = LinuxNativeCodexBuildV10.create(
+            LinuxNativeCodexBuildPayloadV10(
+                provenance=LinuxBuildProvenanceV10(
                     **provenance_fields,
                     workflow_run_id=workflow_run_id,
                     workflow_run_attempt=workflow_run_attempt,

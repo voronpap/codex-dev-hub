@@ -521,6 +521,18 @@ bundle identity. The trusted verifier requires that exact three-file release,
 joins the archive bytes to both receipts, extracts into a fresh root, repeats
 strict verification, and runs only the metadata-only `devfabric schema` smoke.
 
+Build-009 run `38320931373` passed compilation and the exact same-binary
+Default/Arm A/Arm B proof on commit
+`35799d6d34b10ace7114e20c1eebabf30e0463f8`. Bundle run `38327342109`
+then failed closed before publication because the relative launcher used
+`python -m devhub.cli` while that module defined but did not invoke `main()`;
+the resulting successful process emitted no schema JSON. The immutable failure
+record is `docs/evidence/linux-native-bundle/run-38327342109.json`.
+Forward-only `linux-build-010`, `LinuxNativeBundleV4` and
+`LinuxNativeArchiveV4` bind the corrected module entrypoint to one new exact
+implementation commit. V1-V9 build receipts and V1-V3 bundle/archive contracts
+retain their historical meaning.
+
 The tested bundle is intentionally tied to Linux x86_64 and the exact host
 environment recorded by later qualification.  It does not claim support for
 every distribution.  Directory assembly alone leaves
@@ -738,8 +750,8 @@ syscall-filter, complete native-executor isolation and package readiness false.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PARTIAL — `linux-build-008` run `38312090452` passed for commit `93c177cf84074a32d9970cbb934664bf6c77e732`; forward-only `linux-build-009` is registered for the size-corrected merged implementation |
-| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PARTIAL — build-008 proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit build-009 pending |
+| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PASS for `linux-build-009` run `38320931373` on commit `35799d6d34b10ace7114e20c1eebabf30e0463f8`; forward-only `linux-build-010` is registered for the corrected module-entrypoint implementation |
+| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PASS for build-009 Default/A/B, EOF, security negatives and complete retention; the corrected bundle requires the same proof from build-010 at its exact implementation commit |
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL source coverage; packaged receipt pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
@@ -748,9 +760,9 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
-| Runnable artifact | PENDING directory/launcher/file manifest | PENDING — bundle run `38318283921` failed before publication at the superseded Codex size gate; V3/build-009 correction pending |
+| Runnable artifact | PENDING directory/launcher/file manifest | PENDING — V3 run `38327342109` failed closed before publication because `devhub.cli` did not invoke its module entrypoint; forward-only V4/build-010 is registered for the correction |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for build-008 native pair and V11 isolation mechanics; build-009 plus bundle V3 correction under review |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for build-009 native pair and V11 isolation mechanics; bundle V3 failure retained and V4/build-010 correction pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant
