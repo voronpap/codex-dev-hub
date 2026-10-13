@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 from linux_native_artifact_support import linux_pass_artifact
@@ -39,6 +40,7 @@ from devhub.linux_bundle import (
     LinuxNativeArchivePayloadV8,
     LinuxNativeArchivePayloadV9,
     LinuxNativeArchivePayloadV10,
+    LinuxNativeArchivePayloadV11,
     LinuxNativeArchiveV1,
     LinuxNativeArchiveV2,
     LinuxNativeArchiveV3,
@@ -49,6 +51,7 @@ from devhub.linux_bundle import (
     LinuxNativeArchiveV8,
     LinuxNativeArchiveV9,
     LinuxNativeArchiveV10,
+    LinuxNativeArchiveV11,
     LinuxNativeBundlePayloadV1,
     LinuxNativeBundlePayloadV2,
     LinuxNativeBundlePayloadV3,
@@ -59,6 +62,7 @@ from devhub.linux_bundle import (
     LinuxNativeBundlePayloadV8,
     LinuxNativeBundlePayloadV9,
     LinuxNativeBundlePayloadV10,
+    LinuxNativeBundlePayloadV11,
     LinuxNativeBundleV1,
     LinuxNativeBundleV2,
     LinuxNativeBundleV3,
@@ -69,6 +73,7 @@ from devhub.linux_bundle import (
     LinuxNativeBundleV8,
     LinuxNativeBundleV9,
     LinuxNativeBundleV10,
+    LinuxNativeBundleV11,
     LinuxPythonAuthorityV1,
     LinuxPythonRuntimePayloadV1,
     LinuxPythonRuntimeV1,
@@ -79,6 +84,8 @@ from devhub.linux_bundle import (
     inspect_linux_dynamic_elf,
     inventory_linux_bundle,
     observe_linux_runtime,
+    runtime_library_authority_json,
+    runtime_library_authority_sha256,
     smoke_linux_bundle_cli,
     strip_linux_elf_search_paths,
     verify_linux_native_bundle,
@@ -101,6 +108,16 @@ assert SPEC is not None and SPEC.loader is not None
 BUILDER = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = BUILDER
 SPEC.loader.exec_module(BUILDER)
+CHILD: ModuleType | None = None
+if os.name == "posix":
+    CHILD_SPEC = importlib.util.spec_from_file_location(
+        "linux_native_isolation_child_bundle_test",
+        ROOT / "src/devhub/linux_native_isolation_child.py",
+    )
+    assert CHILD_SPEC is not None and CHILD_SPEC.loader is not None
+    CHILD = importlib.util.module_from_spec(CHILD_SPEC)
+    sys.modules[CHILD_SPEC.name] = CHILD
+    CHILD_SPEC.loader.exec_module(CHILD)
 INVENTORY_SPEC = importlib.util.spec_from_file_location(
     "inventory_native_build_artifact", ROOT / "scripts/inventory_native_build_artifact.py"
 )
@@ -444,6 +461,13 @@ def materialize_v10(root: Path) -> LinuxNativeBundleV10:
     return LinuxNativeBundleV10.create(LinuxNativeBundlePayloadV10.model_validate(raw))
 
 
+def materialize_v11(root: Path) -> LinuxNativeBundleV11:
+    current = materialize_v10(root)
+    raw = current.payload.model_dump(mode="python")
+    raw["schema_version"] = 11
+    return LinuxNativeBundleV11.create(LinuxNativeBundlePayloadV11.model_validate(raw))
+
+
 def reviewable_v12_artifact(root: Path) -> None:
     linux_pass_artifact(
         root,
@@ -467,6 +491,7 @@ def write_test_archive(
     | LinuxNativeArchiveV8
     | LinuxNativeArchiveV9
     | LinuxNativeArchiveV10
+    | LinuxNativeArchiveV11
 ):
     archive_path = release / BUILDER.ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
@@ -488,6 +513,7 @@ def write_test_archive(
             | LinuxNativeArchiveV8
             | LinuxNativeArchiveV9
             | LinuxNativeArchiveV10
+            | LinuxNativeArchiveV11
         ) = LinuxNativeArchiveV1.create(LinuxNativeArchivePayloadV1(**fields))
     elif schema_version == 2:
         receipt = LinuxNativeArchiveV2.create(LinuxNativeArchivePayloadV2(**fields))
@@ -505,8 +531,10 @@ def write_test_archive(
         receipt = LinuxNativeArchiveV8.create(LinuxNativeArchivePayloadV8(**fields))
     elif schema_version == 9:
         receipt = LinuxNativeArchiveV9.create(LinuxNativeArchivePayloadV9(**fields))
-    else:
+    elif schema_version == 10:
         receipt = LinuxNativeArchiveV10.create(LinuxNativeArchivePayloadV10(**fields))
+    else:
+        receipt = LinuxNativeArchiveV11.create(LinuxNativeArchivePayloadV11(**fields))
     (release / BUILDER.ARCHIVE_RECEIPT_NAME).write_text(receipt.model_dump_json(), encoding="utf-8")
     return receipt
 
@@ -691,6 +719,52 @@ def test_linux_native_bundle_v10_preserves_v9_and_versions_search_path_removal(
     assert LinuxNativeBundleV9.model_validate_json(historical.model_dump_json()) == historical
 
 
+def test_linux_native_bundle_v11_binds_v10_predecessor_and_remains_non_ready(
+    tmp_path: Path,
+) -> None:
+    current = materialize_v11(tmp_path / "current")
+    assert LinuxNativeBundleV11.model_validate_json(current.model_dump_json()) == current
+    assert current.payload.schema_version == 11
+    assert current.payload.predecessor_bundle_run_id == 38418589025
+    assert current.payload.predecessor_bundle_run_attempt == 1
+    assert (
+        current.payload.predecessor_bundle_id
+        == "10a30fb6a28a9d77bd0b8bf31c329a6638d96121050aff1be4cfe07792d023e2"
+    )
+    assert (
+        current.payload.predecessor_bundle_manifest_sha256
+        == "a3bc252955bb45fd9e10a34d92a27d3b55fdcf5efa4265e4546ad6082ff964fd"
+    )
+    assert (
+        current.payload.predecessor_archive_id
+        == "e3560a690a47b86683c3ba41c6b2699279e96e19932a7bfd0fb7d9b26d7e0c00"
+    )
+    assert (
+        current.payload.predecessor_archive_sha256
+        == "7e4032107cf364b4caf3659bdd334ed18c31e95afe7de8145f9c529a2788cda3"
+    )
+    assert current.payload.native_executor_isolation_qualified is False
+    assert current.payload.package_readiness is False
+
+    historical = materialize_v10(tmp_path / "historical")
+    assert LinuxNativeBundleV10.model_validate_json(historical.model_dump_json()) == historical
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Immutable isolation child is Linux-only")
+def test_runtime_library_authority_projection_round_trips_immutable_child(tmp_path: Path) -> None:
+    assert CHILD is not None
+    closure = materialize_v11(tmp_path / "bundle").payload.runtime_closure
+    raw = runtime_library_authority_json(closure)
+    parsed = CHILD.parse_runtime_library_authority(raw)
+
+    assert parsed == tuple(
+        (Path(item.path).name, item.sha256, item.size) for item in closure.libraries
+    )
+    assert CHILD.digest(CHILD.canonical(json.loads(raw))) == runtime_library_authority_sha256(
+        closure
+    )
+
+
 def test_linux_bundle_loader_command_is_exact_and_rejects_tamper(tmp_path: Path) -> None:
     bundle = materialize_v9(tmp_path / "bundle")
     closure = bundle.payload.runtime_closure
@@ -717,7 +791,7 @@ def test_linux_bundle_loader_command_is_exact_and_rejects_tamper(tmp_path: Path)
         bundled_loader_command(tmp_path / "bundle", closure, "python/bin/python3.12", ("-I",))
 
 
-@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
+@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
 def test_linux_release_rejects_mixed_manifest_and_archive_versions(
     tmp_path: Path, manifest_version: int
 ) -> None:
@@ -743,6 +817,8 @@ def test_linux_release_rejects_mixed_manifest_and_archive_versions(
         else materialize_v9(root)
         if manifest_version == 9
         else materialize_v10(root)
+        if manifest_version == 10
+        else materialize_v11(root)
     )
     (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
     write_test_archive(release, bundle.linux_native_bundle_id, 2 if manifest_version != 2 else 1)
@@ -960,7 +1036,7 @@ def test_runtime_observation_accepts_only_missing_sys_path_inside_bundle(
 
 def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-bundle.yml").read_text(encoding="utf-8")
-    assert workflow.startswith("name: Native Linux directory bundle V10\n")
+    assert workflow.startswith("name: Native Linux directory bundle V11\n")
     assert "workflow_dispatch:" in workflow
     assert "pull_request:" not in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
@@ -982,8 +1058,8 @@ def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     assert "scripts/verify_linux_native_bundle.py" in workflow
     builder = (ROOT / "scripts/build_linux_native_bundle.py").read_text(encoding="utf-8")
     assert 'ARCHIVE_NAME = "devfabric-linux-native.tar.gz"' in builder
-    assert "LinuxNativeBundleV10.create" in builder
-    assert "LinuxNativeBundleV9.create" not in builder
+    assert "LinuxNativeBundleV11.create" in builder
+    assert "LinuxNativeBundleV10.create" not in builder
     source = (ROOT / "src/devhub/linux_bundle.py").read_text(encoding="utf-8")
     assert "native_executor_isolation_qualified: Literal[False]" in source
     assert "package_readiness: Literal[False]" in source
@@ -1612,7 +1688,7 @@ def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode preservation requires Linux")
-@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
 def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_version: int
 ) -> None:
@@ -1638,6 +1714,8 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
         else materialize_v9(root)
         if schema_version == 9
         else materialize_v10(root)
+        if schema_version == 10
+        else materialize_v11(root)
     )
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)

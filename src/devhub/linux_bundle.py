@@ -772,6 +772,28 @@ class LinuxRuntimeClosureV1(Contract):
         return self
 
 
+def runtime_library_authority_payload(
+    closure: LinuxRuntimeClosureV1,
+) -> list[dict[str, JsonValue]]:
+    """Project the exact child-visible subset of the manifest runtime closure."""
+
+    return [
+        {"path": item.path, "sha256": item.sha256, "size": item.size} for item in closure.libraries
+    ]
+
+
+def runtime_library_authority_json(closure: LinuxRuntimeClosureV1) -> str:
+    """Serialize the exact runtime-library argument consumed by the child."""
+
+    return canonical(cast(JsonValue, runtime_library_authority_payload(closure))).decode("utf-8")
+
+
+def runtime_library_authority_sha256(closure: LinuxRuntimeClosureV1) -> Digest:
+    """Hash the canonical child-visible runtime-library authority."""
+
+    return digest(canonical(cast(JsonValue, runtime_library_authority_payload(closure))))
+
+
 class LinuxLauncherV2(LinuxLauncherV1):
     """Launcher that enters the exact bundle-owned dynamic runtime."""
 
@@ -1015,6 +1037,26 @@ class LinuxNativeBundlePayloadV10(LinuxNativeBundlePayloadV9):
     schema_version: Literal[10] = 10  # type: ignore[assignment]
 
 
+class LinuxNativeBundlePayloadV11(LinuxNativeBundlePayloadV10):
+    """Forward bundle whose packaged child uses the exact bundled loader."""
+
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    predecessor_bundle_run_id: Literal[38418589025] = 38418589025
+    predecessor_bundle_run_attempt: Literal[1] = 1
+    predecessor_bundle_id: Literal[
+        "10a30fb6a28a9d77bd0b8bf31c329a6638d96121050aff1be4cfe07792d023e2"
+    ] = "10a30fb6a28a9d77bd0b8bf31c329a6638d96121050aff1be4cfe07792d023e2"
+    predecessor_bundle_manifest_sha256: Literal[
+        "a3bc252955bb45fd9e10a34d92a27d3b55fdcf5efa4265e4546ad6082ff964fd"
+    ] = "a3bc252955bb45fd9e10a34d92a27d3b55fdcf5efa4265e4546ad6082ff964fd"
+    predecessor_archive_id: Literal[
+        "e3560a690a47b86683c3ba41c6b2699279e96e19932a7bfd0fb7d9b26d7e0c00"
+    ] = "e3560a690a47b86683c3ba41c6b2699279e96e19932a7bfd0fb7d9b26d7e0c00"
+    predecessor_archive_sha256: Literal[
+        "7e4032107cf364b4caf3659bdd334ed18c31e95afe7de8145f9c529a2788cda3"
+    ] = "7e4032107cf364b4caf3659bdd334ed18c31e95afe7de8145f9c529a2788cda3"
+
+
 class LinuxNativeBundleV1(Contract):
     linux_native_bundle_id: Digest
     payload: LinuxNativeBundlePayloadV1
@@ -1231,6 +1273,28 @@ class LinuxNativeBundleV10(Contract):
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_bundle_id != expected:
             raise ValueError("Linux native V10 bundle ID mismatch")
+        return self
+
+
+class LinuxNativeBundleV11(Contract):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    linux_native_bundle_id: Digest
+    payload: LinuxNativeBundlePayloadV11
+
+    @classmethod
+    def create(cls, payload: LinuxNativeBundlePayloadV11) -> LinuxNativeBundleV11:
+        return cls(
+            linux_native_bundle_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeBundleV11:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_bundle_id != expected:
+            raise ValueError("Linux native V11 bundle ID mismatch")
         return self
 
 
@@ -1498,6 +1562,32 @@ class LinuxNativeArchiveV10(Contract):
         return self
 
 
+class LinuxNativeArchivePayloadV11(LinuxNativeArchivePayloadV1):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+
+
+class LinuxNativeArchiveV11(Contract):
+    schema_version: Literal[11] = 11  # type: ignore[assignment]
+    linux_native_archive_id: Digest
+    payload: LinuxNativeArchivePayloadV11
+
+    @classmethod
+    def create(cls, payload: LinuxNativeArchivePayloadV11) -> LinuxNativeArchiveV11:
+        return cls(
+            linux_native_archive_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeArchiveV11:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_archive_id != expected:
+            raise ValueError("Linux native V11 archive ID mismatch")
+        return self
+
+
 def bundled_loader_command(
     root: Path,
     closure: LinuxRuntimeClosureV1,
@@ -1641,6 +1731,7 @@ LinuxNativeBundle = (
     | LinuxNativeBundleV8
     | LinuxNativeBundleV9
     | LinuxNativeBundleV10
+    | LinuxNativeBundleV11
 )
 LinuxNativeArchive = (
     LinuxNativeArchiveV1
@@ -1653,6 +1744,7 @@ LinuxNativeArchive = (
     | LinuxNativeArchiveV8
     | LinuxNativeArchiveV9
     | LinuxNativeArchiveV10
+    | LinuxNativeArchiveV11
 )
 
 
@@ -1685,6 +1777,7 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
             LinuxNativeBundleV8,
             LinuxNativeBundleV9,
             LinuxNativeBundleV10,
+            LinuxNativeBundleV11,
         ),
     ):
         receipt = LinuxNativeCodexBuildV12.model_validate_json(receipt_path.read_bytes())
@@ -1726,7 +1819,7 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         or file_sha256(root / codex.code_mode_host_path) != codex.code_mode_host_sha256
     ):
         raise ValueError("Linux Codex artifact differs from bundle authority")
-    if isinstance(bundle, (LinuxNativeBundleV9, LinuxNativeBundleV10)):
+    if isinstance(bundle, (LinuxNativeBundleV9, LinuxNativeBundleV10, LinuxNativeBundleV11)):
         observed_elf: list[LinuxElfRequirementV1] = []
         for item in bundle.payload.files:
             if item.kind != "file":
@@ -1744,7 +1837,7 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         bundle.payload.implementation_commit,
         (
             bundle.payload.runtime_closure
-            if isinstance(bundle, (LinuxNativeBundleV9, LinuxNativeBundleV10))
+            if isinstance(bundle, (LinuxNativeBundleV9, LinuxNativeBundleV10, LinuxNativeBundleV11))
             else None
         ),
     )
@@ -1791,7 +1884,8 @@ def extract_and_verify_linux_archive(
 
 
 def smoke_linux_bundle_cli(
-    root: Path, bundle: LinuxNativeBundleV9 | LinuxNativeBundleV10 | None = None
+    root: Path,
+    bundle: LinuxNativeBundleV9 | LinuxNativeBundleV10 | LinuxNativeBundleV11 | None = None,
 ) -> None:
     """Run one metadata-only command through the packaged relative launcher."""
 
@@ -1895,6 +1989,9 @@ def verify_linux_native_release(release: Path, destination: Path) -> LinuxNative
     elif manifest_version == 10 and archive_version == 10:
         bundle = LinuxNativeBundleV10.model_validate_json(manifest_raw)
         archive = LinuxNativeArchiveV10.model_validate_json(archive_raw)
+    elif manifest_version == 11 and archive_version == 11:
+        bundle = LinuxNativeBundleV11.model_validate_json(manifest_raw)
+        archive = LinuxNativeArchiveV11.model_validate_json(archive_raw)
     else:
         raise ValueError("Linux native release schema versions differ or are unsupported")
     if (
@@ -1905,7 +2002,7 @@ def verify_linux_native_release(release: Path, destination: Path) -> LinuxNative
     ):
         raise ValueError("Linux native release files do not share one authority")
     extracted = extract_and_verify_linux_archive(archive_path, destination, bundle)
-    if isinstance(bundle, (LinuxNativeBundleV9, LinuxNativeBundleV10)):
+    if isinstance(bundle, (LinuxNativeBundleV9, LinuxNativeBundleV10, LinuxNativeBundleV11)):
         smoke_linux_bundle_cli(extracted, bundle)
     else:
         smoke_linux_bundle_cli(extracted)

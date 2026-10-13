@@ -26,7 +26,7 @@ import sys
 import threading
 import time
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import BinaryIO, cast
 
 PR_SET_NO_NEW_PRIVS = 38
@@ -1355,11 +1355,99 @@ def strict_mcp_result(
     return cast(dict[str, object], frame["result"])
 
 
+def parse_runtime_library_authority(raw: str) -> tuple[tuple[str, str, int], ...]:
+    """Parse the exact manifest-projected runtime library closure."""
+
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError("Runtime library authority is not valid JSON") from error
+    if not isinstance(value, list) or not value or len(value) > 256:
+        raise ValueError("Runtime library authority has an invalid cardinality")
+    parsed: list[tuple[str, str, int]] = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256", "size"}:
+            raise ValueError("Runtime library authority record differs")
+        path = item["path"]
+        expected_sha256 = item["sha256"]
+        size = item["size"]
+        canonical_path = PurePosixPath(path) if isinstance(path, str) else None
+        if (
+            canonical_path is None
+            or len(canonical_path.parts) != 3
+            or canonical_path.parts[:2] != ("runtime", "lib")
+            or canonical_path.name in {"", ".", ".."}
+            or path != f"runtime/lib/{canonical_path.name}"
+            or not isinstance(expected_sha256, str)
+            or len(expected_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in expected_sha256)
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size <= 0
+        ):
+            raise ValueError("Runtime library authority value differs")
+        parsed.append((canonical_path.name, expected_sha256, size))
+    if parsed != sorted(parsed) or len({item[0] for item in parsed}) != len(parsed):
+        raise ValueError("Runtime library authority is not canonical")
+    return tuple(parsed)
+
+
+def bundled_python_command(
+    *,
+    python: Path,
+    loader: Path,
+    library_directory: Path,
+    expected_python_sha256: str,
+    expected_loader_sha256: str,
+    expected_runtime_libraries: tuple[tuple[str, str, int], ...],
+    arguments: tuple[str, ...],
+) -> list[str]:
+    """Revalidate and invoke Python only through the fixed bundled loader."""
+
+    for path, label in ((python, "Python"), (loader, "loader")):
+        info = path.lstat()
+        if path.is_symlink() or not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"Bundled {label} is not a plain file")
+    directory_info = library_directory.lstat()
+    if library_directory.is_symlink() or not stat.S_ISDIR(directory_info.st_mode):
+        raise ValueError("Bundled runtime library directory is not plain")
+    if file_sha256(python) != expected_python_sha256:
+        raise ValueError("Bundled Python differs from package authority")
+    if file_sha256(loader) != expected_loader_sha256:
+        raise ValueError("Bundled loader differs from package authority")
+    observed_names = tuple(sorted(path.name for path in library_directory.iterdir()))
+    expected_names = tuple(item[0] for item in expected_runtime_libraries)
+    if observed_names != expected_names:
+        raise ValueError("Bundled runtime library set differs from package authority")
+    for name, expected_sha256, expected_size in expected_runtime_libraries:
+        library = library_directory / name
+        info = library.lstat()
+        if (
+            library.is_symlink()
+            or not stat.S_ISREG(info.st_mode)
+            or info.st_size != expected_size
+            or file_sha256(library) != expected_sha256
+        ):
+            raise ValueError("Bundled runtime library differs from package authority")
+    return [
+        str(loader),
+        "--inhibit-cache",
+        "--library-path",
+        str(library_directory),
+        str(python),
+        *arguments,
+    ]
+
+
 def _observe_packaged_mcp_metadata(
     profile_id: str,
     expected_python_sha256: str,
+    expected_loader_sha256: str,
+    expected_runtime_libraries_raw: str,
     *,
     python: Path,
+    loader: Path,
+    library_directory: Path,
     bundle_root: Path,
     state_root: Path,
     output_root: Path,
@@ -1370,8 +1458,16 @@ def _observe_packaged_mcp_metadata(
     """Observe initialize/tools-list/EOF through one explicit isolated runtime."""
 
     try:
-        if sha256(python.read_bytes()) != expected_python_sha256:
-            raise ValueError("Packaged Python differs before MCP metadata observation")
+        runtime_libraries = parse_runtime_library_authority(expected_runtime_libraries_raw)
+        command_prefix = bundled_python_command(
+            python=python,
+            loader=loader,
+            library_directory=library_directory,
+            expected_python_sha256=expected_python_sha256,
+            expected_loader_sha256=expected_loader_sha256,
+            expected_runtime_libraries=runtime_libraries,
+            arguments=(),
+        )
     except BaseException as error:
         raise PackagedMcpObservationFailure("python_authority") from error
     try:
@@ -1439,11 +1535,19 @@ def _observe_packaged_mcp_metadata(
         "PATH": f"{python.parent}:/usr/bin:/bin",
         "PYTHONDONTWRITEBYTECODE": "1",
     }
-    command = [str(python), "-I", "-B", "-m", "devhub.delegate_server", "--config", str(config)]
+    command = [
+        *command_prefix,
+        "-I",
+        "-B",
+        "-m",
+        "devhub.delegate_server",
+        "--config",
+        str(config),
+    ]
     try:
         origin_returncode, origin_stdout, origin_stderr = run_bounded_subprocess(
             [
-                str(python),
+                *command_prefix,
                 "-I",
                 "-B",
                 "-c",
@@ -1584,6 +1688,16 @@ def _observe_packaged_mcp_metadata(
         raise PackagedMcpObservationFailure("tools_shape", exchange_capture)
     return {
         "python_executable_sha256": expected_python_sha256,
+        "loader_sha256": expected_loader_sha256,
+        "runtime_library_authority_sha256": digest(
+            canonical(
+                [
+                    {"path": f"runtime/lib/{name}", "sha256": identity, "size": size}
+                    for name, identity, size in runtime_libraries
+                ]
+            )
+        ),
+        "loader_arguments": ["--inhibit-cache", "--library-path"],
         "module_origin": expected_module_origin,
         "initialize_succeeded": True,
         "tools_list_succeeded": True,
@@ -1600,14 +1714,21 @@ def _observe_packaged_mcp_metadata(
 
 
 def packaged_mcp_metadata_observation(
-    profile_id: str, expected_python_sha256: str
+    profile_id: str,
+    expected_python_sha256: str,
+    expected_loader_sha256: str,
+    expected_runtime_libraries_raw: str,
 ) -> dict[str, object]:
     """Observe exact packaged initialize/tools-list/EOF after Landlock enforcement."""
 
     return _observe_packaged_mcp_metadata(
         profile_id,
         expected_python_sha256,
+        expected_loader_sha256,
+        expected_runtime_libraries_raw,
         python=Path("/bundle/python/bin/python3.12"),
+        loader=Path("/bundle/runtime/loader/ld-linux-x86-64.so.2"),
+        library_directory=Path("/bundle/runtime/lib"),
         bundle_root=Path("/bundle"),
         state_root=Path("/state"),
         output_root=Path("/output"),
@@ -1699,7 +1820,10 @@ def run_post_registration(
 
         stage = "result_assembly"
         packaged_mcp = packaged_mcp_metadata_observation(
-            args.linux_isolation_profile_id, args.expected_python_sha256
+            args.linux_isolation_profile_id,
+            args.expected_python_sha256,
+            args.expected_loader_sha256,
+            args.expected_runtime_libraries,
         )
         try:
             observed = {
@@ -1818,6 +1942,8 @@ def main() -> None:
     parser.add_argument("--linux-isolation-profile-id", required=True)
     parser.add_argument("--environment-instance-id", required=True)
     parser.add_argument("--expected-python-sha256", required=True)
+    parser.add_argument("--expected-loader-sha256", required=True)
+    parser.add_argument("--expected-runtime-libraries", required=True)
     parser.add_argument("--expected-child-module-sha256", required=True)
     args = parser.parse_args()
 
