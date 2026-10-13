@@ -76,6 +76,7 @@ _LDD_ABSOLUTE = re.compile(r"^\s*(/[^\s]+) \(0x[0-9A-Fa-f]+\)\s*$")
 _LDD_VDSO = re.compile(r"^\s*linux-vdso\.so\.1 \(0x[0-9A-Fa-f]+\)\s*$")
 _EXPECTED_INTERPRETER = "/lib64/ld-linux-x86-64.so.2"
 _UNRECOGNIZED_LOADER_OUTPUT = "UNRECOGNIZED_LOADER_OUTPUT_LINE_V1"
+_DEPENDENCY_FREE_LOADER_OUTPUT = ("\tstatically linked",)
 
 
 def _loader_output_diagnostic(
@@ -93,6 +94,16 @@ def _loader_output_diagnostic(
         "needed_count": len(requirement.needed),
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _is_expected_dependency_free_loader_output(
+    lines: tuple[str, ...], requirement: LinuxElfRequirementV1
+) -> bool:
+    return (
+        lines == _DEPENDENCY_FREE_LOADER_OUTPUT
+        and not requirement.needed
+        and requirement.interpreter is None
+    )
 
 
 def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 1800) -> None:
@@ -245,12 +256,15 @@ def _verify_loader_resolution(bundle_root: Path, closure: LinuxRuntimeClosureV1)
         stderr = completed.stderr.decode("utf-8", errors="strict")
         if completed.returncode != 0 or stderr:
             raise ValueError(f"Bundled loader resolution failed: {relative}")
+        lines = tuple(stdout.splitlines())
+        if _is_expected_dependency_free_loader_output(lines, requirement):
+            continue
         observed: dict[str, Path] = {}
         if loader_name in requirement.needed:
             # The reviewed loader is the process image for this invocation. Glibc
             # may omit that self-dependency from --list even when DT_NEEDED names it.
             observed[loader_name] = resolved_loader
-        for line_index, line in enumerate(stdout.splitlines(), start=1):
+        for line_index, line in enumerate(lines, start=1):
             match = _LDD_RESOLVED.match(line)
             if match is not None:
                 name, locator = match.groups()
