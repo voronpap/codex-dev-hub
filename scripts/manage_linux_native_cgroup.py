@@ -56,7 +56,11 @@ from devhub.linux_isolation import (
     LinuxMatchedControlAuthorityV1,
     LinuxMatchedControlExecutionPayloadV1,
     LinuxMatchedControlExecutionV1,
+    LinuxMatchedControlFailureDiagnosticPayloadV1,
+    LinuxMatchedControlFailureDiagnosticV1,
     LinuxMatchedControlObservationV1,
+    LinuxMatchedControlProbeFailurePayloadV1,
+    LinuxMatchedControlProbeFailureV1,
     LinuxMatchedControlReceiptPayloadV1,
     LinuxMatchedControlReceiptV1,
     LinuxNativePathIdentityV1,
@@ -85,6 +89,7 @@ _VERSION_ENVIRONMENT = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bi
 _SYSCALL_SELECTORS = ("@system-service", "@mount", "@sandbox")
 _PERSONALITY_QUERY = 0xFFFFFFFF
 _SYS_PERSONALITY_X86_64 = 135
+_CONTROL_EXECUTION_ID_ENV = "DEVFABRIC_LINUX_MATCHED_CONTROL_EXECUTION_ID"
 
 
 class SyscallAllowlistAuthorityMismatch(ValueError):
@@ -108,6 +113,100 @@ class SystemdFilterRepresentationMismatch(ValueError):
         self.observation = observation
         self.cleanup_attempted = False
         self.cleanup_succeeded = False
+
+
+class TransientServiceProcessFailure(ValueError):
+    def __init__(self, result: str, exec_main_code: int, exec_main_status: int) -> None:
+        super().__init__("transient_service_process_failed")
+        self.result = result
+        self.exec_main_code = exec_main_code
+        self.exec_main_status = exec_main_status
+
+
+class ControlProbeFailureFrameInvalid(ValueError):
+    def __init__(
+        self,
+        *,
+        raw_sha256: str | None = None,
+        raw_bytes: int | None = None,
+    ) -> None:
+        super().__init__("matched_control_failure_frame_invalid")
+        self.raw_sha256 = raw_sha256
+        self.raw_bytes = raw_bytes
+
+
+class MatchedControlProcessFailure(ValueError):
+    def __init__(
+        self,
+        *,
+        execution: LinuxMatchedControlExecutionV1,
+        journal: LinuxSystemdUnitPostCreateJournalV1,
+        child_failure_status: Literal["validated", "missing", "invalid"],
+        child_failure: LinuxMatchedControlProbeFailureV1 | None,
+        child_failure_raw_sha256: str | None,
+        child_failure_raw_bytes: int | None,
+        systemd_result: Literal[
+            "exit_code",
+            "signal",
+            "core_dump",
+            "timeout",
+            "watchdog",
+            "resources",
+            "protocol",
+            "oom_kill",
+            "unexpected_success",
+            "other_failure",
+        ],
+        exec_main_code: int,
+        exec_main_status: int,
+    ) -> None:
+        super().__init__("matched_control_process_failed")
+        self.execution = execution
+        self.journal = journal
+        self.child_failure_status = child_failure_status
+        self.child_failure = child_failure
+        self.child_failure_raw_sha256 = child_failure_raw_sha256
+        self.child_failure_raw_bytes = child_failure_raw_bytes
+        self.systemd_result = systemd_result
+        self.exec_main_code = exec_main_code
+        self.exec_main_status = exec_main_status
+        self.cleanup_attempted = False
+        self.cleanup_succeeded = False
+
+
+def classify_systemd_result(
+    value: str,
+) -> Literal[
+    "exit_code",
+    "signal",
+    "core_dump",
+    "timeout",
+    "watchdog",
+    "resources",
+    "protocol",
+    "oom_kill",
+    "unexpected_success",
+    "other_failure",
+]:
+    if value == "exit-code":
+        return "exit_code"
+    if value == "signal":
+        return "signal"
+    if value == "core-dump":
+        return "core_dump"
+    if value == "timeout":
+        return "timeout"
+    if value == "watchdog":
+        return "watchdog"
+    if value == "resources":
+        return "resources"
+    if value == "protocol":
+        return "protocol"
+    if value == "oom-kill":
+        return "oom_kill"
+    if value == "success":
+        return "unexpected_success"
+    return "other_failure"
 
 
 def file_sha256(path: Path) -> str:
@@ -736,6 +835,66 @@ def read_post_create_journal(path: Path) -> LinuxSystemdUnitPostCreateJournalV1:
     return LinuxSystemdUnitPostCreateJournalV1.model_validate_json(raw)
 
 
+def read_control_probe_failure(
+    path: Path, *, expected_uid: int, expected_gid: int
+) -> tuple[LinuxMatchedControlProbeFailureV1, str, int]:
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        raise
+    except OSError as error:
+        raise ControlProbeFailureFrameInvalid() from error
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > 262_144:
+            raise ControlProbeFailureFrameInvalid()
+        chunks: list[bytes] = []
+        remaining = before.st_size + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, min(65_536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        raw_sha256 = hashlib.sha256(raw).hexdigest()
+        raw_bytes = len(raw)
+        after = os.fstat(descriptor)
+        if (
+            len(raw) != before.st_size
+            or after.st_dev != before.st_dev
+            or after.st_ino != before.st_ino
+            or after.st_size != before.st_size
+            or after.st_uid != before.st_uid
+            or after.st_gid != before.st_gid
+            or stat.S_IMODE(after.st_mode) != stat.S_IMODE(before.st_mode)
+            or after.st_mtime_ns != before.st_mtime_ns
+            or after.st_ctime_ns != before.st_ctime_ns
+            or before.st_uid != expected_uid
+            or before.st_gid != expected_gid
+            or stat.S_IMODE(before.st_mode) != 0o600
+        ):
+            raise ControlProbeFailureFrameInvalid(
+                raw_sha256=raw_sha256,
+                raw_bytes=raw_bytes,
+            )
+    finally:
+        os.close(descriptor)
+    try:
+        failure = LinuxMatchedControlProbeFailureV1.model_validate_json(raw)
+    except ValueError as error:
+        raise ControlProbeFailureFrameInvalid(
+            raw_sha256=raw_sha256,
+            raw_bytes=raw_bytes,
+        ) from error
+    if raw != canonical(failure.model_dump(mode="json")):
+        raise ControlProbeFailureFrameInvalid(
+            raw_sha256=raw_sha256,
+            raw_bytes=raw_bytes,
+        )
+    return failure, raw_sha256, raw_bytes
+
+
 def validate_post_create_journal_authority(
     journal: LinuxSystemdUnitPostCreateJournalV1,
     state: LinuxCgroupSetupStateV2,
@@ -928,6 +1087,7 @@ def _run_transient_service(
     setup_state_id: str | None = None,
     unit_role: Literal["matched_control", "target"] | None = None,
     expected_control_group: str | None = None,
+    service_environment: tuple[tuple[str, str], ...] = (),
 ) -> None:
     if not command or not Path(command[0]).is_absolute():
         raise ValueError("Transient service command must use an absolute executable")
@@ -960,6 +1120,10 @@ def _run_transient_service(
                 "--property=SystemCallErrorNumber=EPERM",
             )
         )
+    for name, value in service_environment:
+        if name != _CONTROL_EXECUTION_ID_ENV or not re.fullmatch(r"[a-f0-9]{64}", value):
+            raise ValueError("Transient service environment authority is invalid")
+        arguments.append(f"--setenv={name}={value}")
     result = subprocess.run(
         [*arguments, "--", *command],
         capture_output=True,
@@ -1020,6 +1184,22 @@ def _run_transient_service(
                 raise ValueError("Transient service execution failed")
             return
         if active in {"inactive", "failed", "not-found"}:
+            result_name = systemctl_property(unit, "Result", check=False)
+            raw_code = systemctl_property(unit, "ExecMainCode", check=False)
+            raw_status = systemctl_property(unit, "ExecMainStatus", check=False)
+            if (
+                result_name
+                and re.fullmatch(r"[a-z-]{1,32}", result_name)
+                and re.fullmatch(r"[0-9]+", raw_code)
+                and re.fullmatch(r"[0-9]+", raw_status)
+                and 0 <= int(raw_code) <= 6
+                and 0 <= int(raw_status) <= 255
+            ):
+                raise TransientServiceProcessFailure(
+                    result_name,
+                    int(raw_code),
+                    int(raw_status),
+                )
             raise ValueError("Transient service unloaded or failed before verification")
         time.sleep(0.1)
     raise ValueError("Transient service execution timed out")
@@ -1135,62 +1315,110 @@ def control_probe(
     state_path: Path,
     execution_path: Path,
     output: Path,
+    expected_execution_id: str,
 ) -> None:
-    execution = read_control_execution(execution_path)
-    revalidate_control_execution(execution, state, state_path)
-    if (
-        execution.payload.execution_authority_locator != str(execution_path.resolve(strict=True))
-        or execution.payload.observation_locator != str(output.resolve(strict=False))
-        or tuple((sys.executable, *sys.argv)) != execution.payload.argv
-    ):
-        raise ValueError("Matched control process command differs")
     control = state.payload.syscall_filter.matched_control
-    cgroup_path = Path(LINUX_CGROUP_ROOT + control.control_group)
-    if (
-        os.getuid() != control.service_uid
-        or os.getgid() != control.service_gid
-        or process_cgroup_for_manager(os.getpid()) != control.control_group
-        or cgroup_path.is_symlink()
-    ):
-        raise ValueError("Matched control process identity differs")
-    cgroup_info = os.lstat(cgroup_path)
-    if not stat.S_ISDIR(cgroup_info.st_mode):
-        raise ValueError("Matched control cgroup is not a directory")
-    memory_max = (cgroup_path / "memory.max").read_text(encoding="ascii").strip()
-    pids_max = (cgroup_path / "pids.max").read_text(encoding="ascii").strip()
-    cpu_max = (cgroup_path / "cpu.max").read_text(encoding="ascii").strip()
-    members = {
-        int(value)
-        for value in (cgroup_path / "cgroup.procs").read_text(encoding="ascii").splitlines()
-    }
-    if (
-        memory_max != control.limits.memory_max
-        or pids_max != control.limits.pids_max
-        or cpu_max != control.limits.cpu_max
-        or members != {os.getpid()}
-    ):
-        raise ValueError("Matched control cgroup limits or membership differ")
-    no_new_privs, seccomp_mode, seccomp_filters = process_security_status(os.getpid())
-    observation = LinuxMatchedControlObservationV1(
-        implementation_commit=state.payload.implementation_commit,
-        environment_instance_id=state.payload.environment_instance_id,
-        linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
-        unit_name=control.unit_name,
-        control_group=control.control_group,
-        cgroup_native_identity=LinuxNativePathIdentityV1(
-            device=cgroup_info.st_dev, inode=cgroup_info.st_ino
-        ),
-        memory_max=memory_max,
-        pids_max=pids_max,
-        cpu_max=cpu_max,
-        sole_cgroup_member=True,
-        personality=raw_personality(),
-        no_new_privs=no_new_privs,
-        seccomp_mode=seccomp_mode,
-        seccomp_filters=seccomp_filters,
-    )
-    revalidate_control_execution(execution, state, state_path)
-    write_new(output, canonical(observation.model_dump(mode="json")), mode=0o600)
+    checkpoint: Literal[
+        "execution_authority",
+        "command_identity",
+        "process_identity",
+        "cgroup_identity",
+        "resource_limits",
+        "process_security",
+        "personality_observation",
+        "execution_revalidation",
+        "success_observation_publish",
+    ] = "execution_authority"
+    try:
+        execution = read_control_execution(execution_path)
+        if execution.linux_matched_control_execution_id != expected_execution_id:
+            raise ValueError("Matched control execution identity differs")
+        revalidate_control_execution(execution, state, state_path)
+        checkpoint = "command_identity"
+        if (
+            execution.payload.execution_authority_locator
+            != str(execution_path.resolve(strict=True))
+            or execution.payload.observation_locator != str(output.resolve(strict=False))
+            or tuple((sys.executable, *sys.argv)) != execution.payload.argv
+        ):
+            raise ValueError("Matched control process command differs")
+        checkpoint = "process_identity"
+        cgroup_path = Path(LINUX_CGROUP_ROOT + control.control_group)
+        if (
+            os.getuid() != control.service_uid
+            or os.getgid() != control.service_gid
+            or process_cgroup_for_manager(os.getpid()) != control.control_group
+            or cgroup_path.is_symlink()
+        ):
+            raise ValueError("Matched control process identity differs")
+        checkpoint = "cgroup_identity"
+        cgroup_info = os.lstat(cgroup_path)
+        if not stat.S_ISDIR(cgroup_info.st_mode):
+            raise ValueError("Matched control cgroup is not a directory")
+        checkpoint = "resource_limits"
+        memory_max = (cgroup_path / "memory.max").read_text(encoding="ascii").strip()
+        pids_max = (cgroup_path / "pids.max").read_text(encoding="ascii").strip()
+        cpu_max = (cgroup_path / "cpu.max").read_text(encoding="ascii").strip()
+        members = {
+            int(value)
+            for value in (cgroup_path / "cgroup.procs").read_text(encoding="ascii").splitlines()
+        }
+        if (
+            memory_max != control.limits.memory_max
+            or pids_max != control.limits.pids_max
+            or cpu_max != control.limits.cpu_max
+            or members != {os.getpid()}
+        ):
+            raise ValueError("Matched control cgroup limits or membership differ")
+        checkpoint = "process_security"
+        no_new_privs, seccomp_mode, seccomp_filters = process_security_status(os.getpid())
+        checkpoint = "personality_observation"
+        personality = raw_personality()
+        observation = LinuxMatchedControlObservationV1(
+            implementation_commit=state.payload.implementation_commit,
+            environment_instance_id=state.payload.environment_instance_id,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            unit_name=control.unit_name,
+            control_group=control.control_group,
+            cgroup_native_identity=LinuxNativePathIdentityV1(
+                device=cgroup_info.st_dev, inode=cgroup_info.st_ino
+            ),
+            memory_max=memory_max,
+            pids_max=pids_max,
+            cpu_max=cpu_max,
+            sole_cgroup_member=True,
+            personality=personality,
+            no_new_privs=no_new_privs,
+            seccomp_mode=seccomp_mode,
+            seccomp_filters=seccomp_filters,
+        )
+        checkpoint = "execution_revalidation"
+        revalidate_control_execution(execution, state, state_path)
+        checkpoint = "success_observation_publish"
+        write_new(output, canonical(observation.model_dump(mode="json")), mode=0o600)
+    except Exception as error:
+        reason: Literal["validation_failed", "os_error", "unexpected_error"]
+        if isinstance(error, ValueError):
+            reason = "validation_failed"
+        elif isinstance(error, OSError):
+            reason = "os_error"
+        else:
+            reason = "unexpected_error"
+        if not output.exists():
+            failure = LinuxMatchedControlProbeFailureV1.create(
+                LinuxMatchedControlProbeFailurePayloadV1(
+                    implementation_commit=state.payload.implementation_commit,
+                    environment_instance_id=state.payload.environment_instance_id,
+                    linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+                    linux_matched_control_execution_id=expected_execution_id,
+                    unit_name=control.unit_name,
+                    control_group=control.control_group,
+                    checkpoint=checkpoint,
+                    reason_code=reason,
+                )
+            )
+            write_new(output, canonical(failure.model_dump(mode="json")), mode=0o600)
+        raise
 
 
 def process_cgroup_for_manager(pid: int) -> str:
@@ -1253,6 +1481,7 @@ def launch_control_v2(
     )
     write_new(resolved_execution, canonical(execution.model_dump(mode="json")), mode=0o444)
     representation_error: SystemdFilterRepresentationMismatch | None = None
+    process_error: MatchedControlProcessFailure | None = None
     try:
         _run_transient_service(
             unit=control.unit_name,
@@ -1267,6 +1496,12 @@ def launch_control_v2(
             setup_state_id=state.linux_cgroup_setup_state_id,
             unit_role="matched_control",
             expected_control_group=control.control_group,
+            service_environment=(
+                (
+                    _CONTROL_EXECUTION_ID_ENV,
+                    execution.linux_matched_control_execution_id,
+                ),
+            ),
         )
         policy = observe_unit_policy(control.unit_name, expected_filter=None)
         if not isinstance(policy, LinuxSystemdControlPolicyObservationV1):
@@ -1282,6 +1517,64 @@ def launch_control_v2(
             != script_blob
         ):
             raise ValueError("Matched control Git authority changed")
+    except TransientServiceProcessFailure as error:
+        child_failure_status: Literal["validated", "missing", "invalid"]
+        child_failure: LinuxMatchedControlProbeFailureV1 | None
+        child_failure_raw_sha256: str | None
+        child_failure_raw_bytes: int | None
+        try:
+            (
+                child_failure,
+                child_failure_raw_sha256,
+                child_failure_raw_bytes,
+            ) = read_control_probe_failure(
+                observation_path,
+                expected_uid=control.service_uid,
+                expected_gid=control.service_gid,
+            )
+            child_failure_status = "validated"
+        except FileNotFoundError:
+            child_failure_status = "missing"
+            child_failure = None
+            child_failure_raw_sha256 = None
+            child_failure_raw_bytes = None
+        except ControlProbeFailureFrameInvalid as frame_error:
+            child_failure_status = "invalid"
+            child_failure = None
+            child_failure_raw_sha256 = frame_error.raw_sha256
+            child_failure_raw_bytes = frame_error.raw_bytes
+        journal = read_post_create_journal(journal_path)
+        validate_post_create_journal_authority(
+            journal,
+            state,
+            unit_role="matched_control",
+        )
+        revalidate_control_execution(execution, state, state_path)
+        if child_failure is not None:
+            child = child_failure.payload
+            if (
+                child.implementation_commit != state.payload.implementation_commit
+                or child.environment_instance_id != state.payload.environment_instance_id
+                or child.linux_cgroup_setup_state_id != state.linux_cgroup_setup_state_id
+                or child.linux_matched_control_execution_id
+                != execution.linux_matched_control_execution_id
+                or child.unit_name != control.unit_name
+                or child.control_group != control.control_group
+            ):
+                child_failure_status = "invalid"
+                child_failure = None
+        process_error = MatchedControlProcessFailure(
+            execution=execution,
+            journal=journal,
+            child_failure_status=child_failure_status,
+            child_failure=child_failure,
+            child_failure_raw_sha256=child_failure_raw_sha256,
+            child_failure_raw_bytes=child_failure_raw_bytes,
+            systemd_result=classify_systemd_result(error.result),
+            exec_main_code=error.exec_main_code,
+            exec_main_status=error.exec_main_status,
+        )
+        raise process_error from error
     except SystemdFilterRepresentationMismatch as error:
         representation_error = error
         raise
@@ -1289,19 +1582,25 @@ def launch_control_v2(
         try:
             if representation_error is not None:
                 representation_error.cleanup_attempted = True
-            journal = read_post_create_journal(journal_path) if journal_path.exists() else None
+            if process_error is not None:
+                process_error.cleanup_attempted = True
+            cleanup_journal = (
+                read_post_create_journal(journal_path) if journal_path.exists() else None
+            )
             _stop_exact_unit(
                 control.unit_name,
                 control.control_group,
                 uid=control.service_uid,
                 gid=control.service_gid,
                 expected_filter=None,
-                journal=journal,
+                journal=cleanup_journal,
             )
             if representation_error is not None:
                 representation_error.cleanup_succeeded = True
+            if process_error is not None:
+                process_error.cleanup_succeeded = True
         except BaseException:
-            if representation_error is None:
+            if representation_error is None and process_error is None:
                 raise
     return LinuxMatchedControlReceiptV1.create(
         LinuxMatchedControlReceiptPayloadV1(
@@ -1848,6 +2147,29 @@ def write_failure(
     state_id: str | None,
     error: BaseException,
 ) -> None:
+    if isinstance(error, MatchedControlProcessFailure) and phase == "run" and state_id is not None:
+        diagnostic = LinuxMatchedControlFailureDiagnosticV1.create(
+            LinuxMatchedControlFailureDiagnosticPayloadV1(
+                implementation_commit=implementation_commit,
+                environment_instance_id=environment_instance_id,
+                linux_cgroup_setup_state_id=state_id,
+                linux_matched_control_execution_id=(
+                    error.execution.linux_matched_control_execution_id
+                ),
+                post_create_journal=error.journal,
+                child_failure_status=error.child_failure_status,
+                child_failure=error.child_failure,
+                child_failure_raw_sha256=error.child_failure_raw_sha256,
+                child_failure_raw_bytes=error.child_failure_raw_bytes,
+                systemd_result=error.systemd_result,
+                exec_main_code=error.exec_main_code,
+                exec_main_status=error.exec_main_status,
+                cleanup_attempted=error.cleanup_attempted,
+                cleanup_succeeded=error.cleanup_succeeded,
+            )
+        )
+        write_new(path, canonical(diagnostic.model_dump(mode="json")))
+        return
     if (
         isinstance(error, SyscallAllowlistAuthorityMismatch)
         and phase == "setup"
@@ -2001,6 +2323,7 @@ def main() -> None:
             args.state,
             args.execution_authority,
             args.output,
+            os.environ.get(_CONTROL_EXECUTION_ID_ENV, ""),
         )
         return
     state: LinuxCgroupSetupStateV1 | LinuxCgroupSetupStateV2 | None = None

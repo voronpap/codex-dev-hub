@@ -9651,6 +9651,38 @@ def v19_unit_journal(
     return journal, properties
 
 
+def v19_control_failure(
+    state: LINUX_ISOLATION.LinuxCgroupSetupStateV2,
+    *,
+    checkpoint: Literal[
+        "execution_authority",
+        "command_identity",
+        "process_identity",
+        "cgroup_identity",
+        "resource_limits",
+        "process_security",
+        "personality_observation",
+        "execution_revalidation",
+        "success_observation_publish",
+    ] = "process_identity",
+    reason_code: Literal["validation_failed", "os_error", "unexpected_error"] = "validation_failed",
+) -> LINUX_ISOLATION.LinuxMatchedControlProbeFailureV1:
+    control = state.payload.syscall_filter.matched_control
+    execution = v19_control_receipt(state).payload.execution
+    return LINUX_ISOLATION.LinuxMatchedControlProbeFailureV1.create(
+        LINUX_ISOLATION.LinuxMatchedControlProbeFailurePayloadV1(
+            implementation_commit=state.payload.implementation_commit,
+            environment_instance_id=state.payload.environment_instance_id,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            linux_matched_control_execution_id=(execution.linux_matched_control_execution_id),
+            unit_name=control.unit_name,
+            control_group=control.control_group,
+            checkpoint=checkpoint,
+            reason_code=reason_code,
+        )
+    )
+
+
 def v19_mechanics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[
@@ -9922,6 +9954,430 @@ def test_v19_filter_mismatch_failure_is_forward_self_hashed_evidence() -> None:
         forged["linux_cgroup_lifecycle_failure_id"] = digest(canonical(forged["payload"]))
         with pytest.raises(ValueError, match=message):
             LINUX_ISOLATION.LinuxCgroupLifecycleFailureV3.model_validate(forged)
+
+
+def test_v19_control_probe_failure_is_self_hashed_and_authority_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    child_failure = v19_control_failure(state)
+    retained = LINUX_ISOLATION.LinuxMatchedControlProbeFailureV1.model_validate_json(
+        child_failure.model_dump_json()
+    )
+    assert retained == child_failure
+    assert retained.payload.model_requests == 0
+    assert retained.payload.provider_sends == 0
+    assert retained.payload.mcp_tool_executions == 0
+    assert retained.payload.real_task_executions == 0
+
+    forged = child_failure.model_dump(mode="python")
+    forged["payload"]["checkpoint"] = "resource_limits"
+    with pytest.raises(ValidationError, match="hash mismatch"):
+        LINUX_ISOLATION.LinuxMatchedControlProbeFailureV1.model_validate(forged)
+
+
+def test_v19_control_probe_publishes_fixed_checkpoint_without_raw_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    execution = v19_control_receipt(state).payload.execution
+    output = tmp_path / "control-failure.json"
+    execution_path = tmp_path / "execution.json"
+    execution_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(CGROUP_MANAGER, "read_control_execution", lambda _path: execution)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "revalidate_control_execution",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "write_new",
+        lambda path, raw, mode=0o644: (path.write_bytes(raw), path.chmod(mode)),
+    )
+    with pytest.raises(ValueError, match="command differs"):
+        CGROUP_MANAGER.control_probe(
+            state,
+            tmp_path / "state.json",
+            execution_path,
+            output,
+            execution.linux_matched_control_execution_id,
+        )
+    failure = LINUX_ISOLATION.LinuxMatchedControlProbeFailureV1.model_validate_json(
+        output.read_bytes()
+    )
+    assert failure.payload.checkpoint == "command_identity"
+    assert failure.payload.reason_code == "validation_failed"
+    serialized = failure.model_dump_json()
+    assert "command differs" not in serialized
+    assert str(tmp_path) not in serialized
+
+
+def test_v19_control_probe_publishes_execution_authority_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    execution = v19_control_receipt(state).payload.execution
+    output = tmp_path / "control-failure.json"
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "read_control_execution",
+        lambda _path: (_ for _ in ()).throw(ValueError("tampered execution")),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "write_new",
+        lambda path, raw, mode=0o644: (path.write_bytes(raw), path.chmod(mode)),
+    )
+    with pytest.raises(ValueError, match="tampered execution"):
+        CGROUP_MANAGER.control_probe(
+            state,
+            tmp_path / "state.json",
+            tmp_path / "execution.json",
+            output,
+            execution.linux_matched_control_execution_id,
+        )
+    failure = LINUX_ISOLATION.LinuxMatchedControlProbeFailureV1.model_validate_json(
+        output.read_bytes()
+    )
+    assert failure.payload.checkpoint == "execution_authority"
+    assert (
+        failure.payload.linux_matched_control_execution_id
+        == execution.linux_matched_control_execution_id
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw_result", "expected_result", "exec_code", "exec_status"),
+    [
+        ("exit-code", "exit_code", 1, 1),
+        ("signal", "signal", 2, 31),
+    ],
+)
+def test_v19_transient_service_classifies_bounded_process_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    raw_result: str,
+    expected_result: str,
+    exec_code: int,
+    exec_status: int,
+) -> None:
+    unit = f"devfabric-linux-isolation-control-{ENVIRONMENT}.service"
+    load_states = iter(("not-found", "loaded"))
+    properties = {
+        "Transient": "yes",
+        "RemainAfterExit": "yes",
+        "ActiveState": "failed",
+        "SubState": "failed",
+        "Result": raw_result,
+        "ExecMainCode": str(exec_code),
+        "ExecMainStatus": str(exec_status),
+    }
+
+    def systemctl(_unit: str, name: str, check: bool = True) -> str:
+        if name == "LoadState":
+            return next(load_states)
+        return properties[name]
+
+    monkeypatch.setattr(CGROUP_MANAGER, "systemctl_property", systemctl)
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    monkeypatch.setattr(
+        CGROUP_MANAGER.subprocess,
+        "run",
+        run,
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "observe_unit_policy",
+        lambda _unit, *, expected_filter: LINUX_ISOLATION.LinuxSystemdControlPolicyObservationV1(
+            unit_name=unit,
+            system_call_error_number="kill",
+            raw_properties_sha256=H,
+            resources=LINUX_ISOLATION.LinuxSystemdResourcePolicyObservationV1(
+                service_uid=1000,
+                service_gid=1000,
+            ),
+        ),
+    )
+    with pytest.raises(CGROUP_MANAGER.TransientServiceProcessFailure) as captured:
+        CGROUP_MANAGER._run_transient_service(
+            unit=unit,
+            uid=1000,
+            gid=1000,
+            repo=tmp_path,
+            command=[sys.executable, "-c", "pass"],
+            explicit_allowlist=None,
+            service_environment=((CGROUP_MANAGER._CONTROL_EXECUTION_ID_ENV, H),),
+        )
+    assert CGROUP_MANAGER.classify_systemd_result(captured.value.result) == expected_result
+    assert captured.value.exec_main_code == exec_code
+    assert captured.value.exec_main_status == exec_status
+    assert f"--setenv={CGROUP_MANAGER._CONTROL_EXECUTION_ID_ENV}={H}" in commands[0]
+
+
+@pytest.mark.parametrize(
+    ("cleanup_attempted", "cleanup_succeeded"),
+    [(True, True), (True, False)],
+)
+def test_v19_control_failure_diagnostic_joins_authority_and_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cleanup_attempted: bool,
+    cleanup_succeeded: bool,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    execution = v19_control_receipt(state).payload.execution
+    journal, _ = v19_unit_journal(state, unit_role="matched_control")
+    child_failure = v19_control_failure(state)
+    child_raw = canonical(child_failure.model_dump(mode="json"))
+    error = CGROUP_MANAGER.MatchedControlProcessFailure(
+        execution=execution,
+        journal=journal,
+        child_failure_status="validated",
+        child_failure=child_failure,
+        child_failure_raw_sha256=digest(child_raw),
+        child_failure_raw_bytes=len(child_raw),
+        systemd_result="exit_code",
+        exec_main_code=1,
+        exec_main_status=1,
+    )
+    error.cleanup_attempted = cleanup_attempted
+    error.cleanup_succeeded = cleanup_succeeded
+    output = tmp_path / "failure.json"
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "write_new",
+        lambda path, raw, mode=0o644: path.write_bytes(raw),
+    )
+    CGROUP_MANAGER.write_failure(
+        output,
+        phase="run",
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        state_id=state.linux_cgroup_setup_state_id,
+        error=error,
+    )
+    diagnostic = LINUX_ISOLATION.LinuxMatchedControlFailureDiagnosticV1.model_validate_json(
+        output.read_bytes()
+    )
+    assert (
+        diagnostic.payload.linux_matched_control_execution_id
+        == execution.linux_matched_control_execution_id
+    )
+    assert diagnostic.payload.post_create_journal == journal
+    assert diagnostic.payload.child_failure_status == "validated"
+    assert diagnostic.payload.child_failure == child_failure
+    assert diagnostic.payload.child_failure_raw_sha256 == digest(child_raw)
+    assert diagnostic.payload.child_failure_raw_bytes == len(child_raw)
+    assert diagnostic.payload.cleanup_attempted is cleanup_attempted
+    assert diagnostic.payload.cleanup_succeeded is cleanup_succeeded
+    assert diagnostic.payload.model_requests == 0
+    assert diagnostic.payload.provider_sends == 0
+    assert diagnostic.payload.mcp_tool_executions == 0
+    assert diagnostic.payload.real_task_executions == 0
+
+    forged = diagnostic.model_dump(mode="python")
+    forged["payload"]["environment_instance_id"] = "f" * 32
+    forged["linux_matched_control_failure_diagnostic_id"] = digest(canonical(forged["payload"]))
+    with pytest.raises(ValidationError, match="authority differs"):
+        LINUX_ISOLATION.LinuxMatchedControlFailureDiagnosticV1.model_validate(forged)
+
+    forged_metadata = diagnostic.model_dump(mode="python")
+    forged_metadata["payload"]["child_failure_raw_sha256"] = "e" * 64
+    forged_metadata["linux_matched_control_failure_diagnostic_id"] = digest(
+        canonical(forged_metadata["payload"])
+    )
+    with pytest.raises(ValidationError, match="metadata differs"):
+        LINUX_ISOLATION.LinuxMatchedControlFailureDiagnosticV1.model_validate(forged_metadata)
+
+    impossible_cleanup = diagnostic.model_dump(mode="python")
+    impossible_cleanup["payload"]["cleanup_attempted"] = False
+    impossible_cleanup["linux_matched_control_failure_diagnostic_id"] = digest(
+        canonical(impossible_cleanup["payload"])
+    )
+    with pytest.raises(ValidationError, match="Input should be True"):
+        LINUX_ISOLATION.LinuxMatchedControlFailureDiagnosticV1.model_validate(impossible_cleanup)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="secure failure-frame read is Linux-only")
+def test_v19_control_failure_frame_missing_or_tampered_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    path = tmp_path / "control-failure.json"
+    with pytest.raises(FileNotFoundError):
+        CGROUP_MANAGER.read_control_probe_failure(
+            path,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+
+    failure = v19_control_failure(state)
+    raw = failure.model_dump(mode="python")
+    raw["payload"]["checkpoint"] = "resource_limits"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    path.chmod(0o600)
+    with pytest.raises(CGROUP_MANAGER.ControlProbeFailureFrameInvalid) as captured:
+        CGROUP_MANAGER.read_control_probe_failure(
+            path,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+    assert captured.value.raw_sha256 == digest(path.read_bytes())
+    assert captured.value.raw_bytes == path.stat().st_size
+
+    path.write_text(
+        json.dumps(failure.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+    path.chmod(0o600)
+    with pytest.raises(CGROUP_MANAGER.ControlProbeFailureFrameInvalid) as noncanonical:
+        CGROUP_MANAGER.read_control_probe_failure(
+            path,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+    assert noncanonical.value.raw_sha256 == digest(path.read_bytes())
+    assert noncanonical.value.raw_bytes == path.stat().st_size
+
+
+@pytest.mark.skipif(os.name != "posix", reason="control launch authority is Linux-only")
+@pytest.mark.parametrize("frame_case", ("missing", "invalid", "noncanonical"))
+def test_v19_control_launch_retains_systemd_failure_without_valid_child_frame(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    frame_case: Literal["missing", "invalid", "noncanonical"],
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    boundary = state.payload.boundary.model_copy(
+        update={"service_uid": os.getuid(), "service_gid": os.getgid()}
+    )
+    matched_control = state.payload.syscall_filter.matched_control.model_copy(
+        update={"service_uid": os.getuid(), "service_gid": os.getgid()}
+    )
+    syscall_filter = state.payload.syscall_filter.model_copy(
+        update={"matched_control": matched_control}
+    )
+    state = LINUX_ISOLATION.LinuxCgroupSetupStateV2.create(
+        state.payload.model_copy(update={"boundary": boundary, "syscall_filter": syscall_filter})
+    )
+    journal, _ = v19_unit_journal(state, unit_role="matched_control")
+    state_path = tmp_path / "state.json"
+    python = tmp_path / "python"
+    manager = tmp_path / "manager.py"
+    execution_path = tmp_path / "execution.json"
+    observation_path = tmp_path / "observation.json"
+    journal_path = tmp_path / "journal.json"
+    state_path.write_text(state.model_dump_json(), encoding="utf-8")
+    python.write_bytes(b"python")
+    manager.write_bytes(b"manager")
+    if frame_case == "invalid":
+        observation_path.write_bytes(b'{"untrusted":true}')
+
+    def authority(path: Path) -> LINUX_ISOLATION.LinuxFileAuthorityV1:
+        sha = "b" * 64 if path.name == "manager.py" else "a" * 64
+        return plain_file(str(path.resolve()), index=121, sha=sha)
+
+    monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state_v2", lambda _state: None)
+    monkeypatch.setattr(CGROUP_MANAGER, "file_authority", authority)
+    monkeypatch.setattr(CGROUP_MANAGER, "git_blob_sha256", lambda *_args: "b" * 64)
+
+    def run_service(**_kwargs: object) -> None:
+        if frame_case == "noncanonical":
+            execution = CGROUP_MANAGER.read_control_execution(execution_path)
+            control = state.payload.syscall_filter.matched_control
+            child = LINUX_ISOLATION.LinuxMatchedControlProbeFailureV1.create(
+                LINUX_ISOLATION.LinuxMatchedControlProbeFailurePayloadV1(
+                    implementation_commit=COMMIT,
+                    environment_instance_id=ENVIRONMENT,
+                    linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+                    linux_matched_control_execution_id=(
+                        execution.linux_matched_control_execution_id
+                    ),
+                    unit_name=control.unit_name,
+                    control_group=control.control_group,
+                    checkpoint="process_identity",
+                    reason_code="validation_failed",
+                )
+            )
+            observation_path.write_text(
+                json.dumps(child.model_dump(mode="json"), indent=2),
+                encoding="utf-8",
+            )
+            observation_path.chmod(0o600)
+        raise CGROUP_MANAGER.TransientServiceProcessFailure("exit-code", 1, 2)
+
+    monkeypatch.setattr(CGROUP_MANAGER, "_run_transient_service", run_service)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "read_post_create_journal",
+        lambda _path: journal,
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "validate_post_create_journal_authority",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "revalidate_control_execution",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(CGROUP_MANAGER, "_stop_exact_unit", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(CGROUP_MANAGER.MatchedControlProcessFailure) as captured:
+        CGROUP_MANAGER.launch_control_v2(
+            state,
+            state_path,
+            tmp_path,
+            python,
+            manager,
+            execution_path,
+            observation_path,
+            journal_path,
+        )
+    error = captured.value
+    expected_status = "missing" if frame_case == "missing" else "invalid"
+    assert error.child_failure_status == expected_status
+    assert error.child_failure is None
+    assert error.systemd_result == "exit_code"
+    assert error.exec_main_code == 1
+    assert error.exec_main_status == 2
+    assert error.cleanup_attempted is True
+    assert error.cleanup_succeeded is True
+    if frame_case == "missing":
+        assert error.child_failure_raw_sha256 is None
+        assert error.child_failure_raw_bytes is None
+    else:
+        assert error.child_failure_raw_sha256 == digest(observation_path.read_bytes())
+        assert error.child_failure_raw_bytes == observation_path.stat().st_size
+
+    failure_output = tmp_path / "failure.json"
+    CGROUP_MANAGER.write_failure(
+        failure_output,
+        phase="run",
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        state_id=state.linux_cgroup_setup_state_id,
+        error=error,
+    )
+    diagnostic = LINUX_ISOLATION.LinuxMatchedControlFailureDiagnosticV1.model_validate_json(
+        failure_output.read_bytes()
+    )
+    assert diagnostic.payload.child_failure_status == expected_status
+    assert diagnostic.payload.systemd_result == "exit_code"
+    assert diagnostic.payload.exec_main_code == 1
+    assert diagnostic.payload.exec_main_status == 2
+    assert diagnostic.payload.cleanup_attempted is True
+    assert diagnostic.payload.cleanup_succeeded is True
 
 
 def test_v19_target_filter_diagnostic_does_not_claim_cleanup_before_rollback(
