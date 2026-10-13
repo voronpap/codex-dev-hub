@@ -1022,6 +1022,17 @@ path, journals that state before stopping the exact unit, and then requires
 both unit and path absence. Nonempty substitutions and present expected paths
 still fail closed. The V17 failure does not grant readiness.
 
+Main-only run `38454882892` on merge commit
+`712be3fadc38935f1fbd16d262f86099d336b4f0` passed the forward-only V18
+qualification against exact Bundle V11. Its retained record is
+`docs/evidence/linux-native-isolation/run-38454882892.json`. The receipt binds
+the observed 2 GiB memory, 128-task and 200% CPU limits, complete process-tree
+membership, non-writable cgroup controls, the exact
+`systemd_removed_empty_cgroup` lifecycle, and final unit/path absence. All four
+execution counters are zero. This qualifies only the cgroup resource boundary;
+syscall filtering, complete native-executor isolation and package readiness
+remain false.
+
 ## Platform acceptance matrix
 
 `PENDING` means the requirement has no accepted native-package evidence yet.
@@ -1033,14 +1044,14 @@ still fail closed. The V17 failure does not grant readiness.
 | MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PASS — main-only V16 run `38441197910` binds strict packaged initialize/tools-list/EOF with no `tools/call` to Bundle V11's exact loader and library closure |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
-| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — accepted V16 run `38441197910` proves Bundle V11-bound namespace/mount/Landlock/AppArmor/broker/packaged-MCP mechanics and cleanup; cgroup, syscall and complete packaged executor boundaries remain pending |
+| Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — accepted V18 run `38454882892` adds the cgroup-v2 resource boundary and cleanup to Bundle V11-bound namespace/mount/Landlock/AppArmor/broker/packaged-MCP mechanics; syscall and complete packaged executor boundaries remain pending |
 | Ollama boundary | PARTIAL — closed metadata-only broker implemented; exact listener/AppContainer receipt pending | PENDING native Linux receipt; service/model remain external |
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
-| Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V11 run `38426368741` (`bundle_id=818b94f6cb922b0a233c8729a17fc12ddd11ad962c9a2cafaff8dfb1e1fc16cf`, `archive_id=22efb9172d5e72f6e6e88de6f38619294074955695eae642dd0cea744443f331`); package readiness remains false pending cgroup, syscall and remaining package gates |
+| Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V11 run `38426368741` (`bundle_id=818b94f6cb922b0a233c8729a17fc12ddd11ad962c9a2cafaff8dfb1e1fc16cf`, `archive_id=22efb9172d5e72f6e6e88de6f38619294074955695eae642dd0cea744443f331`); package readiness remains false pending syscall filtering and the remaining package gates |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618`, Bundle V11 run `38426368741` and V16 isolation run `38441197910`; V12/V13/V14/V15 failures remain historical fail-closed evidence with zero execution counters |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618`, Bundle V11 run `38426368741` and V18 isolation run `38454882892`; earlier failures remain historical fail-closed evidence with zero execution counters |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant
