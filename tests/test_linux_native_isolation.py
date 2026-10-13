@@ -3946,6 +3946,7 @@ def test_packaged_observer_preserves_primary_and_cleanup_failures(
             self.stdin = FailingInput()
             self.stdout = TrackedOutput()
             self.stderr = TrackedOutput(fail_close=True)
+            self.returncode: int | None = None
             self.wait_attempted = False
 
         def poll(self) -> None:
