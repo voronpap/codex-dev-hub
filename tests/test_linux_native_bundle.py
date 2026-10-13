@@ -13,6 +13,7 @@ import pytest
 from linux_native_artifact_support import linux_pass_artifact
 from pydantic import ValidationError
 
+from devhub.benchmark import canonical, digest
 from devhub.linux_bundle import (
     LinuxBundleEntryV1,
     LinuxCodexAuthorityV1,
@@ -29,24 +30,28 @@ from devhub.linux_bundle import (
     LinuxNativeArchivePayloadV4,
     LinuxNativeArchivePayloadV5,
     LinuxNativeArchivePayloadV6,
+    LinuxNativeArchivePayloadV7,
     LinuxNativeArchiveV1,
     LinuxNativeArchiveV2,
     LinuxNativeArchiveV3,
     LinuxNativeArchiveV4,
     LinuxNativeArchiveV5,
     LinuxNativeArchiveV6,
+    LinuxNativeArchiveV7,
     LinuxNativeBundlePayloadV1,
     LinuxNativeBundlePayloadV2,
     LinuxNativeBundlePayloadV3,
     LinuxNativeBundlePayloadV4,
     LinuxNativeBundlePayloadV5,
     LinuxNativeBundlePayloadV6,
+    LinuxNativeBundlePayloadV7,
     LinuxNativeBundleV1,
     LinuxNativeBundleV2,
     LinuxNativeBundleV3,
     LinuxNativeBundleV4,
     LinuxNativeBundleV5,
     LinuxNativeBundleV6,
+    LinuxNativeBundleV7,
     LinuxPythonAuthorityV1,
     LinuxPythonRuntimePayloadV1,
     LinuxPythonRuntimeV1,
@@ -85,6 +90,7 @@ INVENTORY_SPEC.loader.exec_module(INVENTORY)
 HASH = "a" * 64
 OTHER_HASH = "b" * 64
 COMMIT = "c" * 40
+RETAINED_CODEX_COMMIT = "d" * 40
 
 
 def _write(root: Path, relative: str, value: bytes) -> Path:
@@ -269,6 +275,15 @@ def materialize_v6(root: Path) -> LinuxNativeBundleV6:
     return LinuxNativeBundleV6.create(LinuxNativeBundlePayloadV6.model_validate(raw))
 
 
+def materialize_v7(root: Path) -> LinuxNativeBundleV7:
+    current = materialize_v6(root)
+    raw = current.payload.model_dump(mode="python")
+    raw["schema_version"] = 7
+    raw["retained_codex_implementation_commit"] = RETAINED_CODEX_COMMIT
+    raw["codex"]["devfabric_implementation_commit"] = RETAINED_CODEX_COMMIT
+    return LinuxNativeBundleV7.create(LinuxNativeBundlePayloadV7.model_validate(raw))
+
+
 def reviewable_v12_artifact(root: Path) -> None:
     linux_pass_artifact(
         root,
@@ -288,6 +303,7 @@ def write_test_archive(
     | LinuxNativeArchiveV4
     | LinuxNativeArchiveV5
     | LinuxNativeArchiveV6
+    | LinuxNativeArchiveV7
 ):
     archive_path = release / BUILDER.ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
@@ -305,6 +321,7 @@ def write_test_archive(
             | LinuxNativeArchiveV4
             | LinuxNativeArchiveV5
             | LinuxNativeArchiveV6
+            | LinuxNativeArchiveV7
         ) = LinuxNativeArchiveV1.create(LinuxNativeArchivePayloadV1(**fields))
     elif schema_version == 2:
         receipt = LinuxNativeArchiveV2.create(LinuxNativeArchivePayloadV2(**fields))
@@ -314,8 +331,10 @@ def write_test_archive(
         receipt = LinuxNativeArchiveV4.create(LinuxNativeArchivePayloadV4(**fields))
     elif schema_version == 5:
         receipt = LinuxNativeArchiveV5.create(LinuxNativeArchivePayloadV5(**fields))
-    else:
+    elif schema_version == 6:
         receipt = LinuxNativeArchiveV6.create(LinuxNativeArchivePayloadV6(**fields))
+    else:
+        receipt = LinuxNativeArchiveV7.create(LinuxNativeArchivePayloadV7(**fields))
     (release / BUILDER.ARCHIVE_RECEIPT_NAME).write_text(receipt.model_dump_json(), encoding="utf-8")
     return receipt
 
@@ -412,7 +431,37 @@ def test_linux_native_bundle_v6_requires_build_012_and_preserves_v5(tmp_path: Pa
         LinuxNativeBundlePayloadV6.model_validate(raw)
 
 
-@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6))
+def test_linux_native_bundle_v7_splits_current_python_from_retained_build_012(
+    tmp_path: Path,
+) -> None:
+    current = materialize_v7(tmp_path / "current")
+    assert LinuxNativeBundleV7.model_validate_json(current.model_dump_json()) == current
+    assert current.payload.implementation_commit == COMMIT
+    assert current.payload.python.runtime.payload.devhub_source_commit == COMMIT
+    assert current.payload.retained_codex_implementation_commit == RETAINED_CODEX_COMMIT
+    assert current.payload.codex.devfabric_implementation_commit == RETAINED_CODEX_COMMIT
+    assert current.payload.codex.build_id == "linux-build-012"
+    assert current.payload.native_executor_isolation_qualified is False
+    assert current.payload.package_readiness is False
+
+    raw = current.payload.model_dump(mode="python")
+    raw["retained_codex_implementation_commit"] = "e" * 40
+    with pytest.raises(ValidationError, match="components differ"):
+        LinuxNativeBundlePayloadV7.model_validate(raw)
+
+    raw = current.payload.model_dump(mode="python")
+    raw["python"]["runtime"]["payload"]["devhub_source_commit"] = "e" * 40
+    raw["python"]["runtime"]["linux_python_runtime_id"] = digest(
+        canonical(raw["python"]["runtime"]["payload"])
+    )
+    with pytest.raises(ValidationError, match="components differ"):
+        LinuxNativeBundlePayloadV7.model_validate(raw)
+
+    historical = materialize_v6(tmp_path / "historical")
+    assert LinuxNativeBundleV6.model_validate_json(historical.model_dump_json()) == historical
+
+
+@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6, 7))
 def test_linux_release_rejects_mixed_manifest_and_archive_versions(
     tmp_path: Path, manifest_version: int
 ) -> None:
@@ -430,6 +479,8 @@ def test_linux_release_rejects_mixed_manifest_and_archive_versions(
         else materialize_v5(root)
         if manifest_version == 5
         else materialize_v6(root)
+        if manifest_version == 6
+        else materialize_v7(root)
     )
     (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
     write_test_archive(release, bundle.linux_native_bundle_id, 2 if manifest_version != 2 else 1)
@@ -652,6 +703,9 @@ def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "ref: ${{ github.sha }}" in workflow
     assert "devfabric-linux-build-012-binaries" in workflow
+    assert "EXPECTED_CODEX_COMMIT: c272ed6169a718204f2830a4aa34a5548a650652" in workflow
+    assert 'test "$BUILD_RUN_ID" = "38354927618"' in workflow
+    assert 'test "$BUILD_RUN_ATTEMPT" = "1"' in workflow
     assert 'gh run view "$BUILD_RUN_ID"' in workflow
     assert ".headSha == $head and .attempt == $attempt" in workflow
     assert '.conclusion == "success" and .event == "workflow_dispatch"' in workflow
@@ -659,6 +713,7 @@ def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     codex_workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
     assert "linux-native-codex-evidence/linux-native-codex-build.json" in codex_workflow
     assert "--expected-commit '${{ github.sha }}'" in workflow
+    assert "--expected-codex-commit 'c272ed6169a718204f2830a4aa34a5548a650652'" in workflow
     assert "--accepted-run-id '${{ inputs.native_build_run_id }}'" in workflow
     assert "--accepted-run-attempt '${{ inputs.native_build_run_attempt }}'" in workflow
     assert "scripts/verify_linux_native_bundle.py" in workflow
@@ -908,7 +963,7 @@ def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode preservation requires Linux")
-@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6))
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7))
 def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_version: int
 ) -> None:
@@ -926,6 +981,8 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
         else materialize_v5(root)
         if schema_version == 5
         else materialize_v6(root)
+        if schema_version == 6
+        else materialize_v7(root)
     )
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)
@@ -958,7 +1015,7 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
 def test_linux_release_rejects_substitution(tmp_path: Path, substitution: str) -> None:
     release = tmp_path / "release"
     root = release / "bundle"
-    bundle = materialize_v6(root)
+    bundle = materialize_v7(root)
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)
     manifest = release / "linux-native-bundle.json"

@@ -216,6 +216,23 @@ class BrokerObservationFailure(ValueError):
         self.errno_category = errno_category
 
 
+class PackagedSubprocessExecutionFailure(ValueError):
+    """Bounded subprocess failure that carries hashes/counts, never raw output."""
+
+    def __init__(self, reason: str, capture: dict[str, object]) -> None:
+        super().__init__(reason)
+        self.capture = capture
+
+
+class PackagedMcpObservationFailure(ValueError):
+    """Fixed-checkpoint packaged MCP failure with optional bounded process evidence."""
+
+    def __init__(self, checkpoint: str, capture: dict[str, object] | None = None) -> None:
+        super().__init__(checkpoint)
+        self.checkpoint = checkpoint
+        self.capture = capture
+
+
 def bounded_errno_category(error: OSError) -> str:
     if error.errno is None:
         return "other_os_error"
@@ -499,6 +516,7 @@ def runtime_failure_frame(
     linux_isolation_profile_id: str,
     environment_instance_id: str,
     broker_failure: BrokerObservationFailure | None = None,
+    packaged_mcp_failure: PackagedMcpObservationFailure | None = None,
 ) -> dict[str, object]:
     if stage == "broker" and broker_failure is None:
         broker_failure = BrokerObservationFailure(
@@ -517,9 +535,11 @@ def runtime_failure_frame(
         if stage != "broker":
             raise ValueError("Broker diagnostic belongs to a non-broker stage")
         reason_code = broker_failure.reason_code
+    if packaged_mcp_failure is not None and stage != "result_assembly":
+        raise ValueError("Packaged MCP diagnostic belongs to a non-result stage")
     payload = {
-        "schema_version": 2,
-        "frame_kind": "linux_child_runtime_failure_v2",
+        "schema_version": 3,
+        "frame_kind": "linux_child_runtime_failure_v3",
         "linux_isolation_profile_id": linux_isolation_profile_id,
         "environment_instance_id": environment_instance_id,
         "stage": stage,
@@ -527,9 +547,15 @@ def runtime_failure_frame(
         "broker_checkpoint": broker_failure.checkpoint if broker_failure is not None else None,
         "broker_operation": broker_failure.operation if broker_failure is not None else None,
         "errno_category": broker_failure.errno_category if broker_failure is not None else None,
+        "packaged_mcp_checkpoint": (
+            packaged_mcp_failure.checkpoint if packaged_mcp_failure is not None else None
+        ),
+        "packaged_subprocess": (
+            packaged_mcp_failure.capture if packaged_mcp_failure is not None else None
+        ),
     }
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "child_runtime_failure_id": digest(canonical(payload)),
         "payload": payload,
     }
@@ -541,6 +567,7 @@ def write_runtime_failure(
     linux_isolation_profile_id: str,
     environment_instance_id: str,
     broker_failure: BrokerObservationFailure | None = None,
+    packaged_mcp_failure: PackagedMcpObservationFailure | None = None,
 ) -> None:
     write_frame(
         descriptor,
@@ -549,6 +576,7 @@ def write_runtime_failure(
             linux_isolation_profile_id,
             environment_instance_id,
             broker_failure,
+            packaged_mcp_failure,
         ),
     )
     os.close(descriptor)
@@ -1024,6 +1052,63 @@ def broker_observations() -> dict[str, bool | str | int]:
     }
 
 
+def packaged_subprocess_capture(
+    process_started: bool,
+    returncode: int | None,
+    retained: Mapping[str, bytearray | bytes],
+    observed: Mapping[str, int],
+    *,
+    timed_out: bool,
+    output_limit_exceeded: bool,
+) -> dict[str, object]:
+    """Seal only bounded stream counts/hashes for one packaged subprocess."""
+
+    stdout = bytes(retained["stdout"])
+    stderr = bytes(retained["stderr"])
+    return {
+        "process_started": process_started,
+        "returncode": returncode,
+        "stdout_retained_bytes": len(stdout),
+        "stdout_observed_bytes": observed["stdout"],
+        "stdout_retained_sha256": sha256(stdout),
+        "stdout_truncated": len(stdout) < observed["stdout"],
+        "stderr_retained_bytes": len(stderr),
+        "stderr_observed_bytes": observed["stderr"],
+        "stderr_retained_sha256": sha256(stderr),
+        "stderr_truncated": len(stderr) < observed["stderr"],
+        "timed_out": timed_out,
+        "output_limit_exceeded": output_limit_exceeded,
+    }
+
+
+def completed_subprocess_capture(
+    returncode: int, stdout: bytes, stderr: bytes
+) -> dict[str, object]:
+    retained = {"stdout": stdout, "stderr": stderr}
+    observed = {"stdout": len(stdout), "stderr": len(stderr)}
+    return packaged_subprocess_capture(
+        True,
+        returncode,
+        retained,
+        observed,
+        timed_out=False,
+        output_limit_exceeded=False,
+    )
+
+
+def unstarted_subprocess_capture() -> dict[str, object]:
+    """Represent a subprocess boundary that failed before a final status existed."""
+
+    return packaged_subprocess_capture(
+        False,
+        None,
+        {"stdout": b"", "stderr": b""},
+        {"stdout": 0, "stderr": 0},
+        timed_out=False,
+        output_limit_exceeded=False,
+    )
+
+
 def run_bounded_subprocess(
     command: list[str],
     *,
@@ -1060,19 +1145,32 @@ def run_bounded_subprocess(
                     stream.close()
                 except BaseException as error:
                     startup_cleanup_errors.append(error)
-        primary = ValueError("Packaged subprocess diagnostic streams are unavailable")
+        primary = PackagedSubprocessExecutionFailure(
+            "Packaged subprocess diagnostic streams are unavailable",
+            packaged_subprocess_capture(
+                True,
+                process.returncode,
+                {"stdout": b"", "stderr": b""},
+                {"stdout": 0, "stderr": 0},
+                timed_out=False,
+                output_limit_exceeded=False,
+            ),
+        )
         if startup_cleanup_errors:
-            raise BaseExceptionGroup(
-                "Packaged subprocess startup and cleanup failed",
-                [primary, *startup_cleanup_errors],
+            raise PackagedSubprocessExecutionFailure(
+                "Packaged subprocess startup and cleanup failed", primary.capture
+            ) from BaseExceptionGroup(
+                "Packaged subprocess startup and cleanup failed", [primary, *startup_cleanup_errors]
             )
         raise primary
     retained = {"stdout": bytearray(), "stderr": bytearray()}
+    observed = {"stdout": 0, "stderr": 0}
     overflow = threading.Event()
     drain_errors: list[BaseException] = []
     started_threads: list[threading.Thread] = []
     primary_error: BaseException | None = None
     result: tuple[int, bytes, bytes] | None = None
+    timed_out = False
 
     def kill_group() -> None:
         if process.poll() is None:
@@ -1084,6 +1182,7 @@ def run_bounded_subprocess(
     def drain(name: str, stream: BinaryIO) -> None:
         try:
             while chunk := stream.read(64 * 1024):
+                observed[name] += len(chunk)
                 target = retained[name]
                 remaining = limit - len(target)
                 if remaining > 0:
@@ -1114,18 +1213,62 @@ def run_bounded_subprocess(
             process.stdin.close()
         try:
             returncode = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired as error:
+        except subprocess.TimeoutExpired:
+            timed_out = True
             kill_group()
             process.wait(timeout=5)
-            raise ValueError("Packaged subprocess timed out") from error
+            returncode = None
         for thread in started_threads:
             thread.join(timeout=5)
         if any(thread.is_alive() for thread in started_threads):
-            raise ValueError("Packaged subprocess diagnostics did not drain")
+            raise PackagedSubprocessExecutionFailure(
+                "Packaged subprocess diagnostics did not drain",
+                packaged_subprocess_capture(
+                    True,
+                    None if timed_out else process.returncode,
+                    retained,
+                    observed,
+                    timed_out=timed_out,
+                    output_limit_exceeded=overflow.is_set(),
+                ),
+            )
         if drain_errors:
-            raise ValueError("Packaged subprocess diagnostic drain failed") from drain_errors[0]
+            raise PackagedSubprocessExecutionFailure(
+                "Packaged subprocess diagnostic drain failed",
+                packaged_subprocess_capture(
+                    True,
+                    None if timed_out else process.returncode,
+                    retained,
+                    observed,
+                    timed_out=timed_out,
+                    output_limit_exceeded=overflow.is_set(),
+                ),
+            ) from drain_errors[0]
         if overflow.is_set():
-            raise ValueError("Packaged subprocess output exceeded its retained bound")
+            raise PackagedSubprocessExecutionFailure(
+                "Packaged subprocess output exceeded its retained bound",
+                packaged_subprocess_capture(
+                    True,
+                    None if timed_out else process.returncode,
+                    retained,
+                    observed,
+                    timed_out=timed_out,
+                    output_limit_exceeded=True,
+                ),
+            )
+        if timed_out:
+            raise PackagedSubprocessExecutionFailure(
+                "Packaged subprocess timed out",
+                packaged_subprocess_capture(
+                    True,
+                    None,
+                    retained,
+                    observed,
+                    timed_out=True,
+                    output_limit_exceeded=False,
+                ),
+            )
+        assert returncode is not None
         result = returncode, bytes(retained["stdout"]), bytes(retained["stderr"])
     except BaseException as error:
         primary_error = error
@@ -1160,9 +1303,35 @@ def run_bounded_subprocess(
             failures = (
                 [*cleanup_errors] if primary_error is None else [primary_error, *cleanup_errors]
             )
-            raise BaseExceptionGroup("Packaged subprocess cleanup failed", failures)
+            capture = (
+                primary_error.capture
+                if isinstance(primary_error, PackagedSubprocessExecutionFailure)
+                else packaged_subprocess_capture(
+                    True,
+                    None if timed_out else process.returncode,
+                    retained,
+                    observed,
+                    timed_out=timed_out,
+                    output_limit_exceeded=overflow.is_set(),
+                )
+            )
+            raise PackagedSubprocessExecutionFailure(
+                "Packaged subprocess cleanup failed", capture
+            ) from BaseExceptionGroup("Packaged subprocess cleanup failed", failures)
     if primary_error is not None:
-        raise primary_error
+        if isinstance(primary_error, PackagedSubprocessExecutionFailure):
+            raise primary_error
+        raise PackagedSubprocessExecutionFailure(
+            "Packaged subprocess failed after process creation",
+            packaged_subprocess_capture(
+                True,
+                None if timed_out else process.returncode,
+                retained,
+                observed,
+                timed_out=timed_out,
+                output_limit_exceeded=overflow.is_set(),
+            ),
+        ) from primary_error
     if result is None:
         raise ValueError("Packaged subprocess produced no result")
     return result
@@ -1199,63 +1368,69 @@ def _observe_packaged_mcp_metadata(
 ) -> dict[str, object]:
     """Observe initialize/tools-list/EOF through one explicit isolated runtime."""
 
-    if sha256(python.read_bytes()) != expected_python_sha256:
-        raise ValueError("Packaged Python differs before MCP metadata observation")
-    state = state_root / "package-mcp"
-    state.mkdir(mode=0o700)
-    config = state_root / "package-mcp-config.json"
-    instance_id = hashlib.sha256((profile_id + ":ledger").encode()).hexdigest()[:32]
-    authority_id = hashlib.sha256((profile_id + ":authority").encode()).hexdigest()[:32]
-    ledger_identity = {
-        "family": "devfabric_resource_ledger",
-        "format_version": 1,
-        "instance_id": instance_id,
-        "authority_scope_kind": "qualification",
-        "authority_scope_id": authority_id,
-        "account_binding_hash": None,
-    }
-    expected_ledger_identity_sha256 = ledger_identity_payload_sha256(ledger_identity)
-    config.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "cloud_enabled": False,
-                "telemetry_footer": "off",
-                "profiles": [
-                    {
-                        "schema_version": 1,
-                        "id": "package-metadata",
-                        "task_classes": ["summarize"],
-                        "config": {
+    try:
+        if sha256(python.read_bytes()) != expected_python_sha256:
+            raise ValueError("Packaged Python differs before MCP metadata observation")
+    except BaseException as error:
+        raise PackagedMcpObservationFailure("python_authority") from error
+    try:
+        state = state_root / "package-mcp"
+        state.mkdir(mode=0o700)
+        config = state_root / "package-mcp-config.json"
+        instance_id = hashlib.sha256((profile_id + ":ledger").encode()).hexdigest()[:32]
+        authority_id = hashlib.sha256((profile_id + ":authority").encode()).hexdigest()[:32]
+        ledger_identity = {
+            "family": "devfabric_resource_ledger",
+            "format_version": 1,
+            "instance_id": instance_id,
+            "authority_scope_kind": "qualification",
+            "authority_scope_id": authority_id,
+            "account_binding_hash": None,
+        }
+        expected_ledger_identity_sha256 = ledger_identity_payload_sha256(ledger_identity)
+        config.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "cloud_enabled": False,
+                    "telemetry_footer": "off",
+                    "profiles": [
+                        {
                             "schema_version": 1,
-                            "project": "package-metadata",
-                            "root": str(bundle_root),
-                            "state_root": str(state),
-                            "ledger_identity": ledger_identity,
-                            "approved_paths": [module_relative_path],
-                            "authoritative_paths": [module_relative_path],
-                            "ollama": {
+                            "id": "package-metadata",
+                            "task_classes": ["summarize"],
+                            "config": {
                                 "schema_version": 1,
-                                "endpoint": "http://127.0.0.1:11434",
-                                "model": "qwen2.5:14b-instruct",
-                                "model_digest": (
-                                    "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6"
-                                ),
-                                "version": "0.34.2",
-                                "context_tokens": 8192,
-                                "max_output_tokens": 256,
-                                "safety_tokens": 128,
-                                "timeout_seconds": 90,
+                                "project": "package-metadata",
+                                "root": str(bundle_root),
+                                "state_root": str(state),
+                                "ledger_identity": ledger_identity,
+                                "approved_paths": [module_relative_path],
+                                "authoritative_paths": [module_relative_path],
+                                "ollama": {
+                                    "schema_version": 1,
+                                    "endpoint": "http://127.0.0.1:11434",
+                                    "model": "qwen2.5:14b-instruct",
+                                    "model_digest": (
+                                        "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6"
+                                    ),
+                                    "version": "0.34.2",
+                                    "context_tokens": 8192,
+                                    "max_output_tokens": 256,
+                                    "safety_tokens": 128,
+                                    "timeout_seconds": 90,
+                                },
                             },
-                        },
-                    }
-                ],
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ),
-        encoding="utf-8",
-    )
+                        }
+                    ],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+    except BaseException as error:
+        raise PackagedMcpObservationFailure("state_config_preparation") from error
     environment = {
         "HOME": str(home),
         "LANG": "C.UTF-8",
@@ -1264,29 +1439,49 @@ def _observe_packaged_mcp_metadata(
         "PYTHONDONTWRITEBYTECODE": "1",
     }
     command = [str(python), "-I", "-B", "-m", "devhub.delegate_server", "--config", str(config)]
-    origin_returncode, origin_stdout, _origin_stderr = run_bounded_subprocess(
-        [
-            str(python),
-            "-I",
-            "-B",
-            "-c",
-            (
-                "from pathlib import Path; import devhub.delegate_server as module; "
-                "print(Path(module.__file__).resolve())"
-            ),
-        ],
-        environment=environment,
-        input_data=None,
-        timeout=20,
-    )
-    if origin_returncode != 0 or origin_stdout != (expected_module_origin + "\n").encode():
-        raise ValueError("Packaged delegate server module origin differs")
-    init_returncode, init_stdout, init_stderr = run_bounded_subprocess(
-        [*command, "--initialize-ledger"],
-        environment=environment,
-        input_data=None,
-        timeout=20,
-    )
+    try:
+        origin_returncode, origin_stdout, origin_stderr = run_bounded_subprocess(
+            [
+                str(python),
+                "-I",
+                "-B",
+                "-c",
+                (
+                    "from pathlib import Path; import devhub.delegate_server as module; "
+                    "print(Path(module.__file__).resolve())"
+                ),
+            ],
+            environment=environment,
+            input_data=None,
+            timeout=20,
+        )
+    except PackagedSubprocessExecutionFailure as error:
+        raise PackagedMcpObservationFailure("module_origin", error.capture) from error
+    except BaseException as error:
+        raise PackagedMcpObservationFailure(
+            "module_origin", unstarted_subprocess_capture()
+        ) from error
+    origin_capture = completed_subprocess_capture(origin_returncode, origin_stdout, origin_stderr)
+    if (
+        origin_returncode != 0
+        or origin_stderr != b""
+        or origin_stdout != (expected_module_origin + "\n").encode()
+    ):
+        raise PackagedMcpObservationFailure("module_origin", origin_capture)
+    try:
+        init_returncode, init_stdout, init_stderr = run_bounded_subprocess(
+            [*command, "--initialize-ledger"],
+            environment=environment,
+            input_data=None,
+            timeout=20,
+        )
+    except PackagedSubprocessExecutionFailure as error:
+        raise PackagedMcpObservationFailure("ledger_initialization", error.capture) from error
+    except BaseException as error:
+        raise PackagedMcpObservationFailure(
+            "ledger_initialization", unstarted_subprocess_capture()
+        ) from error
+    init_capture = completed_subprocess_capture(init_returncode, init_stdout, init_stderr)
     try:
         init_lines = init_stdout.splitlines()
         init_result = json.loads(init_lines[0]) if len(init_lines) == 1 else None
@@ -1297,7 +1492,7 @@ def _observe_packaged_mcp_metadata(
         or init_stderr != b""
         or init_result != {"ledger_identity_sha256": expected_ledger_identity_sha256}
     ):
-        raise ValueError("Packaged ledger initialization failed")
+        raise PackagedMcpObservationFailure("ledger_initialization", init_capture)
     requests = (
         {
             "jsonrpc": "2.0",
@@ -1318,21 +1513,35 @@ def _observe_packaged_mcp_metadata(
     )
     stdout_path = output_root / "package-mcp-stdout.bin"
     stderr_path = output_root / "package-mcp-stderr.bin"
-    returncode, stdout_raw, stderr_raw = run_bounded_subprocess(
-        command,
-        environment=environment,
-        input_data=payload,
-        timeout=20,
-    )
-    stdout_path.write_bytes(stdout_raw)
-    stderr_path.write_bytes(stderr_raw)
+    try:
+        returncode, stdout_raw, stderr_raw = run_bounded_subprocess(
+            command,
+            environment=environment,
+            input_data=payload,
+            timeout=20,
+        )
+    except PackagedSubprocessExecutionFailure as error:
+        raise PackagedMcpObservationFailure("mcp_exchange", error.capture) from error
+    except BaseException as error:
+        raise PackagedMcpObservationFailure(
+            "mcp_exchange", unstarted_subprocess_capture()
+        ) from error
+    exchange_capture = completed_subprocess_capture(returncode, stdout_raw, stderr_raw)
+    if returncode != 0 or stderr_raw != b"":
+        raise PackagedMcpObservationFailure("mcp_exchange", exchange_capture)
+    try:
+        stdout_path.write_bytes(stdout_raw)
+        stderr_path.write_bytes(stderr_raw)
+    except BaseException as error:
+        raise PackagedMcpObservationFailure("capture_publication", exchange_capture) from error
     try:
         responses = [json.loads(line) for line in stdout_raw.splitlines()]
-        initialize = strict_mcp_result(responses[0], 1) if len(responses) == 2 else None
-        tools_result = strict_mcp_result(responses[1], 2) if len(responses) == 2 else None
-    except (json.JSONDecodeError, ValueError):
-        initialize = None
-        tools_result = None
+        if len(responses) != 2:
+            raise ValueError("Packaged MCP response count differs")
+        initialize = strict_mcp_result(responses[0], 1)
+        tools_result = strict_mcp_result(responses[1], 2)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, IndexError) as error:
+        raise PackagedMcpObservationFailure("response_parsing", exchange_capture) from error
     expected_capabilities = {
         "experimental": {},
         "prompts": {"listChanged": False},
@@ -1355,6 +1564,8 @@ def _observe_packaged_mcp_metadata(
         and cast(dict[str, object], initialize["serverInfo"]).get("name") == "codex-dev-hub"
         and isinstance(cast(dict[str, object], initialize["serverInfo"]).get("version"), str)
     )
+    if not initialize_valid:
+        raise PackagedMcpObservationFailure("initialize_shape", exchange_capture)
     tools = tools_result.get("tools") if isinstance(tools_result, dict) else None
     tool = tools[0] if isinstance(tools, list) and len(tools) == 1 else None
     tools_valid = (
@@ -1368,8 +1579,8 @@ def _observe_packaged_mcp_metadata(
         and isinstance(tool.get("inputSchema"), dict)
         and isinstance(tool.get("outputSchema"), dict)
     )
-    if returncode != 0 or stderr_raw != b"" or not initialize_valid or not tools_valid:
-        raise ValueError("Packaged MCP metadata lifecycle differs")
+    if not tools_valid:
+        raise PackagedMcpObservationFailure("tools_shape", exchange_capture)
     return {
         "python_executable_sha256": expected_python_sha256,
         "module_origin": expected_module_origin,
@@ -1489,84 +1700,95 @@ def run_post_registration(
         packaged_mcp = packaged_mcp_metadata_observation(
             args.linux_isolation_profile_id, args.expected_python_sha256
         )
-        observed = {
-            "apparmor_current_profile": apparmor_current,
-            "namespaces": {
-                "host_user_namespace_id": host_namespaces["user"],
-                "child_user_namespace_id": child_namespaces["user"],
-                "host_mount_namespace_id": host_namespaces["mnt"],
-                "child_mount_namespace_id": child_namespaces["mnt"],
-                "host_pid_namespace_id": host_namespaces["pid"],
-                "child_pid_namespace_id": child_namespaces["pid"],
-                "host_network_namespace_id": host_namespaces["net"],
-                "child_network_namespace_id": child_namespaces["net"],
-                "uid_map_sha256": sha256(Path("/proc/self/uid_map").read_bytes()),
-                "gid_map_sha256": sha256(Path("/proc/self/gid_map").read_bytes()),
-                "child_uid": os.geteuid(),
-                "child_gid": os.getegid(),
-            },
-            "private_mount_root": True,
-            "mount_authority_revalidated": True,
-            "mount_authority": mount_authority,
-            "mount_table_sha256": sha256(mount_table),
-            "observed_mount_targets": mount_targets,
-            "bundle_read_only": bundle_read_only,
-            "state_read_write": Path("/state/allowed.txt").read_text(encoding="ascii") == "state",
-            "output_read_write": (
-                Path("/output/allowed.txt").read_text(encoding="ascii") == "output"
-            ),
-            "home_tmpfs": True,
-            "tmp_tmpfs": True,
-            "fresh_proc": True,
-            "minimal_dev": minimal_dev,
-            "host_root_hidden": host_hidden,
-            "host_home_hidden": home_hidden,
-            "no_new_privs": status["no_new_privs"] == 1,
-            "cap_effective": status["cap_effective"],
-            "cap_permitted": status["cap_permitted"],
-            "cap_inheritable": status["cap_inheritable"],
-            "cap_ambient": status["cap_ambient"],
-            "cap_bounding": status["cap_bounding"],
-            "capability_regain_denied": regain_denied,
-            "kernel_landlock_abi": kernel_abi,
-            "enforced_landlock_abi": policy_abi,
-            "landlock_handled_access": handled_access,
-            "landlock_rule_targets": rule_targets,
-            "landlock_ruleset_sha256": ruleset_sha,
-            "landlock_allowed_operations_passed": (
-                Path("/state/allowed.txt").read_text(encoding="ascii") == "state"
-                and Path("/output/allowed.txt").read_text(encoding="ascii") == "output"
-            ),
-            "landlock_denied_operations_passed": denied_by_landlock,
-            "direct_loopback_denied": direct_loopback_denied,
-            "direct_lan_denied": direct_lan_denied,
-            "direct_dns_denied": direct_dns_denied,
-            "direct_public_denied": direct_public_denied,
-            "rlimits_applied": True,
-            "rlimits_sha256": rlimits_sha256,
-            "child_bootstrap": {
-                "isolated_python": True,
-                "bytecode_disabled": True,
-                "stdlib_only": True,
-            },
-            "mount_owner_projection": owner_projection,
-            "broker": observed_broker,
-            "child_module_origin": (
-                "/bundle/python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"
-            ),
-            "child_module_sha256": args.expected_child_module_sha256,
-            "packaged_mcp": packaged_mcp,
-        }
-        write_frame(args.result_fd, observed)
-        os.close(args.result_fd)
+        try:
+            observed = {
+                "apparmor_current_profile": apparmor_current,
+                "namespaces": {
+                    "host_user_namespace_id": host_namespaces["user"],
+                    "child_user_namespace_id": child_namespaces["user"],
+                    "host_mount_namespace_id": host_namespaces["mnt"],
+                    "child_mount_namespace_id": child_namespaces["mnt"],
+                    "host_pid_namespace_id": host_namespaces["pid"],
+                    "child_pid_namespace_id": child_namespaces["pid"],
+                    "host_network_namespace_id": host_namespaces["net"],
+                    "child_network_namespace_id": child_namespaces["net"],
+                    "uid_map_sha256": sha256(Path("/proc/self/uid_map").read_bytes()),
+                    "gid_map_sha256": sha256(Path("/proc/self/gid_map").read_bytes()),
+                    "child_uid": os.geteuid(),
+                    "child_gid": os.getegid(),
+                },
+                "private_mount_root": True,
+                "mount_authority_revalidated": True,
+                "mount_authority": mount_authority,
+                "mount_table_sha256": sha256(mount_table),
+                "observed_mount_targets": mount_targets,
+                "bundle_read_only": bundle_read_only,
+                "state_read_write": Path("/state/allowed.txt").read_text(encoding="ascii")
+                == "state",
+                "output_read_write": (
+                    Path("/output/allowed.txt").read_text(encoding="ascii") == "output"
+                ),
+                "home_tmpfs": True,
+                "tmp_tmpfs": True,
+                "fresh_proc": True,
+                "minimal_dev": minimal_dev,
+                "host_root_hidden": host_hidden,
+                "host_home_hidden": home_hidden,
+                "no_new_privs": status["no_new_privs"] == 1,
+                "cap_effective": status["cap_effective"],
+                "cap_permitted": status["cap_permitted"],
+                "cap_inheritable": status["cap_inheritable"],
+                "cap_ambient": status["cap_ambient"],
+                "cap_bounding": status["cap_bounding"],
+                "capability_regain_denied": regain_denied,
+                "kernel_landlock_abi": kernel_abi,
+                "enforced_landlock_abi": policy_abi,
+                "landlock_handled_access": handled_access,
+                "landlock_rule_targets": rule_targets,
+                "landlock_ruleset_sha256": ruleset_sha,
+                "landlock_allowed_operations_passed": (
+                    Path("/state/allowed.txt").read_text(encoding="ascii") == "state"
+                    and Path("/output/allowed.txt").read_text(encoding="ascii") == "output"
+                ),
+                "landlock_denied_operations_passed": denied_by_landlock,
+                "direct_loopback_denied": direct_loopback_denied,
+                "direct_lan_denied": direct_lan_denied,
+                "direct_dns_denied": direct_dns_denied,
+                "direct_public_denied": direct_public_denied,
+                "rlimits_applied": True,
+                "rlimits_sha256": rlimits_sha256,
+                "child_bootstrap": {
+                    "isolated_python": True,
+                    "bytecode_disabled": True,
+                    "stdlib_only": True,
+                },
+                "mount_owner_projection": owner_projection,
+                "broker": observed_broker,
+                "child_module_origin": (
+                    "/bundle/python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"
+                ),
+                "child_module_sha256": args.expected_child_module_sha256,
+                "packaged_mcp": packaged_mcp,
+            }
+        except BaseException as error:
+            raise PackagedMcpObservationFailure("observation_assembly") from error
+        try:
+            write_frame(args.result_fd, observed)
+            os.close(args.result_fd)
+        except BaseException as error:
+            raise PackagedMcpObservationFailure("result_frame_publication") from error
     except BaseException as error:
         broker_failure = error if isinstance(error, BrokerObservationFailure) else None
+        packaged_mcp_failure = error if isinstance(error, PackagedMcpObservationFailure) else None
+        if stage == "result_assembly" and packaged_mcp_failure is None:
+            packaged_mcp_failure = PackagedMcpObservationFailure("observation_assembly")
         write_runtime_failure(
             args.result_fd,
             stage,
             args.linux_isolation_profile_id,
             args.environment_instance_id,
             broker_failure,
+            packaged_mcp_failure,
         )
         raise SystemExit(71) from None
 

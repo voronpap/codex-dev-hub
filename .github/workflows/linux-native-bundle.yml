@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       native_build_run_id:
-        description: Exact successful linux-build-012 workflow run ID
+        description: Exact retained successful linux-build-012 workflow run ID
         required: true
         type: string
       native_build_run_attempt:
@@ -45,10 +45,10 @@ jobs:
           tests/test_linux_native_codex.py
           tests/test_native_bundle.py
           tests/test_native_build_artifact_inventory.py
-      - name: Download and verify exact-main Linux Build-012
+      - name: Download and verify retained Linux Build-012
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_CODEX_COMMIT: c272ed6169a718204f2830a4aa34a5548a650652
           BUILD_RUN_ID: ${{ inputs.native_build_run_id }}
           BUILD_RUN_ATTEMPT: ${{ inputs.native_build_run_attempt }}
         run: |
@@ -56,7 +56,9 @@ jobs:
             --json headSha,attempt,conclusion,event > "$RUNNER_TEMP/linux-build-run.json"
           gh api "repos/${{ github.repository }}/actions/runs/$BUILD_RUN_ID" \
             > "$RUNNER_TEMP/linux-build-run-api.json"
-          jq -e --arg head "$EXPECTED_COMMIT" --argjson attempt "$BUILD_RUN_ATTEMPT" \
+          test "$BUILD_RUN_ID" = "38354927618"
+          test "$BUILD_RUN_ATTEMPT" = "1"
+          jq -e --arg head "$EXPECTED_CODEX_COMMIT" --argjson attempt "$BUILD_RUN_ATTEMPT" \
             '.headSha == $head and .attempt == $attempt and .conclusion == "success" and .event == "workflow_dispatch"' \
             "$RUNNER_TEMP/linux-build-run.json"
           jq -e '.path == ".github/workflows/linux-native-codex.yml"' \
@@ -70,6 +72,7 @@ jobs:
             --output "$RUNNER_TEMP/devfabric-linux-native" \
             --expected-commit '${{ github.sha }}' \
             --codex-artifact "$RUNNER_TEMP/linux-build-012" \
+            --expected-codex-commit 'c272ed6169a718204f2830a4aa34a5548a650652' \
             --accepted-run-id '${{ inputs.native_build_run_id }}' \
             --accepted-run-attempt '${{ inputs.native_build_run_attempt }}'
           uv run --locked python scripts/verify_linux_native_bundle.py \
