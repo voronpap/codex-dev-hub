@@ -21,10 +21,10 @@ from devhub.benchmark import canonical, write_new
 from devhub.linux_bundle import (
     LinuxCodexAuthorityV6,
     LinuxLauncherV1,
-    LinuxNativeArchivePayloadV7,
-    LinuxNativeArchiveV7,
-    LinuxNativeBundlePayloadV7,
-    LinuxNativeBundleV7,
+    LinuxNativeArchivePayloadV8,
+    LinuxNativeArchiveV8,
+    LinuxNativeBundlePayloadV8,
+    LinuxNativeBundleV8,
     LinuxPythonAuthorityV1,
     inventory_linux_bundle,
     observe_linux_runtime,
@@ -283,7 +283,7 @@ def _assemble(
     run_attempt: int,
     builder_python: Path,
     uv: Path,
-) -> LinuxNativeBundleV7:
+) -> LinuxNativeBundleV8:
     bundle_root = release / "bundle"
     manifest_path = release / "linux-native-bundle.json"
     bundle_root.mkdir(parents=True)
@@ -414,8 +414,8 @@ def _assemble(
         dependency_wheels=dependencies,
         runtime=runtime,
     )
-    bundle = LinuxNativeBundleV7.create(
-        LinuxNativeBundlePayloadV7(
+    bundle = LinuxNativeBundleV8.create(
+        LinuxNativeBundlePayloadV8(
             implementation_commit=expected_commit,
             retained_codex_implementation_commit=expected_codex_commit,
             python=python,
@@ -435,12 +435,12 @@ def _assemble(
     return bundle
 
 
-def _write_archive(release: Path, bundle: LinuxNativeBundleV7) -> LinuxNativeArchiveV7:
+def _write_archive(release: Path, bundle: LinuxNativeBundleV8) -> LinuxNativeArchiveV8:
     archive_path = release / ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
         stream.add(release / "bundle", arcname="bundle", recursive=True)
-    archive = LinuxNativeArchiveV7.create(
-        LinuxNativeArchivePayloadV7(
+    archive = LinuxNativeArchiveV8.create(
+        LinuxNativeArchivePayloadV8(
             bundle_id=bundle.linux_native_bundle_id,
             size=archive_path.stat().st_size,
             sha256=file_sha256(archive_path),
@@ -461,7 +461,7 @@ def build(
     expected_codex_commit: str,
     accepted_run_id: int,
     accepted_run_attempt: int,
-) -> LinuxNativeBundleV7:
+) -> LinuxNativeBundleV8:
     repo = repo.resolve(strict=True)
     commit = reviewed_commit(repo, expected_commit)
     builder_python, uv = _verified_builder(repo)

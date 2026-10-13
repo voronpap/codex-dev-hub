@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Literal, cast
@@ -1917,6 +1918,81 @@ def test_child_runtime_failure_writer_uses_the_reviewed_v11_contract() -> None:
             failure = CHILD.PackagedMcpObservationFailure("observation_assembly")
             frame = CHILD.runtime_failure_frame(stage, H, ENVIRONMENT, None, failure)
         assert LinuxChildRuntimeFailureV3.model_validate(frame).payload.stage == stage
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Child runtime framing is Linux-only")
+@pytest.mark.parametrize(
+    "capture",
+    [
+        pytest.param(
+            lambda child: child.completed_subprocess_capture(0, b"ok", b""),
+            id="completed",
+        ),
+        pytest.param(
+            lambda child: child.unstarted_subprocess_capture(),
+            id="unstarted",
+        ),
+        pytest.param(
+            lambda child: child.packaged_subprocess_capture(
+                True,
+                None,
+                {"stdout": b"partial", "stderr": b""},
+                {"stdout": 7, "stderr": 0},
+                timed_out=True,
+                output_limit_exceeded=False,
+            ),
+            id="timeout",
+        ),
+        pytest.param(
+            lambda child: child.packaged_subprocess_capture(
+                True,
+                -9,
+                {"stdout": b"kept", "stderr": b""},
+                {"stdout": 5, "stderr": 0},
+                timed_out=False,
+                output_limit_exceeded=True,
+            ),
+            id="overflow",
+        ),
+        pytest.param(
+            lambda child: child.completed_subprocess_capture(71, b"", b"bounded error"),
+            id="error",
+        ),
+    ],
+)
+def test_child_runtime_failure_v3_wire_round_trip_binds_actual_capture_producer(
+    capture: Callable[[ModuleType], dict[str, object]],
+) -> None:
+    assert CHILD is not None
+    produced = capture(CHILD)
+    failure = CHILD.PackagedMcpObservationFailure("mcp_exchange", produced)
+    frame = CHILD.runtime_failure_frame("result_assembly", H, ENVIRONMENT, None, failure)
+    wire = json.dumps(frame, sort_keys=True, separators=(",", ":"))
+    raw = json.loads(wire)
+
+    assert raw["payload"]["packaged_subprocess"]["schema_version"] == 1
+    assert raw["child_runtime_failure_id"] == digest(canonical(raw["payload"]))
+    parsed = LinuxChildRuntimeFailureV3.model_validate(raw)
+    assert parsed.payload.packaged_subprocess is not None
+    assert parsed.payload.packaged_subprocess.schema_version == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Child runtime framing is Linux-only")
+@pytest.mark.parametrize("mutation", ["missing", "changed"])
+def test_child_runtime_failure_v3_rejects_nested_capture_version_drift(mutation: str) -> None:
+    assert CHILD is not None
+    capture = CHILD.completed_subprocess_capture(71, b"", b"bounded error")
+    failure = CHILD.PackagedMcpObservationFailure("mcp_exchange", capture)
+    frame = CHILD.runtime_failure_frame("result_assembly", H, ENVIRONMENT, None, failure)
+    raw = json.loads(json.dumps(frame, sort_keys=True, separators=(",", ":")))
+    nested = raw["payload"]["packaged_subprocess"]
+    if mutation == "missing":
+        del nested["schema_version"]
+    else:
+        nested["schema_version"] = 2
+
+    with pytest.raises(ValidationError):
+        LinuxChildRuntimeFailureV3.model_validate(raw)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")

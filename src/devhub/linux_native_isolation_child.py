@@ -1066,6 +1066,7 @@ def packaged_subprocess_capture(
     stdout = bytes(retained["stdout"])
     stderr = bytes(retained["stderr"])
     return {
+        "schema_version": 1,
         "process_started": process_started,
         "returncode": returncode,
         "stdout_retained_bytes": len(stdout),

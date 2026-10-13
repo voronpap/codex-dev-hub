@@ -31,6 +31,7 @@ from devhub.linux_bundle import (
     LinuxNativeArchivePayloadV5,
     LinuxNativeArchivePayloadV6,
     LinuxNativeArchivePayloadV7,
+    LinuxNativeArchivePayloadV8,
     LinuxNativeArchiveV1,
     LinuxNativeArchiveV2,
     LinuxNativeArchiveV3,
@@ -38,6 +39,7 @@ from devhub.linux_bundle import (
     LinuxNativeArchiveV5,
     LinuxNativeArchiveV6,
     LinuxNativeArchiveV7,
+    LinuxNativeArchiveV8,
     LinuxNativeBundlePayloadV1,
     LinuxNativeBundlePayloadV2,
     LinuxNativeBundlePayloadV3,
@@ -45,6 +47,7 @@ from devhub.linux_bundle import (
     LinuxNativeBundlePayloadV5,
     LinuxNativeBundlePayloadV6,
     LinuxNativeBundlePayloadV7,
+    LinuxNativeBundlePayloadV8,
     LinuxNativeBundleV1,
     LinuxNativeBundleV2,
     LinuxNativeBundleV3,
@@ -52,6 +55,7 @@ from devhub.linux_bundle import (
     LinuxNativeBundleV5,
     LinuxNativeBundleV6,
     LinuxNativeBundleV7,
+    LinuxNativeBundleV8,
     LinuxPythonAuthorityV1,
     LinuxPythonRuntimePayloadV1,
     LinuxPythonRuntimeV1,
@@ -284,6 +288,13 @@ def materialize_v7(root: Path) -> LinuxNativeBundleV7:
     return LinuxNativeBundleV7.create(LinuxNativeBundlePayloadV7.model_validate(raw))
 
 
+def materialize_v8(root: Path) -> LinuxNativeBundleV8:
+    current = materialize_v7(root)
+    raw = current.payload.model_dump(mode="python")
+    raw["schema_version"] = 8
+    return LinuxNativeBundleV8.create(LinuxNativeBundlePayloadV8.model_validate(raw))
+
+
 def reviewable_v12_artifact(root: Path) -> None:
     linux_pass_artifact(
         root,
@@ -304,6 +315,7 @@ def write_test_archive(
     | LinuxNativeArchiveV5
     | LinuxNativeArchiveV6
     | LinuxNativeArchiveV7
+    | LinuxNativeArchiveV8
 ):
     archive_path = release / BUILDER.ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
@@ -322,6 +334,7 @@ def write_test_archive(
             | LinuxNativeArchiveV5
             | LinuxNativeArchiveV6
             | LinuxNativeArchiveV7
+            | LinuxNativeArchiveV8
         ) = LinuxNativeArchiveV1.create(LinuxNativeArchivePayloadV1(**fields))
     elif schema_version == 2:
         receipt = LinuxNativeArchiveV2.create(LinuxNativeArchivePayloadV2(**fields))
@@ -333,8 +346,10 @@ def write_test_archive(
         receipt = LinuxNativeArchiveV5.create(LinuxNativeArchivePayloadV5(**fields))
     elif schema_version == 6:
         receipt = LinuxNativeArchiveV6.create(LinuxNativeArchivePayloadV6(**fields))
-    else:
+    elif schema_version == 7:
         receipt = LinuxNativeArchiveV7.create(LinuxNativeArchivePayloadV7(**fields))
+    else:
+        receipt = LinuxNativeArchiveV8.create(LinuxNativeArchivePayloadV8(**fields))
     (release / BUILDER.ARCHIVE_RECEIPT_NAME).write_text(receipt.model_dump_json(), encoding="utf-8")
     return receipt
 
@@ -461,7 +476,24 @@ def test_linux_native_bundle_v7_splits_current_python_from_retained_build_012(
     assert LinuxNativeBundleV6.model_validate_json(historical.model_dump_json()) == historical
 
 
-@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6, 7))
+def test_linux_native_bundle_v8_preserves_split_authority_and_versions_capture_fix(
+    tmp_path: Path,
+) -> None:
+    current = materialize_v8(tmp_path / "current")
+    assert LinuxNativeBundleV8.model_validate_json(current.model_dump_json()) == current
+    assert current.payload.schema_version == 8
+    assert current.payload.implementation_commit == COMMIT
+    assert current.payload.python.runtime.payload.devhub_source_commit == COMMIT
+    assert current.payload.retained_codex_implementation_commit == RETAINED_CODEX_COMMIT
+    assert current.payload.codex.devfabric_implementation_commit == RETAINED_CODEX_COMMIT
+    assert current.payload.native_executor_isolation_qualified is False
+    assert current.payload.package_readiness is False
+
+    historical = materialize_v7(tmp_path / "historical")
+    assert LinuxNativeBundleV7.model_validate_json(historical.model_dump_json()) == historical
+
+
+@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6, 7, 8))
 def test_linux_release_rejects_mixed_manifest_and_archive_versions(
     tmp_path: Path, manifest_version: int
 ) -> None:
@@ -481,6 +513,8 @@ def test_linux_release_rejects_mixed_manifest_and_archive_versions(
         else materialize_v6(root)
         if manifest_version == 6
         else materialize_v7(root)
+        if manifest_version == 7
+        else materialize_v8(root)
     )
     (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
     write_test_archive(release, bundle.linux_native_bundle_id, 2 if manifest_version != 2 else 1)
@@ -719,6 +753,8 @@ def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     assert "scripts/verify_linux_native_bundle.py" in workflow
     builder = (ROOT / "scripts/build_linux_native_bundle.py").read_text(encoding="utf-8")
     assert 'ARCHIVE_NAME = "devfabric-linux-native.tar.gz"' in builder
+    assert "LinuxNativeBundleV8.create" in builder
+    assert "LinuxNativeBundleV7.create" not in builder
     source = (ROOT / "src/devhub/linux_bundle.py").read_text(encoding="utf-8")
     assert "native_executor_isolation_qualified: Literal[False]" in source
     assert "package_readiness: Literal[False]" in source
@@ -963,7 +999,7 @@ def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode preservation requires Linux")
-@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7))
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 8))
 def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_version: int
 ) -> None:
@@ -983,6 +1019,8 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
         else materialize_v6(root)
         if schema_version == 6
         else materialize_v7(root)
+        if schema_version == 7
+        else materialize_v8(root)
     )
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)
