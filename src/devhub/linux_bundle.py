@@ -25,6 +25,7 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildV9,
     LinuxNativeCodexBuildV10,
     LinuxNativeCodexBuildV11,
+    LinuxNativeCodexBuildV12,
 )
 from devhub.models import Contract
 from devhub.native_bundle import (
@@ -366,6 +367,13 @@ class LinuxCodexAuthorityV5(LinuxCodexAuthorityV1):
     build_id: Literal["linux-build-011"] = "linux-build-011"  # type: ignore[assignment]
 
 
+class LinuxCodexAuthorityV6(LinuxCodexAuthorityV1):
+    """Forward authority for the corrected package-bound runtime."""
+
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+    build_id: Literal["linux-build-012"] = "linux-build-012"  # type: ignore[assignment]
+
+
 class LinuxLauncherV1(Contract):
     cli_path: Literal["bin/devfabric"] = "bin/devfabric"
     cli_sha256: Digest
@@ -519,6 +527,13 @@ class LinuxNativeBundlePayloadV5(LinuxNativeBundlePayloadV1):
     codex: LinuxCodexAuthorityV5
 
 
+class LinuxNativeBundlePayloadV6(LinuxNativeBundlePayloadV1):
+    """Forward bundle payload consuming only linux-build-012 authority."""
+
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+    codex: LinuxCodexAuthorityV6
+
+
 class LinuxNativeBundleV1(Contract):
     linux_native_bundle_id: Digest
     payload: LinuxNativeBundlePayloadV1
@@ -622,6 +637,28 @@ class LinuxNativeBundleV5(Contract):
 
     @model_validator(mode="after")
     def canonical_id(self) -> LinuxNativeBundleV5:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_bundle_id != expected:
+            raise ValueError("Linux native bundle ID mismatch")
+        return self
+
+
+class LinuxNativeBundleV6(Contract):
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+    linux_native_bundle_id: Digest
+    payload: LinuxNativeBundlePayloadV6
+
+    @classmethod
+    def create(cls, payload: LinuxNativeBundlePayloadV6) -> LinuxNativeBundleV6:
+        return cls(
+            linux_native_bundle_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeBundleV6:
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_bundle_id != expected:
             raise ValueError("Linux native bundle ID mismatch")
@@ -762,6 +799,32 @@ class LinuxNativeArchiveV5(Contract):
         return self
 
 
+class LinuxNativeArchivePayloadV6(LinuxNativeArchivePayloadV1):
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+
+
+class LinuxNativeArchiveV6(Contract):
+    schema_version: Literal[6] = 6  # type: ignore[assignment]
+    linux_native_archive_id: Digest
+    payload: LinuxNativeArchivePayloadV6
+
+    @classmethod
+    def create(cls, payload: LinuxNativeArchivePayloadV6) -> LinuxNativeArchiveV6:
+        return cls(
+            linux_native_archive_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeArchiveV6:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_archive_id != expected:
+            raise ValueError("Linux native archive ID mismatch")
+        return self
+
+
 def observe_linux_runtime(
     interpreter: Path, devhub_wheel: Path, lock_path: Path, source_commit: str
 ) -> LinuxPythonRuntimeV1:
@@ -856,6 +919,7 @@ LinuxNativeBundle = (
     | LinuxNativeBundleV3
     | LinuxNativeBundleV4
     | LinuxNativeBundleV5
+    | LinuxNativeBundleV6
 )
 LinuxNativeArchive = (
     LinuxNativeArchiveV1
@@ -863,6 +927,7 @@ LinuxNativeArchive = (
     | LinuxNativeArchiveV3
     | LinuxNativeArchiveV4
     | LinuxNativeArchiveV5
+    | LinuxNativeArchiveV6
 )
 
 
@@ -885,8 +950,11 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         | LinuxNativeCodexBuildV9
         | LinuxNativeCodexBuildV10
         | LinuxNativeCodexBuildV11
+        | LinuxNativeCodexBuildV12
     )
-    if isinstance(bundle, LinuxNativeBundleV5):
+    if isinstance(bundle, LinuxNativeBundleV6):
+        receipt = LinuxNativeCodexBuildV12.model_validate_json(receipt_path.read_bytes())
+    elif isinstance(bundle, LinuxNativeBundleV5):
         receipt = LinuxNativeCodexBuildV11.model_validate_json(receipt_path.read_bytes())
     elif isinstance(bundle, LinuxNativeBundleV4):
         receipt = LinuxNativeCodexBuildV10.model_validate_json(receipt_path.read_bytes())
@@ -1052,6 +1120,9 @@ def verify_linux_native_release(release: Path, destination: Path) -> LinuxNative
     elif manifest_version == 5 and archive_version == 5:
         bundle = LinuxNativeBundleV5.model_validate_json(manifest_raw)
         archive = LinuxNativeArchiveV5.model_validate_json(archive_raw)
+    elif manifest_version == 6 and archive_version == 6:
+        bundle = LinuxNativeBundleV6.model_validate_json(manifest_raw)
+        archive = LinuxNativeArchiveV6.model_validate_json(archive_raw)
     else:
         raise ValueError("Linux native release schema versions differ or are unsupported")
     if (

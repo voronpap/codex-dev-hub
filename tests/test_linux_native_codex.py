@@ -23,6 +23,7 @@ from devhub.linux_native import (
     LinuxBuildProvenanceV9,
     LinuxBuildProvenanceV10,
     LinuxBuildProvenanceV11,
+    LinuxBuildProvenanceV12,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV1,
     LinuxHostProofSummaryV2,
@@ -39,6 +40,7 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildPayloadV9,
     LinuxNativeCodexBuildPayloadV10,
     LinuxNativeCodexBuildPayloadV11,
+    LinuxNativeCodexBuildPayloadV12,
     LinuxNativeCodexBuildV1,
     LinuxNativeCodexBuildV2,
     LinuxNativeCodexBuildV3,
@@ -50,6 +52,7 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildV9,
     LinuxNativeCodexBuildV10,
     LinuxNativeCodexBuildV11,
+    LinuxNativeCodexBuildV12,
 )
 from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 
@@ -418,6 +421,26 @@ def test_linux_build_004_binds_ordinary_default_and_preserves_history() -> None:
         == package_bound
     )
 
+    corrected_package_authority = LinuxNativeCodexBuildV12.create(
+        LinuxNativeCodexBuildPayloadV12(
+            provenance=LinuxBuildProvenanceV12(
+                **{
+                    **package_bound.payload.provenance.model_dump(mode="python"),
+                    "build_id": "linux-build-012",
+                }
+            ),
+            binaries=package_bound.payload.binaries,
+            process_proof=package_bound.payload.process_proof,
+        )
+    )
+    assert corrected_package_authority.payload.provenance.build_id == "linux-build-012"
+    assert (
+        LinuxNativeCodexBuildV12.model_validate_json(
+            corrected_package_authority.model_dump_json()
+        )
+        == corrected_package_authority
+    )
+
 
 @pytest.mark.parametrize(
     ("roles", "message"),
@@ -740,10 +763,10 @@ def test_post_build_v8_failure_records_exact_phase_and_preserves_compile_state(
 
 def test_linux_workflow_reserves_build_009_for_merged_main_dispatch() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
-    assert "devfabric-linux-build-011-evidence" in workflow
-    assert "devfabric-linux-build-011-binaries" in workflow
+    assert "devfabric-linux-build-012-evidence" in workflow
+    assert "devfabric-linux-build-012-binaries" in workflow
     assert "--platform linux" in workflow
-    assert "--build-id linux-build-011" in workflow
+    assert "--build-id linux-build-012" in workflow
     assert "pull_request:" not in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "ref: ${{ github.sha }}" in workflow
@@ -799,7 +822,7 @@ new file mode 100644
         candidate_patch=candidate,
         host_patch=host,
         evidence_directory=evidence,
-        build_id="linux-build-011",
+        build_id="linux-build-012",
     )
 
     assert (root / "candidate.txt").read_text(encoding="utf-8") == "candidate\n"
@@ -1084,7 +1107,7 @@ def test_process_summary_rejects_alternate_code_mode_failures(message: str) -> N
 
 
 def test_linux_builder_reuses_shared_source_and_process_authority() -> None:
-    assert LINUX_BUILD.BUILD_ID == "linux-build-011"
+    assert LINUX_BUILD.BUILD_ID == "linux-build-012"
     assert LINUX_BUILD.retained.prepare_build_source is not None
     signature = inspect.signature(LINUX_BUILD.shared.process_proof)
     assert {"capture", "wait_pid_exit", "proof_env", "platform_label"} <= set(signature.parameters)

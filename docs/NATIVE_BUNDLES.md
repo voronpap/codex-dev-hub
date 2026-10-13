@@ -543,6 +543,26 @@ may consume only an exact successful `linux-native-bundle.yml` run from the
 same implementation commit; a run ID from another workflow is rejected even
 when its head SHA matches.
 
+Build-011 run `38344185222` passed compilation and the exact same-binary
+Default/Arm A/Arm B proof on commit
+`0d9b7811eaa22e31afd0e5cf9e133fb00f6d2059`. Bundle V5 run `38349429884`
+then published the exact package-bound successor
+(`bundle_id=c1ae651d4ca77e3ef4bb0428af864dc62292dbe011914836c4cb9ef13652e130`,
+`archive_id=6f80f26c10190eb2cadce99f3a1902bff6e8917079aa5a1e0083a813a1777fcf`).
+The first V12 package-bound isolation run `38350946287` failed closed before
+qualification because the stdlib-only child compared a pretty JSON ledger hash
+with the production compact canonical ledger identity. Cleanup succeeded and
+all execution counters remained zero. The representation defect was corrected
+forward-only on main; the failed receipt and Build-011/Bundle V5 identities
+remain historical.
+
+`linux-build-012`, `LinuxNativeBundleV6`, and `LinuxNativeArchiveV6` are the
+forward exact-main authorities for that correction. They preserve the same
+patches, process proof, package layout, security flags, and zero-execution
+semantics. They do not reinterpret Build-011 or Bundle/Archive V5. A separate
+forward isolation contract must consume only the accepted Bundle V6 authority;
+V12 remains bound to Bundle V5.
+
 The tested bundle is intentionally tied to Linux x86_64 and the exact host
 environment recorded by later qualification.  It does not claim support for
 every distribution.  Directory assembly alone leaves
@@ -784,9 +804,9 @@ syscall-filter, complete native-executor isolation and package readiness false.
 
 | Gate | Windows native | Linux native |
 | --- | --- | --- |
-| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PASS for accepted `linux-build-010` run `38330846665`; forward-only `linux-build-011` is the package-bound successor and has no build receipt yet |
-| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PASS for accepted build-010 Default/A/B, EOF, security negatives and complete retention; build-011 must repeat the same proof at its exact implementation commit |
-| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V12 implements strict packaged initialize/tools-list/EOF observation with no `tools/call`; intended-host receipt pending |
+| Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PASS for accepted `linux-build-011` run `38344185222`; forward-only `linux-build-012` is registered for the corrected exact-main authority and has no build receipt yet |
+| Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PASS for accepted build-011 Default/A/B, EOF, security negatives and complete retention; build-012 must repeat the same proof at its exact implementation commit |
+| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V12 enforces strict packaged initialize/tools-list/EOF with no `tools/call`; run `38350946287` failed closed on the corrected ledger-hash boundary, so a Bundle V6-bound forward receipt remains pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
 | Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — accepted V11 run `38307459549` proves namespace/mount/Landlock/AppArmor/broker mechanics; package-bound V12, cgroup, syscall and complete packaged executor boundaries remain pending |
@@ -794,9 +814,9 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
-| Runnable artifact | PENDING directory/launcher/file manifest | PASS for accepted internal Bundle V4 run `38336960375` (`bundle_id=27dd89b9a82879778a9d31115c43ebc12306087b54fe84b414f71b234aff6bf2`, `archive_id=c1dc8bd2181a334d50219e92723a605f1473f887c54d6e9966b4f604f7efe419`); forward-only Bundle V5/build-011 adds the installed isolation child and is pending |
+| Runnable artifact | PENDING directory/launcher/file manifest | PASS for accepted Bundle V5 run `38349429884` (`bundle_id=c1ae651d4ca77e3ef4bb0428af864dc62292dbe011914836c4cb9ef13652e130`, `archive_id=6f80f26c10190eb2cadce99f3a1902bff6e8917079aa5a1e0083a813a1777fcf`); forward-only Bundle V6/build-012 for the corrected child is pending |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for accepted build-010, Bundle V4 and V11 mechanics evidence; build-011/Bundle V5/V12 implementation is under review |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for accepted build-011 and Bundle V5; V12 run `38350946287` failed closed with zero execution counters; build-012/Bundle V6 and a forward package-bound isolation receipt remain pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant
