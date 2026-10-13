@@ -552,6 +552,8 @@ def _parse_filter_property(
 ) -> tuple[bool, tuple[str, ...]]:
     if not raw:
         return False, ()
+    if raw == "~" and unit_role == "matched_control":
+        return False, ()
     tokens = raw.split()
     classifications: set[Literal["denylist", "duplicate", "invalid_token", "missing_tokens"]] = (
         set()

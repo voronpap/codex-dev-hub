@@ -9830,6 +9830,7 @@ def test_v19_selector_parser_rejects_unsupported_or_duplicate_output() -> None:
 
 def test_v19_filter_property_parser_is_strict() -> None:
     assert CGROUP_MANAGER._parse_filter_property("") == (False, ())
+    assert CGROUP_MANAGER._parse_filter_property("~", unit_role="matched_control") == (False, ())
     assert CGROUP_MANAGER._parse_filter_property("allow read write") == (
         True,
         ("read", "write"),
@@ -9848,6 +9849,12 @@ def test_v19_filter_property_parser_is_strict() -> None:
         assert diagnostic.raw_byte_count == len(raw.encode("utf-8"))
         assert diagnostic.raw_sha256 == digest(raw.encode("utf-8"))
         assert diagnostic.rejected_token_classifications == classifications
+
+    with pytest.raises(CGROUP_MANAGER.SystemdFilterRepresentationMismatch):
+        CGROUP_MANAGER._parse_filter_property("~", unit_role="target")
+    for raw in ("~ ", " ~", "~~", "~ read", "~\n"):
+        with pytest.raises(CGROUP_MANAGER.SystemdFilterRepresentationMismatch):
+            CGROUP_MANAGER._parse_filter_property(raw, unit_role="matched_control")
 
 
 def test_v19_filter_mismatch_failure_is_forward_self_hashed_evidence() -> None:
@@ -10362,13 +10369,21 @@ def test_v19_unit_policy_keeps_configured_and_reported_authority_separate(
     assert isinstance(observed, LINUX_ISOLATION.LinuxSystemdUnitPolicyObservationV1)
     assert observed.systemd_reported_filter == names
 
-    values["SystemCallFilter"] = ""
+    values["SystemCallFilter"] = "~"
     values["SystemCallErrorNumber"] = "kill"
     control = f"devfabric-linux-isolation-control-{ENVIRONMENT}.service"
     observed_control = CGROUP_MANAGER.observe_unit_policy(control, expected_filter=None)
     assert isinstance(observed_control, LINUX_ISOLATION.LinuxSystemdControlPolicyObservationV1)
     assert observed_control.system_call_error_number == "kill"
     assert observed_control.systemd_reported_filter == ()
+
+    values["SystemCallFilter"] = "~ "
+    with pytest.raises(CGROUP_MANAGER.SystemdFilterRepresentationMismatch):
+        CGROUP_MANAGER.observe_unit_policy(control, expected_filter=None)
+
+    values["SystemCallFilter"] = "~"
+    with pytest.raises(CGROUP_MANAGER.SystemdFilterRepresentationMismatch):
+        CGROUP_MANAGER.observe_unit_policy(unit, expected_filter=names)
 
 
 def test_v19_raw_personality_rejects_non_x86_64(
