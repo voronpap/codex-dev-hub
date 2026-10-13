@@ -7,6 +7,7 @@ import argparse
 import ctypes
 import errno
 import hashlib
+import json
 import os
 import platform
 import re
@@ -54,13 +55,16 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV17,
     LinuxIsolationEvidenceV18,
     LinuxMatchedControlAuthorityV1,
-    LinuxMatchedControlExecutionPayloadV1,
+    LinuxMatchedControlExecutionPayloadV2,
     LinuxMatchedControlExecutionV1,
+    LinuxMatchedControlExecutionV2,
     LinuxMatchedControlFailureDiagnosticPayloadV1,
     LinuxMatchedControlFailureDiagnosticV1,
+    LinuxMatchedControlImportedModuleAuthorityV1,
     LinuxMatchedControlObservationV1,
     LinuxMatchedControlProbeFailurePayloadV1,
     LinuxMatchedControlProbeFailureV1,
+    LinuxMatchedControlPythonRuntimeAuthorityV1,
     LinuxMatchedControlReceiptPayloadV1,
     LinuxMatchedControlReceiptV1,
     LinuxNativePathIdentityV1,
@@ -139,7 +143,7 @@ class MatchedControlProcessFailure(ValueError):
     def __init__(
         self,
         *,
-        execution: LinuxMatchedControlExecutionV1,
+        execution: LinuxMatchedControlExecutionV1 | LinuxMatchedControlExecutionV2,
         journal: LinuxSystemdUnitPostCreateJournalV1,
         child_failure_status: Literal["validated", "missing", "invalid"],
         child_failure: LinuxMatchedControlProbeFailureV1 | None,
@@ -295,6 +299,103 @@ def file_authority(path: Path) -> LinuxFileAuthorityV1:
         owner_gid=info.st_gid,
         mode=f"0{stat.S_IMODE(info.st_mode):03o}",
         native_identity=native,
+    )
+
+
+def python_runtime_authority(
+    python: Path,
+    repo: Path,
+    implementation_commit: str,
+) -> LinuxMatchedControlPythonRuntimeAuthorityV1:
+    """Bind the lexical venv launcher and every import authority it depends on."""
+
+    if not python.is_absolute() or str(python) != os.path.normpath(str(python)):
+        raise ValueError("Matched control Python launcher is not absolute")
+    launcher = python
+    launcher_info = os.lstat(launcher)
+    if not stat.S_ISLNK(launcher_info.st_mode):
+        raise ValueError("Matched control Python launcher is not a symlink")
+    link_target = os.readlink(launcher)
+    resolved_repo = repo.resolve(strict=True)
+    pyvenv_config = file_authority(launcher.parent.parent / "pyvenv.cfg")
+    expected_module = (resolved_repo / "src" / "devhub" / "__init__.py").resolve(strict=True)
+    package = sys.modules.get("devhub")
+    observed_module_raw = getattr(package, "__file__", None)
+    if not isinstance(observed_module_raw, str):
+        raise ValueError("Matched control DevFabric module origin is unavailable")
+    observed_module = Path(observed_module_raw).resolve(strict=True)
+    if observed_module != expected_module:
+        raise ValueError("Matched control DevFabric module origin differs")
+    module_authority = file_authority(observed_module)
+    module_blob = git_blob_sha256(
+        resolved_repo,
+        implementation_commit,
+        "src/devhub/__init__.py",
+    )
+    if module_authority.sha256 != module_blob:
+        raise ValueError("Matched control DevFabric module differs from reviewed Git blob")
+    imported_modules: list[LinuxMatchedControlImportedModuleAuthorityV1] = []
+    imported_specs: tuple[
+        tuple[
+            Literal[
+                "devhub.benchmark",
+                "devhub.linux_isolation",
+                "devhub.native_bundle",
+            ],
+            str,
+        ],
+        ...,
+    ] = (
+        ("devhub.benchmark", "src/devhub/benchmark.py"),
+        ("devhub.linux_isolation", "src/devhub/linux_isolation.py"),
+        ("devhub.native_bundle", "src/devhub/native_bundle.py"),
+    )
+    for module_name, relative_path in imported_specs:
+        imported = sys.modules.get(module_name)
+        imported_raw = getattr(imported, "__file__", None)
+        if not isinstance(imported_raw, str):
+            raise ValueError("Matched control imported module origin is unavailable")
+        imported_origin = Path(imported_raw).resolve(strict=True)
+        expected_imported = (resolved_repo / relative_path).resolve(strict=True)
+        if imported_origin != expected_imported:
+            raise ValueError("Matched control imported module origin differs")
+        imported_authority = file_authority(imported_origin)
+        imported_blob = git_blob_sha256(
+            resolved_repo,
+            implementation_commit,
+            relative_path,
+        )
+        imported_modules.append(
+            LinuxMatchedControlImportedModuleAuthorityV1(
+                module=module_name,
+                origin=imported_authority,
+                git_blob_sha256=imported_blob,
+            )
+        )
+    launcher_after = os.lstat(launcher)
+    if (
+        not stat.S_ISLNK(launcher_after.st_mode)
+        or launcher_after.st_dev != launcher_info.st_dev
+        or launcher_after.st_ino != launcher_info.st_ino
+        or launcher_after.st_uid != launcher_info.st_uid
+        or launcher_after.st_gid != launcher_info.st_gid
+        or os.readlink(launcher) != link_target
+    ):
+        raise ValueError("Matched control Python launcher changed during observation")
+    return LinuxMatchedControlPythonRuntimeAuthorityV1(
+        launcher_locator=str(launcher),
+        launcher_link_target=link_target,
+        launcher_owner_uid=launcher_info.st_uid,
+        launcher_owner_gid=launcher_info.st_gid,
+        launcher_native_identity=LinuxNativePathIdentityV1(
+            device=launcher_info.st_dev,
+            inode=launcher_info.st_ino,
+        ),
+        resolved_interpreter=file_authority(launcher.resolve(strict=True)),
+        pyvenv_config=pyvenv_config,
+        devhub_module_origin=module_authority,
+        devhub_module_git_blob_sha256=module_blob,
+        imported_modules=tuple(imported_modules),
     )
 
 
@@ -1266,7 +1367,9 @@ def _stop_exact_unit(
     raise ValueError("Transient unit or cgroup remained after exact cleanup")
 
 
-def read_control_execution(path: Path) -> LinuxMatchedControlExecutionV1:
+def read_control_execution(
+    path: Path,
+) -> LinuxMatchedControlExecutionV1 | LinuxMatchedControlExecutionV2:
     if path.is_symlink():
         raise ValueError("Matched control execution authority cannot be a symlink")
     before = os.lstat(path)
@@ -1288,25 +1391,45 @@ def read_control_execution(path: Path) -> LinuxMatchedControlExecutionV1:
         or after.st_gid != before.st_gid
     ):
         raise ValueError("Matched control execution authority changed during read")
+    decoded = json.loads(raw)
+    if not isinstance(decoded, dict):
+        raise ValueError("Matched control execution authority is not an object")
+    if decoded.get("schema_version") == 2:
+        return LinuxMatchedControlExecutionV2.model_validate_json(raw)
     return LinuxMatchedControlExecutionV1.model_validate_json(raw)
 
 
 def revalidate_control_execution(
-    execution: LinuxMatchedControlExecutionV1,
+    execution: LinuxMatchedControlExecutionV1 | LinuxMatchedControlExecutionV2,
     state: LinuxCgroupSetupStateV2,
     state_path: Path,
 ) -> None:
     payload = execution.payload
-    if (
+    common_differs = (
         payload.implementation_commit != state.payload.implementation_commit
         or payload.environment_instance_id != state.payload.environment_instance_id
         or payload.linux_cgroup_setup_state_id != state.linux_cgroup_setup_state_id
         or payload.state_locator != str(state_path.resolve(strict=True))
         or payload.state_sha256 != file_sha256(state_path)
-        or file_authority(Path(payload.python.locator)) != payload.python
         or file_authority(Path(payload.manager_script.locator)) != payload.manager_script
         or payload.manager_script.sha256 != payload.manager_script_git_blob_sha256
-    ):
+    )
+    if isinstance(execution, LinuxMatchedControlExecutionV1):
+        legacy_payload = execution.payload
+        runtime_differs = (
+            file_authority(Path(legacy_payload.python.locator)) != legacy_payload.python
+        )
+    else:
+        forward_payload = execution.payload
+        runtime_differs = (
+            python_runtime_authority(
+                Path(forward_payload.python_runtime.launcher_locator),
+                Path(forward_payload.repo_locator),
+                forward_payload.implementation_commit,
+            )
+            != forward_payload.python_runtime
+        )
+    if common_differs or runtime_differs:
         raise ValueError("Matched control execution authority differs")
 
 
@@ -1331,6 +1454,8 @@ def control_probe(
     ] = "execution_authority"
     try:
         execution = read_control_execution(execution_path)
+        if not isinstance(execution, LinuxMatchedControlExecutionV2):
+            raise ValueError("Matched control requires forward Python runtime authority")
         if execution.linux_matched_control_execution_id != expected_execution_id:
             raise ValueError("Matched control execution identity differs")
         revalidate_control_execution(execution, state, state_path)
@@ -1339,7 +1464,10 @@ def control_probe(
             execution.payload.execution_authority_locator
             != str(execution_path.resolve(strict=True))
             or execution.payload.observation_locator != str(output.resolve(strict=False))
-            or tuple((sys.executable, *sys.argv)) != execution.payload.argv
+            or sys.executable != execution.payload.python_runtime.launcher_locator
+            or sys.flags.isolated != 1
+            or sys.flags.dont_write_bytecode != 1
+            or tuple((sys.executable, "-I", "-B", *sys.argv)) != execution.payload.argv
         ):
             raise ValueError("Matched control process command differs")
         checkpoint = "process_identity"
@@ -1444,17 +1572,26 @@ def launch_control_v2(
 ) -> LinuxMatchedControlReceiptV1:
     revalidate_state_v2(state)
     control = state.payload.syscall_filter.matched_control
-    python_authority = file_authority(python.resolve(strict=True))
+    resolved_repo = repo.resolve(strict=True)
+    python_authority = python_runtime_authority(
+        python,
+        resolved_repo,
+        state.payload.implementation_commit,
+    )
     script_authority = file_authority(script.resolve(strict=True))
-    relative_script = script.resolve(strict=True).relative_to(repo.resolve(strict=True)).as_posix()
-    script_blob = git_blob_sha256(repo, state.payload.implementation_commit, relative_script)
+    relative_script = script.resolve(strict=True).relative_to(resolved_repo).as_posix()
+    script_blob = git_blob_sha256(
+        resolved_repo, state.payload.implementation_commit, relative_script
+    )
     if script_authority.sha256 != script_blob:
         raise ValueError("Matched control manager differs from reviewed Git blob")
     resolved_state = state_path.resolve(strict=True)
     resolved_execution = execution_authority_path.resolve(strict=False)
     resolved_observation = observation_path.resolve(strict=False)
     command = [
-        python_authority.locator,
+        python_authority.launcher_locator,
+        "-I",
+        "-B",
         script_authority.locator,
         "control-probe-v19",
         "--state",
@@ -1464,12 +1601,13 @@ def launch_control_v2(
         "--output",
         str(resolved_observation),
     ]
-    execution = LinuxMatchedControlExecutionV1.create(
-        LinuxMatchedControlExecutionPayloadV1(
+    execution = LinuxMatchedControlExecutionV2.create(
+        LinuxMatchedControlExecutionPayloadV2(
             implementation_commit=state.payload.implementation_commit,
             environment_instance_id=state.payload.environment_instance_id,
             linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
-            python=python_authority,
+            repo_locator=str(resolved_repo),
+            python_runtime=python_authority,
             manager_script=script_authority,
             manager_script_git_blob_sha256=script_blob,
             state_locator=str(resolved_state),
