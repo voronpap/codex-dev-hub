@@ -459,7 +459,7 @@ def test_linux_build_inventory_rejects_special_file_with_bounded_path(tmp_path: 
         ValueError,
         match=r"plain regular files: process-proof/runtime\.pipe$",
     ):
-        INVENTORY.seal_linux(tmp_path, "linux-build-010")
+        INVENTORY.seal_linux(tmp_path, "linux-build-011")
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation requires Unix")

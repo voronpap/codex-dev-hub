@@ -500,7 +500,8 @@ def test_synthetic_engine_freezes_unmodified_output_and_failure(
                     break
                 except (FileNotFoundError, PermissionError):
                     time.sleep(0.005)
-            (capture / "task-accepted.json").write_text(
+            mod.durable_publish(
+                capture / "task-accepted.json",
                 json.dumps(
                     {
                         "schema_version": 1,
@@ -509,7 +510,7 @@ def test_synthetic_engine_freezes_unmodified_output_and_failure(
                         "prompt_sha256": frame["prompt_sha256"],
                         "prompt_length": frame["prompt_length"],
                     }
-                )
+                ).encode(),
             )
 
         thread = threading.Thread(target=accept)
