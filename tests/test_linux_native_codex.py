@@ -22,6 +22,7 @@ from devhub.linux_native import (
     LinuxBuildProvenanceV8,
     LinuxBuildProvenanceV9,
     LinuxBuildProvenanceV10,
+    LinuxBuildProvenanceV11,
     LinuxElfIdentityV1,
     LinuxHostProofSummaryV1,
     LinuxHostProofSummaryV2,
@@ -37,6 +38,7 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildPayloadV8,
     LinuxNativeCodexBuildPayloadV9,
     LinuxNativeCodexBuildPayloadV10,
+    LinuxNativeCodexBuildPayloadV11,
     LinuxNativeCodexBuildV1,
     LinuxNativeCodexBuildV2,
     LinuxNativeCodexBuildV3,
@@ -47,6 +49,7 @@ from devhub.linux_native import (
     LinuxNativeCodexBuildV8,
     LinuxNativeCodexBuildV9,
     LinuxNativeCodexBuildV10,
+    LinuxNativeCodexBuildV11,
 )
 from devhub.native_proof import ORDINARY_DEFAULT_VISIBLE_TOOLS_V1
 
@@ -397,6 +400,24 @@ def test_linux_build_004_binds_ordinary_default_and_preserves_history() -> None:
         == module_entrypoint
     )
 
+    package_bound = LinuxNativeCodexBuildV11.create(
+        LinuxNativeCodexBuildPayloadV11(
+            provenance=LinuxBuildProvenanceV11(
+                **{
+                    **module_entrypoint.payload.provenance.model_dump(mode="python"),
+                    "build_id": "linux-build-011",
+                }
+            ),
+            binaries=module_entrypoint.payload.binaries,
+            process_proof=module_entrypoint.payload.process_proof,
+        )
+    )
+    assert package_bound.payload.provenance.build_id == "linux-build-011"
+    assert (
+        LinuxNativeCodexBuildV11.model_validate_json(package_bound.model_dump_json())
+        == package_bound
+    )
+
 
 @pytest.mark.parametrize(
     ("roles", "message"),
@@ -719,10 +740,10 @@ def test_post_build_v8_failure_records_exact_phase_and_preserves_compile_state(
 
 def test_linux_workflow_reserves_build_009_for_merged_main_dispatch() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
-    assert "devfabric-linux-build-010-evidence" in workflow
-    assert "devfabric-linux-build-010-binaries" in workflow
+    assert "devfabric-linux-build-011-evidence" in workflow
+    assert "devfabric-linux-build-011-binaries" in workflow
     assert "--platform linux" in workflow
-    assert "--build-id linux-build-010" in workflow
+    assert "--build-id linux-build-011" in workflow
     assert "pull_request:" not in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "ref: ${{ github.sha }}" in workflow
@@ -1043,7 +1064,7 @@ def test_process_summary_rejects_alternate_code_mode_failures(message: str) -> N
 
 
 def test_linux_builder_reuses_shared_source_and_process_authority() -> None:
-    assert LINUX_BUILD.BUILD_ID == "linux-build-010"
+    assert LINUX_BUILD.BUILD_ID == "linux-build-011"
     assert LINUX_BUILD.retained.prepare_build_source is not None
     signature = inspect.signature(LINUX_BUILD.shared.process_proof)
     assert {"capture", "wait_pid_exit", "proof_env", "platform_label"} <= set(signature.parameters)

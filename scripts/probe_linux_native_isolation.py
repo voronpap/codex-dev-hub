@@ -14,7 +14,6 @@ import select
 import socket
 import stat
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -27,6 +26,11 @@ from pydantic import JsonValue
 
 from devhub import linux_ollama_broker as linux_broker_module
 from devhub.benchmark import canonical, digest
+from devhub.linux_bundle import (
+    LinuxNativeArchiveV5,
+    LinuxNativeBundleV5,
+    verify_linux_native_bundle,
+)
 from devhub.linux_isolation import (
     LINUX_APPARMOR_CURRENT,
     LINUX_PRIVATE_UNSHARE,
@@ -34,6 +38,7 @@ from devhub.linux_isolation import (
     LinuxAppArmorAuthorityV2,
     LinuxAppArmorParserAuthorityV2,
     LinuxBrokerExpectationV1,
+    LinuxBundleDirectoryAuthorityV1,
     LinuxChildBootstrapFailureV3,
     LinuxChildRegistrationPayloadV3,
     LinuxChildRegistrationV3,
@@ -44,18 +49,21 @@ from devhub.linux_isolation import (
     LinuxHostBrokerFailurePayloadV1,
     LinuxHostBrokerFailureV1,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV11,
-    LinuxIsolationEvidenceV11,
+    LinuxIsolationEvidencePayloadV12,
+    LinuxIsolationEvidenceV12,
     LinuxIsolationFailurePayloadV7,
     LinuxIsolationFailureV7,
     LinuxIsolationObservationV11,
-    LinuxIsolationProfilePayloadV11,
-    LinuxIsolationProfileV11,
-    LinuxIsolationReceiptPayloadV11,
-    LinuxIsolationReceiptV11,
+    LinuxIsolationObservationV12,
+    LinuxIsolationProfilePayloadV12,
+    LinuxIsolationProfileV9,
+    LinuxIsolationProfileV12,
+    LinuxIsolationReceiptPayloadV12,
+    LinuxIsolationReceiptV12,
     LinuxMountAuthorityV1,
     LinuxNamespaceOwnerProjectionExpectationV1,
     LinuxNativePathIdentityV1,
+    LinuxPackageAuthorityV1,
     LinuxSyntheticUpstreamAuthorityV1,
     LinuxSyntheticUpstreamObservationV1,
     LinuxToolAuthorityV1,
@@ -184,6 +192,61 @@ def tree_identity(root: Path) -> str:
         else:
             raise ValueError("Isolation fixture contains a non-plain entry")
     return digest(canonical(cast(JsonValue, entries)))
+
+
+def verified_package_authority(
+    release: Path,
+    bundle_root: Path,
+    implementation_commit: str,
+    bundle_run_id: int,
+    bundle_run_attempt: int,
+) -> tuple[Path, LinuxPackageAuthorityV1]:
+    """Verify one exact V5 release and project its immutable package authority."""
+
+    release = release.resolve(strict=True)
+    manifest_path = release / "linux-native-bundle.json"
+    archive_receipt_path = release / "linux-native-archive.json"
+    archive_path = release / "devfabric-linux-native.tar.gz"
+    bundle = LinuxNativeBundleV5.model_validate_json(manifest_path.read_bytes())
+    archive = LinuxNativeArchiveV5.model_validate_json(archive_receipt_path.read_bytes())
+    root = bundle_root.resolve(strict=True)
+    verify_linux_native_bundle(bundle, root)
+    codex = bundle.payload.codex
+    child_relative = "python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"
+    child_entry = next((item for item in bundle.payload.files if item.path == child_relative), None)
+    if (
+        bundle.payload.implementation_commit != implementation_commit
+        or codex.devfabric_implementation_commit != implementation_commit
+        or codex.build_id != "linux-build-011"
+        or archive.payload.bundle_id != bundle.linux_native_bundle_id
+        or archive.payload.size != archive_path.stat().st_size
+        or archive.payload.sha256 != file_sha256(archive_path)
+        or child_entry is None
+        or child_entry.kind != "file"
+        or child_entry.sha256 is None
+        or file_sha256(root / child_relative) != child_entry.sha256
+    ):
+        raise ValueError("Linux V5 package authority differs from the exact implementation")
+    return root, LinuxPackageAuthorityV1(
+        implementation_commit=implementation_commit,
+        build_run_id=codex.accepted_run_id,
+        build_run_attempt=codex.accepted_run_attempt,
+        bundle_run_id=bundle_run_id,
+        bundle_run_attempt=bundle_run_attempt,
+        archive_id=archive.linux_native_archive_id,
+        archive_sha256=archive.payload.sha256,
+        archive_size=archive.payload.size,
+        bundle_id=bundle.linux_native_bundle_id,
+        bundle_manifest_sha256=file_sha256(manifest_path),
+        build_receipt_sha256=codex.build_receipt_sha256,
+        build_inventory_sha256=codex.inventory_sha256,
+        linux_native_codex_build_id=codex.linux_native_codex_build_id,
+        codex_sha256=codex.executable_sha256,
+        code_mode_host_sha256=codex.code_mode_host_sha256,
+        python_runtime_id=bundle.payload.python.runtime.linux_python_runtime_id,
+        python_executable_sha256=bundle.payload.python.executable_sha256,
+        child_module_sha256=child_entry.sha256,
+    )
 
 
 def native_identity(info: os.stat_result) -> LinuxNativePathIdentityV1:
@@ -328,7 +391,25 @@ def directory_authority(path: Path, role: DirectoryRole) -> LinuxDirectoryAuthor
     )
 
 
-def authority_sha(value: LinuxDirectoryAuthorityV1) -> str:
+def bundle_directory_authority(path: Path) -> LinuxBundleDirectoryAuthorityV1:
+    if path.is_symlink() or not path.is_dir() or path.resolve(strict=True) != path:
+        raise ValueError("Native bundle authority must be a non-symlink directory")
+    info = path.stat()
+    if (
+        info.st_uid != current_uid()
+        or info.st_gid != current_gid()
+        or stat.S_IMODE(info.st_mode) != 0o755
+    ):
+        raise ValueError("Native bundle root ownership or published mode differs")
+    return LinuxBundleDirectoryAuthorityV1(
+        locator=str(path),
+        owner_uid=info.st_uid,
+        owner_gid=info.st_gid,
+        native_identity=native_identity(info),
+    )
+
+
+def authority_sha(value: LinuxDirectoryAuthorityV1 | LinuxBundleDirectoryAuthorityV1) -> str:
     return digest(canonical(value.model_dump(mode="json")))
 
 
@@ -351,13 +432,20 @@ def revalidate_full_mode_tool(expected: LinuxToolAuthorityV4) -> None:
 
 
 def revalidate_directory(expected: LinuxDirectoryAuthorityV1) -> None:
-    observed = directory_authority(Path(expected.locator), expected.role)
+    observed = (
+        bundle_directory_authority(Path(expected.locator))
+        if isinstance(expected, LinuxBundleDirectoryAuthorityV1)
+        else directory_authority(Path(expected.locator), expected.role)
+    )
     if observed != expected:
         raise ValueError("A required isolation directory authority changed")
 
 
 def revalidate_profile_sources(
-    profile: LinuxIsolationProfileV11, child_script: Path, bundle: Path
+    profile: LinuxIsolationProfileV9 | LinuxIsolationProfileV12,
+    child_module: Path,
+    bundle: Path,
+    bundle_manifest: Path | None = None,
 ) -> None:
     revalidate_tool(profile.payload.system_unshare)
     revalidate_tool(profile.payload.unshare)
@@ -368,9 +456,20 @@ def revalidate_profile_sources(
     parent_script = Path(__file__).resolve(strict=True)
     if (
         file_sha256(parent_script) != profile.payload.probe_sha256
-        or file_sha256(child_script) != profile.payload.child_probe_sha256
-        or tree_identity(bundle) != profile.payload.native_bundle_id
+        or file_sha256(child_module) != profile.payload.child_probe_sha256
     ):
+        raise ValueError("A required isolation source changed")
+    if isinstance(profile, LinuxIsolationProfileV12):
+        if bundle_manifest is None:
+            raise ValueError("Linux V12 package manifest authority is absent")
+        manifest = LinuxNativeBundleV5.model_validate_json(bundle_manifest.read_bytes())
+        if (
+            file_sha256(bundle_manifest) != profile.payload.bundle_manifest_sha256
+            or manifest.linux_native_bundle_id != profile.payload.native_bundle_id
+        ):
+            raise ValueError("A required isolation package authority changed")
+        verify_linux_native_bundle(manifest, bundle)
+    elif tree_identity(bundle) != profile.payload.native_bundle_id:
         raise ValueError("A required isolation source changed")
     broker_path = Path(linux_broker_module.__file__ or "").resolve(strict=True)
     broker = profile.payload.broker
@@ -458,7 +557,7 @@ def host_authority(
 
 
 def mount_authorities(
-    sources: tuple[LinuxDirectoryAuthorityV1, ...],
+    sources: tuple[LinuxDirectoryAuthorityV1 | LinuxBundleDirectoryAuthorityV1, ...],
 ) -> tuple[LinuxMountAuthorityV1, ...]:
     identities = {item.role: authority_sha(item) for item in sources}
     values = [
@@ -637,7 +736,7 @@ class ChildRuntimeFailure(ProbePhaseFailure):
 
 
 def host_broker_failure_frame(
-    profile: LinuxIsolationProfileV11, error: LinuxMetadataBrokerFailure
+    profile: LinuxIsolationProfileV12, error: LinuxMetadataBrokerFailure
 ) -> LinuxHostBrokerFailureV1:
     """Bind one bounded host diagnostic to the exact active authority."""
 
@@ -723,7 +822,7 @@ def host_broker_failure_frame(
 
 
 def record_host_broker_failure(
-    profile: LinuxIsolationProfileV11,
+    profile: LinuxIsolationProfileV12,
     capture: ProbeProcessCapture,
     checkpoint: str,
     cause: BaseException,
@@ -753,10 +852,11 @@ def projected_failure_diagnostics(
 
 
 def validate_child_bootstrap_failure(
-    profile: LinuxIsolationProfileV11,
+    profile: LinuxIsolationProfileV9 | LinuxIsolationProfileV12,
     frame: LinuxChildBootstrapFailureV3,
     child_script: Path,
     bundle: Path,
+    bundle_manifest: Path | None = None,
 ) -> None:
     """Join a self-hashed child diagnostic to the exact host profile authority."""
 
@@ -767,18 +867,19 @@ def validate_child_bootstrap_failure(
         raise ChildRegistrationFailure(
             "Isolation child native identity expectation differs from profile authority"
         )
-    revalidate_profile_sources(profile, child_script, bundle)
+    revalidate_profile_sources(profile, child_script, bundle, bundle_manifest)
 
 
 def validate_child_runtime_failure(
-    profile: LinuxIsolationProfileV11,
+    profile: LinuxIsolationProfileV9 | LinuxIsolationProfileV12,
     frame: LinuxChildRuntimeFailureV2,
     child_script: Path,
     bundle: Path,
+    bundle_manifest: Path | None = None,
 ) -> None:
     if profile.payload.child_runtime_failure_protocol != frame.payload.frame_kind:
         raise ValueError("Isolation child runtime failure protocol differs from profile")
-    revalidate_profile_sources(profile, child_script, bundle)
+    revalidate_profile_sources(profile, child_script, bundle, bundle_manifest)
 
 
 def expected_broker_cancellation(errors: list[BaseException], *, child_exited: bool) -> bool:
@@ -888,8 +989,8 @@ def stub_ollama(
 
 
 def namespace_command(
-    profile: LinuxIsolationProfileV11,
-    child_script: Path,
+    profile: LinuxIsolationProfileV9 | LinuxIsolationProfileV12,
+    child_module: Path,
     root: Path,
     bundle: Path,
     state: Path,
@@ -899,7 +1000,12 @@ def namespace_command(
     result_write: int,
     host_namespaces: dict[str, str],
 ) -> list[str]:
-    return [
+    child_argv = (
+        list(profile.payload.child_module_argv)
+        if isinstance(profile, LinuxIsolationProfileV12)
+        else [str(child_module)]
+    )
+    command = [
         profile.payload.unshare.locator,
         "--user",
         "--map-user=1000",
@@ -911,8 +1017,7 @@ def namespace_command(
         "--kill-child=KILL",
         "--net",
         profile.payload.bootstrap_python.locator,
-        *profile.payload.child_python_flags,
-        str(child_script),
+        *child_argv,
         "--root",
         str(root),
         "--bundle",
@@ -964,14 +1069,30 @@ def namespace_command(
         "--environment-instance-id",
         profile.payload.environment_instance_id,
     ]
+    if isinstance(profile, LinuxIsolationProfileV12):
+        command.extend(
+            [
+                "--expected-python-sha256",
+                profile.payload.package.python_executable_sha256,
+                "--expected-child-module-sha256",
+                profile.payload.package.child_module_sha256,
+            ]
+        )
+    return command
 
 
 def validate_registered_observation(
     raw_observation: dict[str, object],
     registered: LinuxChildRegistrationPayloadV3,
-) -> LinuxIsolationObservationV11:
-    observation = LinuxIsolationObservationV11.model_validate_json(
-        canonical(cast(JsonValue, raw_observation))
+) -> LinuxIsolationObservationV11 | LinuxIsolationObservationV12:
+    observation = (
+        LinuxIsolationObservationV12.model_validate_json(
+            canonical(cast(JsonValue, raw_observation))
+        )
+        if raw_observation.get("schema_version") == 12
+        else LinuxIsolationObservationV11.model_validate_json(
+            canonical(cast(JsonValue, raw_observation))
+        )
     )
     if observation.mount_authority != registered.mount_authority:
         raise ValueError("Isolation child result/registration mount authority mismatch")
@@ -979,7 +1100,7 @@ def validate_registered_observation(
 
 
 def run_probe(
-    profile: LinuxIsolationProfileV11,
+    profile: LinuxIsolationProfileV12,
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -988,7 +1109,8 @@ def run_probe(
     broker_dir: Path,
     stub_server: socket.socket,
     capture: ProbeProcessCapture,
-) -> LinuxIsolationObservationV11:
+    bundle_manifest: Path | None = None,
+) -> LinuxIsolationObservationV12:
     owned_fds: set[int] = set()
     process: subprocess.Popen[bytes] | None = None
     collectors: list[threading.Thread] = []
@@ -1011,7 +1133,7 @@ def run_probe(
         owned_fds.remove(descriptor)
 
     try:
-        revalidate_profile_sources(profile, child_script, bundle)
+        revalidate_profile_sources(profile, child_script, bundle, bundle_manifest)
         registration_read, registration_write = os.pipe()
         owned_fds.update((registration_read, registration_write))
         result_read, result_write = os.pipe()
@@ -1075,7 +1197,9 @@ def run_probe(
                 raise ChildRegistrationFailure(
                     "Isolation child bootstrap failure frame is invalid"
                 ) from error
-            validate_child_bootstrap_failure(profile, bootstrap_failure, child_script, bundle)
+            validate_child_bootstrap_failure(
+                profile, bootstrap_failure, child_script, bundle, bundle_manifest
+            )
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired as error:
@@ -1174,7 +1298,9 @@ def run_probe(
                 raise ProbePhaseFailure(
                     "child_result", "Isolation child runtime failure frame is invalid"
                 ) from error
-            validate_child_runtime_failure(profile, runtime_failure, child_script, bundle)
+            validate_child_runtime_failure(
+                profile, runtime_failure, child_script, bundle, bundle_manifest
+            )
             if process.returncode != 71:
                 raise ProbePhaseFailure(
                     "child_result", "Isolation child runtime failure exit code is invalid"
@@ -1224,10 +1350,13 @@ def run_probe(
         ).model_dump(mode="json")
         raw_observation["descendant_cleanup_passed"] = True
         raw_observation["cleanup_failures"] = []
-        observation = validate_registered_observation(raw_observation, registered)
+        observation = cast(
+            LinuxIsolationObservationV12,
+            validate_registered_observation(raw_observation, registered),
+        )
         if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
             raise ValueError("Isolation launcher process group remained after process exit")
-        revalidate_profile_sources(profile, child_script, bundle)
+        revalidate_profile_sources(profile, child_script, bundle, bundle_manifest)
         if (broker_dir / "ollama.sock").exists():
             raise ValueError("Isolation broker socket remained after shutdown")
         return observation
@@ -1360,15 +1489,18 @@ def main() -> None:
     parser.add_argument("--environment-instance-id", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--failure-output", type=Path, required=True)
+    parser.add_argument("--release", type=Path, required=True)
+    parser.add_argument("--bundle-root", type=Path, required=True)
+    parser.add_argument("--bundle-run-id", type=int, required=True)
+    parser.add_argument("--bundle-run-attempt", type=int, required=True)
     args = parser.parse_args()
     if not _COMMIT.fullmatch(args.implementation_commit):
         raise SystemExit("Implementation commit must be one lowercase full Git SHA")
     root_script = Path(__file__).resolve(strict=True)
-    child_script = root_script.with_name("linux_native_isolation_child.py").resolve(strict=True)
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV11 | None = None
+    profile: LinuxIsolationProfileV12 | None = None
     capture = ProbeProcessCapture()
     phase: FailurePhase = "host_inspection"
     cleanup_succeeded = False
@@ -1380,16 +1512,20 @@ def main() -> None:
         with tempfile.TemporaryDirectory(prefix="devfabric-linux-isolation-") as temporary:
             temp = Path(temporary).resolve(strict=True)
             scratch = temp
-            bundle = temp / "bundle"
             state = temp / "state"
             output = temp / "output"
             broker = temp / "broker"
             root = temp / "root"
-            for directory in (bundle, state, output, broker, root):
+            for directory in (state, output, broker, root):
                 directory.mkdir(mode=0o700)
-            (bundle / "mechanics-only.txt").write_text(
-                "native Linux isolation mechanics; not a runnable bundle\n", encoding="ascii"
+            bundle, package = verified_package_authority(
+                args.release,
+                args.bundle_root,
+                args.implementation_commit,
+                args.bundle_run_id,
+                args.bundle_run_attempt,
             )
+            child_script = bundle / package.child_module_path
             system_unshare_path = Path(LINUX_SYSTEM_UNSHARE)
             unshare_path = Path(LINUX_PRIVATE_UNSHARE)
             mount_path = Path("/usr/bin/mount")
@@ -1404,13 +1540,12 @@ def main() -> None:
                 overflow_uid=configured_overflow_id(Path("/proc/sys/kernel/overflowuid")),
                 overflow_gid=configured_overflow_id(Path("/proc/sys/kernel/overflowgid")),
             )
-            bootstrap_python = plain_file_authority(Path(sys.executable).resolve(strict=True))
-            bundle_id = tree_identity(bundle)
+            bootstrap_python = plain_file_authority(bundle / "python/bin/python3.12")
             sources = tuple(
                 sorted(
                     (
                         directory_authority(broker, "broker"),
-                        directory_authority(bundle, "fixture"),
+                        bundle_directory_authority(bundle),
                         directory_authority(output, "output"),
                         directory_authority(root, "scratch_root"),
                         directory_authority(state, "state"),
@@ -1430,12 +1565,12 @@ def main() -> None:
             )
             stub_server = bind_stub_ollama(port=0)
             synthetic_upstream = synthetic_upstream_authority(stub_server)
-            profile = LinuxIsolationProfileV11.create(
-                LinuxIsolationProfilePayloadV11(
+            profile = LinuxIsolationProfileV12.create(
+                LinuxIsolationProfilePayloadV12(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
-                    native_bundle_id=bundle_id,
-                    bundle_manifest_sha256=bundle_id,
+                    native_bundle_id=package.bundle_id,
+                    bundle_manifest_sha256=package.bundle_manifest_sha256,
                     bootstrap_python=bootstrap_python,
                     probe_sha256=file_sha256(root_script),
                     child_probe_sha256=file_sha256(child_script),
@@ -1450,6 +1585,7 @@ def main() -> None:
                     mount_owner_projection=mount_owner_projection,
                     mount_version_environment=MOUNT_VERSION_ENVIRONMENT,
                     landlock_handled_access=landlock_handled_access(host.enforced_landlock_abi),
+                    package=package,
                 )
             )
             phase = "source_revalidation"
@@ -1466,6 +1602,7 @@ def main() -> None:
                 broker,
                 stub_server,
                 capture,
+                args.release.resolve(strict=True) / "linux-native-bundle.json",
             )
             close_errors = exhaustive_cleanup((stub_server.close,))
             if close_errors:
@@ -1475,15 +1612,15 @@ def main() -> None:
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV11.create(
-            LinuxIsolationReceiptPayloadV11(
+        receipt = LinuxIsolationReceiptV12.create(
+            LinuxIsolationReceiptPayloadV12(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV11.create(
-            LinuxIsolationEvidencePayloadV11(
+        evidence = LinuxIsolationEvidenceV12.create(
+            LinuxIsolationEvidencePayloadV12(
                 profile=profile,
                 receipt=receipt,
                 child_stdout_retained_sha256=sha256(bytes(capture.stdout.data)),

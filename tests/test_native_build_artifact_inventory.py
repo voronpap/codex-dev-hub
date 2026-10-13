@@ -57,7 +57,8 @@ def _linux_result(
         "linux-build-008",
         "linux-build-009",
         "linux-build-010",
-    ] = ("linux-build-010"),
+        "linux-build-011",
+    ] = ("linux-build-011"),
 ) -> None:
     (root / "linux-build-result.json").write_text(
         json.dumps({"build_id": build_id, "status": status}), encoding="utf-8"
@@ -232,7 +233,7 @@ def test_windows_pass_inventory_rejects_binary_substitution(tmp_path: Path) -> N
 def test_linux_pass_inventory_exactly_joins_pair_proof_and_result(tmp_path: Path) -> None:
     pair = linux_pass_artifact(tmp_path)
 
-    receipt = INVENTORY.seal_linux(tmp_path, "linux-build-010")
+    receipt = INVENTORY.seal_linux(tmp_path, "linux-build-011")
 
     assert receipt.payload.status == "PASS"
     assert receipt.payload.linux_pair is not None
@@ -318,7 +319,7 @@ def test_linux_pass_inventory_rejects_binary_substitution(tmp_path: Path) -> Non
     (tmp_path / "binary/codex").write_bytes(b"substituted")
 
     with pytest.raises(ValueError, match="exact binary pair"):
-        INVENTORY.seal_linux(tmp_path, "linux-build-010")
+        INVENTORY.seal_linux(tmp_path, "linux-build-011")
 
 
 def test_linux_failure_projection_retains_hidden_evidence_and_excludes_binary(
@@ -336,7 +337,7 @@ def test_linux_failure_projection_retains_hidden_evidence_and_excludes_binary(
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_bytes(b"locked")
 
-    inventory = INVENTORY.seal_linux(root, "linux-build-010")
+    inventory = INVENTORY.seal_linux(root, "linux-build-011")
     projection = tmp_path / "projection"
     members = INVENTORY.project_linux_evidence(root, projection, inventory)
 
@@ -458,7 +459,7 @@ def test_linux_build_inventory_rejects_special_file_with_bounded_path(tmp_path: 
         ValueError,
         match=r"plain regular files: process-proof/runtime\.pipe$",
     ):
-        INVENTORY.seal_linux(tmp_path, "linux-build-010")
+        INVENTORY.seal_linux(tmp_path, "linux-build-011")
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation requires Unix")
