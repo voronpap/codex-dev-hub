@@ -1907,7 +1907,7 @@ class LinuxChildRuntimeFailurePayloadV3(LinuxChildRuntimeFailurePayloadV2):
 
 
 class LinuxChildRuntimeFailureV3(ContractV2):
-    schema_version: Literal[3] = 3
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
     child_runtime_failure_id: Digest
     payload: LinuxChildRuntimeFailurePayloadV3
 
