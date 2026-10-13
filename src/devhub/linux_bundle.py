@@ -9,13 +9,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
 import struct
 import subprocess
 import tarfile
+import tempfile
 import unicodedata
 from pathlib import Path, PurePosixPath
-from typing import Annotated, BinaryIO, Literal, cast
+from typing import Annotated, BinaryIO, Literal, NamedTuple, cast
 
 from pydantic import Field, JsonValue, field_validator, model_validator
 
@@ -214,11 +216,29 @@ def is_linux_dynamic_elf(path: Path) -> bool:
     )
 
 
-def inspect_linux_dynamic_elf(path: Path, relative: str) -> LinuxElfRequirementV1:
-    """Recompute PT_INTERP and dynamic-string authority with the Python stdlib."""
+class _ElfLayout(NamedTuple):
+    size: int
+    interpreter: str | None
+    segments: tuple[tuple[int, int, int, int], ...]
+    dynamic_offset: int | None
+    dynamic_size: int
+
+
+class _ElfObservation(NamedTuple):
+    layout: _ElfLayout
+    needed: tuple[str, ...]
+    rpath: tuple[str, ...]
+    runpath: tuple[str, ...]
+
+
+def _read_linux_elf_layout(path: Path, relative: str) -> _ElfLayout:
+    """Read the bounded ELF64 layout shared by inspection and sanitization."""
 
     relative = _canonical_relative(relative)
-    size = path.stat().st_size
+    result = path.lstat()
+    if path.is_symlink() or not stat.S_ISREG(result.st_mode):
+        raise ValueError(f"Linux runtime ELF is not a plain file: {relative}")
+    size = result.st_size
     if size < 64:
         raise ValueError(f"Linux runtime ELF header is truncated: {relative}")
 
@@ -258,7 +278,7 @@ def inspect_linux_dynamic_elf(path: Path, relative: str) -> LinuxElfRequirementV
             or not 1 <= program_count <= 1024
         ):
             raise ValueError(f"Linux runtime object is not reviewed ELF64 x86-64: {relative}")
-        segments: list[tuple[int, int, int, int, int]] = []
+        segments: list[tuple[int, int, int, int]] = []
         interpreter: str | None = None
         dynamic: tuple[int, int] | None = None
         for index in range(program_count):
@@ -273,28 +293,67 @@ def inspect_linux_dynamic_elf(path: Path, relative: str) -> LinuxElfRequirementV
                 _memory_size,
                 _alignment,
             ) = struct.unpack("<IIQQQQQQ", raw)
-            segments.append((segment_type, file_offset, virtual_address, file_size, size))
+            segments.append((segment_type, file_offset, virtual_address, file_size))
             if segment_type == 3:
+                if interpreter is not None:
+                    raise ValueError(
+                        f"Linux runtime ELF has multiple PT_INTERP entries: {relative}"
+                    )
                 raw_interpreter = read_at(stream, file_offset, file_size)
                 if not raw_interpreter.endswith(b"\x00"):
                     raise ValueError(f"Linux runtime PT_INTERP is invalid: {relative}")
                 interpreter = raw_interpreter[:-1].decode("utf-8", errors="strict")
             elif segment_type == 2:
+                if dynamic is not None:
+                    raise ValueError(
+                        f"Linux runtime ELF has multiple PT_DYNAMIC entries: {relative}"
+                    )
                 dynamic = (file_offset, file_size)
         if interpreter is not None and interpreter != "/lib64/ld-linux-x86-64.so.2":
             raise ValueError(f"Linux runtime object uses another interpreter: {relative}")
+        dynamic_offset, dynamic_size = dynamic if dynamic is not None else (None, 0)
+        if dynamic_offset is not None and (
+            dynamic_size < 16 or dynamic_size > 4 * 1024 * 1024 or dynamic_size % 16
+        ):
+            raise ValueError(f"Linux runtime dynamic table is invalid: {relative}")
+    return _ElfLayout(
+        size=size,
+        interpreter=interpreter,
+        segments=tuple(segments),
+        dynamic_offset=dynamic_offset,
+        dynamic_size=dynamic_size,
+    )
+
+
+def _observe_linux_dynamic_elf(path: Path, relative: str) -> _ElfObservation:
+    relative = _canonical_relative(relative)
+    layout = _read_linux_elf_layout(path, relative)
+
+    def read_at(stream: BinaryIO, offset: int, length: int) -> bytes:
+        if offset < 0 or length < 0 or offset + length > layout.size:
+            raise ValueError(f"Linux runtime ELF range is invalid: {relative}")
+        stream.seek(offset)
+        value = stream.read(length)
+        if len(value) != length:
+            raise ValueError(f"Linux runtime ELF range is truncated: {relative}")
+        return value
+
+    with path.open("rb") as stream:
         needed_offsets: list[int] = []
-        rpath_offset: int | None = None
-        runpath_offset: int | None = None
+        rpath_offsets: list[int] = []
+        runpath_offsets: list[int] = []
         string_address: int | None = None
         string_size: int | None = None
-        if dynamic is not None:
-            dynamic_offset, dynamic_size = dynamic
-            if dynamic_size > 4 * 1024 * 1024 or dynamic_size % 16:
-                raise ValueError(f"Linux runtime dynamic table is invalid: {relative}")
-            for offset in range(dynamic_offset, dynamic_offset + dynamic_size, 16):
+        terminated = layout.dynamic_offset is None
+        if layout.dynamic_offset is not None:
+            for offset in range(
+                layout.dynamic_offset,
+                layout.dynamic_offset + layout.dynamic_size,
+                16,
+            ):
                 tag, value = struct.unpack("<qQ", read_at(stream, offset, 16))
                 if tag == 0:
+                    terminated = True
                     break
                 if tag == 1:
                     needed_offsets.append(value)
@@ -303,12 +362,12 @@ def inspect_linux_dynamic_elf(path: Path, relative: str) -> LinuxElfRequirementV
                 elif tag == 10:
                     string_size = value
                 elif tag == 15:
-                    rpath_offset = value
+                    rpath_offsets.append(value)
                 elif tag == 29:
-                    runpath_offset = value
-        if rpath_offset is not None or runpath_offset is not None:
-            raise ValueError(f"Linux runtime ELF contains RPATH/RUNPATH: {relative}")
-        if needed_offsets or rpath_offset is not None or runpath_offset is not None:
+                    runpath_offsets.append(value)
+        if not terminated:
+            raise ValueError(f"Linux runtime dynamic table has no terminator: {relative}")
+        if needed_offsets or rpath_offsets or runpath_offsets:
             if (
                 string_address is None
                 or string_size is None
@@ -316,7 +375,7 @@ def inspect_linux_dynamic_elf(path: Path, relative: str) -> LinuxElfRequirementV
             ):
                 raise ValueError(f"Linux runtime dynamic strings are invalid: {relative}")
             string_offset: int | None = None
-            for segment_type, file_offset, virtual_address, file_size, _ in segments:
+            for segment_type, file_offset, virtual_address, file_size in layout.segments:
                 if (
                     segment_type == 1
                     and virtual_address <= string_address < virtual_address + file_size
@@ -336,22 +395,94 @@ def inspect_linux_dynamic_elf(path: Path, relative: str) -> LinuxElfRequirementV
                 return strings[offset:end].decode("utf-8", errors="strict")
 
             needed = tuple(sorted(set(dynamic_string(value) for value in needed_offsets)))
-            rpath = ()
-            runpath = ()
+            rpath = tuple(dynamic_string(value) for value in rpath_offsets)
+            runpath = tuple(dynamic_string(value) for value in runpath_offsets)
         else:
             needed = ()
             rpath = ()
             runpath = ()
+    return _ElfObservation(layout=layout, needed=needed, rpath=rpath, runpath=runpath)
+
+
+def inspect_linux_dynamic_elf(path: Path, relative: str) -> LinuxElfRequirementV1:
+    """Recompute PT_INTERP and reject every dynamic search-path tag."""
+
+    relative = _canonical_relative(relative)
+    observed = _observe_linux_dynamic_elf(path, relative)
+    if observed.rpath or observed.runpath:
+        raise ValueError(f"Linux runtime ELF contains RPATH/RUNPATH: {relative}")
     return LinuxElfRequirementV1(
         path=relative,
         interpreter=cast(
             Literal["/lib64/ld-linux-x86-64.so.2"] | None,
-            interpreter,
+            observed.layout.interpreter,
         ),
-        needed=needed,
-        rpath=rpath,
-        runpath=runpath,
+        needed=observed.needed,
+        rpath=(),
+        runpath=(),
     )
+
+
+def linux_elf_needed_names(path: Path, relative: str) -> tuple[str, ...]:
+    """Read DT_NEEDED before bundle-owned search paths are installed."""
+
+    return _observe_linux_dynamic_elf(path, relative).needed
+
+
+def strip_linux_elf_search_paths(path: Path, relative: str) -> int:
+    """Atomically remove DT_RPATH/DT_RUNPATH without changing other ELF authority."""
+
+    relative = _canonical_relative(relative)
+    before = _observe_linux_dynamic_elf(path, relative)
+    layout = before.layout
+    if layout.dynamic_offset is None or (not before.rpath and not before.runpath):
+        return 0
+    with path.open("rb") as stream:
+        stream.seek(layout.dynamic_offset)
+        dynamic = stream.read(layout.dynamic_size)
+    if len(dynamic) != layout.dynamic_size:
+        raise ValueError(f"Linux runtime dynamic table is truncated: {relative}")
+    entries: list[tuple[int, int]] = []
+    removed = 0
+    for offset in range(0, len(dynamic), 16):
+        tag, value = struct.unpack("<qQ", dynamic[offset : offset + 16])
+        if tag == 0:
+            break
+        if tag in {15, 29}:
+            removed += 1
+        else:
+            entries.append((tag, value))
+    if removed == 0:
+        raise ValueError(f"Linux runtime search-path observation is inconsistent: {relative}")
+    replacement = b"".join(struct.pack("<qQ", tag, value) for tag, value in entries)
+    replacement += struct.pack("<qQ", 0, 0)
+    if len(replacement) > layout.dynamic_size:
+        raise ValueError(f"Linux runtime dynamic-table rewrite exceeds its segment: {relative}")
+    replacement += bytes(layout.dynamic_size - len(replacement))
+    mode = stat.S_IMODE(path.lstat().st_mode)
+    temporary_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w+b", prefix=f".{path.name}.", suffix=".rewrite", dir=path.parent, delete=False
+        ) as temporary:
+            temporary_name = temporary.name
+            with path.open("rb") as source:
+                shutil.copyfileobj(source, temporary, length=1024 * 1024)
+            temporary.seek(layout.dynamic_offset)
+            temporary.write(replacement)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        temporary_path = Path(temporary_name)
+        temporary_path.chmod(mode)
+        os.replace(temporary_path, path)
+        temporary_name = None
+    finally:
+        if temporary_name is not None:
+            Path(temporary_name).unlink(missing_ok=True)
+    after = inspect_linux_dynamic_elf(path, relative)
+    if after.interpreter != before.layout.interpreter or after.needed != before.needed:
+        raise ValueError(f"Linux runtime ELF authority changed during sanitization: {relative}")
+    return removed
 
 
 class LinuxModuleOriginV1(Contract):
@@ -878,6 +1009,12 @@ class LinuxNativeBundlePayloadV9(LinuxNativeBundlePayloadV8):
         return self
 
 
+class LinuxNativeBundlePayloadV10(LinuxNativeBundlePayloadV9):
+    """Forward bundle whose complete ELF closure has no embedded search paths."""
+
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+
+
 class LinuxNativeBundleV1(Contract):
     linux_native_bundle_id: Digest
     payload: LinuxNativeBundlePayloadV1
@@ -1072,6 +1209,28 @@ class LinuxNativeBundleV9(Contract):
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_bundle_id != expected:
             raise ValueError("Linux native V9 bundle ID mismatch")
+        return self
+
+
+class LinuxNativeBundleV10(Contract):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    linux_native_bundle_id: Digest
+    payload: LinuxNativeBundlePayloadV10
+
+    @classmethod
+    def create(cls, payload: LinuxNativeBundlePayloadV10) -> LinuxNativeBundleV10:
+        return cls(
+            linux_native_bundle_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeBundleV10:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_bundle_id != expected:
+            raise ValueError("Linux native V10 bundle ID mismatch")
         return self
 
 
@@ -1313,6 +1472,32 @@ class LinuxNativeArchiveV9(Contract):
         return self
 
 
+class LinuxNativeArchivePayloadV10(LinuxNativeArchivePayloadV1):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+
+
+class LinuxNativeArchiveV10(Contract):
+    schema_version: Literal[10] = 10  # type: ignore[assignment]
+    linux_native_archive_id: Digest
+    payload: LinuxNativeArchivePayloadV10
+
+    @classmethod
+    def create(cls, payload: LinuxNativeArchivePayloadV10) -> LinuxNativeArchiveV10:
+        return cls(
+            linux_native_archive_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeArchiveV10:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_archive_id != expected:
+            raise ValueError("Linux native V10 archive ID mismatch")
+        return self
+
+
 def bundled_loader_command(
     root: Path,
     closure: LinuxRuntimeClosureV1,
@@ -1455,6 +1640,7 @@ LinuxNativeBundle = (
     | LinuxNativeBundleV7
     | LinuxNativeBundleV8
     | LinuxNativeBundleV9
+    | LinuxNativeBundleV10
 )
 LinuxNativeArchive = (
     LinuxNativeArchiveV1
@@ -1466,6 +1652,7 @@ LinuxNativeArchive = (
     | LinuxNativeArchiveV7
     | LinuxNativeArchiveV8
     | LinuxNativeArchiveV9
+    | LinuxNativeArchiveV10
 )
 
 
@@ -1491,7 +1678,14 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         | LinuxNativeCodexBuildV12
     )
     if isinstance(
-        bundle, (LinuxNativeBundleV6, LinuxNativeBundleV7, LinuxNativeBundleV8, LinuxNativeBundleV9)
+        bundle,
+        (
+            LinuxNativeBundleV6,
+            LinuxNativeBundleV7,
+            LinuxNativeBundleV8,
+            LinuxNativeBundleV9,
+            LinuxNativeBundleV10,
+        ),
     ):
         receipt = LinuxNativeCodexBuildV12.model_validate_json(receipt_path.read_bytes())
     elif isinstance(bundle, LinuxNativeBundleV5):
@@ -1532,7 +1726,7 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         or file_sha256(root / codex.code_mode_host_path) != codex.code_mode_host_sha256
     ):
         raise ValueError("Linux Codex artifact differs from bundle authority")
-    if isinstance(bundle, LinuxNativeBundleV9):
+    if isinstance(bundle, (LinuxNativeBundleV9, LinuxNativeBundleV10)):
         observed_elf: list[LinuxElfRequirementV1] = []
         for item in bundle.payload.files:
             if item.kind != "file":
@@ -1548,7 +1742,11 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         root / bundle.payload.python.devhub_wheel_path,
         root / bundle.payload.python.dependency_lock_path,
         bundle.payload.implementation_commit,
-        bundle.payload.runtime_closure if isinstance(bundle, LinuxNativeBundleV9) else None,
+        (
+            bundle.payload.runtime_closure
+            if isinstance(bundle, (LinuxNativeBundleV9, LinuxNativeBundleV10))
+            else None
+        ),
     )
     if runtime != bundle.payload.python.runtime:
         raise ValueError("Linux Python runtime differs from sealed observation")
@@ -1592,7 +1790,9 @@ def extract_and_verify_linux_archive(
     return root
 
 
-def smoke_linux_bundle_cli(root: Path, bundle: LinuxNativeBundleV9 | None = None) -> None:
+def smoke_linux_bundle_cli(
+    root: Path, bundle: LinuxNativeBundleV9 | LinuxNativeBundleV10 | None = None
+) -> None:
     """Run one metadata-only command through the packaged relative launcher."""
 
     environment = {
@@ -1692,6 +1892,9 @@ def verify_linux_native_release(release: Path, destination: Path) -> LinuxNative
     elif manifest_version == 9 and archive_version == 9:
         bundle = LinuxNativeBundleV9.model_validate_json(manifest_raw)
         archive = LinuxNativeArchiveV9.model_validate_json(archive_raw)
+    elif manifest_version == 10 and archive_version == 10:
+        bundle = LinuxNativeBundleV10.model_validate_json(manifest_raw)
+        archive = LinuxNativeArchiveV10.model_validate_json(archive_raw)
     else:
         raise ValueError("Linux native release schema versions differ or are unsupported")
     if (
@@ -1702,7 +1905,7 @@ def verify_linux_native_release(release: Path, destination: Path) -> LinuxNative
     ):
         raise ValueError("Linux native release files do not share one authority")
     extracted = extract_and_verify_linux_archive(archive_path, destination, bundle)
-    if isinstance(bundle, LinuxNativeBundleV9):
+    if isinstance(bundle, (LinuxNativeBundleV9, LinuxNativeBundleV10)):
         smoke_linux_bundle_cli(extracted, bundle)
     else:
         smoke_linux_bundle_cli(extracted)

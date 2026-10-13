@@ -22,17 +22,19 @@ from devhub.benchmark import canonical, write_new
 from devhub.linux_bundle import (
     LinuxCodexAuthorityV6,
     LinuxLauncherV2,
-    LinuxNativeArchivePayloadV9,
-    LinuxNativeArchiveV9,
-    LinuxNativeBundlePayloadV9,
-    LinuxNativeBundleV9,
+    LinuxNativeArchivePayloadV10,
+    LinuxNativeArchiveV10,
+    LinuxNativeBundlePayloadV10,
+    LinuxNativeBundleV10,
     LinuxPythonAuthorityV1,
     LinuxRuntimeClosureV1,
     LinuxRuntimeLibraryV1,
     inspect_linux_dynamic_elf,
     inventory_linux_bundle,
     is_linux_dynamic_elf,
+    linux_elf_needed_names,
     observe_linux_runtime,
+    strip_linux_elf_search_paths,
     verify_linux_native_bundle,
     verify_linux_native_release,
 )
@@ -124,11 +126,11 @@ def _copy_runtime_closure(bundle_root: Path) -> None:
     initial = _elf_files(bundle_root)
     if not initial:
         raise ValueError("Linux bundle contains no ELF objects")
-    requirements = tuple(
-        inspect_linux_dynamic_elf(path, path.relative_to(bundle_root).as_posix())
+    direct_names = {
+        name
         for path in initial
-    )
-    direct_names = {name for item in requirements for name in item.needed}
+        for name in linux_elf_needed_names(path, path.relative_to(bundle_root).as_posix())
+    }
     resolved: dict[str, Path] = {}
     for path in initial:
         for name, candidate in _ldd_resolutions(path).items():
@@ -157,6 +159,17 @@ def _copy_runtime_closure(bundle_root: Path) -> None:
     for name in sorted(required_names):
         destination = library_directory / name
         shutil.copyfile(resolved[name], destination)
+
+
+def _strip_runtime_search_paths(bundle_root: Path) -> int:
+    """Remove source-host RPATH/RUNPATH from every copied dynamic object."""
+
+    removed = 0
+    for path in _elf_files(bundle_root):
+        relative = path.relative_to(bundle_root).as_posix()
+        removed += strip_linux_elf_search_paths(path, relative)
+        inspect_linux_dynamic_elf(path, relative)
+    return removed
 
 
 def _seal_runtime_closure(bundle_root: Path) -> LinuxRuntimeClosureV1:
@@ -468,7 +481,7 @@ def _assemble(
     run_attempt: int,
     builder_python: Path,
     uv: Path,
-) -> LinuxNativeBundleV9:
+) -> LinuxNativeBundleV10:
     bundle_root = release / "bundle"
     manifest_path = release / "linux-native-bundle.json"
     bundle_root.mkdir(parents=True)
@@ -565,6 +578,7 @@ def _assemble(
         shutil.copy2(codex_artifact / receipt_path.name, receipt_path)
         shutil.copy2(codex_artifact / inventory_path.name, inventory_path)
         _copy_runtime_closure(bundle_root)
+        _strip_runtime_search_paths(bundle_root)
         launchers = bundle_root / "bin"
         launchers.mkdir()
         cli_launcher = launchers / "devfabric"
@@ -606,8 +620,8 @@ def _assemble(
         dependency_wheels=dependencies,
         runtime=runtime,
     )
-    bundle = LinuxNativeBundleV9.create(
-        LinuxNativeBundlePayloadV9(
+    bundle = LinuxNativeBundleV10.create(
+        LinuxNativeBundlePayloadV10(
             implementation_commit=expected_commit,
             retained_codex_implementation_commit=expected_codex_commit,
             python=python,
@@ -628,12 +642,12 @@ def _assemble(
     return bundle
 
 
-def _write_archive(release: Path, bundle: LinuxNativeBundleV9) -> LinuxNativeArchiveV9:
+def _write_archive(release: Path, bundle: LinuxNativeBundleV10) -> LinuxNativeArchiveV10:
     archive_path = release / ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
         stream.add(release / "bundle", arcname="bundle", recursive=True)
-    archive = LinuxNativeArchiveV9.create(
-        LinuxNativeArchivePayloadV9(
+    archive = LinuxNativeArchiveV10.create(
+        LinuxNativeArchivePayloadV10(
             bundle_id=bundle.linux_native_bundle_id,
             size=archive_path.stat().st_size,
             sha256=file_sha256(archive_path),
@@ -654,7 +668,7 @@ def build(
     expected_codex_commit: str,
     accepted_run_id: int,
     accepted_run_attempt: int,
-) -> LinuxNativeBundleV9:
+) -> LinuxNativeBundleV10:
     repo = repo.resolve(strict=True)
     commit = reviewed_commit(repo, expected_commit)
     builder_python, uv = _verified_builder(repo)
