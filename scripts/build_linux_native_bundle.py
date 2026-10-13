@@ -203,6 +203,7 @@ def _verify_loader_resolution(bundle_root: Path, closure: LinuxRuntimeClosureV1)
     loader_name = Path(closure.loader_path).name
     if loader.stat().st_size != closure.loader_size or file_sha256(loader) != closure.loader_sha256:
         raise ValueError("Bundled loader bytes differ from closure authority")
+    resolved_loader = loader.resolve(strict=True)
     for requirement in closure.elf_requirements:
         relative = requirement.path
         if relative == closure.loader_path:
@@ -228,23 +229,32 @@ def _verify_loader_resolution(bundle_root: Path, closure: LinuxRuntimeClosureV1)
         if loader_name in requirement.needed:
             # The reviewed loader is the process image for this invocation. Glibc
             # may omit that self-dependency from --list even when DT_NEEDED names it.
-            observed[loader_name] = loader.resolve(strict=True)
+            observed[loader_name] = resolved_loader
         for line in stdout.splitlines():
             match = _LDD_RESOLVED.match(line)
             if match is not None:
                 name, locator = match.groups()
-                path = (
-                    loader.resolve(strict=True)
-                    if name == loader_name and locator == closure.embedded_interpreter
-                    else Path(locator).resolve(strict=True)
-                )
+                path = Path(locator).resolve(strict=True)
+                if name == closure.embedded_interpreter:
+                    # An explicitly invoked glibc loader reports the target's
+                    # PT_INTERP as an absolute alias whose resolved locator is
+                    # the process-image loader. Accept only that exact mapping;
+                    # the already verified bundled bytes remain the authority.
+                    if path != resolved_loader:
+                        raise ValueError(
+                            "Embedded interpreter alias did not resolve to bundled loader"
+                        )
+                    name = loader_name
+                    path = resolved_loader
+                elif name.startswith("/"):
+                    raise ValueError("Bundled loader emitted an unexpected absolute alias")
             else:
                 absolute = _LDD_ABSOLUTE.match(line)
                 if absolute is not None:
                     locator = absolute.group(1)
                     if locator == closure.embedded_interpreter:
                         name = loader_name
-                        path = loader.resolve(strict=True)
+                        path = resolved_loader
                     else:
                         path = Path(locator).resolve(strict=True)
                         name = path.name
@@ -261,7 +271,7 @@ def _verify_loader_resolution(bundle_root: Path, closure: LinuxRuntimeClosureV1)
             raise ValueError(f"Bundled loader omitted a direct dependency: {relative}")
         for name, path in observed.items():
             expected = (
-                loader.resolve(strict=True)
+                resolved_loader
                 if name == loader_name
                 else (library_directory / name).resolve(strict=True)
             )

@@ -1166,13 +1166,16 @@ def test_linux_bundle_loader_resolution_rejects_ambient_fallback(
         ambient_libc: bool,
         include_loader: bool = True,
         omit_library: str | None = None,
+        loader_alias: str | None = None,
         loader_locator: str | None = None,
     ) -> subprocess.CompletedProcess[bytes]:
         lines = ["linux-vdso.so.1 (0x0000000000000002)"]
         if include_loader:
+            loader = root / closure.loader_path
             lines.insert(
                 0,
-                f"{loader_locator or closure.embedded_interpreter} (0x0000000000000001)",
+                f"{loader_alias or closure.embedded_interpreter} => "
+                f"{loader_locator or loader} (0x0000000000000001)",
             )
         for library in closure.libraries:
             if library.soname == omit_library:
@@ -1211,7 +1214,18 @@ def test_linux_bundle_loader_resolution_rejects_ambient_fallback(
         "run",
         lambda *_args, **_kwargs: completed(ambient_libc=False, loader_locator=str(ambient_loader)),
     )
-    with pytest.raises(ValueError, match="resolved a dependency ambiguously"):
+    with pytest.raises(ValueError, match="alias did not resolve to bundled loader"):
+        BUILDER._verify_loader_resolution(root, closure)
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: completed(
+            ambient_libc=False,
+            loader_alias="/unexpected/ld-linux-x86-64.so.2",
+        ),
+    )
+    with pytest.raises(ValueError, match="unexpected absolute alias"):
         BUILDER._verify_loader_resolution(root, closure)
 
     loader = root / closure.loader_path
