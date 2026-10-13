@@ -712,12 +712,39 @@ Whitespace variants, additional or blank lines, an interpreter, or any direct
 dependency remain rejected. No artifact was published by the diagnostic run,
 and all execution counters remained zero.
 
-Bundle V10 still records `native_executor_isolation_qualified=false` and
-`package_readiness=false`. Its relocated metadata-only smoke proves the
+Main-only V10 run `38418589025/1` passed exact bundle construction, relocation,
+closed loader resolution and metadata-only smoke. The published authority is
+bundle ID
+`10a30fb6a28a9d77bd0b8bf31c329a6638d96121050aff1be4cfe07792d023e2`,
+manifest SHA-256
+`a3bc252955bb45fd9e10a34d92a27d3b55fdcf5efa4265e4546ad6082ff964fd`,
+archive ID
+`e3560a690a47b86683c3ba41c6b2699279e96e19932a7bfd0fb7d9b26d7e0c00`
+and archive SHA-256
+`7e4032107cf364b4caf3659bdd334ed18c31e95afe7de8145f9c529a2788cda3`.
+The exact artifact retains Build-012 run `38354927618/1` and implementation
+commit `6ebf81bf00924a37ee9fe16e2ecb6d57d3949b76`. Bundle V10 records
+`native_executor_isolation_qualified=false` and `package_readiness=false`.
+Its relocated metadata-only smoke proves the
 bundle-owned loader can start the exact Python runtime and import the reviewed
-modules with ambient Python variables ignored. A later, separately versioned
-isolation consumer must bind exact published V10 identities and prove the same
-launcher inside the private root before either readiness flag can change.
+modules with ambient Python variables ignored. Windows extraction cannot
+authoritatively recheck POSIX modes because NTFS does not preserve the archive's
+Linux mode semantics; the publishing Ubuntu job performed that mode-sensitive
+verification before upload.
+
+Independent review of the published V10 artifact found that its installed
+isolation child still invoked `/bundle/python/bin/python3.12` directly for the
+packaged MCP metadata observation. `LinuxNativeBundleV11` is the forward-only
+correction. It records the exact V10 run, bundle, manifest and archive identities
+as predecessor evidence, then requires every packaged Python subprocess to use
+the manifest-bound loader with fixed `--inhibit-cache --library-path
+/bundle/runtime/lib` arguments. Before any subprocess starts, the child
+revalidates the exact loader, Python executable and complete plain-file runtime
+library set. Ambient libraries, a substituted loader, a changed interpreter or
+a noncanonical closure fail closed. V11 does not reinterpret V10, change the
+retained Build-012 executables or grant readiness. A later separately versioned
+isolation consumer must bind the exact published V11 identities and prove this
+same launcher inside the private root before either readiness flag can change.
 
 The tested bundle is intentionally tied to Linux x86_64 and the exact host
 environment recorded by later qualification.  It does not claim support for
@@ -970,9 +997,9 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
-| Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V8 run `38387100992` (`bundle_id=ccbe5b4f86421e95b77293c04969c66b23e491d6713f015d6b5c6e65ecb7c474`, `archive_id=4955e9cd2b0d58a1fb5a5a6d2eff57f785dcddca8df0b3a6c4cd9cb1c5ce3e40`); package readiness remains false pending V15 and later boundaries |
+| Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V10 run `38418589025` (`bundle_id=10a30fb6a28a9d77bd0b8bf31c329a6638d96121050aff1be4cfe07792d023e2`, `archive_id=e3560a690a47b86683c3ba41c6b2699279e96e19932a7bfd0fb7d9b26d7e0c00`); package readiness remains false pending the V11 loader-bound child and its later isolation consumer |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V8 run `38387100992`; V12 run `38350946287`, V13 run `38366520513`, V14 run `38382788177`, V15 run `38394800882`, and Bundle V9 run `38400549435` remain failed closed with zero execution counters; Bundle V10 publication is pending |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V10 run `38418589025`; V12 run `38350946287`, V13 run `38366520513`, V14 run `38382788177`, V15 run `38394800882`, and Bundle V9 run `38400549435` remain failed closed with zero execution counters; Bundle V11 publication and its later isolation consumer are pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

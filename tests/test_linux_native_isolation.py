@@ -4755,6 +4755,156 @@ def test_packaged_observer_thread_start_failure_is_typed_as_started(
     assert "injected thread start failure" in str(captured.value.__cause__)
 
 
+def packaged_runtime_authority(tmp_path: Path) -> tuple[Path, Path, str, str]:
+    assert CHILD is not None
+    loader = tmp_path / "loader"
+    loader.write_bytes(b"exact-loader")
+    library_directory = tmp_path / "lib"
+    library_directory.mkdir()
+    library = library_directory / "libc.so.6"
+    library.write_bytes(b"exact-library")
+    authority = json.dumps(
+        [
+            {
+                "path": "runtime/lib/libc.so.6",
+                "sha256": CHILD.sha256(library.read_bytes()),
+                "size": library.stat().st_size,
+            }
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return loader, library_directory, CHILD.sha256(loader.read_bytes()), authority
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bundled loader command is Linux-only")
+def test_bundled_python_command_is_exact_and_rejects_ambient_library(tmp_path: Path) -> None:
+    assert CHILD is not None
+    python = tmp_path / "python3.12"
+    python.write_bytes(b"exact-python")
+    loader, library_directory, loader_sha256, raw_authority = packaged_runtime_authority(tmp_path)
+    authority = CHILD.parse_runtime_library_authority(raw_authority)
+
+    command = CHILD.bundled_python_command(
+        python=python,
+        loader=loader,
+        library_directory=library_directory,
+        expected_python_sha256=CHILD.sha256(python.read_bytes()),
+        expected_loader_sha256=loader_sha256,
+        expected_runtime_libraries=authority,
+        arguments=("-I", "-B", "-m", "devhub.delegate_server"),
+    )
+    assert command == [
+        str(loader),
+        "--inhibit-cache",
+        "--library-path",
+        str(library_directory),
+        str(python),
+        "-I",
+        "-B",
+        "-m",
+        "devhub.delegate_server",
+    ]
+
+    (library_directory / "ambient.so").write_bytes(b"ambient")
+    with pytest.raises(ValueError, match="library set differs"):
+        CHILD.bundled_python_command(
+            python=python,
+            loader=loader,
+            library_directory=library_directory,
+            expected_python_sha256=CHILD.sha256(python.read_bytes()),
+            expected_loader_sha256=loader_sha256,
+            expected_runtime_libraries=authority,
+            arguments=(),
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bundled loader command is Linux-only")
+@pytest.mark.parametrize("substitution", ("same_size", "missing", "symlink"))
+def test_bundled_python_command_rejects_runtime_library_substitution(
+    tmp_path: Path, substitution: str
+) -> None:
+    assert CHILD is not None
+    python = tmp_path / "python3.12"
+    python.write_bytes(b"exact-python")
+    loader, library_directory, loader_sha256, raw_authority = packaged_runtime_authority(tmp_path)
+    authority = CHILD.parse_runtime_library_authority(raw_authority)
+    library = library_directory / "libc.so.6"
+    if substitution == "same_size":
+        library.write_bytes(b"x" * library.stat().st_size)
+    elif substitution == "missing":
+        library.unlink()
+    else:
+        library.unlink()
+        library.symlink_to(loader)
+
+    with pytest.raises(ValueError, match="runtime library (set )?differs"):
+        CHILD.bundled_python_command(
+            python=python,
+            loader=loader,
+            library_directory=library_directory,
+            expected_python_sha256=CHILD.sha256(python.read_bytes()),
+            expected_loader_sha256=loader_sha256,
+            expected_runtime_libraries=authority,
+            arguments=(),
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bundled loader command is Linux-only")
+def test_packaged_mcp_rejects_loader_substitution_before_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert CHILD is not None
+    python = tmp_path / "python3.12"
+    python.write_bytes(b"exact-python")
+    loader, library_directory, loader_sha256, runtime_libraries = packaged_runtime_authority(
+        tmp_path
+    )
+    loader.write_bytes(b"substituted-loader")
+    monkeypatch.setattr(
+        CHILD,
+        "run_bounded_subprocess",
+        lambda *_args, **_kwargs: pytest.fail("subprocess ran before loader verification"),
+    )
+
+    with pytest.raises(CHILD.PackagedMcpObservationFailure) as captured:
+        CHILD._observe_packaged_mcp_metadata(
+            "1" * 64,
+            CHILD.sha256(python.read_bytes()),
+            loader_sha256,
+            runtime_libraries,
+            python=python,
+            loader=loader,
+            library_directory=library_directory,
+            bundle_root=tmp_path / "bundle",
+            state_root=tmp_path / "state",
+            output_root=tmp_path / "output",
+            home=tmp_path / "home",
+            module_relative_path="devhub/delegate_server.py",
+            expected_module_origin="/bundle/devhub/delegate_server.py",
+        )
+    assert captured.value.checkpoint == "python_authority"
+    assert captured.value.capture is None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bundled loader command is Linux-only")
+@pytest.mark.parametrize(
+    "authority",
+    (
+        "not-json",
+        "[]",
+        '[{"path":"../libc.so.6","sha256":"' + ("1" * 64) + '","size":1}]',
+        '[{"path":"runtime/lib/..","sha256":"' + ("1" * 64) + '","size":1}]',
+        '[{"path":"runtime//lib/libc.so.6","sha256":"' + ("1" * 64) + '","size":1}]',
+        '[{"extra":true,"path":"runtime/lib/libc.so.6","sha256":"' + ("1" * 64) + '","size":1}]',
+    ),
+)
+def test_runtime_library_authority_rejects_noncanonical_input(authority: str) -> None:
+    assert CHILD is not None
+    with pytest.raises(ValueError, match="Runtime library authority"):
+        CHILD.parse_runtime_library_authority(authority)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
 def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4762,6 +4912,9 @@ def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
     assert CHILD is not None
     python = tmp_path / "python3.12"
     python.write_bytes(b"exact-python")
+    loader, library_directory, loader_sha256, runtime_libraries = packaged_runtime_authority(
+        tmp_path
+    )
     state = tmp_path / "state"
     output = tmp_path / "output"
     home = tmp_path / "home"
@@ -4769,7 +4922,7 @@ def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
     for directory in (state, output, home, bundle):
         directory.mkdir()
     expected_origin = "/bundle/python/lib/python3.12/site-packages/devhub/delegate_server.py"
-    calls: list[tuple[list[str], bytes | None]] = []
+    calls: list[tuple[list[str], dict[str, str], bytes | None]] = []
     instance_id = CHILD.hashlib.sha256(("1" * 64 + ":ledger").encode()).hexdigest()[:32]
     authority_id = CHILD.hashlib.sha256(("1" * 64 + ":authority").encode()).hexdigest()[:32]
     ledger_hash = CHILD.ledger_identity_payload_sha256(
@@ -4790,8 +4943,8 @@ def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
         input_data: bytes | None,
         timeout: float,
     ) -> tuple[int, bytes, bytes]:
-        del environment, timeout
-        calls.append((command, input_data))
+        del timeout
+        calls.append((command, dict(environment), input_data))
         if len(calls) == 1:
             return 0, (expected_origin + "\n").encode(), b""
         if len(calls) == 2:
@@ -4851,11 +5004,17 @@ def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
             b"",
         )
 
+    for name in ("LD_LIBRARY_PATH", "LD_PRELOAD", "PYTHONHOME", "PYTHONPATH"):
+        monkeypatch.setenv(name, f"ambient-{name.lower()}")
     monkeypatch.setattr(CHILD, "run_bounded_subprocess", observe)
     result = CHILD._observe_packaged_mcp_metadata(
         "1" * 64,
         CHILD.sha256(python.read_bytes()),
+        loader_sha256,
+        runtime_libraries,
         python=python,
+        loader=loader,
+        library_directory=library_directory,
         bundle_root=bundle,
         state_root=state,
         output_root=output,
@@ -4865,6 +5024,16 @@ def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
     )
 
     assert len(calls) == 3
+    expected_prefix = [
+        str(loader),
+        "--inhibit-cache",
+        "--library-path",
+        str(library_directory),
+        str(python),
+    ]
+    assert all(command[:5] == expected_prefix for command, _environment, _input in calls)
+    forbidden_environment = {"LD_LIBRARY_PATH", "LD_PRELOAD", "PYTHONHOME", "PYTHONPATH"}
+    assert all(not (forbidden_environment & environment.keys()) for _, environment, _ in calls)
     assert result["tools_call_sent"] is False
     assert result["eof_sent"] is True
     assert result["tool_names"] == ["devhub_delegate"]
@@ -4902,6 +5071,9 @@ def test_packaged_mcp_metadata_rejects_malformed_lifecycle(
     assert CHILD is not None
     python = tmp_path / "python3.12"
     python.write_bytes(b"exact-python")
+    loader, library_directory, loader_sha256, runtime_libraries = packaged_runtime_authority(
+        tmp_path
+    )
     directories = {name: tmp_path / name for name in ("bundle", "state", "output", "home")}
     for directory in directories.values():
         directory.mkdir()
@@ -4992,7 +5164,11 @@ def test_packaged_mcp_metadata_rejects_malformed_lifecycle(
         CHILD._observe_packaged_mcp_metadata(
             profile_id,
             CHILD.sha256(python.read_bytes()),
+            loader_sha256,
+            runtime_libraries,
             python=python,
+            loader=loader,
+            library_directory=library_directory,
             bundle_root=directories["bundle"],
             state_root=directories["state"],
             output_root=directories["output"],
@@ -5014,6 +5190,9 @@ def test_packaged_mcp_metadata_rejects_malformed_ledger_initialization(
     assert CHILD is not None
     python = tmp_path / "python3.12"
     python.write_bytes(b"exact-python")
+    loader, library_directory, loader_sha256, runtime_libraries = packaged_runtime_authority(
+        tmp_path
+    )
     directories = {name: tmp_path / name for name in ("bundle", "state", "output", "home")}
     for directory in directories.values():
         directory.mkdir()
@@ -5057,7 +5236,11 @@ def test_packaged_mcp_metadata_rejects_malformed_ledger_initialization(
         CHILD._observe_packaged_mcp_metadata(
             profile_id,
             CHILD.sha256(python.read_bytes()),
+            loader_sha256,
+            runtime_libraries,
             python=python,
+            loader=loader,
+            library_directory=library_directory,
             bundle_root=directories["bundle"],
             state_root=directories["state"],
             output_root=directories["output"],
@@ -5082,9 +5265,13 @@ def test_packaged_mcp_metadata_wrapper_binds_exact_release_paths(
         return {"tools_call_sent": False}
 
     monkeypatch.setattr(CHILD, "_observe_packaged_mcp_metadata", capture)
-    assert CHILD.packaged_mcp_metadata_observation("1" * 64, "2" * 64) == {"tools_call_sent": False}
+    assert CHILD.packaged_mcp_metadata_observation("1" * 64, "2" * 64, "3" * 64, "[]") == {
+        "tools_call_sent": False
+    }
     kwargs = cast(dict[str, object], observed["kwargs"])
     assert kwargs["python"] == Path("/bundle/python/bin/python3.12")
+    assert kwargs["loader"] == Path("/bundle/runtime/loader/ld-linux-x86-64.so.2")
+    assert kwargs["library_directory"] == Path("/bundle/runtime/lib")
     assert kwargs["bundle_root"] == Path("/bundle")
     assert kwargs["state_root"] == Path("/state")
     assert kwargs["output_root"] == Path("/output")

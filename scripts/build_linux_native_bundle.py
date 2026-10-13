@@ -24,10 +24,10 @@ from devhub.linux_bundle import (
     LinuxCodexAuthorityV6,
     LinuxElfRequirementV1,
     LinuxLauncherV2,
-    LinuxNativeArchivePayloadV10,
-    LinuxNativeArchiveV10,
-    LinuxNativeBundlePayloadV10,
-    LinuxNativeBundleV10,
+    LinuxNativeArchivePayloadV11,
+    LinuxNativeArchiveV11,
+    LinuxNativeBundlePayloadV11,
+    LinuxNativeBundleV11,
     LinuxPythonAuthorityV1,
     LinuxRuntimeClosureV1,
     LinuxRuntimeLibraryV1,
@@ -534,7 +534,7 @@ def _assemble(
     run_attempt: int,
     builder_python: Path,
     uv: Path,
-) -> LinuxNativeBundleV10:
+) -> LinuxNativeBundleV11:
     bundle_root = release / "bundle"
     manifest_path = release / "linux-native-bundle.json"
     bundle_root.mkdir(parents=True)
@@ -673,8 +673,8 @@ def _assemble(
         dependency_wheels=dependencies,
         runtime=runtime,
     )
-    bundle = LinuxNativeBundleV10.create(
-        LinuxNativeBundlePayloadV10(
+    bundle = LinuxNativeBundleV11.create(
+        LinuxNativeBundlePayloadV11(
             implementation_commit=expected_commit,
             retained_codex_implementation_commit=expected_codex_commit,
             python=python,
@@ -695,12 +695,12 @@ def _assemble(
     return bundle
 
 
-def _write_archive(release: Path, bundle: LinuxNativeBundleV10) -> LinuxNativeArchiveV10:
+def _write_archive(release: Path, bundle: LinuxNativeBundleV11) -> LinuxNativeArchiveV11:
     archive_path = release / ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
         stream.add(release / "bundle", arcname="bundle", recursive=True)
-    archive = LinuxNativeArchiveV10.create(
-        LinuxNativeArchivePayloadV10(
+    archive = LinuxNativeArchiveV11.create(
+        LinuxNativeArchivePayloadV11(
             bundle_id=bundle.linux_native_bundle_id,
             size=archive_path.stat().st_size,
             sha256=file_sha256(archive_path),
@@ -721,7 +721,7 @@ def build(
     expected_codex_commit: str,
     accepted_run_id: int,
     accepted_run_attempt: int,
-) -> LinuxNativeBundleV10:
+) -> LinuxNativeBundleV11:
     repo = repo.resolve(strict=True)
     commit = reviewed_commit(repo, expected_commit)
     builder_python, uv = _verified_builder(repo)
