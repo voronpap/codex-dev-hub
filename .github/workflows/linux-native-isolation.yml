@@ -84,18 +84,33 @@ jobs:
             --environment-instance-id "$environment_id" \
             --state-output "$RUNNER_TEMP/linux-native-isolation/apparmor-state.json" \
             --failure-output "$RUNNER_TEMP/linux-native-isolation/lifecycle-failure.json"
-      - name: Prepare exact transient cgroup authority
+      - name: Prepare exact transient cgroup and syscall authority
         env:
           IMPLEMENTATION_COMMIT: ${{ github.sha }}
         run: |
           environment_id="$(cat "$RUNNER_TEMP/linux-native-isolation/environment-id")"
           sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
-            scripts/manage_linux_native_cgroup.py setup \
+            scripts/manage_linux_native_cgroup.py setup-v19 \
             --implementation-commit "$IMPLEMENTATION_COMMIT" \
             --environment-instance-id "$environment_id" \
             --service-uid "$(id -u)" \
             --service-gid "$(id -g)" \
             --output "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json" \
+            --failure-output "$RUNNER_TEMP/linux-native-isolation/cgroup-failure.json"
+      - name: Prove matched no-filter control and exact cleanup
+        env:
+          IMPLEMENTATION_COMMIT: ${{ github.sha }}
+        run: |
+          environment_id="$(cat "$RUNNER_TEMP/linux-native-isolation/environment-id")"
+          sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
+            scripts/manage_linux_native_cgroup.py control-v19 \
+            --state "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json" \
+            --repo "$GITHUB_WORKSPACE" \
+            --observation "$RUNNER_TEMP/linux-native-isolation/control-observation.json" \
+            --execution-authority "$RUNNER_TEMP/linux-native-isolation/control-execution.json" \
+            --output "$RUNNER_TEMP/linux-native-isolation/control-receipt.json" \
+            --implementation-commit "$IMPLEMENTATION_COMMIT" \
+            --environment-instance-id "$environment_id" \
             --failure-output "$RUNNER_TEMP/linux-native-isolation/cgroup-failure.json"
       - name: Real rootless namespace and broker mechanics inside exact cgroup
         env:
@@ -103,9 +118,10 @@ jobs:
         run: |
           environment_id="$(cat "$RUNNER_TEMP/linux-native-isolation/environment-id")"
           sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
-            scripts/manage_linux_native_cgroup.py run \
+            scripts/manage_linux_native_cgroup.py run-v19 \
             --state "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json" \
             --repo "$GITHUB_WORKSPACE" \
+            --policy-output "$RUNNER_TEMP/linux-native-isolation/systemd-policy.json" \
             --implementation-commit "$IMPLEMENTATION_COMMIT" \
             --environment-instance-id "$environment_id" \
             --failure-output "$RUNNER_TEMP/linux-native-isolation/cgroup-failure.json" \
@@ -119,7 +135,8 @@ jobs:
               --bundle-root "$RUNNER_TEMP/linux-native-release-verified/bundle" \
               --bundle-run-id '${{ inputs.native_bundle_run_id }}' \
               --bundle-run-attempt '${{ inputs.native_bundle_run_attempt }}' \
-              --cgroup-state "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json"
+              --cgroup-state "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json" \
+              --control-receipt "$RUNNER_TEMP/linux-native-isolation/control-receipt.json"
       - name: Remove exact transient cgroup and seal cleanup
         if: always()
         env:
@@ -131,12 +148,14 @@ jobs:
           cleanup="$RUNNER_TEMP/linux-native-isolation/cgroup-cleanup.json"
           cleanup_state="$RUNNER_TEMP/linux-native-isolation/cgroup-cleanup-state.json"
           rollback="$RUNNER_TEMP/linux-native-isolation/cgroup-rollback.json"
+          policy="$RUNNER_TEMP/linux-native-isolation/systemd-policy.json"
           failure="$RUNNER_TEMP/linux-native-isolation/cgroup-failure.json"
-          if test -f "$state" && test -f "$mechanics"; then
+          if test -f "$state" && test -f "$mechanics" && test -f "$policy"; then
             if ! sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
-              scripts/manage_linux_native_cgroup.py cleanup \
+              scripts/manage_linux_native_cgroup.py cleanup-v19 \
               --state "$state" \
               --mechanics "$mechanics" \
+              --unit-policy "$policy" \
               --cleanup-state "$cleanup_state" \
               --output "$cleanup" \
               --implementation-commit "$IMPLEMENTATION_COMMIT" \
@@ -144,10 +163,19 @@ jobs:
               --failure-output "$failure"; then
               if test -f "$cleanup_state"; then
                 sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
-                  scripts/manage_linux_native_cgroup.py resume \
+                  scripts/manage_linux_native_cgroup.py resume-v19 \
                   --state "$state" \
                   --mechanics "$mechanics" \
+                  --unit-policy "$policy" \
                   --cleanup-state "$cleanup_state" \
+                  --output "$rollback" \
+                  --implementation-commit "$IMPLEMENTATION_COMMIT" \
+                  --environment-instance-id "$environment_id" \
+                  --failure-output "$failure"
+              else
+                sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
+                  scripts/manage_linux_native_cgroup.py rollback-v19 \
+                  --state "$state" \
                   --output "$rollback" \
                   --implementation-commit "$IMPLEMENTATION_COMMIT" \
                   --environment-instance-id "$environment_id" \
@@ -157,7 +185,7 @@ jobs:
             fi
           elif test -f "$state"; then
             sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
-              scripts/manage_linux_native_cgroup.py rollback \
+              scripts/manage_linux_native_cgroup.py rollback-v19 \
               --state "$state" \
               --output "$rollback" \
               --implementation-commit "$IMPLEMENTATION_COMMIT" \
@@ -215,6 +243,10 @@ jobs:
             "$RUNNER_TEMP/linux-native-isolation/cgroup-cleanup.json" \
             "$RUNNER_TEMP/linux-native-isolation/cgroup-cleanup-state.json" \
             "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json" \
+            "$RUNNER_TEMP/linux-native-isolation/control-observation.json" \
+            "$RUNNER_TEMP/linux-native-isolation/control-execution.json" \
+            "$RUNNER_TEMP/linux-native-isolation/control-receipt.json" \
+            "$RUNNER_TEMP/linux-native-isolation/systemd-policy.json" \
             "$RUNNER_TEMP/linux-native-isolation/environment-id"
       - name: Upload bounded qualification evidence
         if: always()
@@ -231,6 +263,10 @@ jobs:
             ${{ runner.temp }}/linux-native-isolation/cgroup-state.json
             ${{ runner.temp }}/linux-native-isolation/cgroup-cleanup.json
             ${{ runner.temp }}/linux-native-isolation/mechanics.json
+            ${{ runner.temp }}/linux-native-isolation/control-observation.json
+            ${{ runner.temp }}/linux-native-isolation/control-execution.json
+            ${{ runner.temp }}/linux-native-isolation/control-receipt.json
+            ${{ runner.temp }}/linux-native-isolation/systemd-policy.json
           if-no-files-found: error
           include-hidden-files: false
           retention-days: 14

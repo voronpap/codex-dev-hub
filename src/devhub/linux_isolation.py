@@ -41,6 +41,13 @@ LINUX_APPARMOR_PROFILE_MODE = "unconfined"
 LINUX_APPARMOR_CURRENT = f"{LINUX_APPARMOR_PROFILE_NAME} ({LINUX_APPARMOR_PROFILE_MODE})"
 LINUX_SYSTEMD_RUN = "/usr/bin/systemd-run"
 LINUX_SYSTEMCTL = "/usr/bin/systemctl"
+LINUX_SYSTEMD_ANALYZE: Literal["/usr/bin/systemd-analyze"] = "/usr/bin/systemd-analyze"
+LINUX_SYSTEMD_MANAGER: Literal["/usr/lib/systemd/systemd"] = "/usr/lib/systemd/systemd"
+LINUX_REVIEWED_SYSTEMD_VERSION_SHA256 = (
+    "24e682030f54829600ce9c96ef9d8be4297eb4cd1b11eca8fa7f83c5c4595fc7"
+)
+LINUX_SYSCALL_ALLOWLIST_SHA256 = "0f380c5848c32586f2614fcb8272760accf03a7995ba562c2a34a262ef8c1eda"
+LINUX_SYSCALL_ALLOWLIST_COUNT = 390
 LINUX_CGROUP_ROOT: Literal["/sys/fs/cgroup"] = "/sys/fs/cgroup"
 LINUX_CGROUP_MEMORY_MAX: Literal["2147483648"] = "2147483648"
 LINUX_CGROUP_PIDS_MAX: Literal["128"] = "128"
@@ -5220,4 +5227,670 @@ class LinuxIsolationFailureV8(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_failure_id != expected:
             raise ValueError("Linux isolation V8 failure hash mismatch")
+        return self
+
+
+# V19 is forward-only.  V1-V18 remain parseable historical authority.
+
+
+class LinuxSystemdAnalyzeAuthorityV1(LinuxFileAuthorityV1):
+    name: Literal["systemd-analyze"] = "systemd-analyze"
+    locator: Literal["/usr/bin/systemd-analyze"] = LINUX_SYSTEMD_ANALYZE
+    version_output_sha256: Digest
+
+    @model_validator(mode="after")
+    def exact_reviewed_tool(self) -> LinuxSystemdAnalyzeAuthorityV1:
+        mode = int(self.mode, 8)
+        if self.owner_uid != 0 or self.owner_gid != 0:
+            raise ValueError("systemd-analyze must be root-owned")
+        if mode & 0o022 or not mode & 0o100 or mode & 0o7000:
+            raise ValueError("systemd-analyze mode is unsafe")
+        if self.version_output_sha256 != LINUX_REVIEWED_SYSTEMD_VERSION_SHA256:
+            raise ValueError("systemd-analyze version is not the reviewed V19 authority")
+        return self
+
+
+class LinuxSystemdManagerAuthorityV1(Contract):
+    executable: LinuxFileAuthorityV1
+    pid: Literal[1] = 1
+    start_time_ticks: Annotated[int, Field(ge=1)]
+    boot_id: Annotated[
+        str,
+        Field(pattern=r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"),
+    ]
+    version_output_sha256: Digest
+
+    @model_validator(mode="after")
+    def exact_reviewed_manager(self) -> LinuxSystemdManagerAuthorityV1:
+        executable = self.executable
+        mode = int(executable.mode, 8)
+        if (
+            executable.locator != LINUX_SYSTEMD_MANAGER
+            or executable.owner_uid != 0
+            or executable.owner_gid != 0
+            or mode & 0o022
+            or not mode & 0o100
+            or mode & 0o7000
+        ):
+            raise ValueError("PID 1 systemd executable authority differs")
+        if self.version_output_sha256 != LINUX_REVIEWED_SYSTEMD_VERSION_SHA256:
+            raise ValueError("PID 1 systemd version is not the reviewed V19 authority")
+        return self
+
+
+class LinuxSyscallAllowlistAuthorityV1(Contract):
+    """Pre-authorized selector expansion installed as explicit syscall names."""
+
+    selectors: tuple[Literal["@system-service"], Literal["@mount"], Literal["@sandbox"]] = (
+        "@system-service",
+        "@mount",
+        "@sandbox",
+    )
+    explicit_exclusions: tuple[Literal["personality"]] = ("personality",)
+    configured_explicit_allowlist: Annotated[
+        tuple[Annotated[str, Field(pattern=r"^[a-z0-9_]+$")], ...],
+        Field(min_length=LINUX_SYSCALL_ALLOWLIST_COUNT),
+    ]
+    configured_allowlist_sha256: Digest
+    selector_outputs_sha256: Digest
+    systemd_analyze: LinuxSystemdAnalyzeAuthorityV1
+    systemd_manager: LinuxSystemdManagerAuthorityV1
+    implicit_lifecycle_syscalls: tuple[
+        Literal["execve"],
+        Literal["exit"],
+        Literal["exit_group"],
+        Literal["rt_sigreturn"],
+        Literal["sigreturn"],
+    ] = ("execve", "exit", "exit_group", "rt_sigreturn", "sigreturn")
+
+    @model_validator(mode="after")
+    def exact_pre_authorized_expansion(self) -> LinuxSyscallAllowlistAuthorityV1:
+        names = self.configured_explicit_allowlist
+        if names != tuple(sorted(set(names))):
+            raise ValueError("Configured syscall allowlist is not sorted and unique")
+        if len(names) != LINUX_SYSCALL_ALLOWLIST_COUNT or "personality" in names:
+            raise ValueError("Configured syscall allowlist differs from reviewed V19 expansion")
+        observed = digest(canonical(list(names)))
+        if (
+            self.configured_allowlist_sha256 != observed
+            or observed != LINUX_SYSCALL_ALLOWLIST_SHA256
+        ):
+            raise ValueError("Configured syscall allowlist hash differs")
+        if not set(self.implicit_lifecycle_syscalls).issubset(names):
+            raise ValueError("Systemd implicit lifecycle syscalls are not explicitly authorized")
+        if self.systemd_analyze.version_output_sha256 != self.systemd_manager.version_output_sha256:
+            raise ValueError("systemd analyzer and manager versions differ")
+        return self
+
+
+class LinuxMatchedControlAuthorityV1(Contract):
+    unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    service_uid: Annotated[int, Field(ge=1)]
+    service_gid: Annotated[int, Field(ge=1)]
+    no_new_privileges: Literal[True] = True
+    system_call_architectures: tuple[Literal["native"]] = ("native",)
+    syscall_filter_configured: Literal[False] = False
+    limits: LinuxCgroupLimitsV1 = LinuxCgroupLimitsV1()
+
+    @model_validator(mode="after")
+    def exact_control_group(self) -> LinuxMatchedControlAuthorityV1:
+        if self.control_group != f"/system.slice/{self.unit_name}":
+            raise ValueError("Matched control unit and cgroup differ")
+        return self
+
+
+class LinuxSyscallFilterBoundaryAuthorityV1(Contract):
+    policy: LinuxSyscallAllowlistAuthorityV1
+    no_new_privileges: Literal[True] = True
+    system_call_architectures: tuple[Literal["native"]] = ("native",)
+    system_call_error_number: Literal["EPERM"] = "EPERM"
+    matched_control: LinuxMatchedControlAuthorityV1
+
+
+class LinuxCgroupSetupStatePayloadV2(LinuxCgroupSetupStatePayloadV1):
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    state_kind: Literal["linux_cgroup_setup_state_v2"] = "linux_cgroup_setup_state_v2"  # type: ignore[assignment]
+    syscall_filter: LinuxSyscallFilterBoundaryAuthorityV1
+
+    @model_validator(mode="after")
+    def exact_target_control_join(self) -> LinuxCgroupSetupStatePayloadV2:
+        control = self.syscall_filter.matched_control
+        if (
+            control.service_uid != self.boundary.service_uid
+            or control.service_gid != self.boundary.service_gid
+            or control.limits != self.boundary.limits
+            or not control.unit_name.endswith(f"{self.environment_instance_id}.service")
+        ):
+            raise ValueError("Matched control authority differs from target authority")
+        version = self.syscall_filter.policy.systemd_manager.version_output_sha256
+        if (
+            self.boundary.systemd_run.version_output_sha256 != version
+            or self.boundary.systemctl.version_output_sha256 != version
+        ):
+            raise ValueError("systemd client and manager lineages differ")
+        return self
+
+
+class LinuxCgroupSetupStateV2(ContractV2):
+    schema_version: Literal[2] = 2
+    linux_cgroup_setup_state_id: Digest
+    payload: LinuxCgroupSetupStatePayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupSetupStatePayloadV2) -> LinuxCgroupSetupStateV2:
+        return cls(
+            linux_cgroup_setup_state_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupSetupStateV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_setup_state_id != expected:
+            raise ValueError("Linux cgroup setup V2 state hash mismatch")
+        return self
+
+
+class LinuxRawPersonalityObservationV1(Contract):
+    syscall_number: Literal[135] = 135
+    argument: Literal[4294967295] = 4294967295
+    result: int
+    observed_errno: Annotated[int, Field(ge=0)]
+
+
+class LinuxMatchedControlObservationV1(Contract):
+    schema_version: Literal[1] = 1
+    observation_kind: Literal["linux_syscall_matched_control_observation_v1"] = (
+        "linux_syscall_matched_control_observation_v1"
+    )
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    cgroup_native_identity: LinuxNativePathIdentityV1
+    memory_max: Literal["2147483648"] = LINUX_CGROUP_MEMORY_MAX
+    pids_max: Literal["128"] = LINUX_CGROUP_PIDS_MAX
+    cpu_max: Literal["200000 100000"] = LINUX_CGROUP_CPU_MAX
+    sole_cgroup_member: Literal[True] = True
+    personality: LinuxRawPersonalityObservationV1
+    no_new_privs: Literal[1] = 1
+    seccomp_mode: Literal[2] = 2
+    seccomp_filters: Annotated[int, Field(ge=1)]
+
+    @model_validator(mode="after")
+    def personality_succeeded(self) -> LinuxMatchedControlObservationV1:
+        if self.personality.result < 0 or self.personality.observed_errno != 0:
+            raise ValueError("Matched control personality syscall did not succeed")
+        return self
+
+
+class LinuxSystemdResourcePolicyObservationV1(Contract):
+    service_uid: Annotated[int, Field(ge=1)]
+    service_gid: Annotated[int, Field(ge=1)]
+    memory_max: Literal["2147483648"] = LINUX_CGROUP_MEMORY_MAX
+    tasks_max: Literal["128"] = LINUX_CGROUP_PIDS_MAX
+    cpu_quota_per_sec_usec: Literal[2_000_000] = 2_000_000
+    cpu_quota_period_usec: Literal[100_000] = 100_000
+
+
+class LinuxSystemdUnitPolicyObservationV1(Contract):
+    unit_name: Annotated[
+        str, Field(pattern=r"^devfabric-linux-isolation(?:-control)?-[a-f0-9]{32}\.service$")
+    ]
+    no_new_privileges: Literal["yes"] = "yes"
+    system_call_architectures: tuple[Literal["native"]] = ("native",)
+    system_call_error_number: Literal[1] = 1
+    filter_is_allowlist: Literal[True] = True
+    systemd_reported_filter: Annotated[
+        tuple[Annotated[str, Field(pattern=r"^[a-z0-9_]+$")], ...], Field(min_length=1)
+    ]
+    systemd_reported_filter_sha256: Digest
+    raw_properties_sha256: Digest
+    resources: LinuxSystemdResourcePolicyObservationV1
+
+    @model_validator(mode="after")
+    def exact_reported_filter_hash(self) -> LinuxSystemdUnitPolicyObservationV1:
+        names = self.systemd_reported_filter
+        if names != tuple(sorted(set(names))) or "personality" in names:
+            raise ValueError("systemd reported syscall filter is invalid")
+        if self.systemd_reported_filter_sha256 != digest(canonical(list(names))):
+            raise ValueError("systemd reported syscall-filter hash differs")
+        return self
+
+
+class LinuxSystemdControlPolicyObservationV1(Contract):
+    unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    no_new_privileges: Literal["yes"] = "yes"
+    system_call_architectures: tuple[Literal["native"]] = ("native",)
+    system_call_error_number: Annotated[str, Field(max_length=32)]
+    filter_is_allowlist: Literal[False] = False
+    systemd_reported_filter: tuple[()] = ()
+    raw_properties_sha256: Digest
+    resources: LinuxSystemdResourcePolicyObservationV1
+
+
+class LinuxMatchedControlExecutionPayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    authority_kind: Literal["linux_syscall_matched_control_execution_v1"] = (
+        "linux_syscall_matched_control_execution_v1"
+    )
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    python: LinuxFileAuthorityV1
+    manager_script: LinuxFileAuthorityV1
+    manager_script_git_blob_sha256: Digest
+    state_locator: Annotated[str, Field(pattern=r"^/[^\r\n]+$")]
+    state_sha256: Digest
+    execution_authority_locator: Annotated[str, Field(pattern=r"^/[^\r\n]+$")]
+    observation_locator: Annotated[str, Field(pattern=r"^/[^\r\n]+$")]
+    argv: Annotated[tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=9)]
+
+    @model_validator(mode="after")
+    def exact_argv(self) -> LinuxMatchedControlExecutionPayloadV1:
+        expected = (
+            self.python.locator,
+            self.manager_script.locator,
+            "control-probe-v19",
+            "--state",
+            self.state_locator,
+            "--execution-authority",
+            self.execution_authority_locator,
+            "--output",
+            self.observation_locator,
+        )
+        if self.argv != expected:
+            raise ValueError("Matched control execution argv differs")
+        return self
+
+
+class LinuxMatchedControlExecutionV1(ContractV2):
+    schema_version: Literal[1] = 1  # type: ignore[assignment]
+    linux_matched_control_execution_id: Digest
+    payload: LinuxMatchedControlExecutionPayloadV1
+
+    @classmethod
+    def create(
+        cls, payload: LinuxMatchedControlExecutionPayloadV1
+    ) -> LinuxMatchedControlExecutionV1:
+        return cls(
+            linux_matched_control_execution_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxMatchedControlExecutionV1:
+        if self.linux_matched_control_execution_id != digest(
+            canonical(self.payload.model_dump(mode="json"))
+        ):
+            raise ValueError("Matched control execution authority hash mismatch")
+        return self
+
+
+class LinuxMatchedControlReceiptPayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    receipt_kind: Literal["linux_syscall_matched_control_receipt_v1"] = (
+        "linux_syscall_matched_control_receipt_v1"
+    )
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    authority: LinuxMatchedControlAuthorityV1
+    execution: LinuxMatchedControlExecutionV1
+    observation: LinuxMatchedControlObservationV1
+    unit_policy: LinuxSystemdControlPolicyObservationV1
+    exact_unit_cleanup_verified: Literal[True] = True
+
+    @model_validator(mode="after")
+    def exact_control_join(self) -> LinuxMatchedControlReceiptPayloadV1:
+        if (
+            self.observation.implementation_commit != self.implementation_commit
+            or self.observation.environment_instance_id != self.environment_instance_id
+            or self.observation.linux_cgroup_setup_state_id != self.linux_cgroup_setup_state_id
+            or self.observation.unit_name != self.authority.unit_name
+            or self.unit_policy.unit_name != self.authority.unit_name
+            or self.unit_policy.systemd_reported_filter
+            or self.observation.control_group != self.authority.control_group
+            or self.execution.payload.implementation_commit != self.implementation_commit
+            or self.execution.payload.environment_instance_id != self.environment_instance_id
+            or self.execution.payload.linux_cgroup_setup_state_id
+            != self.linux_cgroup_setup_state_id
+            or self.unit_policy.resources.service_uid != self.authority.service_uid
+            or self.unit_policy.resources.service_gid != self.authority.service_gid
+            or self.observation.memory_max != self.authority.limits.memory_max
+            or self.observation.pids_max != self.authority.limits.pids_max
+            or self.observation.cpu_max != self.authority.limits.cpu_max
+        ):
+            raise ValueError("Matched control receipt authority differs")
+        return self
+
+
+class LinuxMatchedControlReceiptV1(ContractV2):
+    schema_version: Literal[1] = 1  # type: ignore[assignment]
+    linux_syscall_matched_control_receipt_id: Digest
+    payload: LinuxMatchedControlReceiptPayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxMatchedControlReceiptPayloadV1) -> LinuxMatchedControlReceiptV1:
+        return cls(
+            linux_syscall_matched_control_receipt_id=digest(
+                canonical(payload.model_dump(mode="json"))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxMatchedControlReceiptV1:
+        if self.linux_syscall_matched_control_receipt_id != digest(
+            canonical(self.payload.model_dump(mode="json"))
+        ):
+            raise ValueError("Matched control receipt hash mismatch")
+        return self
+
+
+class LinuxSeccompProcessObservationV1(LinuxCgroupMemberObservationV1):
+    no_new_privs: Literal[1] = 1
+    seccomp_mode: Literal[2] = 2
+    seccomp_filters: Annotated[int, Field(ge=1)]
+
+
+class LinuxCgroupBoundaryObservationV2(LinuxCgroupBoundaryObservationV1):
+    observed_members: Annotated[tuple[LinuxSeccompProcessObservationV1, ...], Field(min_length=3)]
+
+    @model_validator(mode="after")
+    def exact_filter_inheritance(self) -> LinuxCgroupBoundaryObservationV2:
+        counts = {member.seccomp_filters for member in self.observed_members}
+        if len(counts) != 1:
+            raise ValueError("Seccomp filter count differs across the observed process tree")
+        return self
+
+
+class LinuxSyscallFilterObservationV1(Contract):
+    personality: LinuxRawPersonalityObservationV1
+    configured_allowlist_sha256: Digest
+
+    @model_validator(mode="after")
+    def personality_denied(self) -> LinuxSyscallFilterObservationV1:
+        if self.personality.result != -1 or self.personality.observed_errno != 1:
+            raise ValueError("Target personality syscall was not denied with EPERM")
+        if self.configured_allowlist_sha256 != LINUX_SYSCALL_ALLOWLIST_SHA256:
+            raise ValueError("Target syscall allowlist authority differs")
+        return self
+
+
+class LinuxIsolationProfilePayloadV18(LinuxIsolationProfilePayloadV17):
+    schema_version: Literal[18] = 18  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v18"] = "linux_native_isolation_v18"  # type: ignore[assignment]
+    syscall_filter: LinuxSyscallFilterBoundaryAuthorityV1
+    matched_control: LinuxMatchedControlReceiptV1
+
+    @model_validator(mode="after")
+    def exact_syscall_authority_join(self) -> LinuxIsolationProfilePayloadV18:
+        control = self.matched_control.payload
+        if (
+            control.environment_instance_id != self.environment_instance_id
+            or control.implementation_commit != self.implementation_commit
+            or control.linux_cgroup_setup_state_id != self.cgroup_setup_state_id
+            or control.authority != self.syscall_filter.matched_control
+        ):
+            raise ValueError("Linux V18 matched-control authority differs")
+        return self
+
+
+class LinuxIsolationProfileV18(ContractV2):
+    schema_version: Literal[18] = 18  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV18
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV18) -> LinuxIsolationProfileV18:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV18:
+        if self.linux_isolation_profile_id != digest(
+            canonical(self.payload.model_dump(mode="json"))
+        ):
+            raise ValueError("Linux isolation V18 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationObservationV18(LinuxIsolationObservationV16):
+    schema_version: Literal[18] = 18  # type: ignore[assignment]
+    cgroup: LinuxCgroupBoundaryObservationV2
+    syscall_filter: LinuxSyscallFilterObservationV1
+
+
+class LinuxIsolationReceiptPayloadV18(LinuxIsolationReceiptPayloadV16):
+    schema_version: Literal[18] = 18  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v18"] = (
+        "linux_native_isolation_receipt_v18"  # type: ignore[assignment]
+    )
+    observation: LinuxIsolationObservationV18
+    cgroup_resource_boundary_qualified: Literal[True] = True  # type: ignore[assignment]
+    syscall_filter_qualified: Literal[True] = True  # type: ignore[assignment]
+
+
+class LinuxIsolationReceiptV18(ContractV2):
+    schema_version: Literal[18] = 18  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV18
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV18) -> LinuxIsolationReceiptV18:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV18:
+        if self.linux_isolation_receipt_id != digest(
+            canonical(self.payload.model_dump(mode="json"))
+        ):
+            raise ValueError("Linux isolation V18 receipt hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV18(LinuxIsolationEvidencePayloadV16):
+    schema_version: Literal[18] = 18  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV18  # type: ignore[assignment]
+    receipt: LinuxIsolationReceiptV18  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def exact_v19_mechanics_join(self) -> LinuxIsolationEvidencePayloadV18:
+        authority = self.profile.payload
+        observed = self.receipt.payload.observation
+        if (
+            observed.cgroup.setup_state_id != authority.cgroup_setup_state_id
+            or observed.cgroup.control_group != authority.cgroup.control_group
+            or observed.syscall_filter.configured_allowlist_sha256
+            != authority.syscall_filter.policy.configured_allowlist_sha256
+        ):
+            raise ValueError("Linux V19 mechanics authority differs")
+        return self
+
+
+class LinuxIsolationEvidenceV18(ContractV2):
+    schema_version: Literal[18] = 18  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV18
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV18) -> LinuxIsolationEvidenceV18:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV18:
+        if self.linux_isolation_evidence_id != digest(
+            canonical(self.payload.model_dump(mode="json"))
+        ):
+            raise ValueError("Linux isolation V18 evidence hash mismatch")
+        return self
+
+
+class LinuxCgroupCleanupPayloadV3(LinuxCgroupCleanupPayloadV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    receipt_kind: Literal["linux_cgroup_cleanup_receipt_v3"] = "linux_cgroup_cleanup_receipt_v3"  # type: ignore[assignment]
+    unit_policy: LinuxSystemdUnitPolicyObservationV1
+    target_unit_absent: Literal[True] = True
+    target_cgroup_absent: Literal[True] = True
+    control_unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    control_control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    control_unit_absent: Literal[True] = True
+    control_cgroup_absent: Literal[True] = True
+
+
+class LinuxCgroupCleanupReceiptV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    linux_cgroup_cleanup_receipt_id: Digest
+    payload: LinuxCgroupCleanupPayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupCleanupPayloadV3) -> LinuxCgroupCleanupReceiptV3:
+        return cls(
+            linux_cgroup_cleanup_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupCleanupReceiptV3:
+        if self.linux_cgroup_cleanup_receipt_id != digest(
+            canonical(self.payload.model_dump(mode="json"))
+        ):
+            raise ValueError("Linux cgroup cleanup V3 receipt hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationPayloadV19(LinuxIsolationQualificationPayloadV16):
+    schema_version: Literal[19] = 19  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV18  # type: ignore[assignment]
+    cgroup_cleanup: LinuxCgroupCleanupReceiptV3
+    syscall_filter_qualified: Literal[True] = True
+    cgroup_resource_boundary_qualified: Literal[True] = True
+    native_executor_isolation_qualified: Literal[False] = False
+    package_readiness: Literal[False] = False
+
+    @model_validator(mode="after")
+    def exact_v19_join(self) -> LinuxIsolationQualificationPayloadV19:
+        profile = self.mechanics.payload.profile
+        cleanup = self.cgroup_cleanup.payload
+        policy = profile.payload.syscall_filter.policy
+        if (
+            cleanup.implementation_commit != profile.payload.implementation_commit
+            or cleanup.environment_instance_id != profile.payload.environment_instance_id
+            or cleanup.linux_isolation_profile_id != profile.linux_isolation_profile_id
+            or cleanup.linux_isolation_evidence_id != self.mechanics.linux_isolation_evidence_id
+            or cleanup.linux_cgroup_setup_state_id != profile.payload.cgroup_setup_state_id
+            or cleanup.unit_name != profile.payload.cgroup.unit_name
+            or cleanup.control_group != profile.payload.cgroup.control_group
+            or cleanup.unit_policy.unit_name != profile.payload.cgroup.unit_name
+            or cleanup.unit_policy.systemd_reported_filter != policy.configured_explicit_allowlist
+            or cleanup.control_unit_name != profile.payload.syscall_filter.matched_control.unit_name
+            or cleanup.control_control_group
+            != profile.payload.syscall_filter.matched_control.control_group
+        ):
+            raise ValueError("Linux V19 mechanics, policy and cleanup authority differ")
+        return self
+
+
+class LinuxCgroupRollbackPayloadV2(LinuxCgroupRollbackPayloadV1):
+    """Forward V19 rollback result for both exact transient authorities."""
+
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    receipt_kind: Literal["linux_cgroup_rollback_receipt_v2"] = "linux_cgroup_rollback_receipt_v2"  # type: ignore[assignment]
+    control_unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    control_control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    control_unit_absent: bool
+    control_cgroup_absent: bool
+
+    @model_validator(mode="after")
+    def truthful_complete_success(self) -> LinuxCgroupRollbackPayloadV2:
+        expected = (
+            self.unit_absent
+            and self.cgroup_absent
+            and self.control_unit_absent
+            and self.control_cgroup_absent
+        )
+        if self.cleanup_succeeded != expected:
+            raise ValueError("Linux V19 rollback success differs from absence observations")
+        return self
+
+
+class LinuxCgroupRollbackReceiptV2(ContractV2):
+    schema_version: Literal[2] = 2
+    linux_cgroup_rollback_receipt_id: Digest
+    payload: LinuxCgroupRollbackPayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupRollbackPayloadV2) -> LinuxCgroupRollbackReceiptV2:
+        return cls(
+            linux_cgroup_rollback_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupRollbackReceiptV2:
+        if self.linux_cgroup_rollback_receipt_id != digest(
+            canonical(self.payload.model_dump(mode="json"))
+        ):
+            raise ValueError("Linux V19 rollback receipt hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationV19(ContractV2):
+    schema_version: Literal[19] = 19  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV19
+
+    @classmethod
+    def create(
+        cls, payload: LinuxIsolationQualificationPayloadV19
+    ) -> LinuxIsolationQualificationV19:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV19:
+        if self.linux_isolation_qualification_id != digest(
+            canonical(self.payload.model_dump(mode="json"))
+        ):
+            raise ValueError("Linux isolation V19 qualification hash mismatch")
         return self
