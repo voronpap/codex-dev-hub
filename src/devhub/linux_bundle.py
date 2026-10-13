@@ -10,11 +10,12 @@ import hashlib
 import json
 import os
 import stat
+import struct
 import subprocess
 import tarfile
 import unicodedata
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Literal, cast
+from typing import Annotated, BinaryIO, Literal, cast
 
 from pydantic import Field, JsonValue, field_validator, model_validator
 
@@ -198,6 +199,159 @@ def inventory_linux_bundle(root: Path) -> tuple[LinuxBundleEntryV1, ...]:
     visit(root)
     records.sort(key=lambda item: item.path)
     return tuple(records)
+
+
+def is_linux_dynamic_elf(path: Path) -> bool:
+    """Identify one loadable/executable little-endian ELF64 object without execution."""
+
+    with path.open("rb") as stream:
+        header = stream.read(18)
+    return (
+        len(header) == 18
+        and header[:4] == b"\x7fELF"
+        and header[4:6] == b"\x02\x01"
+        and int.from_bytes(header[16:18], "little") in {2, 3}
+    )
+
+
+def inspect_linux_dynamic_elf(path: Path, relative: str) -> LinuxElfRequirementV1:
+    """Recompute PT_INTERP and dynamic-string authority with the Python stdlib."""
+
+    relative = _canonical_relative(relative)
+    size = path.stat().st_size
+    if size < 64:
+        raise ValueError(f"Linux runtime ELF header is truncated: {relative}")
+
+    def read_at(stream: BinaryIO, offset: int, length: int) -> bytes:
+        if offset < 0 or length < 0 or offset + length > size:
+            raise ValueError(f"Linux runtime ELF range is invalid: {relative}")
+        stream.seek(offset)
+        value = stream.read(length)
+        if len(value) != length:
+            raise ValueError(f"Linux runtime ELF range is truncated: {relative}")
+        return value
+
+    with path.open("rb") as stream:
+        header = read_at(stream, 0, 64)
+        (
+            ident,
+            elf_type,
+            machine,
+            _version,
+            _entry,
+            program_offset,
+            _section_offset,
+            _flags,
+            header_size,
+            program_entry_size,
+            program_count,
+            _section_entry_size,
+            _section_count,
+            _section_names,
+        ) = struct.unpack("<16sHHIQQQIHHHHHH", header)
+        if (
+            ident[:6] != b"\x7fELF\x02\x01"
+            or elf_type not in {2, 3}
+            or machine != 62
+            or header_size != 64
+            or program_entry_size < 56
+            or not 1 <= program_count <= 1024
+        ):
+            raise ValueError(f"Linux runtime object is not reviewed ELF64 x86-64: {relative}")
+        segments: list[tuple[int, int, int, int, int]] = []
+        interpreter: str | None = None
+        dynamic: tuple[int, int] | None = None
+        for index in range(program_count):
+            raw = read_at(stream, program_offset + index * program_entry_size, 56)
+            (
+                segment_type,
+                _segment_flags,
+                file_offset,
+                virtual_address,
+                _physical_address,
+                file_size,
+                _memory_size,
+                _alignment,
+            ) = struct.unpack("<IIQQQQQQ", raw)
+            segments.append((segment_type, file_offset, virtual_address, file_size, size))
+            if segment_type == 3:
+                raw_interpreter = read_at(stream, file_offset, file_size)
+                if not raw_interpreter.endswith(b"\x00"):
+                    raise ValueError(f"Linux runtime PT_INTERP is invalid: {relative}")
+                interpreter = raw_interpreter[:-1].decode("utf-8", errors="strict")
+            elif segment_type == 2:
+                dynamic = (file_offset, file_size)
+        if interpreter is not None and interpreter != "/lib64/ld-linux-x86-64.so.2":
+            raise ValueError(f"Linux runtime object uses another interpreter: {relative}")
+        needed_offsets: list[int] = []
+        rpath_offset: int | None = None
+        runpath_offset: int | None = None
+        string_address: int | None = None
+        string_size: int | None = None
+        if dynamic is not None:
+            dynamic_offset, dynamic_size = dynamic
+            if dynamic_size > 4 * 1024 * 1024 or dynamic_size % 16:
+                raise ValueError(f"Linux runtime dynamic table is invalid: {relative}")
+            for offset in range(dynamic_offset, dynamic_offset + dynamic_size, 16):
+                tag, value = struct.unpack("<qQ", read_at(stream, offset, 16))
+                if tag == 0:
+                    break
+                if tag == 1:
+                    needed_offsets.append(value)
+                elif tag == 5:
+                    string_address = value
+                elif tag == 10:
+                    string_size = value
+                elif tag == 15:
+                    rpath_offset = value
+                elif tag == 29:
+                    runpath_offset = value
+        if rpath_offset is not None or runpath_offset is not None:
+            raise ValueError(f"Linux runtime ELF contains RPATH/RUNPATH: {relative}")
+        if needed_offsets or rpath_offset is not None or runpath_offset is not None:
+            if (
+                string_address is None
+                or string_size is None
+                or not 1 <= string_size <= 16 * 1024**2
+            ):
+                raise ValueError(f"Linux runtime dynamic strings are invalid: {relative}")
+            string_offset: int | None = None
+            for segment_type, file_offset, virtual_address, file_size, _ in segments:
+                if (
+                    segment_type == 1
+                    and virtual_address <= string_address < virtual_address + file_size
+                ):
+                    string_offset = file_offset + string_address - virtual_address
+                    break
+            if string_offset is None:
+                raise ValueError(f"Linux runtime dynamic strings are unmapped: {relative}")
+            strings = read_at(stream, string_offset, string_size)
+
+            def dynamic_string(offset: int) -> str:
+                if offset >= len(strings):
+                    raise ValueError(f"Linux runtime dynamic string is invalid: {relative}")
+                end = strings.find(b"\x00", offset)
+                if end < 0:
+                    raise ValueError(f"Linux runtime dynamic string is unterminated: {relative}")
+                return strings[offset:end].decode("utf-8", errors="strict")
+
+            needed = tuple(sorted(set(dynamic_string(value) for value in needed_offsets)))
+            rpath = ()
+            runpath = ()
+        else:
+            needed = ()
+            rpath = ()
+            runpath = ()
+    return LinuxElfRequirementV1(
+        path=relative,
+        interpreter=cast(
+            Literal["/lib64/ld-linux-x86-64.so.2"] | None,
+            interpreter,
+        ),
+        needed=needed,
+        rpath=rpath,
+        runpath=runpath,
+    )
 
 
 class LinuxModuleOriginV1(Contract):
@@ -390,6 +544,117 @@ class LinuxLauncherV1(Contract):
     mutable_state_external: Literal[True] = True
 
 
+class LinuxRuntimeLibraryV1(Contract):
+    """One exact DT_NEEDED name supplied by the immutable runtime closure."""
+
+    soname: str = Field(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_.+\-]+$")
+    path: str = Field(min_length=1, max_length=1024)
+    size: Annotated[int, Field(ge=1)]
+    sha256: Digest
+
+    @model_validator(mode="after")
+    def exact_path(self) -> LinuxRuntimeLibraryV1:
+        if self.path != f"runtime/lib/{self.soname}":
+            raise ValueError("Linux runtime library path differs from its SONAME")
+        return self
+
+
+class LinuxElfRequirementV1(Contract):
+    """Static ELF dependency observation for one manifest-bound bundle file."""
+
+    path: str = Field(min_length=1, max_length=1024)
+    interpreter: Literal["/lib64/ld-linux-x86-64.so.2"] | None = None
+    needed: tuple[str, ...] = ()
+    rpath: tuple[str, ...] = ()
+    runpath: tuple[str, ...] = ()
+
+    @field_validator("path")
+    @classmethod
+    def canonical_path(cls, value: str) -> str:
+        return _canonical_relative(value)
+
+    @field_validator("needed")
+    @classmethod
+    def canonical_needed(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if value != tuple(sorted(set(value))):
+            raise ValueError("Linux ELF DT_NEEDED names must be unique and sorted")
+        if any(
+            not item or len(item) > 255 or "/" in item or "\\" in item or "\x00" in item
+            for item in value
+        ):
+            raise ValueError("Linux ELF DT_NEEDED name is unsafe")
+        return value
+
+    @field_validator("rpath", "runpath")
+    @classmethod
+    def no_ambient_search_path(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if value:
+            raise ValueError("Linux runtime ELF RPATH/RUNPATH is not allowed")
+        return value
+
+
+class LinuxRuntimeClosureV1(Contract):
+    """Closed, exact glibc loader/library authority for post-chroot execution."""
+
+    loader_path: Literal["runtime/loader/ld-linux-x86-64.so.2"] = (
+        "runtime/loader/ld-linux-x86-64.so.2"
+    )
+    loader_sha256: Digest
+    loader_size: Annotated[int, Field(ge=1)]
+    embedded_interpreter: Literal["/lib64/ld-linux-x86-64.so.2"] = "/lib64/ld-linux-x86-64.so.2"
+    library_directory: Literal["runtime/lib"] = "runtime/lib"
+    loader_arguments: tuple[Literal["--inhibit-cache"], Literal["--library-path"]] = (
+        "--inhibit-cache",
+        "--library-path",
+    )
+    libraries: tuple[LinuxRuntimeLibraryV1, ...] = Field(min_length=1, max_length=256)
+    elf_requirements: tuple[LinuxElfRequirementV1, ...] = Field(min_length=4)
+
+    @model_validator(mode="after")
+    def exact_recursive_closure(self) -> LinuxRuntimeClosureV1:
+        library_names = [item.soname for item in self.libraries]
+        if library_names != sorted(library_names) or len(library_names) != len(set(library_names)):
+            raise ValueError("Linux runtime libraries must be unique and sorted")
+        object_paths = [item.path for item in self.elf_requirements]
+        if object_paths != sorted(object_paths) or len(object_paths) != len(set(object_paths)):
+            raise ValueError("Linux ELF requirements must be unique and sorted")
+        required_objects = {
+            "python/bin/python3.12",
+            "codex/codex",
+            "codex/codex-code-mode-host",
+            self.loader_path,
+            *(item.path for item in self.libraries),
+        }
+        if not required_objects.issubset(object_paths):
+            raise ValueError("Linux runtime closure omits a required ELF object")
+        needed = {name for item in self.elf_requirements for name in item.needed}
+        loader_name = PurePosixPath(self.loader_path).name
+        if needed - {loader_name} != set(library_names):
+            raise ValueError("Linux runtime libraries differ from recursive DT_NEEDED closure")
+        interpreted = {item.path for item in self.elf_requirements if item.interpreter is not None}
+        if not {
+            "python/bin/python3.12",
+            "codex/codex",
+            "codex/codex-code-mode-host",
+        }.issubset(interpreted):
+            raise ValueError("Linux executable interpreter authority is incomplete")
+        return self
+
+
+class LinuxLauncherV2(LinuxLauncherV1):
+    """Launcher that enters the exact bundle-owned dynamic runtime."""
+
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    loader_path: Literal["runtime/loader/ld-linux-x86-64.so.2"] = (
+        "runtime/loader/ld-linux-x86-64.so.2"
+    )
+    library_directory: Literal["runtime/lib"] = "runtime/lib"
+    loader_arguments: tuple[Literal["--inhibit-cache"], Literal["--library-path"]] = (
+        "--inhibit-cache",
+        "--library-path",
+    )
+
+
 class LinuxNativeBundlePayloadV1(Contract):
     kind: Literal["devfabric_linux_native_directory"] = "devfabric_linux_native_directory"
     platform: Literal["linux"] = "linux"
@@ -441,7 +706,10 @@ class LinuxNativeBundlePayloadV1(Contract):
         forbidden = {"config", "data", "ledger", "logs", "projects", "secrets", "evidence"}
         if top_level & forbidden:
             raise ValueError("Mutable state must remain outside the Linux bundle")
-        if top_level != {"authority", "bin", "codex", "python"}:
+        expected_top_level = {"authority", "bin", "codex", "python"}
+        if getattr(self, "runtime_closure", None) is not None:
+            expected_top_level.add("runtime")
+        if top_level != expected_top_level:
             raise ValueError("Linux bundle contains an unreviewed top-level path")
         authority_files = {
             path
@@ -559,6 +827,55 @@ class LinuxNativeBundlePayloadV8(LinuxNativeBundlePayloadV7):
     """Forward bundle with the versioned packaged-subprocess capture frame."""
 
     schema_version: Literal[8] = 8  # type: ignore[assignment]
+
+
+class LinuxNativeBundlePayloadV9(LinuxNativeBundlePayloadV8):
+    """Forward bundle with an exact post-chroot dynamic-runtime closure."""
+
+    schema_version: Literal[9] = 9  # type: ignore[assignment]
+    launcher: LinuxLauncherV2
+    runtime_closure: LinuxRuntimeClosureV1
+
+    @model_validator(mode="after")
+    def exact_runtime_files(self) -> LinuxNativeBundlePayloadV9:
+        by_path = {item.path: item for item in self.files}
+        runtime_files = {
+            path
+            for path, item in by_path.items()
+            if item.kind == "file" and PurePosixPath(path).parts[0] == "runtime"
+        }
+        expected = {
+            self.runtime_closure.loader_path,
+            *(item.path for item in self.runtime_closure.libraries),
+        }
+        if runtime_files != expected:
+            raise ValueError("Linux runtime directory differs from closure authority")
+        loader = by_path.get(self.runtime_closure.loader_path)
+        if (
+            loader is None
+            or loader.kind != "file"
+            or loader.sha256 != self.runtime_closure.loader_sha256
+            or loader.size != self.runtime_closure.loader_size
+            or loader.mode != 0o755
+        ):
+            raise ValueError("Linux dynamic loader differs from closure authority")
+        for library in self.runtime_closure.libraries:
+            entry = by_path.get(library.path)
+            if (
+                entry is None
+                or entry.kind != "file"
+                or entry.sha256 != library.sha256
+                or entry.size != library.size
+            ):
+                raise ValueError("Linux shared library differs from closure authority")
+        runtime_directories = {
+            path
+            for path, item in by_path.items()
+            if item.kind == "directory" and PurePosixPath(path).parts[0] == "runtime"
+        }
+        if runtime_directories != {"runtime", "runtime/lib", "runtime/loader"}:
+            raise ValueError("Linux runtime directory tree is not closed")
+        return self
 
 
 class LinuxNativeBundleV1(Contract):
@@ -733,6 +1050,28 @@ class LinuxNativeBundleV8(Contract):
         expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
         if self.linux_native_bundle_id != expected:
             raise ValueError("Linux native V8 bundle ID mismatch")
+        return self
+
+
+class LinuxNativeBundleV9(Contract):
+    schema_version: Literal[9] = 9  # type: ignore[assignment]
+    linux_native_bundle_id: Digest
+    payload: LinuxNativeBundlePayloadV9
+
+    @classmethod
+    def create(cls, payload: LinuxNativeBundlePayloadV9) -> LinuxNativeBundleV9:
+        return cls(
+            linux_native_bundle_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeBundleV9:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_bundle_id != expected:
+            raise ValueError("Linux native V9 bundle ID mismatch")
         return self
 
 
@@ -948,8 +1287,70 @@ class LinuxNativeArchiveV8(Contract):
         return self
 
 
+class LinuxNativeArchivePayloadV9(LinuxNativeArchivePayloadV1):
+    schema_version: Literal[9] = 9  # type: ignore[assignment]
+
+
+class LinuxNativeArchiveV9(Contract):
+    schema_version: Literal[9] = 9  # type: ignore[assignment]
+    linux_native_archive_id: Digest
+    payload: LinuxNativeArchivePayloadV9
+
+    @classmethod
+    def create(cls, payload: LinuxNativeArchivePayloadV9) -> LinuxNativeArchiveV9:
+        return cls(
+            linux_native_archive_id=digest(
+                canonical(cast(JsonValue, payload.model_dump(mode="json")))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> LinuxNativeArchiveV9:
+        expected = digest(canonical(cast(JsonValue, self.payload.model_dump(mode="json"))))
+        if self.linux_native_archive_id != expected:
+            raise ValueError("Linux native V9 archive ID mismatch")
+        return self
+
+
+def bundled_loader_command(
+    root: Path,
+    closure: LinuxRuntimeClosureV1,
+    program_relative: str,
+    arguments: tuple[str, ...],
+) -> list[str]:
+    """Build an exact bundle-only dynamic-loader invocation."""
+
+    relative = _canonical_relative(program_relative)
+    root = Path(os.path.abspath(root))
+    loader = root.joinpath(*closure.loader_path.split("/"))
+    library_directory = root.joinpath(*closure.library_directory.split("/"))
+    program = root.joinpath(*relative.split("/"))
+    for path, label in (
+        (loader, "dynamic loader"),
+        (library_directory, "runtime library directory"),
+        (program, "runtime program"),
+    ):
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(root.resolve(strict=True)):
+            raise ValueError(f"Linux {label} escapes the bundle")
+    if file_sha256(loader) != closure.loader_sha256:
+        raise ValueError("Linux dynamic loader bytes differ from closure authority")
+    return [
+        str(loader),
+        *closure.loader_arguments,
+        str(library_directory),
+        str(program),
+        *arguments,
+    ]
+
+
 def observe_linux_runtime(
-    interpreter: Path, devhub_wheel: Path, lock_path: Path, source_commit: str
+    interpreter: Path,
+    devhub_wheel: Path,
+    lock_path: Path,
+    source_commit: str,
+    closure: LinuxRuntimeClosureV1 | None = None,
 ) -> LinuxPythonRuntimeV1:
     """Observe the relocated runtime under hostile ambient Python configuration."""
 
@@ -961,8 +1362,16 @@ def observe_linux_runtime(
         "PYTHONHOME": str(bundle_root.parent / "untrusted-pythonhome"),
         "PYTHONUSERBASE": str(bundle_root.parent / "untrusted-user-site"),
     }
+    command = [str(interpreter), "-I", "-B", "-c", _INSPECT]
+    if closure is not None:
+        command = bundled_loader_command(
+            bundle_root,
+            closure,
+            interpreter.relative_to(bundle_root).as_posix(),
+            ("-I", "-B", "-c", _INSPECT),
+        )
     raw = subprocess.check_output(
-        [str(interpreter), "-I", "-B", "-c", _INSPECT],
+        command,
         cwd=bundle_root.parent,
         env=environment,
         timeout=120,
@@ -1045,6 +1454,7 @@ LinuxNativeBundle = (
     | LinuxNativeBundleV6
     | LinuxNativeBundleV7
     | LinuxNativeBundleV8
+    | LinuxNativeBundleV9
 )
 LinuxNativeArchive = (
     LinuxNativeArchiveV1
@@ -1055,6 +1465,7 @@ LinuxNativeArchive = (
     | LinuxNativeArchiveV6
     | LinuxNativeArchiveV7
     | LinuxNativeArchiveV8
+    | LinuxNativeArchiveV9
 )
 
 
@@ -1079,7 +1490,9 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         | LinuxNativeCodexBuildV11
         | LinuxNativeCodexBuildV12
     )
-    if isinstance(bundle, (LinuxNativeBundleV6, LinuxNativeBundleV7, LinuxNativeBundleV8)):
+    if isinstance(
+        bundle, (LinuxNativeBundleV6, LinuxNativeBundleV7, LinuxNativeBundleV8, LinuxNativeBundleV9)
+    ):
         receipt = LinuxNativeCodexBuildV12.model_validate_json(receipt_path.read_bytes())
     elif isinstance(bundle, LinuxNativeBundleV5):
         receipt = LinuxNativeCodexBuildV11.model_validate_json(receipt_path.read_bytes())
@@ -1119,11 +1532,23 @@ def verify_linux_native_bundle(bundle: LinuxNativeBundle, root: Path) -> None:
         or file_sha256(root / codex.code_mode_host_path) != codex.code_mode_host_sha256
     ):
         raise ValueError("Linux Codex artifact differs from bundle authority")
+    if isinstance(bundle, LinuxNativeBundleV9):
+        observed_elf: list[LinuxElfRequirementV1] = []
+        for item in bundle.payload.files:
+            if item.kind != "file":
+                continue
+            path = root.joinpath(*item.path.split("/"))
+            if is_linux_dynamic_elf(path):
+                observed_elf.append(inspect_linux_dynamic_elf(path, item.path))
+        observed_elf.sort(key=lambda item: item.path)
+        if tuple(observed_elf) != bundle.payload.runtime_closure.elf_requirements:
+            raise ValueError("Linux ELF inventory differs from runtime closure authority")
     runtime = observe_linux_runtime(
         root / bundle.payload.python.executable_path,
         root / bundle.payload.python.devhub_wheel_path,
         root / bundle.payload.python.dependency_lock_path,
         bundle.payload.implementation_commit,
+        bundle.payload.runtime_closure if isinstance(bundle, LinuxNativeBundleV9) else None,
     )
     if runtime != bundle.payload.python.runtime:
         raise ValueError("Linux Python runtime differs from sealed observation")
@@ -1167,7 +1592,7 @@ def extract_and_verify_linux_archive(
     return root
 
 
-def smoke_linux_bundle_cli(root: Path) -> None:
+def smoke_linux_bundle_cli(root: Path, bundle: LinuxNativeBundleV9 | None = None) -> None:
     """Run one metadata-only command through the packaged relative launcher."""
 
     environment = {
@@ -1176,8 +1601,16 @@ def smoke_linux_bundle_cli(root: Path) -> None:
         "PYTHONHOME": str(root.parent / "untrusted-pythonhome"),
         "PYTHONUSERBASE": str(root.parent / "untrusted-user-site"),
     }
+    command = [str(root / "bin/devfabric"), "schema"]
+    if bundle is not None:
+        command = bundled_loader_command(
+            root,
+            bundle.payload.runtime_closure,
+            bundle.payload.python.executable_path,
+            ("-I", "-B", "-m", "devhub.cli", "schema"),
+        )
     completed = subprocess.run(
-        [str(root / "bin/devfabric"), "schema"],
+        command,
         cwd=root.parent,
         env=environment,
         check=True,
@@ -1256,6 +1689,9 @@ def verify_linux_native_release(release: Path, destination: Path) -> LinuxNative
     elif manifest_version == 8 and archive_version == 8:
         bundle = LinuxNativeBundleV8.model_validate_json(manifest_raw)
         archive = LinuxNativeArchiveV8.model_validate_json(archive_raw)
+    elif manifest_version == 9 and archive_version == 9:
+        bundle = LinuxNativeBundleV9.model_validate_json(manifest_raw)
+        archive = LinuxNativeArchiveV9.model_validate_json(archive_raw)
     else:
         raise ValueError("Linux native release schema versions differ or are unsupported")
     if (
@@ -1266,7 +1702,10 @@ def verify_linux_native_release(release: Path, destination: Path) -> LinuxNative
     ):
         raise ValueError("Linux native release files do not share one authority")
     extracted = extract_and_verify_linux_archive(archive_path, destination, bundle)
-    smoke_linux_bundle_cli(extracted)
+    if isinstance(bundle, LinuxNativeBundleV9):
+        smoke_linux_bundle_cli(extracted, bundle)
+    else:
+        smoke_linux_bundle_cli(extracted)
     return archive
 
 

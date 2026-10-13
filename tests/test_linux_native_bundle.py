@@ -5,6 +5,8 @@ import io
 import json
 import os
 import shutil
+import struct
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -22,7 +24,9 @@ from devhub.linux_bundle import (
     LinuxCodexAuthorityV4,
     LinuxCodexAuthorityV5,
     LinuxCodexAuthorityV6,
+    LinuxElfRequirementV1,
     LinuxLauncherV1,
+    LinuxLauncherV2,
     LinuxModuleOriginV1,
     LinuxNativeArchivePayloadV1,
     LinuxNativeArchivePayloadV2,
@@ -32,6 +36,7 @@ from devhub.linux_bundle import (
     LinuxNativeArchivePayloadV6,
     LinuxNativeArchivePayloadV7,
     LinuxNativeArchivePayloadV8,
+    LinuxNativeArchivePayloadV9,
     LinuxNativeArchiveV1,
     LinuxNativeArchiveV2,
     LinuxNativeArchiveV3,
@@ -40,6 +45,7 @@ from devhub.linux_bundle import (
     LinuxNativeArchiveV6,
     LinuxNativeArchiveV7,
     LinuxNativeArchiveV8,
+    LinuxNativeArchiveV9,
     LinuxNativeBundlePayloadV1,
     LinuxNativeBundlePayloadV2,
     LinuxNativeBundlePayloadV3,
@@ -48,6 +54,7 @@ from devhub.linux_bundle import (
     LinuxNativeBundlePayloadV6,
     LinuxNativeBundlePayloadV7,
     LinuxNativeBundlePayloadV8,
+    LinuxNativeBundlePayloadV9,
     LinuxNativeBundleV1,
     LinuxNativeBundleV2,
     LinuxNativeBundleV3,
@@ -56,10 +63,15 @@ from devhub.linux_bundle import (
     LinuxNativeBundleV6,
     LinuxNativeBundleV7,
     LinuxNativeBundleV8,
+    LinuxNativeBundleV9,
     LinuxPythonAuthorityV1,
     LinuxPythonRuntimePayloadV1,
     LinuxPythonRuntimeV1,
+    LinuxRuntimeClosureV1,
+    LinuxRuntimeLibraryV1,
+    bundled_loader_command,
     extract_and_verify_linux_archive,
+    inspect_linux_dynamic_elf,
     inventory_linux_bundle,
     observe_linux_runtime,
     smoke_linux_bundle_cli,
@@ -104,6 +116,69 @@ def _write(root: Path, relative: str, value: bytes) -> Path:
     return path
 
 
+def _minimal_dynamic_elf(
+    *,
+    interpreter: str = "/lib64/ld-linux-x86-64.so.2",
+    needed: tuple[str, ...] = ("libc.so.6",),
+    rpath: str | None = None,
+    runpath: str | None = None,
+) -> bytes:
+    string_values = [*needed]
+    if rpath is not None:
+        string_values.append(rpath)
+    if runpath is not None:
+        string_values.append(runpath)
+    strings = bytearray(b"\x00")
+    offsets: list[int] = []
+    for value in string_values:
+        offsets.append(len(strings))
+        strings.extend(value.encode("utf-8") + b"\x00")
+    dynamic: list[tuple[int, int]] = [(5, 0x400300), (10, len(strings))]
+    dynamic.extend((1, offsets[index]) for index in range(len(needed)))
+    cursor = len(needed)
+    if rpath is not None:
+        dynamic.append((15, offsets[cursor]))
+        cursor += 1
+    if runpath is not None:
+        dynamic.append((29, offsets[cursor]))
+    dynamic.append((0, 0))
+    dynamic_bytes = b"".join(struct.pack("<qQ", *item) for item in dynamic)
+    interpreter_bytes = interpreter.encode("utf-8") + b"\x00"
+    total = max(0x300 + len(strings), 0x200 + len(dynamic_bytes), 0x180 + len(interpreter_bytes))
+    value = bytearray(total)
+    ident = bytearray(16)
+    ident[:7] = b"\x7fELF\x02\x01\x01"
+    value[:64] = struct.pack(
+        "<16sHHIQQQIHHHHHH",
+        bytes(ident),
+        3,
+        62,
+        1,
+        0,
+        64,
+        0,
+        0,
+        64,
+        56,
+        3,
+        0,
+        0,
+        0,
+    )
+    program_headers = (
+        (1, 5, 0, 0x400000, 0, total, total, 0x1000),
+        (3, 4, 0x180, 0x400180, 0, len(interpreter_bytes), len(interpreter_bytes), 1),
+        (2, 4, 0x200, 0x400200, 0, len(dynamic_bytes), len(dynamic_bytes), 8),
+    )
+    for index, item in enumerate(program_headers):
+        start = 64 + index * 56
+        value[start : start + 56] = struct.pack("<IIQQQQQQ", *item)
+    value[0x180 : 0x180 + len(interpreter_bytes)] = interpreter_bytes
+    value[0x200 : 0x200 + len(dynamic_bytes)] = dynamic_bytes
+    value[0x300 : 0x300 + len(strings)] = strings
+    return bytes(value)
+
+
 def _entries(root: Path) -> tuple[LinuxBundleEntryV1, ...]:
     executable = {
         "python/bin/python3.12",
@@ -111,6 +186,7 @@ def _entries(root: Path) -> tuple[LinuxBundleEntryV1, ...]:
         "codex/codex-code-mode-host",
         "bin/devfabric",
         "bin/devhub-delegate-server",
+        "runtime/loader/ld-linux-x86-64.so.2",
     }
     values: list[LinuxBundleEntryV1] = []
     for path in root.rglob("*"):
@@ -295,6 +371,66 @@ def materialize_v8(root: Path) -> LinuxNativeBundleV8:
     return LinuxNativeBundleV8.create(LinuxNativeBundlePayloadV8.model_validate(raw))
 
 
+def materialize_v9(root: Path) -> LinuxNativeBundleV9:
+    current = materialize_v8(root)
+    loader = _write(root, "runtime/loader/ld-linux-x86-64.so.2", b"loader")
+    libc = _write(root, "runtime/lib/libc.so.6", b"libc")
+    libm = _write(root, "runtime/lib/libm.so.6", b"libm")
+    closure = LinuxRuntimeClosureV1(
+        loader_sha256=file_sha256(loader),
+        loader_size=loader.stat().st_size,
+        libraries=(
+            LinuxRuntimeLibraryV1(
+                soname="libc.so.6",
+                path="runtime/lib/libc.so.6",
+                size=libc.stat().st_size,
+                sha256=file_sha256(libc),
+            ),
+            LinuxRuntimeLibraryV1(
+                soname="libm.so.6",
+                path="runtime/lib/libm.so.6",
+                size=libm.stat().st_size,
+                sha256=file_sha256(libm),
+            ),
+        ),
+        elf_requirements=(
+            LinuxElfRequirementV1(
+                path="codex/codex",
+                interpreter="/lib64/ld-linux-x86-64.so.2",
+                needed=("libc.so.6",),
+            ),
+            LinuxElfRequirementV1(
+                path="codex/codex-code-mode-host",
+                interpreter="/lib64/ld-linux-x86-64.so.2",
+                needed=("libc.so.6",),
+            ),
+            LinuxElfRequirementV1(
+                path="python/bin/python3.12",
+                interpreter="/lib64/ld-linux-x86-64.so.2",
+                needed=("libc.so.6",),
+            ),
+            LinuxElfRequirementV1(
+                path="runtime/lib/libc.so.6",
+                needed=("ld-linux-x86-64.so.2", "libm.so.6"),
+            ),
+            LinuxElfRequirementV1(path="runtime/lib/libm.so.6"),
+            LinuxElfRequirementV1(path="runtime/loader/ld-linux-x86-64.so.2"),
+        ),
+    )
+    raw = current.payload.model_dump(mode="python")
+    raw["schema_version"] = 9
+    raw["launcher"] = {
+        **raw["launcher"],
+        "schema_version": 2,
+        "loader_path": "runtime/loader/ld-linux-x86-64.so.2",
+        "library_directory": "runtime/lib",
+        "loader_arguments": ("--inhibit-cache", "--library-path"),
+    }
+    raw["runtime_closure"] = closure.model_dump(mode="python")
+    raw["files"] = tuple(item.model_dump(mode="python") for item in _entries(root))
+    return LinuxNativeBundleV9.create(LinuxNativeBundlePayloadV9.model_validate(raw))
+
+
 def reviewable_v12_artifact(root: Path) -> None:
     linux_pass_artifact(
         root,
@@ -316,6 +452,7 @@ def write_test_archive(
     | LinuxNativeArchiveV6
     | LinuxNativeArchiveV7
     | LinuxNativeArchiveV8
+    | LinuxNativeArchiveV9
 ):
     archive_path = release / BUILDER.ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
@@ -335,6 +472,7 @@ def write_test_archive(
             | LinuxNativeArchiveV6
             | LinuxNativeArchiveV7
             | LinuxNativeArchiveV8
+            | LinuxNativeArchiveV9
         ) = LinuxNativeArchiveV1.create(LinuxNativeArchivePayloadV1(**fields))
     elif schema_version == 2:
         receipt = LinuxNativeArchiveV2.create(LinuxNativeArchivePayloadV2(**fields))
@@ -348,8 +486,10 @@ def write_test_archive(
         receipt = LinuxNativeArchiveV6.create(LinuxNativeArchivePayloadV6(**fields))
     elif schema_version == 7:
         receipt = LinuxNativeArchiveV7.create(LinuxNativeArchivePayloadV7(**fields))
-    else:
+    elif schema_version == 8:
         receipt = LinuxNativeArchiveV8.create(LinuxNativeArchivePayloadV8(**fields))
+    else:
+        receipt = LinuxNativeArchiveV9.create(LinuxNativeArchivePayloadV9(**fields))
     (release / BUILDER.ARCHIVE_RECEIPT_NAME).write_text(receipt.model_dump_json(), encoding="utf-8")
     return receipt
 
@@ -493,7 +633,61 @@ def test_linux_native_bundle_v8_preserves_split_authority_and_versions_capture_f
     assert LinuxNativeBundleV7.model_validate_json(historical.model_dump_json()) == historical
 
 
-@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6, 7, 8))
+def test_linux_native_bundle_v9_binds_exact_recursive_loader_closure(tmp_path: Path) -> None:
+    current = materialize_v9(tmp_path / "current")
+    assert LinuxNativeBundleV9.model_validate_json(current.model_dump_json()) == current
+    assert current.payload.schema_version == 9
+    assert isinstance(current.payload.launcher, LinuxLauncherV2)
+    assert current.payload.runtime_closure.embedded_interpreter == ("/lib64/ld-linux-x86-64.so.2")
+    assert [item.soname for item in current.payload.runtime_closure.libraries] == [
+        "libc.so.6",
+        "libm.so.6",
+    ]
+    assert current.payload.native_executor_isolation_qualified is False
+    assert current.payload.package_readiness is False
+
+    raw = current.payload.model_dump(mode="python")
+    raw["runtime_closure"]["libraries"][0]["soname"] = "liba.so.1"
+    raw["runtime_closure"]["libraries"][0]["path"] = "runtime/lib/liba.so.1"
+    with pytest.raises(ValidationError, match="required ELF object"):
+        LinuxNativeBundlePayloadV9.model_validate(raw)
+
+    substituted = current.payload.model_dump(mode="python")
+    substituted["runtime_closure"]["libraries"][1]["sha256"] = "0" * 64
+    with pytest.raises(ValidationError, match="library differs from closure authority"):
+        LinuxNativeBundlePayloadV9.model_validate(substituted)
+
+    historical = materialize_v8(tmp_path / "historical")
+    assert LinuxNativeBundleV8.model_validate_json(historical.model_dump_json()) == historical
+
+
+def test_linux_bundle_loader_command_is_exact_and_rejects_tamper(tmp_path: Path) -> None:
+    bundle = materialize_v9(tmp_path / "bundle")
+    closure = bundle.payload.runtime_closure
+    command = bundled_loader_command(
+        tmp_path / "bundle",
+        closure,
+        "python/bin/python3.12",
+        ("-I", "-B", "-m", "devhub.cli", "schema"),
+    )
+    assert command == [
+        str(tmp_path / "bundle/runtime/loader/ld-linux-x86-64.so.2"),
+        "--inhibit-cache",
+        "--library-path",
+        str(tmp_path / "bundle/runtime/lib"),
+        str(tmp_path / "bundle/python/bin/python3.12"),
+        "-I",
+        "-B",
+        "-m",
+        "devhub.cli",
+        "schema",
+    ]
+    (tmp_path / "bundle/runtime/loader/ld-linux-x86-64.so.2").write_bytes(b"changed")
+    with pytest.raises(ValueError, match="loader bytes differ"):
+        bundled_loader_command(tmp_path / "bundle", closure, "python/bin/python3.12", ("-I",))
+
+
+@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6, 7, 8, 9))
 def test_linux_release_rejects_mixed_manifest_and_archive_versions(
     tmp_path: Path, manifest_version: int
 ) -> None:
@@ -515,6 +709,8 @@ def test_linux_release_rejects_mixed_manifest_and_archive_versions(
         else materialize_v7(root)
         if manifest_version == 7
         else materialize_v8(root)
+        if manifest_version == 8
+        else materialize_v9(root)
     )
     (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
     write_test_archive(release, bundle.linux_native_bundle_id, 2 if manifest_version != 2 else 1)
@@ -753,8 +949,8 @@ def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     assert "scripts/verify_linux_native_bundle.py" in workflow
     builder = (ROOT / "scripts/build_linux_native_bundle.py").read_text(encoding="utf-8")
     assert 'ARCHIVE_NAME = "devfabric-linux-native.tar.gz"' in builder
-    assert "LinuxNativeBundleV8.create" in builder
-    assert "LinuxNativeBundleV7.create" not in builder
+    assert "LinuxNativeBundleV9.create" in builder
+    assert "LinuxNativeBundleV8.create" not in builder
     source = (ROOT / "src/devhub/linux_bundle.py").read_text(encoding="utf-8")
     assert "native_executor_isolation_qualified: Literal[False]" in source
     assert "package_readiness: Literal[False]" in source
@@ -772,6 +968,112 @@ def test_linux_bundle_builder_rejects_external_runtime_symlink(tmp_path: Path) -
         pytest.skip("symlink creation unavailable")
     with pytest.raises(ValueError, match="symlink escapes"):
         BUILDER._validate_source_prefix(source)
+
+
+def test_linux_bundle_elf_observation_is_strict_static_and_rejects_search_paths(
+    tmp_path: Path,
+) -> None:
+    elf = _write(
+        tmp_path,
+        "python",
+        _minimal_dynamic_elf(needed=("libpython3.12.so.1.0", "libc.so.6")),
+    )
+    observed = inspect_linux_dynamic_elf(elf, "python/bin/python3.12")
+    assert observed.interpreter == "/lib64/ld-linux-x86-64.so.2"
+    assert observed.needed == ("libc.so.6", "libpython3.12.so.1.0")
+
+    elf.write_bytes(_minimal_dynamic_elf(needed=("libc.so.6", "libz.so.1")))
+    substituted = inspect_linux_dynamic_elf(elf, "python/bin/python3.12")
+    assert substituted != observed
+    assert substituted.needed == ("libc.so.6", "libz.so.1")
+
+    elf.write_bytes(_minimal_dynamic_elf(interpreter="/unreviewed/loader"))
+    with pytest.raises(ValueError, match="another interpreter"):
+        inspect_linux_dynamic_elf(elf, "python/bin/python3.12")
+
+
+@pytest.mark.parametrize("value", ("", ":", "::", "$ORIGIN/../lib", "/usr/lib"))
+@pytest.mark.parametrize("tag", ("rpath", "runpath"))
+def test_linux_bundle_elf_observation_rejects_any_search_path_tag(
+    tmp_path: Path, tag: str, value: str
+) -> None:
+    arguments = {tag: value}
+    elf = _write(tmp_path, f"{tag}-{len(value)}", _minimal_dynamic_elf(**arguments))
+    with pytest.raises(ValueError, match="contains RPATH/RUNPATH"):
+        inspect_linux_dynamic_elf(elf, "python/bin/python3.12")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Bundled glibc resolution is Linux-only")
+def test_linux_bundle_loader_resolution_rejects_ambient_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "bundle"
+    bundle = materialize_v9(root)
+    closure = bundle.payload.runtime_closure
+    ambient = _write(tmp_path, "ambient/libc.so.6", b"ambient")
+
+    def completed(*, ambient_libc: bool) -> subprocess.CompletedProcess[bytes]:
+        lines = [
+            f"{closure.embedded_interpreter} (0x0000000000000001)",
+            "linux-vdso.so.1 (0x0000000000000002)",
+        ]
+        for library in closure.libraries:
+            locator = root / library.path
+            if ambient_libc and library.soname == "libc.so.6":
+                locator = ambient
+            lines.append(f"{library.soname} => {locator} (0x0000000000000003)")
+        return subprocess.CompletedProcess([], 0, ("\n".join(lines) + "\n").encode(), b"")
+
+    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: completed(ambient_libc=False))
+    BUILDER._verify_loader_resolution(root, closure)
+
+    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: completed(ambient_libc=True))
+    with pytest.raises(ValueError, match="ambient dependency: libc.so.6"):
+        BUILDER._verify_loader_resolution(root, closure)
+
+
+def test_linux_bundle_copies_transitive_runtime_closure_as_plain_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "bundle"
+    objects = tuple(
+        _write(root, relative, b"\x7fELF-object")
+        for relative in (
+            "python/bin/python3.12",
+            "codex/codex",
+            "codex/codex-code-mode-host",
+        )
+    )
+    sources = tmp_path / "sources"
+    loader = _write(sources, "ld-linux-x86-64.so.2", b"loader")
+    libc = _write(sources, "libc.so.6", b"libc")
+    libm = _write(sources, "libm.so.6", b"libm")
+    monkeypatch.setattr(BUILDER, "_EXPECTED_INTERPRETER", str(loader))
+    monkeypatch.setattr(BUILDER, "_elf_files", lambda _: objects)
+    monkeypatch.setattr(
+        BUILDER,
+        "inspect_linux_dynamic_elf",
+        lambda _path, relative: LinuxElfRequirementV1(
+            path=relative,
+            interpreter="/lib64/ld-linux-x86-64.so.2",
+            needed=("libc.so.6",),
+        ),
+    )
+    monkeypatch.setattr(
+        BUILDER,
+        "_ldd_resolutions",
+        lambda _: {"libc.so.6": libc, "libm.so.6": libm},
+    )
+
+    BUILDER._copy_runtime_closure(root)
+
+    copied_loader = root / "runtime/loader/ld-linux-x86-64.so.2"
+    assert copied_loader.read_bytes() == b"loader"
+    if sys.platform != "win32":
+        assert copied_loader.stat().st_mode & 0o777 == 0o755
+    assert (root / "runtime/lib/libc.so.6").read_bytes() == b"libc"
+    assert (root / "runtime/lib/libm.so.6").read_bytes() == b"libm"
+    assert not (root / "runtime/lib/libc.so.6").is_symlink()
 
 
 def test_linux_strict_verifiers_reject_symlinked_root_and_archive(tmp_path: Path) -> None:
@@ -999,7 +1301,7 @@ def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode preservation requires Linux")
-@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 8))
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 8, 9))
 def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_version: int
 ) -> None:
@@ -1021,6 +1323,8 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
         else materialize_v7(root)
         if schema_version == 7
         else materialize_v8(root)
+        if schema_version == 8
+        else materialize_v9(root)
     )
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)
@@ -1035,7 +1339,8 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
         lambda expected, extracted: inspected.append(_entries(extracted)),
     )
     monkeypatch.setattr(
-        "devhub.linux_bundle.smoke_linux_bundle_cli", lambda extracted: smoked.append(extracted)
+        "devhub.linux_bundle.smoke_linux_bundle_cli",
+        lambda extracted, *_: smoked.append(extracted),
     )
     shutil.rmtree(root)
     verified = verify_linux_native_release(release, tmp_path / "extracted")
