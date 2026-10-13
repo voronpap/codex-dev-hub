@@ -1552,6 +1552,23 @@ def cgroup_observation(
     )
 
 
+class SyntheticCgroupBoundaryProbe:
+    """Test-only observer for direct V17 main-path failure fixtures."""
+
+    def __init__(self, state: LinuxCgroupSetupStateV1) -> None:
+        self.state = state
+
+    def observe(
+        self,
+        _pid: int,
+        _role: Literal["probe", "namespace_launcher", "namespace_child"],
+    ) -> None:
+        return
+
+    def finalize(self) -> LinuxCgroupBoundaryObservationV1:
+        return cgroup_observation(self.state)
+
+
 def observation_v17(
     state: LinuxCgroupSetupStateV1 | None = None,
 ) -> LinuxIsolationObservationV17:
@@ -7895,7 +7912,10 @@ def test_run_probe_binds_preworker_broker_failure(
 def test_main_seals_every_primary_broker_failure(
     failure_point: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    expected = profile_payload_v16()
+    cgroup_state = cgroup_setup_state()
+    cgroup_state_path = tmp_path / "cgroup-state.json"
+    cgroup_state_path.write_text(cgroup_state.model_dump_json(), encoding="utf-8")
+    expected = profile_payload_v17(cgroup_state)
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
     release = tmp_path / "release"
@@ -7959,6 +7979,7 @@ def test_main_seals_every_primary_broker_failure(
     monkeypatch.setattr(PROBE, "file_authority", fixed_file_authority)
     monkeypatch.setattr(PROBE, "full_mode_authority", lambda *_args: expected.mount)
     monkeypatch.setattr(PROBE, "plain_file_authority", lambda *_args: expected.bootstrap_python)
+    monkeypatch.setattr(PROBE, "CgroupBoundaryProbe", SyntheticCgroupBoundaryProbe)
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
     monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
     monkeypatch.setattr(
@@ -8002,6 +8023,8 @@ def test_main_seals_every_primary_broker_failure(
             "11",
             "--bundle-run-attempt",
             "1",
+            "--cgroup-state",
+            str(cgroup_state_path),
         ],
     )
     with pytest.raises(PROBE.ProbePhaseFailure):
@@ -8092,7 +8115,10 @@ def test_main_publishes_exact_v8_child_failure_phase_without_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expected = profile_payload_v16()
+    cgroup_state = cgroup_setup_state()
+    cgroup_state_path = tmp_path / "cgroup-state.json"
+    cgroup_state_path.write_text(cgroup_state.model_dump_json(), encoding="utf-8")
+    expected = profile_payload_v17(cgroup_state)
     diagnostic = b"bounded-main-child-bootstrap-failure"
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
@@ -8190,6 +8216,7 @@ def test_main_publishes_exact_v8_child_failure_phase_without_success(
     monkeypatch.setattr(PROBE, "file_authority", fixed_file_authority)
     monkeypatch.setattr(PROBE, "full_mode_authority", lambda *_args: expected.mount)
     monkeypatch.setattr(PROBE, "plain_file_authority", lambda *_args: expected.bootstrap_python)
+    monkeypatch.setattr(PROBE, "CgroupBoundaryProbe", SyntheticCgroupBoundaryProbe)
     monkeypatch.setattr(PROBE, "run_probe", fail_after_launch)
     monkeypatch.setattr(
         sys,
@@ -8212,6 +8239,8 @@ def test_main_publishes_exact_v8_child_failure_phase_without_success(
             "11",
             "--bundle-run-attempt",
             "1",
+            "--cgroup-state",
+            str(cgroup_state_path),
         ],
     )
     expected_exception = (
