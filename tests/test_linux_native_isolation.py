@@ -3322,13 +3322,24 @@ def test_broker_preserves_foreign_preexisting_socket(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not hasattr(socket, "SO_PEERCRED"), reason="Linux SO_PEERCRED required")
-def test_broker_preserves_substituted_socket_during_cleanup(tmp_path: Path) -> None:
+def test_broker_preserves_substituted_socket_during_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     tmp_path.chmod(0o700)
     path = tmp_path / "ollama.sock"
     peer = LinuxBrokerPeerAuthorityV1(outer_pid=1, outer_uid=1, start_time_ticks=1)
     runtime = LinuxMetadataBrokerV1(path, peer)
     stopped = threading.Event()
+    owned_socket_recorded = threading.Event()
     failures: list[BaseException] = []
+    real_chmod = Path.chmod
+
+    def observed_chmod(target: Path, mode: int) -> None:
+        real_chmod(target, mode)
+        if target == path and mode == 0o600:
+            owned_socket_recorded.set()
+
+    monkeypatch.setattr(Path, "chmod", observed_chmod)
 
     def serve() -> None:
         try:
@@ -3338,14 +3349,14 @@ def test_broker_preserves_substituted_socket_during_cleanup(tmp_path: Path) -> N
 
     worker = threading.Thread(target=serve, daemon=True)
     worker.start()
-    deadline = time.monotonic() + 3
-    while not path.exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
+    assert owned_socket_recorded.wait(timeout=3)
     assert path.exists()
     path.unlink()
     replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     replacement.bind(str(path))
     replacement.listen(1)
+    replacement_info = os.lstat(path)
+    replacement_identity = (replacement_info.st_dev, replacement_info.st_ino)
     stopped.set()
     worker.join(timeout=3)
     try:
@@ -3356,6 +3367,8 @@ def test_broker_preserves_substituted_socket_during_cleanup(tmp_path: Path) -> N
         assert failure.checkpoint == "cleanup"
         assert failure.failure_kind == "cleanup_error"
         assert path.exists()
+        current = os.lstat(path)
+        assert (current.st_dev, current.st_ino) == replacement_identity
     finally:
         replacement.close()
         path.unlink(missing_ok=True)
