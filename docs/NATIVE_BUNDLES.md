@@ -746,6 +746,22 @@ retained Build-012 executables or grant readiness. A later separately versioned
 isolation consumer must bind the exact published V11 identities and prove this
 same launcher inside the private root before either readiness flag can change.
 
+Main-only V11 run `38426368741/1` passed and published bundle ID
+`818b94f6cb922b0a233c8729a17fc12ddd11ad962c9a2cafaff8dfb1e1fc16cf`,
+manifest SHA-256
+`41644e752c211db85bdaccfec8d83833be915d4d7b504a3dc552322c4b165f63`,
+archive ID
+`22efb9172d5e72f6e6e88de6f38619294074955695eae642dd0cea744443f331`
+and archive SHA-256
+`c20bd3b099d7b745ea8880ab456ab431b89c00f7360c42bfc519638e848db033`.
+The forward-only `LinuxNativeIsolationV16` consumer is the only isolation
+contract that accepts this authority. It additionally binds the exact loader
+SHA-256, the complete canonical runtime-library authority digest and the fixed
+`--inhibit-cache --library-path` arguments, then joins those values to the
+installed child's observation. V15 and earlier evidence remain parseable and
+cannot satisfy V16. V16 continues to record both readiness flags as false;
+qualification must be produced by a separate main-only run on one environment.
+
 The tested bundle is intentionally tied to Linux x86_64 and the exact host
 environment recorded by later qualification.  It does not claim support for
 every distribution.  Directory assembly alone leaves
@@ -989,7 +1005,7 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | --- | --- | --- |
 | Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PASS for Build-012 run `38354927618` at commit `c272ed6169a718204f2830a4aa34a5548a650652` |
 | Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PASS for Build-012 Default/A/B, EOF, eight security negatives, scratch cleanup and zero execution counters |
-| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V15 preserves strict packaged initialize/tools-list/EOF with no `tools/call`; runs `38350946287` (V12), `38366520513` (V13), and `38382788177` (V14) remain failed closed with zero execution counters; a successful V15 receipt is pending |
+| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V16 binds strict packaged initialize/tools-list/EOF with no `tools/call` to Bundle V11's exact loader and library closure; one main-only V16 receipt is pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
 | Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — accepted V11 run `38307459549` proves namespace/mount/Landlock/AppArmor/broker mechanics; Bundle V6-bound V13 failed at coarse result assembly, and Bundle V7-bound V14 failed closed on the now-corrected nested capture version; cgroup, syscall and complete packaged executor boundaries remain pending |
@@ -997,9 +1013,9 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
-| Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V10 run `38418589025` (`bundle_id=10a30fb6a28a9d77bd0b8bf31c329a6638d96121050aff1be4cfe07792d023e2`, `archive_id=e3560a690a47b86683c3ba41c6b2699279e96e19932a7bfd0fb7d9b26d7e0c00`); package readiness remains false pending the V11 loader-bound child and its later isolation consumer |
+| Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V11 run `38426368741` (`bundle_id=818b94f6cb922b0a233c8729a17fc12ddd11ad962c9a2cafaff8dfb1e1fc16cf`, `archive_id=22efb9172d5e72f6e6e88de6f38619294074955695eae642dd0cea744443f331`); package readiness remains false pending V16 isolation qualification |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V10 run `38418589025`; V12 run `38350946287`, V13 run `38366520513`, V14 run `38382788177`, V15 run `38394800882`, and Bundle V9 run `38400549435` remain failed closed with zero execution counters; Bundle V11 publication and its later isolation consumer are pending |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V11 run `38426368741`; V12/V13/V14/V15 failures remain historical fail-closed evidence with zero execution counters; one main-only V16 isolation run is pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

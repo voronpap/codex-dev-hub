@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       native_bundle_run_id:
-        description: Exact successful Linux Bundle V8 workflow run ID
+        description: Exact successful Linux Bundle V11 workflow run ID
         required: true
         type: string
       native_bundle_run_attempt:
-        description: Exact successful Linux Bundle V8 workflow run attempt
+        description: Exact successful Linux Bundle V11 workflow run attempt
         required: true
         type: string
 
@@ -39,14 +39,14 @@ jobs:
           tests/test_linux_native_isolation.py
           tests/test_ollama_transport.py
           tests/test_linux_native_bundle.py
-      - name: Download and verify exact-main Linux Bundle V8
+      - name: Download and verify exact-main Linux Bundle V11
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_BUNDLE_COMMIT: cffb59052eb7f0c026a6fffb056b301ef3f90458
+          EXPECTED_BUNDLE_COMMIT: 5d3942f103180dd3834a4c2096ded9149b13da64
           BUNDLE_RUN_ID: ${{ inputs.native_bundle_run_id }}
           BUNDLE_RUN_ATTEMPT: ${{ inputs.native_bundle_run_attempt }}
         run: |
-          test "$BUNDLE_RUN_ID" = "38387100992"
+          test "$BUNDLE_RUN_ID" = "38426368741"
           test "$BUNDLE_RUN_ATTEMPT" = "1"
           gh run view "$BUNDLE_RUN_ID" --repo '${{ github.repository }}' \
             --json headSha,attempt,conclusion,event > "$RUNNER_TEMP/linux-bundle-run.json"
