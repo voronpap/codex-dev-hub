@@ -41,8 +41,10 @@ from devhub.linux_isolation import (
     LinuxCgroupBoundaryAuthorityV1,
     LinuxCgroupBoundaryObservationV1,
     LinuxCgroupCleanupPayloadV1,
+    LinuxCgroupCleanupPayloadV2,
     LinuxCgroupCleanupReceiptV1,
-    LinuxCgroupCleanupStateV1,
+    LinuxCgroupCleanupReceiptV2,
+    LinuxCgroupCleanupStateV2,
     LinuxCgroupLifecycleFailurePayloadV1,
     LinuxCgroupLifecycleFailureV1,
     LinuxCgroupMemberObservationV1,
@@ -178,6 +180,7 @@ from devhub.linux_isolation import (
     LinuxIsolationQualificationPayloadV9,
     LinuxIsolationQualificationPayloadV10,
     LinuxIsolationQualificationPayloadV17,
+    LinuxIsolationQualificationPayloadV18,
     LinuxIsolationQualificationV4,
     LinuxIsolationQualificationV5,
     LinuxIsolationQualificationV6,
@@ -187,6 +190,7 @@ from devhub.linux_isolation import (
     LinuxIsolationQualificationV10,
     LinuxIsolationQualificationV16,
     LinuxIsolationQualificationV17,
+    LinuxIsolationQualificationV18,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
@@ -2574,7 +2578,7 @@ def test_finalizer_joins_only_v16_mechanics(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
-def test_finalizer_joins_v17_mechanics_and_both_cleanup_authorities(tmp_path: Path) -> None:
+def test_finalizer_joins_v17_mechanics_into_v18_cleanup_qualification(tmp_path: Path) -> None:
     state = cgroup_setup_state()
     mechanics = evidence_v17(state)
     profile = mechanics.payload.profile
@@ -2589,8 +2593,8 @@ def test_finalizer_joins_v17_mechanics_and_both_cleanup_authorities(tmp_path: Pa
             ),
         )
     )
-    cgroup_cleanup = LinuxCgroupCleanupReceiptV1.create(
-        LinuxCgroupCleanupPayloadV1(
+    cgroup_cleanup = LinuxCgroupCleanupReceiptV2.create(
+        LinuxCgroupCleanupPayloadV2(
             implementation_commit=COMMIT,
             environment_instance_id=ENVIRONMENT,
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
@@ -2598,6 +2602,7 @@ def test_finalizer_joins_v17_mechanics_and_both_cleanup_authorities(tmp_path: Pa
             linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
             unit_name=state.payload.boundary.unit_name,
             control_group=state.payload.boundary.control_group,
+            post_exit_state="systemd_removed_empty_cgroup",
         )
     )
     mechanics_path = tmp_path / "mechanics.json"
@@ -2610,7 +2615,7 @@ def test_finalizer_joins_v17_mechanics_and_both_cleanup_authorities(tmp_path: Pa
 
     FINALIZER.finalize(mechanics_path, apparmor_path, cgroup_path, output)
 
-    qualification = LinuxIsolationQualificationV17.model_validate_json(output.read_bytes())
+    qualification = LinuxIsolationQualificationV18.model_validate_json(output.read_bytes())
     assert qualification.payload.mechanics == mechanics
     assert qualification.payload.apparmor_cleanup == apparmor_cleanup
     assert qualification.payload.cgroup_cleanup == cgroup_cleanup
@@ -4846,6 +4851,54 @@ def test_v17_qualification_binds_exact_cgroup_cleanup() -> None:
         LinuxIsolationQualificationPayloadV17.model_validate(wrong)
 
 
+def test_v18_qualification_binds_removed_empty_cgroup_cleanup() -> None:
+    state = cgroup_setup_state()
+    mechanics = evidence_v17(state)
+    profile = mechanics.payload.profile
+    apparmor_cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=mechanics.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    cgroup_cleanup = LinuxCgroupCleanupReceiptV2.create(
+        LinuxCgroupCleanupPayloadV2(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=mechanics.linux_isolation_evidence_id,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            unit_name=state.payload.boundary.unit_name,
+            control_group=state.payload.boundary.control_group,
+            post_exit_state="systemd_removed_empty_cgroup",
+        )
+    )
+    qualification = LinuxIsolationQualificationV18.create(
+        LinuxIsolationQualificationPayloadV18(
+            mechanics=mechanics,
+            apparmor_cleanup=apparmor_cleanup,
+            cgroup_cleanup=cgroup_cleanup,
+        )
+    )
+
+    assert (
+        LinuxIsolationQualificationV18.model_validate_json(qualification.model_dump_json())
+        == qualification
+    )
+    wrong = qualification.payload.model_dump(mode="python")
+    wrong["cgroup_cleanup"]["payload"]["environment_instance_id"] = "4" * 32
+    wrong["cgroup_cleanup"]["linux_cgroup_cleanup_receipt_id"] = digest(
+        canonical(wrong["cgroup_cleanup"]["payload"])
+    )
+    with pytest.raises(ValidationError, match="cgroup cleanup authority differ"):
+        LinuxIsolationQualificationPayloadV18.model_validate(wrong)
+
+
 def test_cgroup_lifecycle_failure_is_bounded_and_self_hashed() -> None:
     failure = LinuxCgroupLifecycleFailureV1.create(
         LinuxCgroupLifecycleFailurePayloadV1(
@@ -4909,6 +4962,52 @@ def test_cgroup_manager_uses_exact_transient_service_properties(
     assert "--property=Delegate=no" in command
     assert "--property=RemainAfterExit=yes" in command
     assert command[-3:] == [str(executable), "-I", "probe.py"]
+
+
+def test_cgroup_manager_preserves_exact_empty_systemd_property(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        CGROUP_MANAGER.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, "\n", ""),
+    )
+
+    assert CGROUP_MANAGER.systemctl_property("exact.service", "ControlGroup") == ""
+
+
+def test_cgroup_manager_rejects_failed_empty_control_group_query_before_journal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = cgroup_setup_state()
+    mechanics = evidence_v17(state)
+    absent_cgroup = tmp_path / "absent-cgroup"
+    cleanup_state = tmp_path / "cleanup-state.json"
+    properties = {
+        "LoadState": "loaded\n",
+        "Transient": "yes\n",
+        "RemainAfterExit": "yes\n",
+        "ActiveState": "active\n",
+        "SubState": "exited\n",
+        "ExecMainStatus": "0\n",
+        "Result": "success\n",
+    }
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        name = command[-2].removeprefix("--property=")
+        if name == "ControlGroup":
+            return subprocess.CompletedProcess(command, 1, "\n", "query failed")
+        return subprocess.CompletedProcess(command, 0, properties[name], "")
+
+    monkeypatch.setattr(CGROUP_MANAGER, "Path", lambda _value: absent_cgroup)
+    monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state", lambda _state: None)
+    monkeypatch.setattr(CGROUP_MANAGER.subprocess, "run", run)
+
+    with pytest.raises(ValueError, match="systemctl property query failed"):
+        CGROUP_MANAGER.cleanup(state, mechanics, cleanup_state)
+
+    assert not cleanup_state.exists()
 
 
 def test_cgroup_manager_rejects_changed_systemd_authority(
@@ -5025,18 +5124,18 @@ def test_cgroup_manager_rejects_unloaded_unit_as_qualified_cleanup(
     assert not (tmp_path / "cleanup-state.json").exists()
 
 
-def test_cgroup_manager_rejects_same_path_native_identity_substitution(
+def test_cgroup_manager_rejects_empty_control_group_with_present_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     state = cgroup_setup_state()
     mechanics = evidence_v17(state)
-    cgroup = tmp_path / "same-textual-path"
+    cgroup = tmp_path / "unexpected-retained-cgroup"
     cgroup.mkdir()
     monkeypatch.setattr(CGROUP_MANAGER, "Path", lambda _value: cgroup)
     monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state", lambda _state: None)
     properties = {
         "LoadState": "loaded",
-        "ControlGroup": state.payload.boundary.control_group,
+        "ControlGroup": "",
         "Transient": "yes",
         "RemainAfterExit": "yes",
         "ActiveState": "active",
@@ -5055,22 +5154,138 @@ def test_cgroup_manager_rejects_same_path_native_identity_substitution(
         lambda *_args, **_kwargs: pytest.fail("rejected authority must not be mutated"),
     )
     cleanup_state = tmp_path / "cleanup-state.json"
-    with pytest.raises(ValueError, match="native identity changed before cleanup"):
+    with pytest.raises(ValueError, match="path is present or substituted"):
         CGROUP_MANAGER.cleanup(state, mechanics, cleanup_state)
     assert not cleanup_state.exists()
+
+
+def test_cgroup_manager_rejects_empty_control_group_with_dangling_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = cgroup_setup_state()
+    mechanics = evidence_v17(state)
+    cgroup = tmp_path / "dangling-cgroup"
+    try:
+        cgroup.symlink_to(tmp_path / "missing-cgroup", target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlink unavailable: {error}")
+    monkeypatch.setattr(CGROUP_MANAGER, "Path", lambda _value: cgroup)
+    monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state", lambda _state: None)
+    properties = {
+        "LoadState": "loaded",
+        "ControlGroup": "",
+        "Transient": "yes",
+        "RemainAfterExit": "yes",
+        "ActiveState": "active",
+        "SubState": "exited",
+        "ExecMainStatus": "0",
+        "Result": "success",
+    }
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda _unit, name, check=False: properties[name],
+    )
+    cleanup_state = tmp_path / "cleanup-state.json"
+
+    with pytest.raises(ValueError, match="path is present or substituted"):
+        CGROUP_MANAGER.cleanup(state, mechanics, cleanup_state)
+
+    assert not cleanup_state.exists()
+
+
+def test_cgroup_manager_rejects_nonempty_substituted_post_exit_control_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = cgroup_setup_state()
+    mechanics = evidence_v17(state)
+    absent_cgroup = tmp_path / "absent-cgroup"
+    monkeypatch.setattr(CGROUP_MANAGER, "Path", lambda _value: absent_cgroup)
+    monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state", lambda _state: None)
+    properties = {
+        "LoadState": "loaded",
+        "ControlGroup": "/system.slice/substituted.service",
+        "Transient": "yes",
+        "RemainAfterExit": "yes",
+        "ActiveState": "active",
+        "SubState": "exited",
+        "ExecMainStatus": "0",
+        "Result": "success",
+    }
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda _unit, name, check=False: properties[name],
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "_stop_and_verify_absent",
+        lambda _state: pytest.fail("substituted unit must not be stopped"),
+    )
+    cleanup_state = tmp_path / "cleanup-state.json"
+
+    with pytest.raises(ValueError, match="retained or substituted a control group"):
+        CGROUP_MANAGER.cleanup(state, mechanics, cleanup_state)
+
+    assert not cleanup_state.exists()
+
+
+def test_cgroup_manager_seals_removed_empty_cgroup_before_exact_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = cgroup_setup_state()
+    mechanics = evidence_v17(state)
+    absent_cgroup = tmp_path / "absent-cgroup"
+    cleanup_state_path = tmp_path / "cleanup-state.json"
+    monkeypatch.setattr(CGROUP_MANAGER, "Path", lambda _value: absent_cgroup)
+    monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state", lambda _state: None)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "write_new",
+        lambda path, raw, mode=0o644: path.write_bytes(raw),
+    )
+    properties = {
+        "LoadState": "loaded",
+        "ControlGroup": "",
+        "Transient": "yes",
+        "RemainAfterExit": "yes",
+        "ActiveState": "active",
+        "SubState": "exited",
+        "ExecMainStatus": "0",
+        "Result": "success",
+    }
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda _unit, name, check=False: properties[name],
+    )
+    stopped: list[str] = []
+
+    def stop_after_journal(_state: LinuxCgroupSetupStateV1) -> None:
+        journal = LinuxCgroupCleanupStateV2.model_validate_json(cleanup_state_path.read_bytes())
+        assert journal.payload.post_exit_state == "systemd_removed_empty_cgroup"
+        stopped.append("stopped")
+
+    monkeypatch.setattr(CGROUP_MANAGER, "_stop_and_verify_absent", stop_after_journal)
+
+    receipt = CGROUP_MANAGER.cleanup(state, mechanics, cleanup_state_path)
+
+    assert LinuxCgroupCleanupReceiptV2.model_validate_json(receipt.model_dump_json()) == receipt
+    assert receipt.payload.post_exit_state == "systemd_removed_empty_cgroup"
+    assert stopped == ["stopped"]
 
 
 def test_cgroup_cleanup_state_is_self_hashed_and_exactly_bound() -> None:
     state = cgroup_setup_state()
     mechanics = evidence_v17(state)
     cleanup_state = CGROUP_MANAGER._cleanup_state(state, mechanics)
-    assert LinuxCgroupCleanupStateV1.model_validate_json(cleanup_state.model_dump_json()) == (
+    assert LinuxCgroupCleanupStateV2.model_validate_json(cleanup_state.model_dump_json()) == (
         cleanup_state
     )
     raw = cleanup_state.model_dump(mode="python")
     raw["payload"]["cgroup_native_identity"]["inode"] += 1
-    with pytest.raises(ValidationError, match="cleanup state hash mismatch"):
-        LinuxCgroupCleanupStateV1.model_validate(raw)
+    with pytest.raises(ValidationError, match="cleanup V2 state hash mismatch"):
+        LinuxCgroupCleanupStateV2.model_validate(raw)
 
 
 def test_cgroup_post_stop_partial_failure_can_resume_only_with_bound_journal(
@@ -5080,19 +5295,16 @@ def test_cgroup_post_stop_partial_failure_can_resume_only_with_bound_journal(
     state = cgroup_setup_state()
     mechanics = evidence_v17(state)
     cleanup_state = CGROUP_MANAGER._cleanup_state(state, mechanics)
-    boundary = state.payload.boundary
-    cgroup = tmp_path / "qualified-cgroup"
-    cgroup.mkdir()
-    (cgroup / "memory.max").write_text(boundary.limits.memory_max, encoding="ascii")
-    (cgroup / "pids.max").write_text(boundary.limits.pids_max, encoding="ascii")
-    (cgroup / "cpu.max").write_text(boundary.limits.cpu_max, encoding="ascii")
-    (cgroup / "cgroup.type").write_text("domain", encoding="ascii")
-    (cgroup / "cgroup.procs").write_text("", encoding="ascii")
+    absent_cgroup = tmp_path / "already-removed-cgroup"
     properties = {
         "LoadState": "loaded",
-        "ControlGroup": boundary.control_group,
+        "ControlGroup": "",
         "Transient": "yes",
         "RemainAfterExit": "yes",
+        "ActiveState": "active",
+        "SubState": "exited",
+        "ExecMainStatus": "0",
+        "Result": "success",
     }
     monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state", lambda _state: None)
     monkeypatch.setattr(
@@ -5100,13 +5312,7 @@ def test_cgroup_post_stop_partial_failure_can_resume_only_with_bound_journal(
         "systemctl_property",
         lambda _unit, name, check=False: properties[name],
     )
-    monkeypatch.setattr(CGROUP_MANAGER, "Path", lambda _value: cgroup)
-    observed = mechanics.payload.receipt.payload.observation.cgroup.cgroup_native_identity
-    monkeypatch.setattr(
-        CGROUP_MANAGER.os,
-        "lstat",
-        lambda _path: SimpleNamespace(st_dev=observed.device, st_ino=observed.inode),
-    )
+    monkeypatch.setattr(CGROUP_MANAGER, "Path", lambda _value: absent_cgroup)
     stopped: list[str] = []
     monkeypatch.setattr(
         CGROUP_MANAGER,
@@ -5126,48 +5332,38 @@ def test_cgroup_post_stop_partial_failure_can_resume_only_with_bound_journal(
         CGROUP_MANAGER.resume_cleanup(
             state,
             mechanics,
-            LinuxCgroupCleanupStateV1.model_validate(substituted),
+            LinuxCgroupCleanupStateV2.model_validate(substituted),
         )
 
 
 @pytest.mark.parametrize(
-    ("changed_file", "changed_value", "substitute_native_identity"),
+    ("control_group", "create_expected_path"),
     (
-        ("memory.max", "1073741824", False),
-        ("cgroup.procs", "4242", False),
-        (None, None, True),
+        ("", True),
+        ("/system.slice/substituted.service", False),
     ),
 )
-def test_cgroup_cleanup_resume_rejects_substituted_authority_before_stop(
+def test_cgroup_cleanup_resume_rejects_post_exit_authority_mismatch_before_stop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    changed_file: str | None,
-    changed_value: str | None,
-    substitute_native_identity: bool,
+    control_group: str,
+    create_expected_path: bool,
 ) -> None:
     state = cgroup_setup_state()
     mechanics = evidence_v17(state)
     cleanup_state = CGROUP_MANAGER._cleanup_state(state, mechanics)
-    boundary = state.payload.boundary
-    cgroup = tmp_path / "qualified-cgroup"
-    cgroup.mkdir()
-    controls = {
-        "memory.max": boundary.limits.memory_max,
-        "pids.max": boundary.limits.pids_max,
-        "cpu.max": boundary.limits.cpu_max,
-        "cgroup.type": "domain",
-        "cgroup.procs": "",
-    }
-    if changed_file is not None:
-        assert changed_value is not None
-        controls[changed_file] = changed_value
-    for name, value in controls.items():
-        (cgroup / name).write_text(value, encoding="ascii")
+    cgroup = tmp_path / "expected-cgroup"
+    if create_expected_path:
+        cgroup.mkdir()
     properties = {
         "LoadState": "loaded",
-        "ControlGroup": boundary.control_group,
+        "ControlGroup": control_group,
         "Transient": "yes",
         "RemainAfterExit": "yes",
+        "ActiveState": "active",
+        "SubState": "exited",
+        "ExecMainStatus": "0",
+        "Result": "success",
     }
     monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state", lambda _state: None)
     monkeypatch.setattr(
@@ -5176,15 +5372,6 @@ def test_cgroup_cleanup_resume_rejects_substituted_authority_before_stop(
         lambda _unit, name, check=False: properties[name],
     )
     monkeypatch.setattr(CGROUP_MANAGER, "Path", lambda _value: cgroup)
-    observed = mechanics.payload.receipt.payload.observation.cgroup.cgroup_native_identity
-    monkeypatch.setattr(
-        CGROUP_MANAGER.os,
-        "lstat",
-        lambda _path: SimpleNamespace(
-            st_dev=observed.device + int(substitute_native_identity),
-            st_ino=observed.inode,
-        ),
-    )
     monkeypatch.setattr(
         CGROUP_MANAGER,
         "_stop_and_verify_absent",
@@ -5228,6 +5415,35 @@ def test_cgroup_cleanup_resume_accepts_genuine_post_stop_crash_state(
     assert receipt.payload.cleanup_succeeded is True
     assert receipt.payload.unit_absent is True
     assert receipt.payload.cgroup_absent is True
+
+
+def test_cgroup_cleanup_resume_rejects_dangling_cgroup_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = cgroup_setup_state()
+    mechanics = evidence_v17(state)
+    cleanup_state = CGROUP_MANAGER._cleanup_state(state, mechanics)
+    cgroup = tmp_path / "dangling-cgroup"
+    try:
+        cgroup.symlink_to(tmp_path / "missing-cgroup", target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlink unavailable: {error}")
+    monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state", lambda _state: None)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda _unit, name, check=False: "not-found"
+        if name == "LoadState"
+        else pytest.fail(f"unexpected property query: {name}"),
+    )
+    monkeypatch.setattr(CGROUP_MANAGER, "Path", lambda _value: cgroup)
+
+    receipt = CGROUP_MANAGER.resume_cleanup(state, mechanics, cleanup_state)
+
+    assert receipt.payload.cleanup_succeeded is False
+    assert receipt.payload.unit_absent is False
+    assert receipt.payload.cgroup_absent is False
 
 
 def test_cgroup_rollback_receipt_records_success_and_failure(

@@ -19,10 +19,10 @@ from devhub.linux_isolation import (
     LINUX_SYSTEMCTL,
     LINUX_SYSTEMD_RUN,
     LinuxCgroupBoundaryAuthorityV1,
-    LinuxCgroupCleanupPayloadV1,
-    LinuxCgroupCleanupReceiptV1,
-    LinuxCgroupCleanupStatePayloadV1,
-    LinuxCgroupCleanupStateV1,
+    LinuxCgroupCleanupPayloadV2,
+    LinuxCgroupCleanupReceiptV2,
+    LinuxCgroupCleanupStatePayloadV2,
+    LinuxCgroupCleanupStateV2,
     LinuxCgroupLifecycleFailurePayloadV1,
     LinuxCgroupLifecycleFailureV1,
     LinuxCgroupRollbackPayloadV1,
@@ -148,7 +148,7 @@ def systemctl_property(unit: str, name: str, *, check: bool = True) -> str:
     value = result.stdout.strip()
     if check and result.returncode != 0:
         raise ValueError("systemctl property query failed")
-    return value or "not-found"
+    return value
 
 
 def revalidate_state(state: LinuxCgroupSetupStateV1) -> None:
@@ -224,7 +224,7 @@ def launch(state: LinuxCgroupSetupStateV1, repo: Path, command: list[str]) -> No
     raise ValueError("Transient cgroup service execution timed out")
 
 
-def _verify_mechanics_cgroup(
+def _verify_mechanics_join(
     state: LinuxCgroupSetupStateV1,
     mechanics: LinuxIsolationEvidenceV17,
 ) -> None:
@@ -237,26 +237,19 @@ def _verify_mechanics_cgroup(
         or observed.control_group != boundary.control_group
     ):
         raise ValueError("Cgroup mechanics and setup state differ")
-    cgroup = Path(boundary.cgroup_root + boundary.control_group)
-    if cgroup.is_symlink() or not cgroup.is_dir():
-        raise ValueError("Qualified cgroup path is absent or substituted")
-    info = os.lstat(cgroup)
     if (
-        info.st_dev != observed.cgroup_native_identity.device
-        or info.st_ino != observed.cgroup_native_identity.inode
+        observed.memory_max != boundary.limits.memory_max
+        or observed.pids_max != boundary.limits.pids_max
+        or observed.cpu_max != boundary.limits.cpu_max
+        or observed.cgroup_type != "domain"
+        or not observed.initial_members_only_probe
+        or not observed.terminal_members_only_probe
+        or not observed.process_tree_inheritance_verified
+        or not observed.active_members_all_descendants
+        or not observed.cgroup_controls_not_writable
+        or not observed.ancestor_controls_not_writable
     ):
-        raise ValueError("Qualified cgroup native identity changed before cleanup")
-    expected = {
-        "memory.max": boundary.limits.memory_max,
-        "pids.max": boundary.limits.pids_max,
-        "cpu.max": boundary.limits.cpu_max,
-        "cgroup.type": "domain",
-    }
-    for name, value in expected.items():
-        if (cgroup / name).read_text(encoding="ascii").strip() != value:
-            raise ValueError("Qualified cgroup controls changed before cleanup")
-    if (cgroup / "cgroup.procs").read_text(encoding="ascii").strip():
-        raise ValueError("Qualified cgroup retained a process before cleanup")
+        raise ValueError("Qualified cgroup mechanics are incomplete or differ")
 
 
 def _verify_loaded_unit(state: LinuxCgroupSetupStateV1) -> None:
@@ -269,6 +262,40 @@ def _verify_loaded_unit(state: LinuxCgroupSetupStateV1) -> None:
         raise ValueError("Cgroup unit is not transient")
     if systemctl_property(boundary.unit_name, "RemainAfterExit") != "yes":
         raise ValueError("Cgroup unit is not retained for exact cleanup")
+
+
+def _verify_removed_empty_cgroup_state(state: LinuxCgroupSetupStateV1) -> None:
+    """Accept only systemd's exact loaded/exited unit with its empty cgroup removed."""
+
+    boundary = state.payload.boundary
+    if systemctl_property(boundary.unit_name, "LoadState", check=False) != "loaded":
+        raise ValueError("Cgroup unit is not loaded")
+    if systemctl_property(boundary.unit_name, "Transient") != "yes":
+        raise ValueError("Cgroup unit is not transient")
+    if systemctl_property(boundary.unit_name, "RemainAfterExit") != "yes":
+        raise ValueError("Cgroup unit is not retained for exact cleanup")
+    if (
+        systemctl_property(boundary.unit_name, "ActiveState") != "active"
+        or systemctl_property(boundary.unit_name, "SubState") != "exited"
+        or systemctl_property(boundary.unit_name, "ExecMainStatus") != "0"
+        or systemctl_property(boundary.unit_name, "Result") != "success"
+    ):
+        raise ValueError("Cgroup unit completion state differs before cleanup")
+    if systemctl_property(boundary.unit_name, "ControlGroup") != "":
+        raise ValueError("Cgroup unit retained or substituted a control group after exit")
+    cgroup = Path(boundary.cgroup_root + boundary.control_group)
+    if not _path_is_absent(cgroup):
+        raise ValueError("Expected post-exit cgroup path is present or substituted")
+
+
+def _path_is_absent(path: Path) -> bool:
+    """Prove lexical absence without accepting a dangling symlink."""
+
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return True
+    return False
 
 
 def _stop_and_verify_absent(state: LinuxCgroupSetupStateV1) -> None:
@@ -288,10 +315,9 @@ def _stop_and_verify_absent(state: LinuxCgroupSetupStateV1) -> None:
     cgroup = Path(boundary.cgroup_root + boundary.control_group)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        if (
-            systemctl_property(boundary.unit_name, "LoadState", check=False) == "not-found"
-            and not cgroup.exists()
-        ):
+        if systemctl_property(
+            boundary.unit_name, "LoadState", check=False
+        ) == "not-found" and _path_is_absent(cgroup):
             break
         time.sleep(0.05)
     else:
@@ -305,7 +331,7 @@ def remove_unit(state: LinuxCgroupSetupStateV1) -> None:
     boundary = state.payload.boundary
     load = systemctl_property(boundary.unit_name, "LoadState", check=False)
     if load == "not-found":
-        if Path(boundary.cgroup_root + boundary.control_group).exists():
+        if not _path_is_absent(Path(boundary.cgroup_root + boundary.control_group)):
             raise ValueError("Cgroup path remains without its exact unit authority")
         return
     _verify_loaded_unit(state)
@@ -315,12 +341,12 @@ def remove_unit(state: LinuxCgroupSetupStateV1) -> None:
 def _cleanup_state(
     state: LinuxCgroupSetupStateV1,
     mechanics: LinuxIsolationEvidenceV17,
-) -> LinuxCgroupCleanupStateV1:
+) -> LinuxCgroupCleanupStateV2:
     profile = mechanics.payload.profile
     observed = mechanics.payload.receipt.payload.observation.cgroup
     boundary = state.payload.boundary
-    return LinuxCgroupCleanupStateV1.create(
-        LinuxCgroupCleanupStatePayloadV1(
+    return LinuxCgroupCleanupStateV2.create(
+        LinuxCgroupCleanupStatePayloadV2(
             implementation_commit=state.payload.implementation_commit,
             environment_instance_id=state.payload.environment_instance_id,
             linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
@@ -329,6 +355,7 @@ def _cleanup_state(
             unit_name=boundary.unit_name,
             control_group=boundary.control_group,
             cgroup_native_identity=observed.cgroup_native_identity,
+            post_exit_state="systemd_removed_empty_cgroup",
         )
     )
 
@@ -337,26 +364,19 @@ def cleanup(
     state: LinuxCgroupSetupStateV1,
     mechanics: LinuxIsolationEvidenceV17,
     cleanup_state_path: Path,
-) -> LinuxCgroupCleanupReceiptV1:
+) -> LinuxCgroupCleanupReceiptV2:
     boundary = state.payload.boundary
     revalidate_state(state)
-    _verify_loaded_unit(state)
-    if (
-        systemctl_property(boundary.unit_name, "ActiveState") != "active"
-        or systemctl_property(boundary.unit_name, "SubState") != "exited"
-        or systemctl_property(boundary.unit_name, "ExecMainStatus") != "0"
-        or systemctl_property(boundary.unit_name, "Result") != "success"
-    ):
-        raise ValueError("Qualified cgroup service completion state differs")
-    _verify_mechanics_cgroup(state, mechanics)
+    _verify_mechanics_join(state, mechanics)
+    _verify_removed_empty_cgroup_state(state)
     write_new(
         cleanup_state_path,
         canonical(_cleanup_state(state, mechanics).model_dump(mode="json")),
     )
     _stop_and_verify_absent(state)
     profile = mechanics.payload.profile
-    return LinuxCgroupCleanupReceiptV1.create(
-        LinuxCgroupCleanupPayloadV1(
+    return LinuxCgroupCleanupReceiptV2.create(
+        LinuxCgroupCleanupPayloadV2(
             implementation_commit=state.payload.implementation_commit,
             environment_instance_id=state.payload.environment_instance_id,
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
@@ -364,20 +384,21 @@ def cleanup(
             linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
             unit_name=boundary.unit_name,
             control_group=boundary.control_group,
+            post_exit_state="systemd_removed_empty_cgroup",
         )
     )
 
 
-def read_cleanup_state(path: Path) -> LinuxCgroupCleanupStateV1:
+def read_cleanup_state(path: Path) -> LinuxCgroupCleanupStateV2:
     if path.is_symlink():
         raise ValueError("Cgroup cleanup state cannot be a symlink")
-    return LinuxCgroupCleanupStateV1.model_validate_json(path.read_bytes())
+    return LinuxCgroupCleanupStateV2.model_validate_json(path.read_bytes())
 
 
 def resume_cleanup(
     state: LinuxCgroupSetupStateV1,
     mechanics: LinuxIsolationEvidenceV17,
-    cleanup_state: LinuxCgroupCleanupStateV1,
+    cleanup_state: LinuxCgroupCleanupStateV2,
 ) -> LinuxCgroupRollbackReceiptV1:
     boundary = state.payload.boundary
     profile = mechanics.payload.profile
@@ -392,6 +413,7 @@ def resume_cleanup(
         or journal.unit_name != boundary.unit_name
         or journal.control_group != boundary.control_group
         or journal.cgroup_native_identity != observed.cgroup_native_identity
+        or journal.post_exit_state != "systemd_removed_empty_cgroup"
     ):
         raise ValueError("Cgroup cleanup journal differs from qualified mechanics")
     succeeded = False
@@ -400,10 +422,10 @@ def resume_cleanup(
         load = systemctl_property(boundary.unit_name, "LoadState", check=False)
         cgroup = Path(boundary.cgroup_root + boundary.control_group)
         if load == "loaded":
-            _verify_loaded_unit(state)
-            _verify_mechanics_cgroup(state, mechanics)
+            _verify_mechanics_join(state, mechanics)
+            _verify_removed_empty_cgroup_state(state)
             _stop_and_verify_absent(state)
-        elif load == "not-found" and not cgroup.exists():
+        elif load == "not-found" and _path_is_absent(cgroup):
             pass
         else:
             raise ValueError("Cgroup cleanup resume authority is ambiguous")
