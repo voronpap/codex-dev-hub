@@ -38,6 +38,12 @@ LINUX_APPARMOR_PROFILE_NAME = "devfabric-linux-isolation-unshare"
 LINUX_APPARMOR_PROFILE_ATTACHMENT = LINUX_PRIVATE_UNSHARE
 LINUX_APPARMOR_PROFILE_MODE = "unconfined"
 LINUX_APPARMOR_CURRENT = f"{LINUX_APPARMOR_PROFILE_NAME} ({LINUX_APPARMOR_PROFILE_MODE})"
+LINUX_SYSTEMD_RUN = "/usr/bin/systemd-run"
+LINUX_SYSTEMCTL = "/usr/bin/systemctl"
+LINUX_CGROUP_ROOT: Literal["/sys/fs/cgroup"] = "/sys/fs/cgroup"
+LINUX_CGROUP_MEMORY_MAX: Literal["2147483648"] = "2147483648"
+LINUX_CGROUP_PIDS_MAX: Literal["128"] = "128"
+LINUX_CGROUP_CPU_MAX: Literal["200000 100000"] = "200000 100000"
 LANDLOCK_ACCESS_FS_IOCTL_DEV = 1 << 15
 LANDLOCK_ACCESS_FS_ABI3 = (1 << 15) - 1
 MINIMUM_REVIEWED_LANDLOCK_ABI = 3
@@ -201,6 +207,22 @@ class LinuxAppArmorParserAuthorityV2(LinuxFileAuthorityV1):
             raise ValueError("AppArmor parser must be root-owned")
         if mode & 0o022 or not mode & 0o100 or mode & 0o7000:
             raise ValueError("AppArmor parser mode is unsafe")
+        return self
+
+
+class LinuxSystemdToolAuthorityV1(LinuxFileAuthorityV1):
+    """Exact root-owned systemd client used for one transient cgroup."""
+
+    name: Literal["systemd-run", "systemctl"]
+    version_output_sha256: Digest
+
+    @model_validator(mode="after")
+    def root_owned_non_writable_tool(self) -> LinuxSystemdToolAuthorityV1:
+        mode = int(self.mode, 8)
+        if self.owner_uid != 0 or self.owner_gid != 0:
+            raise ValueError("Linux systemd tools must be root-owned")
+        if mode & 0o022 or not mode & 0o100 or mode & 0o7000:
+            raise ValueError("Linux systemd tool mode is unsafe")
         return self
 
 
@@ -662,6 +684,72 @@ class LinuxToolVersionEnvironmentV1(Contract):
     lang: Literal["C.UTF-8"] = "C.UTF-8"
     lc_all: Literal["C.UTF-8"] = "C.UTF-8"
     path: Literal["/usr/bin:/bin"] = "/usr/bin:/bin"
+
+
+class LinuxCgroupLimitsV1(Contract):
+    memory_max: Literal["2147483648"] = LINUX_CGROUP_MEMORY_MAX
+    pids_max: Literal["128"] = LINUX_CGROUP_PIDS_MAX
+    cpu_max: Literal["200000 100000"] = LINUX_CGROUP_CPU_MAX
+
+
+class LinuxCgroupBoundaryAuthorityV1(Contract):
+    """Host-owned authority for one environment-scoped transient service cgroup."""
+
+    unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    cgroup_root: Literal["/sys/fs/cgroup"] = LINUX_CGROUP_ROOT
+    service_uid: Annotated[int, Field(ge=1)]
+    service_gid: Annotated[int, Field(ge=1)]
+    systemd_run: LinuxSystemdToolAuthorityV1
+    systemctl: LinuxSystemdToolAuthorityV1
+    version_environment: LinuxToolVersionEnvironmentV1 = LinuxToolVersionEnvironmentV1()
+    limits: LinuxCgroupLimitsV1 = LinuxCgroupLimitsV1()
+
+    @model_validator(mode="after")
+    def exact_unit_and_tools(self) -> LinuxCgroupBoundaryAuthorityV1:
+        if self.control_group != f"/system.slice/{self.unit_name}":
+            raise ValueError("Linux cgroup unit and control-group path differ")
+        if (
+            self.systemd_run.name != "systemd-run"
+            or self.systemd_run.locator != LINUX_SYSTEMD_RUN
+            or self.systemctl.name != "systemctl"
+            or self.systemctl.locator != LINUX_SYSTEMCTL
+        ):
+            raise ValueError("Linux cgroup systemd tool authority differs")
+        return self
+
+
+class LinuxCgroupSetupStatePayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    state_kind: Literal["linux_cgroup_setup_state_v1"] = "linux_cgroup_setup_state_v1"
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    boundary: LinuxCgroupBoundaryAuthorityV1
+
+
+class LinuxCgroupSetupStateV1(Contract):
+    linux_cgroup_setup_state_id: Digest
+    payload: LinuxCgroupSetupStatePayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupSetupStatePayloadV1) -> LinuxCgroupSetupStateV1:
+        return cls(
+            linux_cgroup_setup_state_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupSetupStateV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_setup_state_id != expected:
+            raise ValueError("Linux cgroup setup state hash mismatch")
+        return self
 
 
 class LinuxIsolationProfilePayloadV7(LinuxIsolationProfilePayloadV6):
@@ -1213,6 +1301,15 @@ class LinuxIsolationProfilePayloadV16(LinuxIsolationProfilePayloadV11):
         return self
 
 
+class LinuxIsolationProfilePayloadV17(LinuxIsolationProfilePayloadV16):
+    """V17 adds one exact transient-service cgroup resource authority."""
+
+    schema_version: Literal[17] = 17  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v17"] = "linux_native_isolation_v17"  # type: ignore[assignment]
+    cgroup_setup_state_id: Digest
+    cgroup: LinuxCgroupBoundaryAuthorityV1
+
+
 class LinuxIsolationProfileV1(Contract):
     linux_isolation_profile_id: Digest
     payload: LinuxIsolationProfilePayloadV1
@@ -1528,6 +1625,26 @@ class LinuxIsolationProfileV16(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation V16 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV17(ContractV2):
+    schema_version: Literal[17] = 17  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV17
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV17) -> LinuxIsolationProfileV17:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV17:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V17 profile hash mismatch")
         return self
 
 
@@ -2526,6 +2643,54 @@ class LinuxIsolationObservationV16(LinuxIsolationObservationV12):
     packaged_mcp: LinuxPackagedMcpMetadataObservationV2
 
 
+class LinuxCgroupMemberObservationV1(Contract):
+    role: Literal["probe", "namespace_launcher", "namespace_child"]
+    pid: Annotated[int, Field(ge=1)]
+    start_time_ticks: Annotated[int, Field(ge=1)]
+    control_group: Annotated[str, Field(pattern=r"^/system\.slice/[^\r\n]+\.service$")]
+
+
+class LinuxCgroupBoundaryObservationV1(Contract):
+    setup_state_id: Digest
+    control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    cgroup_native_identity: LinuxNativePathIdentityV1
+    observed_service_uid: Annotated[int, Field(ge=1)]
+    observed_service_gid: Annotated[int, Field(ge=1)]
+    cgroup_type: Literal["domain"] = "domain"
+    memory_max: Literal["2147483648"] = LINUX_CGROUP_MEMORY_MAX
+    pids_max: Literal["128"] = LINUX_CGROUP_PIDS_MAX
+    cpu_max: Literal["200000 100000"] = LINUX_CGROUP_CPU_MAX
+    initial_members_only_probe: Literal[True] = True
+    active_members_all_descendants: Literal[True] = True
+    terminal_members_only_probe: Literal[True] = True
+    process_tree_inheritance_verified: Literal[True] = True
+    cgroup_controls_not_writable: Literal[True] = True
+    ancestor_controls_not_writable: Literal[True] = True
+    observed_members: Annotated[tuple[LinuxCgroupMemberObservationV1, ...], Field(min_length=3)]
+
+    @model_validator(mode="after")
+    def exact_process_tree(self) -> LinuxCgroupBoundaryObservationV1:
+        roles = [member.role for member in self.observed_members]
+        pids = [member.pid for member in self.observed_members]
+        if sorted(roles) != ["namespace_child", "namespace_launcher", "probe"]:
+            raise ValueError("Linux cgroup observation must contain the exact process-tree roles")
+        if len(set(pids)) != len(pids):
+            raise ValueError("Linux cgroup observation contains duplicate process identities")
+        if any(member.control_group != self.control_group for member in self.observed_members):
+            raise ValueError("Linux cgroup process escaped the exact control group")
+        return self
+
+
+class LinuxIsolationObservationV17(LinuxIsolationObservationV16):
+    """V17 preserves V16 mechanics and observes the exact cgroup boundary."""
+
+    schema_version: Literal[17] = 17  # type: ignore[assignment]
+    cgroup: LinuxCgroupBoundaryObservationV1
+
+
 class LinuxHostCleanupObservationV1(Contract):
     child_exited: Literal[True] = True
     process_group_absent: Literal[True] = True
@@ -3060,6 +3225,35 @@ class LinuxIsolationReceiptV16(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_receipt_id != expected:
             raise ValueError("Linux isolation V16 receipt hash mismatch")
+        return self
+
+
+class LinuxIsolationReceiptPayloadV17(LinuxIsolationReceiptPayloadV16):
+    schema_version: Literal[17] = 17  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v17"] = (
+        "linux_native_isolation_receipt_v17"  # type: ignore[assignment]
+    )
+    observation: LinuxIsolationObservationV17
+    cgroup_resource_boundary_qualified: Literal[True] = True  # type: ignore[assignment]
+
+
+class LinuxIsolationReceiptV17(ContractV2):
+    schema_version: Literal[17] = 17  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV17
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV17) -> LinuxIsolationReceiptV17:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV17:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V17 receipt hash mismatch")
         return self
 
 
@@ -3620,6 +3814,48 @@ class LinuxIsolationEvidenceV16(ContractV2):
         return self
 
 
+class LinuxIsolationEvidencePayloadV17(LinuxIsolationEvidencePayloadV16):
+    schema_version: Literal[17] = 17  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV17  # type: ignore[assignment]
+    receipt: LinuxIsolationReceiptV17  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def exact_cgroup_join(self) -> LinuxIsolationEvidencePayloadV17:
+        authority = self.profile.payload.cgroup
+        observed = self.receipt.payload.observation.cgroup
+        if (
+            observed.setup_state_id != self.profile.payload.cgroup_setup_state_id
+            or observed.control_group != authority.control_group
+            or observed.memory_max != authority.limits.memory_max
+            or observed.pids_max != authority.limits.pids_max
+            or observed.cpu_max != authority.limits.cpu_max
+            or observed.observed_service_uid != authority.service_uid
+            or observed.observed_service_gid != authority.service_gid
+        ):
+            raise ValueError("Linux isolation V17 cgroup observation authority differs")
+        return self
+
+
+class LinuxIsolationEvidenceV17(ContractV2):
+    schema_version: Literal[17] = 17  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV17
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV17) -> LinuxIsolationEvidenceV17:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV17:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V17 evidence hash mismatch")
+        return self
+
+
 class LinuxAppArmorCleanupPayloadV1(Contract):
     schema_version: Literal[1] = 1
     receipt_kind: Literal["linux_apparmor_cleanup_receipt_v1"] = "linux_apparmor_cleanup_receipt_v1"
@@ -3656,6 +3892,175 @@ class LinuxAppArmorCleanupReceiptV1(Contract):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_apparmor_cleanup_receipt_id != expected:
             raise ValueError("Linux AppArmor cleanup receipt hash mismatch")
+        return self
+
+
+class LinuxCgroupCleanupPayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    receipt_kind: Literal["linux_cgroup_cleanup_receipt_v1"] = "linux_cgroup_cleanup_receipt_v1"
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_isolation_profile_id: Digest
+    linux_isolation_evidence_id: Digest
+    linux_cgroup_setup_state_id: Digest
+    unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    unit_absent: Literal[True] = True
+    cgroup_absent: Literal[True] = True
+    cleanup_complete: Literal[True] = True
+
+
+class LinuxCgroupCleanupStatePayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    state_kind: Literal["linux_cgroup_cleanup_state_v1"] = "linux_cgroup_cleanup_state_v1"
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    linux_isolation_profile_id: Digest
+    linux_isolation_evidence_id: Digest
+    unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    cgroup_native_identity: LinuxNativePathIdentityV1
+    stop_authorized: Literal[True] = True
+
+
+class LinuxCgroupCleanupStateV1(Contract):
+    linux_cgroup_cleanup_state_id: Digest
+    payload: LinuxCgroupCleanupStatePayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupCleanupStatePayloadV1) -> LinuxCgroupCleanupStateV1:
+        return cls(
+            linux_cgroup_cleanup_state_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupCleanupStateV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_cleanup_state_id != expected:
+            raise ValueError("Linux cgroup cleanup state hash mismatch")
+        return self
+
+
+class LinuxCgroupCleanupReceiptV1(Contract):
+    linux_cgroup_cleanup_receipt_id: Digest
+    payload: LinuxCgroupCleanupPayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupCleanupPayloadV1) -> LinuxCgroupCleanupReceiptV1:
+        return cls(
+            linux_cgroup_cleanup_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupCleanupReceiptV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_cleanup_receipt_id != expected:
+            raise ValueError("Linux cgroup cleanup receipt hash mismatch")
+        return self
+
+
+class LinuxCgroupRollbackPayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    receipt_kind: Literal["linux_cgroup_rollback_receipt_v1"] = "linux_cgroup_rollback_receipt_v1"
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    cleanup_attempted: Literal[True] = True
+    cleanup_succeeded: bool
+    unit_absent: bool
+    cgroup_absent: bool
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+
+    @model_validator(mode="after")
+    def truthful_success(self) -> LinuxCgroupRollbackPayloadV1:
+        if self.cleanup_succeeded != (self.unit_absent and self.cgroup_absent):
+            raise ValueError("Linux cgroup rollback success differs from absence observations")
+        return self
+
+
+class LinuxCgroupRollbackReceiptV1(Contract):
+    linux_cgroup_rollback_receipt_id: Digest
+    payload: LinuxCgroupRollbackPayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupRollbackPayloadV1) -> LinuxCgroupRollbackReceiptV1:
+        return cls(
+            linux_cgroup_rollback_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupRollbackReceiptV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_rollback_receipt_id != expected:
+            raise ValueError("Linux cgroup rollback receipt hash mismatch")
+        return self
+
+
+class LinuxCgroupLifecycleFailurePayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    receipt_kind: Literal["linux_cgroup_lifecycle_failure_v1"] = "linux_cgroup_lifecycle_failure_v1"
+    phase: Literal["setup", "run", "cleanup"]
+    reason_code: Literal[
+        "authority_invalid",
+        "service_creation_failed",
+        "service_execution_failed",
+        "cleanup_failed",
+        "unexpected_internal_failure",
+    ]
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest | None = None
+    cleanup_attempted: bool
+    cleanup_succeeded: bool
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+
+
+class LinuxCgroupLifecycleFailureV1(Contract):
+    linux_cgroup_lifecycle_failure_id: Digest
+    payload: LinuxCgroupLifecycleFailurePayloadV1
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupLifecycleFailurePayloadV1) -> LinuxCgroupLifecycleFailureV1:
+        return cls(
+            linux_cgroup_lifecycle_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupLifecycleFailureV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_lifecycle_failure_id != expected:
+            raise ValueError("Linux cgroup lifecycle failure hash mismatch")
         return self
 
 
@@ -4256,6 +4661,50 @@ class LinuxIsolationQualificationV16(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_qualification_id != expected:
             raise ValueError("Linux isolation V16 qualification hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationPayloadV17(LinuxIsolationQualificationPayloadV16):
+    schema_version: Literal[17] = 17  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV17  # type: ignore[assignment]
+    cgroup_cleanup: LinuxCgroupCleanupReceiptV1
+
+    @model_validator(mode="after")
+    def exact_cgroup_cleanup_join(self) -> LinuxIsolationQualificationPayloadV17:
+        profile = self.mechanics.payload.profile
+        cleanup = self.cgroup_cleanup.payload
+        if (
+            cleanup.implementation_commit != profile.payload.implementation_commit
+            or cleanup.environment_instance_id != profile.payload.environment_instance_id
+            or cleanup.linux_isolation_profile_id != profile.linux_isolation_profile_id
+            or cleanup.linux_isolation_evidence_id != self.mechanics.linux_isolation_evidence_id
+            or cleanup.linux_cgroup_setup_state_id != profile.payload.cgroup_setup_state_id
+            or cleanup.unit_name != profile.payload.cgroup.unit_name
+            or cleanup.control_group != profile.payload.cgroup.control_group
+        ):
+            raise ValueError("Linux V17 mechanics and cgroup cleanup authority differ")
+        return self
+
+
+class LinuxIsolationQualificationV17(ContractV2):
+    schema_version: Literal[17] = 17  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV17
+
+    @classmethod
+    def create(
+        cls, payload: LinuxIsolationQualificationPayloadV17
+    ) -> LinuxIsolationQualificationV17:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV17:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V17 qualification hash mismatch")
         return self
 
 

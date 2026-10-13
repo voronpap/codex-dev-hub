@@ -46,6 +46,9 @@ from devhub.linux_isolation import (
     LinuxAppArmorParserAuthorityV2,
     LinuxBrokerExpectationV1,
     LinuxBundleDirectoryAuthorityV1,
+    LinuxCgroupBoundaryObservationV1,
+    LinuxCgroupMemberObservationV1,
+    LinuxCgroupSetupStateV1,
     LinuxChildBootstrapFailureV3,
     LinuxChildRegistrationPayloadV3,
     LinuxChildRegistrationV3,
@@ -57,8 +60,8 @@ from devhub.linux_isolation import (
     LinuxHostBrokerFailurePayloadV1,
     LinuxHostBrokerFailureV1,
     LinuxHostCleanupObservationV1,
-    LinuxIsolationEvidencePayloadV16,
-    LinuxIsolationEvidenceV16,
+    LinuxIsolationEvidencePayloadV17,
+    LinuxIsolationEvidenceV17,
     LinuxIsolationFailurePayloadV8,
     LinuxIsolationFailureV8,
     LinuxIsolationObservationV11,
@@ -66,14 +69,16 @@ from devhub.linux_isolation import (
     LinuxIsolationObservationV14,
     LinuxIsolationObservationV15,
     LinuxIsolationObservationV16,
-    LinuxIsolationProfilePayloadV16,
+    LinuxIsolationObservationV17,
+    LinuxIsolationProfilePayloadV17,
     LinuxIsolationProfileV9,
     LinuxIsolationProfileV13,
     LinuxIsolationProfileV14,
     LinuxIsolationProfileV15,
     LinuxIsolationProfileV16,
-    LinuxIsolationReceiptPayloadV16,
-    LinuxIsolationReceiptV16,
+    LinuxIsolationProfileV17,
+    LinuxIsolationReceiptPayloadV17,
+    LinuxIsolationReceiptV17,
     LinuxMountAuthorityV1,
     LinuxNamespaceOwnerProjectionExpectationV1,
     LinuxNativePathIdentityV1,
@@ -591,6 +596,7 @@ def revalidate_profile_sources(
         | LinuxIsolationProfileV14
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
+        | LinuxIsolationProfileV17
     ),
     child_module: Path,
     bundle: Path,
@@ -608,7 +614,7 @@ def revalidate_profile_sources(
         or file_sha256(child_module) != profile.payload.child_probe_sha256
     ):
         raise ValueError("A required isolation source changed")
-    if isinstance(profile, LinuxIsolationProfileV16):
+    if isinstance(profile, (LinuxIsolationProfileV16, LinuxIsolationProfileV17)):
         if bundle_manifest is None:
             raise ValueError("Linux V16 package manifest authority is absent")
         manifest_v11 = LinuxNativeBundleV11.model_validate_json(bundle_manifest.read_bytes())
@@ -735,6 +741,117 @@ def host_authority(
         enforced_landlock_abi=enforced_landlock_abi(kernel_abi),
         delegated_cgroup_available=delegated,
     )
+
+
+def process_cgroup(pid: int) -> str:
+    lines = Path(f"/proc/{pid}/cgroup").read_text(encoding="ascii").splitlines()
+    matches = [line[3:] for line in lines if line.startswith("0::")]
+    if len(matches) != 1 or not matches[0].startswith("/"):
+        raise ValueError("Process cgroup v2 identity is invalid")
+    return matches[0]
+
+
+class CgroupBoundaryProbe:
+    """Observe one root-owned leaf cgroup without mutating its controls."""
+
+    def __init__(self, state: LinuxCgroupSetupStateV1) -> None:
+        self.state = state
+        self.authority = state.payload.boundary
+        self.path = Path(self.authority.cgroup_root + self.authority.control_group)
+        self.members: dict[str, LinuxCgroupMemberObservationV1] = {}
+        if os.getuid() != self.authority.service_uid or os.getgid() != self.authority.service_gid:
+            raise ValueError("Probe service identity differs from cgroup authority")
+        if process_cgroup(os.getpid()) != self.authority.control_group:
+            raise ValueError("Probe is outside the expected cgroup")
+        if self.path.is_symlink() or not self.path.is_dir():
+            raise ValueError("Expected cgroup path is absent or substituted")
+        if self._read("memory.max") != self.authority.limits.memory_max:
+            raise ValueError("Cgroup memory limit differs")
+        if self._read("pids.max") != self.authority.limits.pids_max:
+            raise ValueError("Cgroup PID limit differs")
+        if self._read("cpu.max") != self.authority.limits.cpu_max:
+            raise ValueError("Cgroup CPU limit differs")
+        if self._read("cgroup.type") != "domain":
+            raise ValueError("Cgroup is not a domain cgroup")
+        self._verify_controls_not_writable()
+        if self._pids() != {os.getpid()}:
+            raise ValueError("Cgroup has foreign initial members")
+        self.observe(os.getpid(), "probe")
+
+    def _read(self, name: str) -> str:
+        return (self.path / name).read_text(encoding="ascii").strip()
+
+    def _pids(self) -> set[int]:
+        return {int(value) for value in self._read("cgroup.procs").splitlines() if value}
+
+    @staticmethod
+    def _assert_not_writable(path: Path) -> None:
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CLOEXEC)
+        except PermissionError:
+            return
+        except OSError as error:
+            if error.errno in {1, 13, 30}:
+                return
+            raise
+        else:
+            os.close(descriptor)
+            raise ValueError("Cgroup control unexpectedly permits writes")
+
+    def _verify_controls_not_writable(self) -> None:
+        current = self.path
+        root = Path(self.authority.cgroup_root)
+        while True:
+            for name in (
+                "cgroup.procs",
+                "cgroup.subtree_control",
+                "memory.max",
+                "pids.max",
+                "cpu.max",
+            ):
+                candidate = current / name
+                if candidate.exists():
+                    self._assert_not_writable(candidate)
+            if current == root:
+                break
+            if root not in current.parents:
+                raise ValueError("Cgroup path escaped the unified hierarchy")
+            current = current.parent
+
+    def observe(
+        self, pid: int, role: Literal["probe", "namespace_launcher", "namespace_child"]
+    ) -> None:
+        if process_cgroup(pid) != self.authority.control_group:
+            raise ValueError("Observed process escaped the expected cgroup")
+        if role != "probe" and not is_descendant(pid, os.getpid()):
+            raise ValueError("Observed cgroup member is not a probe descendant")
+        for member in self._pids():
+            if member != os.getpid() and not is_descendant(member, os.getpid()):
+                raise ValueError("Cgroup contains a foreign active member")
+        self.members[role] = LinuxCgroupMemberObservationV1(
+            role=role,
+            pid=pid,
+            start_time_ticks=process_start_time(pid),
+            control_group=self.authority.control_group,
+        )
+
+    def finalize(self) -> LinuxCgroupBoundaryObservationV1:
+        if set(self.members) != {"probe", "namespace_launcher", "namespace_child"}:
+            raise ValueError("Required cgroup process roles were not observed")
+        if self._pids() != {os.getpid()}:
+            raise ValueError("Cgroup retained a child or foreign member")
+        info = os.lstat(self.path)
+        return LinuxCgroupBoundaryObservationV1(
+            setup_state_id=self.state.linux_cgroup_setup_state_id,
+            control_group=self.authority.control_group,
+            cgroup_native_identity=LinuxNativePathIdentityV1(
+                device=info.st_dev,
+                inode=info.st_ino,
+            ),
+            observed_service_uid=os.getuid(),
+            observed_service_gid=os.getgid(),
+            observed_members=tuple(self.members[role] for role in sorted(self.members)),
+        )
 
 
 def mount_authorities(
@@ -965,6 +1082,7 @@ def host_broker_failure_frame(
         | LinuxIsolationProfileV14
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
+        | LinuxIsolationProfileV17
     ),
     error: LinuxMetadataBrokerFailure,
 ) -> LinuxHostBrokerFailureV1:
@@ -1057,6 +1175,7 @@ def record_host_broker_failure(
         | LinuxIsolationProfileV14
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
+        | LinuxIsolationProfileV17
     ),
     capture: ProbeProcessCapture,
     checkpoint: str,
@@ -1096,6 +1215,7 @@ def validate_child_bootstrap_failure(
         | LinuxIsolationProfileV14
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
+        | LinuxIsolationProfileV17
     ),
     frame: LinuxChildBootstrapFailureV3,
     child_script: Path,
@@ -1121,6 +1241,7 @@ def validate_child_runtime_failure(
         | LinuxIsolationProfileV14
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
+        | LinuxIsolationProfileV17
     ),
     frame: LinuxChildRuntimeFailureV2 | LinuxChildRuntimeFailureV3,
     child_script: Path,
@@ -1245,6 +1366,7 @@ def namespace_command(
         | LinuxIsolationProfileV14
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
+        | LinuxIsolationProfileV17
     ),
     child_module: Path,
     root: Path,
@@ -1266,12 +1388,13 @@ def namespace_command(
                 LinuxIsolationProfileV14,
                 LinuxIsolationProfileV15,
                 LinuxIsolationProfileV16,
+                LinuxIsolationProfileV17,
             ),
         )
         else [str(child_module)]
     )
     child_command = [profile.payload.bootstrap_python.locator, *child_argv]
-    if isinstance(profile, LinuxIsolationProfileV16):
+    if isinstance(profile, (LinuxIsolationProfileV16, LinuxIsolationProfileV17)):
         if runtime_library_authority is None:
             raise ValueError("Linux V16 runtime library authority is absent")
         package = profile.payload.package
@@ -1367,6 +1490,7 @@ def namespace_command(
             LinuxIsolationProfileV14,
             LinuxIsolationProfileV15,
             LinuxIsolationProfileV16,
+            LinuxIsolationProfileV17,
         ),
     ):
         command.extend(
@@ -1377,7 +1501,7 @@ def namespace_command(
                 profile.payload.package.child_module_sha256,
             ]
         )
-    if isinstance(profile, LinuxIsolationProfileV16):
+    if isinstance(profile, (LinuxIsolationProfileV16, LinuxIsolationProfileV17)):
         command.extend(
             [
                 "--expected-loader-sha256",
@@ -1398,9 +1522,14 @@ def validate_registered_observation(
     | LinuxIsolationObservationV14
     | LinuxIsolationObservationV15
     | LinuxIsolationObservationV16
+    | LinuxIsolationObservationV17
 ):
     observation = (
-        LinuxIsolationObservationV16.model_validate_json(
+        LinuxIsolationObservationV17.model_validate_json(
+            canonical(cast(JsonValue, raw_observation))
+        )
+        if raw_observation.get("schema_version") == 17
+        else LinuxIsolationObservationV16.model_validate_json(
             canonical(cast(JsonValue, raw_observation))
         )
         if raw_observation.get("schema_version") == 16
@@ -1426,7 +1555,12 @@ def validate_registered_observation(
 
 
 def run_probe(
-    profile: LinuxIsolationProfileV14 | LinuxIsolationProfileV15 | LinuxIsolationProfileV16,
+    profile: (
+        LinuxIsolationProfileV14
+        | LinuxIsolationProfileV15
+        | LinuxIsolationProfileV16
+        | LinuxIsolationProfileV17
+    ),
     child_script: Path,
     root: Path,
     bundle: Path,
@@ -1437,7 +1571,13 @@ def run_probe(
     capture: ProbeProcessCapture,
     bundle_manifest: Path | None = None,
     runtime_library_authority: str | None = None,
-) -> LinuxIsolationObservationV14 | LinuxIsolationObservationV15 | LinuxIsolationObservationV16:
+    cgroup_probe: CgroupBoundaryProbe | None = None,
+) -> (
+    LinuxIsolationObservationV14
+    | LinuxIsolationObservationV15
+    | LinuxIsolationObservationV16
+    | LinuxIsolationObservationV17
+):
     owned_fds: set[int] = set()
     process: subprocess.Popen[bytes] | None = None
     collectors: list[threading.Thread] = []
@@ -1490,6 +1630,8 @@ def run_probe(
             env={"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin", "PYTHONNOUSERSITE": "1"},
         )
         capture.process_started = True
+        if cgroup_probe is not None:
+            cgroup_probe.observe(process.pid, "namespace_launcher")
         close_owned(registration_write)
         close_owned(result_write)
         if process.stdout is None or process.stderr is None:
@@ -1575,6 +1717,8 @@ def run_probe(
             outer_uid=outer_uid,
             start_time_ticks=registered.start_time_ticks,
         )
+        if cgroup_probe is not None:
+            cgroup_probe.observe(outer_pid, "namespace_child")
         active_phase = "broker"
         revalidate_synthetic_upstream(stub_server, profile.payload.synthetic_upstream)
         stub_thread.start()
@@ -1692,14 +1836,17 @@ def run_probe(
         ).model_dump(mode="json")
         raw_observation["descendant_cleanup_passed"] = True
         raw_observation["cleanup_failures"] = []
+        if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
+            raise ValueError("Isolation launcher process group remained after process exit")
+        if cgroup_probe is not None:
+            raw_observation["cgroup"] = cgroup_probe.finalize().model_dump(mode="json")
         observation = cast(
             LinuxIsolationObservationV14
             | LinuxIsolationObservationV15
-            | LinuxIsolationObservationV16,
+            | LinuxIsolationObservationV16
+            | LinuxIsolationObservationV17,
             validate_registered_observation(raw_observation, registered),
         )
-        if Path(f"/proc/{process.pid}").exists() or not process_group_absent(process.pid):
-            raise ValueError("Isolation launcher process group remained after process exit")
         revalidate_profile_sources(profile, child_script, bundle, bundle_manifest)
         if (broker_dir / "ollama.sock").exists():
             raise ValueError("Isolation broker socket remained after shutdown")
@@ -1837,6 +1984,7 @@ def main() -> None:
     parser.add_argument("--bundle-root", type=Path, required=True)
     parser.add_argument("--bundle-run-id", type=int, required=True)
     parser.add_argument("--bundle-run-attempt", type=int, required=True)
+    parser.add_argument("--cgroup-state", type=Path, required=True)
     args = parser.parse_args()
     if not _COMMIT.fullmatch(args.implementation_commit):
         raise SystemExit("Implementation commit must be one lowercase full Git SHA")
@@ -1844,7 +1992,7 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV16 | None = None
+    profile: LinuxIsolationProfileV17 | None = None
     capture = ProbeProcessCapture()
     phase: FailurePhase = "host_inspection"
     cleanup_succeeded = False
@@ -1853,6 +2001,15 @@ def main() -> None:
     try:
         repo = root_script.parents[1]
         verified_git_head(repo, args.implementation_commit)
+        if args.cgroup_state.is_symlink():
+            raise ValueError("Cgroup setup state cannot be a symlink")
+        cgroup_state = LinuxCgroupSetupStateV1.model_validate_json(args.cgroup_state.read_bytes())
+        if (
+            cgroup_state.payload.implementation_commit != args.implementation_commit
+            or cgroup_state.payload.environment_instance_id != environment
+        ):
+            raise ValueError("Cgroup setup state authority differs")
+        cgroup_probe = CgroupBoundaryProbe(cgroup_state)
         with tempfile.TemporaryDirectory(prefix="devfabric-linux-isolation-") as temporary:
             temp = Path(temporary).resolve(strict=True)
             scratch = temp
@@ -1908,8 +2065,8 @@ def main() -> None:
             )
             stub_server = bind_stub_ollama(port=0)
             synthetic_upstream = synthetic_upstream_authority(stub_server)
-            profile = LinuxIsolationProfileV16.create(
-                LinuxIsolationProfilePayloadV16(
+            profile = LinuxIsolationProfileV17.create(
+                LinuxIsolationProfilePayloadV17(
                     environment_instance_id=environment,
                     implementation_commit=args.implementation_commit,
                     native_bundle_id=package.bundle_id,
@@ -1929,6 +2086,8 @@ def main() -> None:
                     mount_version_environment=MOUNT_VERSION_ENVIRONMENT,
                     landlock_handled_access=landlock_handled_access(host.enforced_landlock_abi),
                     package=package,
+                    cgroup_setup_state_id=cgroup_state.linux_cgroup_setup_state_id,
+                    cgroup=cgroup_state.payload.boundary,
                 )
             )
             phase = "source_revalidation"
@@ -1936,7 +2095,7 @@ def main() -> None:
                 raise ValueError("Isolation parent probe changed before launch")
             phase = "namespace_creation"
             observation = cast(
-                LinuxIsolationObservationV16,
+                LinuxIsolationObservationV17,
                 run_probe(
                     profile,
                     child_script,
@@ -1949,6 +2108,7 @@ def main() -> None:
                     capture,
                     args.release.resolve(strict=True) / "linux-native-bundle.json",
                     runtime_libraries,
+                    cgroup_probe,
                 ),
             )
             close_errors = exhaustive_cleanup((stub_server.close,))
@@ -1959,15 +2119,15 @@ def main() -> None:
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV16.create(
-            LinuxIsolationReceiptPayloadV16(
+        receipt = LinuxIsolationReceiptV17.create(
+            LinuxIsolationReceiptPayloadV17(
                 linux_isolation_profile_id=profile.linux_isolation_profile_id,
                 environment_instance_id=environment,
                 observation=observation,
             )
         )
-        evidence = LinuxIsolationEvidenceV16.create(
-            LinuxIsolationEvidencePayloadV16(
+        evidence = LinuxIsolationEvidenceV17.create(
+            LinuxIsolationEvidencePayloadV17(
                 profile=profile,
                 receipt=receipt,
                 child_stdout_retained_sha256=sha256(bytes(capture.stdout.data)),

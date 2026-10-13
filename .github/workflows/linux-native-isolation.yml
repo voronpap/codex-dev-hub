@@ -84,20 +84,86 @@ jobs:
             --environment-instance-id "$environment_id" \
             --state-output "$RUNNER_TEMP/linux-native-isolation/apparmor-state.json" \
             --failure-output "$RUNNER_TEMP/linux-native-isolation/lifecycle-failure.json"
-      - name: Real rootless namespace and broker mechanics
+      - name: Prepare exact transient cgroup authority
         env:
           IMPLEMENTATION_COMMIT: ${{ github.sha }}
         run: |
           environment_id="$(cat "$RUNNER_TEMP/linux-native-isolation/environment-id")"
-          uv run --locked python scripts/probe_linux_native_isolation.py \
+          sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
+            scripts/manage_linux_native_cgroup.py setup \
             --implementation-commit "$IMPLEMENTATION_COMMIT" \
             --environment-instance-id "$environment_id" \
-            --output "$RUNNER_TEMP/linux-native-isolation/mechanics.json" \
-            --failure-output "$RUNNER_TEMP/linux-native-isolation/failure.json" \
-            --release "$RUNNER_TEMP/linux-native-release" \
-            --bundle-root "$RUNNER_TEMP/linux-native-release-verified/bundle" \
-            --bundle-run-id '${{ inputs.native_bundle_run_id }}' \
-            --bundle-run-attempt '${{ inputs.native_bundle_run_attempt }}'
+            --service-uid "$(id -u)" \
+            --service-gid "$(id -g)" \
+            --output "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json" \
+            --failure-output "$RUNNER_TEMP/linux-native-isolation/cgroup-failure.json"
+      - name: Real rootless namespace and broker mechanics inside exact cgroup
+        env:
+          IMPLEMENTATION_COMMIT: ${{ github.sha }}
+        run: |
+          environment_id="$(cat "$RUNNER_TEMP/linux-native-isolation/environment-id")"
+          sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
+            scripts/manage_linux_native_cgroup.py run \
+            --state "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json" \
+            --repo "$GITHUB_WORKSPACE" \
+            --implementation-commit "$IMPLEMENTATION_COMMIT" \
+            --environment-instance-id "$environment_id" \
+            --failure-output "$RUNNER_TEMP/linux-native-isolation/cgroup-failure.json" \
+            -- \
+            "$GITHUB_WORKSPACE/.venv/bin/python" scripts/probe_linux_native_isolation.py \
+              --implementation-commit "$IMPLEMENTATION_COMMIT" \
+              --environment-instance-id "$environment_id" \
+              --output "$RUNNER_TEMP/linux-native-isolation/mechanics.json" \
+              --failure-output "$RUNNER_TEMP/linux-native-isolation/failure.json" \
+              --release "$RUNNER_TEMP/linux-native-release" \
+              --bundle-root "$RUNNER_TEMP/linux-native-release-verified/bundle" \
+              --bundle-run-id '${{ inputs.native_bundle_run_id }}' \
+              --bundle-run-attempt '${{ inputs.native_bundle_run_attempt }}' \
+              --cgroup-state "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json"
+      - name: Remove exact transient cgroup and seal cleanup
+        if: always()
+        env:
+          IMPLEMENTATION_COMMIT: ${{ github.sha }}
+        run: |
+          environment_id="$(cat "$RUNNER_TEMP/linux-native-isolation/environment-id")"
+          state="$RUNNER_TEMP/linux-native-isolation/cgroup-state.json"
+          mechanics="$RUNNER_TEMP/linux-native-isolation/mechanics.json"
+          cleanup="$RUNNER_TEMP/linux-native-isolation/cgroup-cleanup.json"
+          cleanup_state="$RUNNER_TEMP/linux-native-isolation/cgroup-cleanup-state.json"
+          rollback="$RUNNER_TEMP/linux-native-isolation/cgroup-rollback.json"
+          failure="$RUNNER_TEMP/linux-native-isolation/cgroup-failure.json"
+          if test -f "$state" && test -f "$mechanics"; then
+            if ! sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
+              scripts/manage_linux_native_cgroup.py cleanup \
+              --state "$state" \
+              --mechanics "$mechanics" \
+              --cleanup-state "$cleanup_state" \
+              --output "$cleanup" \
+              --implementation-commit "$IMPLEMENTATION_COMMIT" \
+              --environment-instance-id "$environment_id" \
+              --failure-output "$failure"; then
+              if test -f "$cleanup_state"; then
+                sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
+                  scripts/manage_linux_native_cgroup.py resume \
+                  --state "$state" \
+                  --mechanics "$mechanics" \
+                  --cleanup-state "$cleanup_state" \
+                  --output "$rollback" \
+                  --implementation-commit "$IMPLEMENTATION_COMMIT" \
+                  --environment-instance-id "$environment_id" \
+                  --failure-output "$failure"
+              fi
+              exit 1
+            fi
+          elif test -f "$state"; then
+            sudo "$GITHUB_WORKSPACE/.venv/bin/python" \
+              scripts/manage_linux_native_cgroup.py rollback \
+              --state "$state" \
+              --output "$rollback" \
+              --implementation-commit "$IMPLEMENTATION_COMMIT" \
+              --environment-instance-id "$environment_id" \
+              --failure-output "$failure"
+          fi
       - name: Remove owned AppArmor authority and seal cleanup
         if: always()
         env:
@@ -132,17 +198,23 @@ jobs:
           environment_id="$(cat "$RUNNER_TEMP/linux-native-isolation/environment-id")"
           test ! -e "$RUNNER_TEMP/linux-native-isolation/failure.json"
           test ! -e "$RUNNER_TEMP/linux-native-isolation/lifecycle-failure.json"
+          test ! -e "$RUNNER_TEMP/linux-native-isolation/cgroup-failure.json"
           uv run --locked python scripts/finalize_linux_native_isolation.py \
             --mechanics "$RUNNER_TEMP/linux-native-isolation/mechanics.json" \
             --cleanup "$RUNNER_TEMP/linux-native-isolation/apparmor-cleanup.json" \
+            --cgroup-cleanup "$RUNNER_TEMP/linux-native-isolation/cgroup-cleanup.json" \
             --output "$RUNNER_TEMP/linux-native-isolation/qualification.json" \
             --implementation-commit "$IMPLEMENTATION_COMMIT" \
             --environment-instance-id "$environment_id" \
             --failure-output "$RUNNER_TEMP/linux-native-isolation/lifecycle-failure.json"
           test ! -e "$RUNNER_TEMP/linux-native-isolation/failure.json"
           test ! -e "$RUNNER_TEMP/linux-native-isolation/lifecycle-failure.json"
+          test ! -e "$RUNNER_TEMP/linux-native-isolation/cgroup-failure.json"
           rm "$RUNNER_TEMP/linux-native-isolation/mechanics.json" \
             "$RUNNER_TEMP/linux-native-isolation/apparmor-cleanup.json" \
+            "$RUNNER_TEMP/linux-native-isolation/cgroup-cleanup.json" \
+            "$RUNNER_TEMP/linux-native-isolation/cgroup-cleanup-state.json" \
+            "$RUNNER_TEMP/linux-native-isolation/cgroup-state.json" \
             "$RUNNER_TEMP/linux-native-isolation/environment-id"
       - name: Upload bounded qualification evidence
         if: always()
@@ -153,6 +225,12 @@ jobs:
             ${{ runner.temp }}/linux-native-isolation/qualification.json
             ${{ runner.temp }}/linux-native-isolation/failure.json
             ${{ runner.temp }}/linux-native-isolation/lifecycle-failure.json
+            ${{ runner.temp }}/linux-native-isolation/cgroup-failure.json
+            ${{ runner.temp }}/linux-native-isolation/cgroup-rollback.json
+            ${{ runner.temp }}/linux-native-isolation/cgroup-cleanup-state.json
+            ${{ runner.temp }}/linux-native-isolation/cgroup-state.json
+            ${{ runner.temp }}/linux-native-isolation/cgroup-cleanup.json
+            ${{ runner.temp }}/linux-native-isolation/mechanics.json
           if-no-files-found: error
           include-hidden-files: false
           retention-days: 14
