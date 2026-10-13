@@ -1270,6 +1270,33 @@ def namespace_command(
         )
         else [str(child_module)]
     )
+    child_command = [profile.payload.bootstrap_python.locator, *child_argv]
+    if isinstance(profile, LinuxIsolationProfileV16):
+        if runtime_library_authority is None:
+            raise ValueError("Linux V16 runtime library authority is absent")
+        package = profile.payload.package
+        bundle_root = bundle.resolve(strict=True)
+        expected_python = bundle_root / "python/bin/python3.12"
+        bootstrap_python = Path(profile.payload.bootstrap_python.locator).resolve(strict=True)
+        if bootstrap_python != expected_python:
+            raise ValueError("Linux V16 bootstrap Python differs from package authority")
+        try:
+            projected_libraries = json.loads(runtime_library_authority)
+        except json.JSONDecodeError as error:
+            raise ValueError("Linux V16 runtime library authority is invalid") from error
+        if (
+            not isinstance(projected_libraries, list)
+            or digest(canonical(cast(JsonValue, projected_libraries)))
+            != package.runtime_library_authority_sha256
+        ):
+            raise ValueError("Linux V16 runtime library authority differs")
+        child_command = [
+            str(bundle_root.joinpath(*package.loader_path.split("/"))),
+            *package.loader_arguments,
+            str(bundle_root.joinpath(*package.runtime_library_directory.split("/"))),
+            str(bootstrap_python),
+            *child_argv,
+        ]
     command = [
         profile.payload.unshare.locator,
         "--user",
@@ -1281,8 +1308,7 @@ def namespace_command(
         "--fork",
         "--kill-child=KILL",
         "--net",
-        profile.payload.bootstrap_python.locator,
-        *child_argv,
+        *child_command,
         "--root",
         str(root),
         "--bundle",
@@ -1352,8 +1378,6 @@ def namespace_command(
             ]
         )
     if isinstance(profile, LinuxIsolationProfileV16):
-        if runtime_library_authority is None:
-            raise ValueError("Linux V16 runtime library authority is absent")
         command.extend(
             [
                 "--expected-loader-sha256",

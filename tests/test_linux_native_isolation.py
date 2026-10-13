@@ -1047,8 +1047,12 @@ def profile_v15_for_server(server: socket.socket) -> LinuxIsolationProfileV15:
     return LinuxIsolationProfileV15.create(LinuxIsolationProfilePayloadV15.model_validate(raw))
 
 
-def profile_v16_for_server(server: socket.socket) -> LinuxIsolationProfileV16:
+def profile_v16_for_server(
+    server: socket.socket, bootstrap_python: Path | None = None
+) -> LinuxIsolationProfileV16:
     raw = profile_payload_v16().model_dump(mode="python")
+    if bootstrap_python is not None:
+        raw["bootstrap_python"]["locator"] = str(bootstrap_python)
     authority = PROBE.synthetic_upstream_authority(server)
     raw["synthetic_upstream"] = authority.model_dump(mode="python")
     raw["broker"]["broker_host_pid"] = authority.owner_pid
@@ -4188,14 +4192,23 @@ def test_v13_namespace_command_uses_exact_installed_child_module() -> None:
     assert str(ROOT / "scripts/linux_native_isolation_child.py") not in command
 
 
-def test_v16_namespace_command_passes_exact_loader_and_library_authority() -> None:
-    profile = LinuxIsolationProfileV16.create(profile_payload_v16())
-    runtime_libraries = '[{"path":"runtime/lib/libc.so.6","sha256":"' + H + '","size":1}]'
+@pytest.mark.skipif(os.name != "posix", reason="Loader-bound child command is Linux-only")
+def test_v16_namespace_command_uses_exact_loader_bound_child_prefix(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "bundle"
+    python = bundle / "python/bin/python3.12"
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"packaged-python")
+    raw = profile_payload_v16().model_dump(mode="python")
+    raw["bootstrap_python"]["locator"] = str(python)
+    profile = LinuxIsolationProfileV16.create(LinuxIsolationProfilePayloadV16.model_validate(raw))
+    runtime_libraries = V11_RUNTIME_LIBRARY_AUTHORITY
     command = PROBE.namespace_command(
         profile,
-        Path("/bundle/python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"),
+        bundle / profile.payload.package.child_module_path,
         Path("/tmp/root"),
-        Path("/tmp/fixture"),
+        bundle,
         Path("/tmp/state"),
         Path("/tmp/output"),
         Path("/tmp/broker"),
@@ -4204,6 +4217,18 @@ def test_v16_namespace_command_passes_exact_loader_and_library_authority() -> No
         {"user": "user:[1]", "mnt": "mnt:[2]", "pid": "pid:[3]", "net": "net:[4]"},
         runtime_libraries,
     )
+    child_index = command.index("--net") + 1
+    assert command[child_index : child_index + 9] == [
+        str(bundle / profile.payload.package.loader_path),
+        "--inhibit-cache",
+        "--library-path",
+        str(bundle / profile.payload.package.runtime_library_directory),
+        str(python),
+        "-I",
+        "-B",
+        "-m",
+        "devhub.linux_native_isolation_child",
+    ]
     assert command[command.index("--expected-loader-sha256") + 1] == (
         profile.payload.package.loader_sha256
     )
@@ -4214,9 +4239,9 @@ def test_v16_namespace_command_passes_exact_loader_and_library_authority() -> No
     with pytest.raises(ValueError, match="runtime library authority is absent"):
         PROBE.namespace_command(
             profile,
-            Path("/bundle/child.py"),
+            bundle / "child.py",
             Path("/tmp/root"),
-            Path("/tmp/fixture"),
+            bundle,
             Path("/tmp/state"),
             Path("/tmp/output"),
             Path("/tmp/broker"),
@@ -4828,6 +4853,50 @@ def test_verified_package_authority_v16_projects_exact_bundle_v11_loader_authori
         PROBE.verified_package_authority_v16(
             release, root, package.bundle_run_id, package.bundle_run_attempt
         )
+
+
+@pytest.mark.parametrize("reason", ("loader substitution", "runtime library absence"))
+@pytest.mark.skipif(os.name != "posix", reason="Linux process launch ordering is Linux-only")
+def test_v16_source_revalidation_failure_prevents_process_start(
+    reason: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = PROBE.bind_stub_ollama(port=0)
+    bundle = tmp_path / "bundle"
+    python = bundle / "python/bin/python3.12"
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"packaged-python")
+    profile = profile_v16_for_server(server, python)
+    broker = tmp_path / "broker"
+    broker.mkdir()
+    monkeypatch.setattr(
+        PROBE,
+        "revalidate_profile_sources",
+        lambda *_args: (_ for _ in ()).throw(ValueError(reason)),
+    )
+    monkeypatch.setattr(PROBE, "revalidate_synthetic_upstream", lambda *_args: None)
+    monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
+    monkeypatch.setattr(
+        PROBE.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("process started before loader validation"),
+    )
+    try:
+        with pytest.raises(ValueError, match=reason):
+            PROBE.run_probe(
+                profile,
+                ROOT / "src/devhub/linux_native_isolation_child.py",
+                tmp_path / "root",
+                bundle,
+                tmp_path / "state",
+                tmp_path / "output",
+                broker,
+                server,
+                PROBE.ProbeProcessCapture(),
+                None,
+                V11_RUNTIME_LIBRARY_AUTHORITY,
+            )
+    finally:
+        server.close()
 
 
 def test_v14_failure_accepts_only_bound_child_runtime_failure_v3() -> None:
@@ -6633,7 +6702,11 @@ def test_run_probe_v16_carries_loader_authority_and_joins_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v16_for_server(server)
+    bundle = tmp_path / "bundle"
+    python = bundle / "python/bin/python3.12"
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"packaged-python")
+    profile = profile_v16_for_server(server, python)
     capture = PROBE.ProbeProcessCapture()
     broker_dir = tmp_path / "broker"
     broker_dir.mkdir(mode=0o700)
@@ -6678,7 +6751,7 @@ def test_run_probe_v16_carries_loader_authority_and_joins_evidence(
             profile,
             ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
-            tmp_path / "bundle",
+            bundle,
             tmp_path / "state",
             tmp_path / "output",
             broker_dir,
@@ -6711,6 +6784,18 @@ def test_run_probe_v16_carries_loader_authority_and_joins_evidence(
     assert command[command.index("--expected-runtime-libraries") + 1] == (
         V11_RUNTIME_LIBRARY_AUTHORITY
     )
+    child_index = command.index("--net") + 1
+    assert command[child_index : child_index + 9] == [
+        str(bundle / profile.payload.package.loader_path),
+        "--inhibit-cache",
+        "--library-path",
+        str(bundle / profile.payload.package.runtime_library_directory),
+        str(python),
+        "-I",
+        "-B",
+        "-m",
+        "devhub.linux_native_isolation_child",
+    ]
     assert evidence.payload.receipt.payload.observation.packaged_mcp.loader_arguments == (
         "--inhibit-cache",
         "--library-path",
