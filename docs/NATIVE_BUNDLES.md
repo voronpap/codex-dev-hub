@@ -677,6 +677,14 @@ re-runs after rewriting, and the exact bundled loader must resolve every
 non-loader ELF only through the manifest-bound closure. Historical V9 parsing
 and its failed evidence remain unchanged.
 
+Main-only V10 run `38406098417/1` also failed closed before publication. The
+exact retained Codex ELF names `ld-linux-x86-64.so.2` in `DT_NEEDED`, while an
+explicitly invoked glibc loader may omit its own process image from `--list`.
+The strict verifier now accounts for that one self-dependency only from the
+already hash-bound loader command; any conflicting emitted loader locator and
+every other omitted or ambient dependency still fail closed. No V10 artifact
+was published by that run, and all execution counters remained zero.
+
 Bundle V10 still records `native_executor_isolation_qualified=false` and
 `package_readiness=false`. Its relocated metadata-only smoke proves the
 bundle-owned loader can start the exact Python runtime and import the reviewed

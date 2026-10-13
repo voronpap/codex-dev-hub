@@ -1154,15 +1154,29 @@ def test_linux_bundle_loader_resolution_rejects_ambient_fallback(
 ) -> None:
     root = tmp_path / "bundle"
     bundle = materialize_v9(root)
-    closure = bundle.payload.runtime_closure
+    raw_closure = bundle.payload.runtime_closure.model_dump(mode="python")
+    for requirement in raw_closure["elf_requirements"]:
+        if requirement["path"] == "codex/codex":
+            requirement["needed"] = ("ld-linux-x86-64.so.2", "libc.so.6")
+    closure = LinuxRuntimeClosureV1.model_validate(raw_closure)
     ambient = _write(tmp_path, "ambient/libc.so.6", b"ambient")
 
-    def completed(*, ambient_libc: bool) -> subprocess.CompletedProcess[bytes]:
-        lines = [
-            f"{closure.embedded_interpreter} (0x0000000000000001)",
-            "linux-vdso.so.1 (0x0000000000000002)",
-        ]
+    def completed(
+        *,
+        ambient_libc: bool,
+        include_loader: bool = True,
+        omit_library: str | None = None,
+        loader_locator: str | None = None,
+    ) -> subprocess.CompletedProcess[bytes]:
+        lines = ["linux-vdso.so.1 (0x0000000000000002)"]
+        if include_loader:
+            lines.insert(
+                0,
+                f"{loader_locator or closure.embedded_interpreter} (0x0000000000000001)",
+            )
         for library in closure.libraries:
+            if library.soname == omit_library:
+                continue
             locator = root / library.path
             if ambient_libc and library.soname == "libc.so.6":
                 locator = ambient
@@ -1172,8 +1186,42 @@ def test_linux_bundle_loader_resolution_rejects_ambient_fallback(
     monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: completed(ambient_libc=False))
     BUILDER._verify_loader_resolution(root, closure)
 
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: completed(ambient_libc=False, include_loader=False),
+    )
+    BUILDER._verify_loader_resolution(root, closure)
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: completed(ambient_libc=False, omit_library="libc.so.6"),
+    )
+    with pytest.raises(ValueError, match="omitted a direct dependency"):
+        BUILDER._verify_loader_resolution(root, closure)
+
     monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: completed(ambient_libc=True))
     with pytest.raises(ValueError, match="ambient dependency: libc.so.6"):
+        BUILDER._verify_loader_resolution(root, closure)
+
+    ambient_loader = _write(tmp_path, "ambient/ld-linux-x86-64.so.2", b"ambient")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: completed(ambient_libc=False, loader_locator=str(ambient_loader)),
+    )
+    with pytest.raises(ValueError, match="resolved a dependency ambiguously"):
+        BUILDER._verify_loader_resolution(root, closure)
+
+    loader = root / closure.loader_path
+    loader.write_bytes(b"substituted")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("subprocess ran before loader identity validation"),
+    )
+    with pytest.raises(ValueError, match="loader bytes differ"):
         BUILDER._verify_loader_resolution(root, closure)
 
 

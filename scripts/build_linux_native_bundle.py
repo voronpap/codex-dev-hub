@@ -201,6 +201,8 @@ def _verify_loader_resolution(bundle_root: Path, closure: LinuxRuntimeClosureV1)
     loader = bundle_root / closure.loader_path
     library_directory = bundle_root / closure.library_directory
     loader_name = Path(closure.loader_path).name
+    if loader.stat().st_size != closure.loader_size or file_sha256(loader) != closure.loader_sha256:
+        raise ValueError("Bundled loader bytes differ from closure authority")
     for requirement in closure.elf_requirements:
         relative = requirement.path
         if relative == closure.loader_path:
@@ -223,6 +225,10 @@ def _verify_loader_resolution(bundle_root: Path, closure: LinuxRuntimeClosureV1)
         if completed.returncode != 0 or stderr:
             raise ValueError(f"Bundled loader resolution failed: {relative}")
         observed: dict[str, Path] = {}
+        if loader_name in requirement.needed:
+            # The reviewed loader is the process image for this invocation. Glibc
+            # may omit that self-dependency from --list even when DT_NEEDED names it.
+            observed[loader_name] = loader.resolve(strict=True)
         for line in stdout.splitlines():
             match = _LDD_RESOLVED.match(line)
             if match is not None:
