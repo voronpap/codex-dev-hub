@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       native_build_run_id:
-        description: Exact successful linux-build-011 workflow run ID
+        description: Exact successful linux-build-012 workflow run ID
         required: true
         type: string
       native_build_run_attempt:
-        description: Exact successful linux-build-011 workflow run attempt
+        description: Exact successful linux-build-012 workflow run attempt
         required: true
         type: string
 
@@ -45,20 +45,31 @@ jobs:
           tests/test_linux_native_codex.py
           tests/test_native_bundle.py
           tests/test_native_build_artifact_inventory.py
-      - name: Download exact Linux Codex pair
+      - name: Download and verify exact-main Linux Build-012
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh run download '${{ inputs.native_build_run_id }}'
-          --repo '${{ github.repository }}'
-          --name devfabric-linux-build-011-binaries
-          --dir "$RUNNER_TEMP/linux-build-011"
+          EXPECTED_COMMIT: ${{ github.sha }}
+          BUILD_RUN_ID: ${{ inputs.native_build_run_id }}
+          BUILD_RUN_ATTEMPT: ${{ inputs.native_build_run_attempt }}
+        run: |
+          gh run view "$BUILD_RUN_ID" --repo '${{ github.repository }}' \
+            --json headSha,attempt,conclusion,event > "$RUNNER_TEMP/linux-build-run.json"
+          gh api "repos/${{ github.repository }}/actions/runs/$BUILD_RUN_ID" \
+            > "$RUNNER_TEMP/linux-build-run-api.json"
+          jq -e --arg head "$EXPECTED_COMMIT" --argjson attempt "$BUILD_RUN_ATTEMPT" \
+            '.headSha == $head and .attempt == $attempt and .conclusion == "success" and .event == "workflow_dispatch"' \
+            "$RUNNER_TEMP/linux-build-run.json"
+          jq -e '.path == ".github/workflows/linux-native-codex.yml"' \
+            "$RUNNER_TEMP/linux-build-run-api.json"
+          gh run download "$BUILD_RUN_ID" --repo '${{ github.repository }}' \
+            --name devfabric-linux-build-012-binaries \
+            --dir "$RUNNER_TEMP/linux-build-012"
       - name: Build and relocate exact native Linux bundle
         run: |
           uv run --locked --group linux-bundle-build python scripts/build_linux_native_bundle.py \
             --output "$RUNNER_TEMP/devfabric-linux-native" \
             --expected-commit '${{ github.sha }}' \
-            --codex-artifact "$RUNNER_TEMP/linux-build-011" \
+            --codex-artifact "$RUNNER_TEMP/linux-build-012" \
             --accepted-run-id '${{ inputs.native_build_run_id }}' \
             --accepted-run-attempt '${{ inputs.native_build_run_attempt }}'
           uv run --locked python scripts/verify_linux_native_bundle.py \

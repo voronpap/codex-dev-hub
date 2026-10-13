@@ -3790,6 +3790,7 @@ def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
     assert result["tool_names"] == ["devhub_delegate"]
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Isolated child identity hashing is Linux-only")
 def test_child_ledger_identity_hash_matches_production_contract() -> None:
     assert CHILD is not None
     identity = LedgerIdentityCoreV1(
