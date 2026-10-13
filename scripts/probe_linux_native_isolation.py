@@ -47,8 +47,10 @@ from devhub.linux_isolation import (
     LinuxBrokerExpectationV1,
     LinuxBundleDirectoryAuthorityV1,
     LinuxCgroupBoundaryObservationV1,
+    LinuxCgroupBoundaryObservationV2,
     LinuxCgroupMemberObservationV1,
     LinuxCgroupSetupStateV1,
+    LinuxCgroupSetupStateV2,
     LinuxChildBootstrapFailureV3,
     LinuxChildRegistrationPayloadV3,
     LinuxChildRegistrationV3,
@@ -61,7 +63,9 @@ from devhub.linux_isolation import (
     LinuxHostBrokerFailureV1,
     LinuxHostCleanupObservationV1,
     LinuxIsolationEvidencePayloadV17,
+    LinuxIsolationEvidencePayloadV18,
     LinuxIsolationEvidenceV17,
+    LinuxIsolationEvidenceV18,
     LinuxIsolationFailurePayloadV8,
     LinuxIsolationFailureV8,
     LinuxIsolationObservationV11,
@@ -70,23 +74,31 @@ from devhub.linux_isolation import (
     LinuxIsolationObservationV15,
     LinuxIsolationObservationV16,
     LinuxIsolationObservationV17,
+    LinuxIsolationObservationV18,
     LinuxIsolationProfilePayloadV17,
+    LinuxIsolationProfilePayloadV18,
     LinuxIsolationProfileV9,
     LinuxIsolationProfileV13,
     LinuxIsolationProfileV14,
     LinuxIsolationProfileV15,
     LinuxIsolationProfileV16,
     LinuxIsolationProfileV17,
+    LinuxIsolationProfileV18,
     LinuxIsolationReceiptPayloadV17,
+    LinuxIsolationReceiptPayloadV18,
     LinuxIsolationReceiptV17,
+    LinuxIsolationReceiptV18,
+    LinuxMatchedControlReceiptV1,
     LinuxMountAuthorityV1,
     LinuxNamespaceOwnerProjectionExpectationV1,
     LinuxNativePathIdentityV1,
     LinuxPackageAuthorityV3,
     LinuxPackageAuthorityV4,
     LinuxPackageAuthorityV5,
+    LinuxSeccompProcessObservationV1,
     LinuxSyntheticUpstreamAuthorityV1,
     LinuxSyntheticUpstreamObservationV1,
+    LinuxSyscallFilterObservationV1,
     LinuxToolAuthorityV1,
     LinuxToolAuthorityV4,
     LinuxToolVersionEnvironmentV1,
@@ -104,6 +116,8 @@ RETAINED_LIMIT = 1024 * 1024
 HARD_LIMIT = 8 * 1024 * 1024
 LANDLOCK_CREATE_RULESET_VERSION = 1
 SYS_LANDLOCK_CREATE_RULESET_X86_64 = 444
+SYS_PERSONALITY_X86_64 = 135
+PERSONALITY_QUERY = 0xFFFFFFFF
 _COMMIT = re.compile(r"^[a-f0-9]{40}$")
 LINUX_SIGKILL = 9
 MOUNT_VERSION_ENVIRONMENT = LinuxToolVersionEnvironmentV1()
@@ -597,6 +611,7 @@ def revalidate_profile_sources(
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
         | LinuxIsolationProfileV17
+        | LinuxIsolationProfileV18
     ),
     child_module: Path,
     bundle: Path,
@@ -614,7 +629,9 @@ def revalidate_profile_sources(
         or file_sha256(child_module) != profile.payload.child_probe_sha256
     ):
         raise ValueError("A required isolation source changed")
-    if isinstance(profile, (LinuxIsolationProfileV16, LinuxIsolationProfileV17)):
+    if isinstance(
+        profile, (LinuxIsolationProfileV16, LinuxIsolationProfileV17, LinuxIsolationProfileV18)
+    ):
         if bundle_manifest is None:
             raise ValueError("Linux V16 package manifest authority is absent")
         manifest_v11 = LinuxNativeBundleV11.model_validate_json(bundle_manifest.read_bytes())
@@ -751,14 +768,40 @@ def process_cgroup(pid: int) -> str:
     return matches[0]
 
 
+def process_security_status(pid: int) -> tuple[int, int, int]:
+    values: dict[str, int] = {}
+    for line in Path(f"/proc/{pid}/status").read_text(encoding="ascii").splitlines():
+        if ":" not in line:
+            continue
+        key, raw = line.split(":", 1)
+        if key in {"NoNewPrivs", "Seccomp", "Seccomp_filters"}:
+            values[key] = int(raw.strip())
+    if set(values) != {"NoNewPrivs", "Seccomp", "Seccomp_filters"}:
+        raise ValueError("Process security status is incomplete")
+    return values["NoNewPrivs"], values["Seccomp"], values["Seccomp_filters"]
+
+
+def raw_personality_observation() -> dict[str, int]:
+    libc = ctypes.CDLL(None, use_errno=True)
+    ctypes.set_errno(0)
+    result = int(libc.syscall(SYS_PERSONALITY_X86_64, PERSONALITY_QUERY))
+    return {
+        "syscall_number": SYS_PERSONALITY_X86_64,
+        "argument": PERSONALITY_QUERY,
+        "result": result,
+        "observed_errno": ctypes.get_errno(),
+    }
+
+
 class CgroupBoundaryProbe:
     """Observe one root-owned leaf cgroup without mutating its controls."""
 
-    def __init__(self, state: LinuxCgroupSetupStateV1) -> None:
+    def __init__(self, state: LinuxCgroupSetupStateV1 | LinuxCgroupSetupStateV2) -> None:
         self.state = state
         self.authority = state.payload.boundary
         self.path = Path(self.authority.cgroup_root + self.authority.control_group)
         self.members: dict[str, LinuxCgroupMemberObservationV1] = {}
+        self.syscall_filter = isinstance(state, LinuxCgroupSetupStateV2)
         if os.getuid() != self.authority.service_uid or os.getgid() != self.authority.service_gid:
             raise ValueError("Probe service identity differs from cgroup authority")
         if process_cgroup(os.getpid()) != self.authority.control_group:
@@ -828,29 +871,44 @@ class CgroupBoundaryProbe:
         for member in self._pids():
             if member != os.getpid() and not is_descendant(member, os.getpid()):
                 raise ValueError("Cgroup contains a foreign active member")
-        self.members[role] = LinuxCgroupMemberObservationV1(
-            role=role,
-            pid=pid,
-            start_time_ticks=process_start_time(pid),
-            control_group=self.authority.control_group,
-        )
+        values: dict[str, object] = {
+            "role": role,
+            "pid": pid,
+            "start_time_ticks": process_start_time(pid),
+            "control_group": self.authority.control_group,
+        }
+        if self.syscall_filter:
+            no_new_privs, seccomp_mode, seccomp_filters = process_security_status(pid)
+            values.update(
+                no_new_privs=no_new_privs,
+                seccomp_mode=seccomp_mode,
+                seccomp_filters=seccomp_filters,
+            )
+            self.members[role] = LinuxSeccompProcessObservationV1.model_validate(values)
+        else:
+            self.members[role] = LinuxCgroupMemberObservationV1.model_validate(values)
 
-    def finalize(self) -> LinuxCgroupBoundaryObservationV1:
+    def finalize(self) -> LinuxCgroupBoundaryObservationV1 | LinuxCgroupBoundaryObservationV2:
         if set(self.members) != {"probe", "namespace_launcher", "namespace_child"}:
             raise ValueError("Required cgroup process roles were not observed")
         if self._pids() != {os.getpid()}:
             raise ValueError("Cgroup retained a child or foreign member")
         info = os.lstat(self.path)
-        return LinuxCgroupBoundaryObservationV1(
-            setup_state_id=self.state.linux_cgroup_setup_state_id,
-            control_group=self.authority.control_group,
-            cgroup_native_identity=LinuxNativePathIdentityV1(
+        values = {
+            "setup_state_id": self.state.linux_cgroup_setup_state_id,
+            "control_group": self.authority.control_group,
+            "cgroup_native_identity": LinuxNativePathIdentityV1(
                 device=info.st_dev,
                 inode=info.st_ino,
             ),
-            observed_service_uid=os.getuid(),
-            observed_service_gid=os.getgid(),
-            observed_members=tuple(self.members[role] for role in sorted(self.members)),
+            "observed_service_uid": os.getuid(),
+            "observed_service_gid": os.getgid(),
+            "observed_members": tuple(self.members[role] for role in sorted(self.members)),
+        }
+        return (
+            LinuxCgroupBoundaryObservationV2.model_validate(values)
+            if self.syscall_filter
+            else LinuxCgroupBoundaryObservationV1.model_validate(values)
         )
 
 
@@ -1083,6 +1141,7 @@ def host_broker_failure_frame(
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
         | LinuxIsolationProfileV17
+        | LinuxIsolationProfileV18
     ),
     error: LinuxMetadataBrokerFailure,
 ) -> LinuxHostBrokerFailureV1:
@@ -1176,6 +1235,7 @@ def record_host_broker_failure(
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
         | LinuxIsolationProfileV17
+        | LinuxIsolationProfileV18
     ),
     capture: ProbeProcessCapture,
     checkpoint: str,
@@ -1216,6 +1276,7 @@ def validate_child_bootstrap_failure(
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
         | LinuxIsolationProfileV17
+        | LinuxIsolationProfileV18
     ),
     frame: LinuxChildBootstrapFailureV3,
     child_script: Path,
@@ -1242,6 +1303,7 @@ def validate_child_runtime_failure(
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
         | LinuxIsolationProfileV17
+        | LinuxIsolationProfileV18
     ),
     frame: LinuxChildRuntimeFailureV2 | LinuxChildRuntimeFailureV3,
     child_script: Path,
@@ -1367,6 +1429,7 @@ def namespace_command(
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
         | LinuxIsolationProfileV17
+        | LinuxIsolationProfileV18
     ),
     child_module: Path,
     root: Path,
@@ -1389,12 +1452,15 @@ def namespace_command(
                 LinuxIsolationProfileV15,
                 LinuxIsolationProfileV16,
                 LinuxIsolationProfileV17,
+                LinuxIsolationProfileV18,
             ),
         )
         else [str(child_module)]
     )
     child_command = [profile.payload.bootstrap_python.locator, *child_argv]
-    if isinstance(profile, (LinuxIsolationProfileV16, LinuxIsolationProfileV17)):
+    if isinstance(
+        profile, (LinuxIsolationProfileV16, LinuxIsolationProfileV17, LinuxIsolationProfileV18)
+    ):
         if runtime_library_authority is None:
             raise ValueError("Linux V16 runtime library authority is absent")
         package = profile.payload.package
@@ -1491,6 +1557,7 @@ def namespace_command(
             LinuxIsolationProfileV15,
             LinuxIsolationProfileV16,
             LinuxIsolationProfileV17,
+            LinuxIsolationProfileV18,
         ),
     ):
         command.extend(
@@ -1501,7 +1568,9 @@ def namespace_command(
                 profile.payload.package.child_module_sha256,
             ]
         )
-    if isinstance(profile, (LinuxIsolationProfileV16, LinuxIsolationProfileV17)):
+    if isinstance(
+        profile, (LinuxIsolationProfileV16, LinuxIsolationProfileV17, LinuxIsolationProfileV18)
+    ):
         command.extend(
             [
                 "--expected-loader-sha256",
@@ -1523,9 +1592,14 @@ def validate_registered_observation(
     | LinuxIsolationObservationV15
     | LinuxIsolationObservationV16
     | LinuxIsolationObservationV17
+    | LinuxIsolationObservationV18
 ):
     observation = (
-        LinuxIsolationObservationV17.model_validate_json(
+        LinuxIsolationObservationV18.model_validate_json(
+            canonical(cast(JsonValue, raw_observation))
+        )
+        if raw_observation.get("schema_version") == 18
+        else LinuxIsolationObservationV17.model_validate_json(
             canonical(cast(JsonValue, raw_observation))
         )
         if raw_observation.get("schema_version") == 17
@@ -1560,6 +1634,7 @@ def run_probe(
         | LinuxIsolationProfileV15
         | LinuxIsolationProfileV16
         | LinuxIsolationProfileV17
+        | LinuxIsolationProfileV18
     ),
     child_script: Path,
     root: Path,
@@ -1577,6 +1652,7 @@ def run_probe(
     | LinuxIsolationObservationV15
     | LinuxIsolationObservationV16
     | LinuxIsolationObservationV17
+    | LinuxIsolationObservationV18
 ):
     owned_fds: set[int] = set()
     process: subprocess.Popen[bytes] | None = None
@@ -1840,11 +1916,19 @@ def run_probe(
             raise ValueError("Isolation launcher process group remained after process exit")
         if cgroup_probe is not None:
             raw_observation["cgroup"] = cgroup_probe.finalize().model_dump(mode="json")
+        if isinstance(profile, LinuxIsolationProfileV18):
+            raw_observation["syscall_filter"] = LinuxSyscallFilterObservationV1(
+                personality=raw_personality_observation(),
+                configured_allowlist_sha256=(
+                    profile.payload.syscall_filter.policy.configured_allowlist_sha256
+                ),
+            ).model_dump(mode="json")
         observation = cast(
             LinuxIsolationObservationV14
             | LinuxIsolationObservationV15
             | LinuxIsolationObservationV16
-            | LinuxIsolationObservationV17,
+            | LinuxIsolationObservationV17
+            | LinuxIsolationObservationV18,
             validate_registered_observation(raw_observation, registered),
         )
         revalidate_profile_sources(profile, child_script, bundle, bundle_manifest)
@@ -1985,6 +2069,7 @@ def main() -> None:
     parser.add_argument("--bundle-run-id", type=int, required=True)
     parser.add_argument("--bundle-run-attempt", type=int, required=True)
     parser.add_argument("--cgroup-state", type=Path, required=True)
+    parser.add_argument("--control-receipt", type=Path)
     args = parser.parse_args()
     if not _COMMIT.fullmatch(args.implementation_commit):
         raise SystemExit("Implementation commit must be one lowercase full Git SHA")
@@ -1992,7 +2077,7 @@ def main() -> None:
     if args.output.exists() or args.failure_output.exists():
         raise SystemExit("Isolation evidence output already exists")
     environment = args.environment_instance_id
-    profile: LinuxIsolationProfileV17 | None = None
+    profile: LinuxIsolationProfileV17 | LinuxIsolationProfileV18 | None = None
     capture = ProbeProcessCapture()
     phase: FailurePhase = "host_inspection"
     cleanup_succeeded = False
@@ -2003,7 +2088,11 @@ def main() -> None:
         verified_git_head(repo, args.implementation_commit)
         if args.cgroup_state.is_symlink():
             raise ValueError("Cgroup setup state cannot be a symlink")
-        cgroup_state = LinuxCgroupSetupStateV1.model_validate_json(args.cgroup_state.read_bytes())
+        cgroup_state = (
+            LinuxCgroupSetupStateV2.model_validate_json(args.cgroup_state.read_bytes())
+            if args.control_receipt is not None
+            else LinuxCgroupSetupStateV1.model_validate_json(args.cgroup_state.read_bytes())
+        )
         if (
             cgroup_state.payload.implementation_commit != args.implementation_commit
             or cgroup_state.payload.environment_instance_id != environment
@@ -2065,37 +2154,52 @@ def main() -> None:
             )
             stub_server = bind_stub_ollama(port=0)
             synthetic_upstream = synthetic_upstream_authority(stub_server)
-            profile = LinuxIsolationProfileV17.create(
-                LinuxIsolationProfilePayloadV17(
-                    environment_instance_id=environment,
-                    implementation_commit=args.implementation_commit,
-                    native_bundle_id=package.bundle_id,
-                    bundle_manifest_sha256=package.bundle_manifest_sha256,
-                    bootstrap_python=bootstrap_python,
-                    probe_sha256=file_sha256(root_script),
-                    child_probe_sha256=file_sha256(child_script),
-                    host=host,
-                    system_unshare=system_unshare,
-                    unshare=unshare,
-                    mount=mount,
-                    source_directories=sources,
-                    mounts=mounts,
-                    broker=broker_expectation,
-                    synthetic_upstream=synthetic_upstream,
-                    mount_owner_projection=mount_owner_projection,
-                    mount_version_environment=MOUNT_VERSION_ENVIRONMENT,
-                    landlock_handled_access=landlock_handled_access(host.enforced_landlock_abi),
-                    package=package,
-                    cgroup_setup_state_id=cgroup_state.linux_cgroup_setup_state_id,
-                    cgroup=cgroup_state.payload.boundary,
+            common_profile = {
+                "environment_instance_id": environment,
+                "implementation_commit": args.implementation_commit,
+                "native_bundle_id": package.bundle_id,
+                "bundle_manifest_sha256": package.bundle_manifest_sha256,
+                "bootstrap_python": bootstrap_python,
+                "probe_sha256": file_sha256(root_script),
+                "child_probe_sha256": file_sha256(child_script),
+                "host": host,
+                "system_unshare": system_unshare,
+                "unshare": unshare,
+                "mount": mount,
+                "source_directories": sources,
+                "mounts": mounts,
+                "broker": broker_expectation,
+                "synthetic_upstream": synthetic_upstream,
+                "mount_owner_projection": mount_owner_projection,
+                "mount_version_environment": MOUNT_VERSION_ENVIRONMENT,
+                "landlock_handled_access": landlock_handled_access(host.enforced_landlock_abi),
+                "package": package,
+                "cgroup_setup_state_id": cgroup_state.linux_cgroup_setup_state_id,
+                "cgroup": cgroup_state.payload.boundary,
+            }
+            if isinstance(cgroup_state, LinuxCgroupSetupStateV2):
+                if args.control_receipt is None or args.control_receipt.is_symlink():
+                    raise ValueError("V19 matched-control receipt is absent or substituted")
+                matched_control = LinuxMatchedControlReceiptV1.model_validate_json(
+                    args.control_receipt.read_bytes()
                 )
-            )
+                profile = LinuxIsolationProfileV18.create(
+                    LinuxIsolationProfilePayloadV18(
+                        **common_profile,
+                        syscall_filter=cgroup_state.payload.syscall_filter,
+                        matched_control=matched_control,
+                    )
+                )
+            else:
+                profile = LinuxIsolationProfileV17.create(
+                    LinuxIsolationProfilePayloadV17(**common_profile)
+                )
             phase = "source_revalidation"
             if file_sha256(root_script) != profile.payload.probe_sha256:
                 raise ValueError("Isolation parent probe changed before launch")
             phase = "namespace_creation"
             observation = cast(
-                LinuxIsolationObservationV17,
+                LinuxIsolationObservationV17 | LinuxIsolationObservationV18,
                 run_probe(
                     profile,
                     child_script,
@@ -2119,26 +2223,38 @@ def main() -> None:
         cleanup_succeeded = not temp.exists()
         if not cleanup_succeeded:
             raise ValueError("Isolation scratch cleanup verification failed")
-        receipt = LinuxIsolationReceiptV17.create(
-            LinuxIsolationReceiptPayloadV17(
-                linux_isolation_profile_id=profile.linux_isolation_profile_id,
-                environment_instance_id=environment,
-                observation=observation,
+        evidence_fields = {
+            "profile": profile,
+            "child_stdout_retained_sha256": sha256(bytes(capture.stdout.data)),
+            "child_stderr_retained_sha256": sha256(bytes(capture.stderr.data)),
+            "child_stdout_retained_bytes": len(capture.stdout.data),
+            "child_stderr_retained_bytes": len(capture.stderr.data),
+            "child_stdout_truncated": capture.stdout.truncated,
+            "child_stderr_truncated": capture.stderr.truncated,
+            "cleanup": LinuxHostCleanupObservationV1(),
+        }
+        if isinstance(profile, LinuxIsolationProfileV18):
+            receipt_v18 = LinuxIsolationReceiptV18.create(
+                LinuxIsolationReceiptPayloadV18(
+                    linux_isolation_profile_id=profile.linux_isolation_profile_id,
+                    environment_instance_id=environment,
+                    observation=LinuxIsolationObservationV18.model_validate(observation),
+                )
             )
-        )
-        evidence = LinuxIsolationEvidenceV17.create(
-            LinuxIsolationEvidencePayloadV17(
-                profile=profile,
-                receipt=receipt,
-                child_stdout_retained_sha256=sha256(bytes(capture.stdout.data)),
-                child_stderr_retained_sha256=sha256(bytes(capture.stderr.data)),
-                child_stdout_retained_bytes=len(capture.stdout.data),
-                child_stderr_retained_bytes=len(capture.stderr.data),
-                child_stdout_truncated=capture.stdout.truncated,
-                child_stderr_truncated=capture.stderr.truncated,
-                cleanup=LinuxHostCleanupObservationV1(),
+            evidence = LinuxIsolationEvidenceV18.create(
+                LinuxIsolationEvidencePayloadV18(**evidence_fields, receipt=receipt_v18)
             )
-        )
+        else:
+            receipt_v17 = LinuxIsolationReceiptV17.create(
+                LinuxIsolationReceiptPayloadV17(
+                    linux_isolation_profile_id=profile.linux_isolation_profile_id,
+                    environment_instance_id=environment,
+                    observation=LinuxIsolationObservationV17.model_validate(observation),
+                )
+            )
+            evidence = LinuxIsolationEvidenceV17.create(
+                LinuxIsolationEvidencePayloadV17(**evidence_fields, receipt=receipt_v17)
+            )
         write_new(args.output, canonical(evidence.model_dump(mode="json")))
     except BaseException as error:
         final_error = error

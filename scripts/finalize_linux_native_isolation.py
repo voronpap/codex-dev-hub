@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -13,12 +14,16 @@ from devhub.linux_isolation import (
     LinuxAppArmorLifecycleFailurePayloadV1,
     LinuxAppArmorLifecycleFailureV1,
     LinuxCgroupCleanupReceiptV2,
+    LinuxCgroupCleanupReceiptV3,
     LinuxIsolationEvidenceV16,
     LinuxIsolationEvidenceV17,
+    LinuxIsolationEvidenceV18,
     LinuxIsolationQualificationPayloadV16,
     LinuxIsolationQualificationPayloadV18,
+    LinuxIsolationQualificationPayloadV19,
     LinuxIsolationQualificationV16,
     LinuxIsolationQualificationV18,
+    LinuxIsolationQualificationV19,
 )
 
 
@@ -51,18 +56,38 @@ def finalize(
         )
         write_new(output, canonical(qualification_v16.model_dump(mode="json")))
         return
-    mechanics = LinuxIsolationEvidenceV17.model_validate_json(mechanics_path.read_bytes())
     cleanup = LinuxAppArmorCleanupReceiptV1.model_validate_json(cleanup_path.read_bytes())
-    cgroup_cleanup = LinuxCgroupCleanupReceiptV2.model_validate_json(
-        cgroup_cleanup_path.read_bytes()
-    )
-    qualification = LinuxIsolationQualificationV18.create(
-        LinuxIsolationQualificationPayloadV18(
-            mechanics=mechanics,
-            apparmor_cleanup=cleanup,
-            cgroup_cleanup=cgroup_cleanup,
+    raw_mechanics = mechanics_path.read_bytes()
+    try:
+        mechanics_header = json.loads(raw_mechanics)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("Linux isolation mechanics evidence is not valid JSON") from error
+    if not isinstance(mechanics_header, dict):
+        raise ValueError("Linux isolation mechanics evidence must be a JSON object")
+    if mechanics_header.get("schema_version") == 18:
+        mechanics_v19 = LinuxIsolationEvidenceV18.model_validate_json(raw_mechanics)
+        cgroup_cleanup_v19 = LinuxCgroupCleanupReceiptV3.model_validate_json(
+            cgroup_cleanup_path.read_bytes()
         )
-    )
+        qualification = LinuxIsolationQualificationV19.create(
+            LinuxIsolationQualificationPayloadV19(
+                mechanics=mechanics_v19,
+                apparmor_cleanup=cleanup,
+                cgroup_cleanup=cgroup_cleanup_v19,
+            )
+        )
+    else:
+        mechanics = LinuxIsolationEvidenceV17.model_validate_json(raw_mechanics)
+        cgroup_cleanup = LinuxCgroupCleanupReceiptV2.model_validate_json(
+            cgroup_cleanup_path.read_bytes()
+        )
+        qualification = LinuxIsolationQualificationV18.create(
+            LinuxIsolationQualificationPayloadV18(
+                mechanics=mechanics,
+                apparmor_cleanup=cleanup,
+                cgroup_cleanup=cgroup_cleanup,
+            )
+        )
     write_new(output, canonical(qualification.model_dump(mode="json")))
 
 

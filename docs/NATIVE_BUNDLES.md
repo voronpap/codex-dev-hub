@@ -1033,6 +1033,32 @@ execution counters are zero. This qualifies only the cgroup resource boundary;
 syscall filtering, complete native-executor isolation and package readiness
 remain false.
 
+V19 is the forward-only native-Linux syscall-filter qualification contract. It
+pre-authorizes the exact sorted expansion of systemd v255 selectors
+`@system-service`, `@mount` and `@sandbox`, with `personality` explicitly
+removed, before either transient unit is created. The configured 390-name
+allowlist has canonical compact-JSON SHA-256
+`0f380c5848c32586f2614fcb8272760accf03a7995ba562c2a34a262ef8c1eda`.
+The receipt binds the root-owned `systemd-analyze` executable, PID 1's exact
+systemd executable, version lineage, boot ID and process start identity. The
+configured allowlist is recorded separately from systemd's reported unit
+property; systemd's implicit lifecycle behavior is not treated as proof of the
+configured policy.
+
+The V19 differential uses two otherwise matched transient services. The control
+has `NoNewPrivileges=yes` and `SystemCallArchitectures=native` but no named
+syscall allowlist; raw x86_64 `personality(0xffffffff)` must succeed. The target
+uses the explicit allowlist with `SystemCallErrorNumber=EPERM`; the same raw
+syscall must return `-1/EPERM`. Equal positive `Seccomp_filters` counts across
+the target process tree prove inheritance only; they do not prove filter
+contents. The target must also pass every V18 namespace, mount, Landlock,
+AppArmor, metadata-broker, packaged-MCP, cgroup and exact-cleanup requirement.
+Only `syscall_filter_qualified` advances to true. Complete native-executor
+isolation and package readiness remain false until their later independent
+gates pass. Any unsupported systemd output, selector drift, authority
+substitution, architecture mismatch, control/target join mismatch or cleanup
+ambiguity fails closed.
+
 ## Platform acceptance matrix
 
 `PENDING` means the requirement has no accepted native-package evidence yet.

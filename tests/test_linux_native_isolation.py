@@ -22,6 +22,7 @@ from typing import Literal, cast
 import pytest
 from pydantic import JsonValue, ValidationError
 
+import devhub.linux_isolation as LINUX_ISOLATION
 import devhub.linux_ollama_broker as LINUX_BROKER
 from devhub.benchmark import canonical, digest
 from devhub.ledger import LedgerIdentityCoreV1, ledger_identity_sha256
@@ -9043,6 +9044,12 @@ def test_workflow_checks_out_exact_head_and_manual_runs_are_main_only() -> None:
     assert "scripts/manage_linux_native_cgroup.py cleanup" in workflow
     assert "scripts/manage_linux_native_cgroup.py resume" in workflow
     assert "scripts/manage_linux_native_cgroup.py rollback" in workflow
+    assert "scripts/manage_linux_native_cgroup.py setup-v19" in workflow
+    assert "scripts/manage_linux_native_cgroup.py control-v19" in workflow
+    assert "scripts/manage_linux_native_cgroup.py run-v19" in workflow
+    assert "scripts/manage_linux_native_cgroup.py cleanup-v19" in workflow
+    assert "--control-receipt" in workflow
+    assert "control-observation.json" in workflow
     assert "--property=MemoryMax=2147483648" in (
         ROOT / "scripts/manage_linux_native_cgroup.py"
     ).read_text(encoding="utf-8")
@@ -9401,3 +9408,796 @@ def test_profile_canonical_bytes_are_stable() -> None:
         )
     )
     assert first.linux_isolation_profile_id == second.linux_isolation_profile_id
+
+
+def v19_test_allowlist(monkeypatch: pytest.MonkeyPatch) -> tuple[str, ...]:
+    required = {"execve", "exit", "exit_group", "read", "rt_sigreturn", "sigreturn"}
+    generated = {f"testcall{index:03d}" for index in range(384)}
+    names = tuple(sorted(required | generated))
+    assert len(names) == 390
+    allowlist_hash = digest(canonical(list(names)))
+    monkeypatch.setattr(LINUX_ISOLATION, "LINUX_SYSCALL_ALLOWLIST_COUNT", len(names))
+    monkeypatch.setattr(LINUX_ISOLATION, "LINUX_SYSCALL_ALLOWLIST_SHA256", allowlist_hash)
+    monkeypatch.setattr(CGROUP_MANAGER, "LINUX_SYSCALL_ALLOWLIST_COUNT", len(names))
+    monkeypatch.setattr(CGROUP_MANAGER, "LINUX_SYSCALL_ALLOWLIST_SHA256", allowlist_hash)
+    return names
+
+
+def v19_syscall_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> LINUX_ISOLATION.LinuxSyscallAllowlistAuthorityV1:
+    names = v19_test_allowlist(monkeypatch)
+    version = LINUX_ISOLATION.LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
+    analyze = LINUX_ISOLATION.LinuxSystemdAnalyzeAuthorityV1(
+        locator=LINUX_ISOLATION.LINUX_SYSTEMD_ANALYZE,
+        sha256="4" * 64,
+        size=100,
+        owner_uid=0,
+        owner_gid=0,
+        mode="0755",
+        native_identity=native(91),
+        version_output_sha256=version,
+    )
+    manager = LINUX_ISOLATION.LinuxSystemdManagerAuthorityV1(
+        executable=plain_file(
+            LINUX_ISOLATION.LINUX_SYSTEMD_MANAGER,
+            index=92,
+            sha="5" * 64,
+            size=200,
+        ),
+        start_time_ticks=100,
+        boot_id="11111111-2222-3333-4444-555555555555",
+        version_output_sha256=version,
+    )
+    return LINUX_ISOLATION.LinuxSyscallAllowlistAuthorityV1(
+        configured_explicit_allowlist=names,
+        configured_allowlist_sha256=digest(canonical(list(names))),
+        selector_outputs_sha256="6" * 64,
+        systemd_analyze=analyze,
+        systemd_manager=manager,
+    )
+
+
+def v19_cgroup_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> LINUX_ISOLATION.LinuxCgroupSetupStateV2:
+    version = LINUX_ISOLATION.LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
+    unit = f"devfabric-linux-isolation-{ENVIRONMENT}.service"
+    control = f"devfabric-linux-isolation-control-{ENVIRONMENT}.service"
+    return LINUX_ISOLATION.LinuxCgroupSetupStateV2.create(
+        LINUX_ISOLATION.LinuxCgroupSetupStatePayloadV2(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            boundary=LinuxCgroupBoundaryAuthorityV1(
+                unit_name=unit,
+                control_group=f"/system.slice/{unit}",
+                service_uid=1000,
+                service_gid=1000,
+                systemd_run=LINUX_ISOLATION.LinuxSystemdToolAuthorityV1(
+                    **plain_file("/usr/bin/systemd-run", index=93).model_dump(mode="python"),
+                    name="systemd-run",
+                    version_output_sha256=version,
+                ),
+                systemctl=LINUX_ISOLATION.LinuxSystemdToolAuthorityV1(
+                    **plain_file("/usr/bin/systemctl", index=94).model_dump(mode="python"),
+                    name="systemctl",
+                    version_output_sha256=version,
+                ),
+            ),
+            syscall_filter=LINUX_ISOLATION.LinuxSyscallFilterBoundaryAuthorityV1(
+                policy=v19_syscall_policy(monkeypatch),
+                matched_control=LINUX_ISOLATION.LinuxMatchedControlAuthorityV1(
+                    unit_name=control,
+                    control_group=f"/system.slice/{control}",
+                    service_uid=1000,
+                    service_gid=1000,
+                ),
+            ),
+        )
+    )
+
+
+def v19_control_receipt(
+    state: LINUX_ISOLATION.LinuxCgroupSetupStateV2,
+) -> LINUX_ISOLATION.LinuxMatchedControlReceiptV1:
+    control = state.payload.syscall_filter.matched_control
+    python = plain_file("/usr/bin/python3", index=96, sha="a" * 64)
+    manager = plain_file("/repo/scripts/manage_linux_native_cgroup.py", index=97, sha="b" * 64)
+    state_path = "/run/devfabric/cgroup-state.json"
+    execution_path = "/run/devfabric/control-execution.json"
+    observation_path = "/run/devfabric/control-observation.json"
+    execution = LINUX_ISOLATION.LinuxMatchedControlExecutionV1.create(
+        LINUX_ISOLATION.LinuxMatchedControlExecutionPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            python=python,
+            manager_script=manager,
+            manager_script_git_blob_sha256=manager.sha256,
+            state_locator=state_path,
+            state_sha256="c" * 64,
+            execution_authority_locator=execution_path,
+            observation_locator=observation_path,
+            argv=(
+                python.locator,
+                manager.locator,
+                "control-probe-v19",
+                "--state",
+                state_path,
+                "--execution-authority",
+                execution_path,
+                "--output",
+                observation_path,
+            ),
+        )
+    )
+    observation = LINUX_ISOLATION.LinuxMatchedControlObservationV1(
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+        unit_name=control.unit_name,
+        control_group=control.control_group,
+        cgroup_native_identity=native(98),
+        personality=LINUX_ISOLATION.LinuxRawPersonalityObservationV1(
+            result=0,
+            observed_errno=0,
+        ),
+        no_new_privs=1,
+        seccomp_mode=2,
+        seccomp_filters=1,
+    )
+    policy = LINUX_ISOLATION.LinuxSystemdControlPolicyObservationV1(
+        unit_name=control.unit_name,
+        system_call_error_number="kill",
+        raw_properties_sha256=H,
+        resources=LINUX_ISOLATION.LinuxSystemdResourcePolicyObservationV1(
+            service_uid=control.service_uid,
+            service_gid=control.service_gid,
+        ),
+    )
+    return LINUX_ISOLATION.LinuxMatchedControlReceiptV1.create(
+        LINUX_ISOLATION.LinuxMatchedControlReceiptPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            authority=control,
+            execution=execution,
+            observation=observation,
+            unit_policy=policy,
+        )
+    )
+
+
+def v19_mechanics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[
+    LINUX_ISOLATION.LinuxCgroupSetupStateV2,
+    LINUX_ISOLATION.LinuxIsolationEvidenceV18,
+    LINUX_ISOLATION.LinuxSystemdUnitPolicyObservationV1,
+]:
+    state = v19_cgroup_state(monkeypatch)
+    profile_raw = profile_payload_v16().model_dump(mode="python")
+    profile_raw.update(
+        schema_version=18,
+        profile_kind="linux_native_isolation_v18",
+        cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+        cgroup=state.payload.boundary.model_dump(mode="python"),
+        syscall_filter=state.payload.syscall_filter.model_dump(mode="python"),
+        matched_control=v19_control_receipt(state).model_dump(mode="python"),
+    )
+    profile = LINUX_ISOLATION.LinuxIsolationProfileV18.create(
+        LINUX_ISOLATION.LinuxIsolationProfilePayloadV18.model_validate(profile_raw)
+    )
+    group = state.payload.boundary.control_group
+    cgroup = LINUX_ISOLATION.LinuxCgroupBoundaryObservationV2(
+        setup_state_id=state.linux_cgroup_setup_state_id,
+        control_group=group,
+        cgroup_native_identity=native(95),
+        observed_service_uid=1000,
+        observed_service_gid=1000,
+        observed_members=tuple(
+            LINUX_ISOLATION.LinuxSeccompProcessObservationV1(
+                role=role,
+                pid=100 + index,
+                start_time_ticks=200 + index,
+                control_group=group,
+                no_new_privs=1,
+                seccomp_mode=2,
+                seccomp_filters=3,
+            )
+            for index, role in enumerate(("probe", "namespace_launcher", "namespace_child"))
+        ),
+    )
+    observation_raw = observation_v16().model_dump(mode="python")
+    observation_raw.update(
+        schema_version=18,
+        cgroup=cgroup.model_dump(mode="python"),
+        syscall_filter=LINUX_ISOLATION.LinuxSyscallFilterObservationV1(
+            personality=LINUX_ISOLATION.LinuxRawPersonalityObservationV1(
+                result=-1,
+                observed_errno=1,
+            ),
+            configured_allowlist_sha256=(
+                state.payload.syscall_filter.policy.configured_allowlist_sha256
+            ),
+        ).model_dump(mode="python"),
+    )
+    observation = LINUX_ISOLATION.LinuxIsolationObservationV18.model_validate(observation_raw)
+    receipt = LINUX_ISOLATION.LinuxIsolationReceiptV18.create(
+        LINUX_ISOLATION.LinuxIsolationReceiptPayloadV18(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observation,
+        )
+    )
+    evidence = LINUX_ISOLATION.LinuxIsolationEvidenceV18.create(
+        LINUX_ISOLATION.LinuxIsolationEvidencePayloadV18(
+            profile=profile,
+            receipt=receipt,
+            child_stdout_retained_sha256=H,
+            child_stderr_retained_sha256=H,
+            child_stdout_retained_bytes=0,
+            child_stderr_retained_bytes=0,
+            child_stdout_truncated=False,
+            child_stderr_truncated=False,
+            cleanup=LinuxHostCleanupObservationV1(),
+        )
+    )
+    names = state.payload.syscall_filter.policy.configured_explicit_allowlist
+    unit_policy = LINUX_ISOLATION.LinuxSystemdUnitPolicyObservationV1(
+        unit_name=state.payload.boundary.unit_name,
+        systemd_reported_filter=names,
+        systemd_reported_filter_sha256=digest(canonical(list(names))),
+        raw_properties_sha256="8" * 64,
+        resources=LINUX_ISOLATION.LinuxSystemdResourcePolicyObservationV1(
+            service_uid=state.payload.boundary.service_uid,
+            service_gid=state.payload.boundary.service_gid,
+        ),
+    )
+    return state, evidence, unit_policy
+
+
+def test_v19_reviewed_syscall_identity_is_frozen() -> None:
+    assert LINUX_ISOLATION.LINUX_SYSCALL_ALLOWLIST_COUNT == 390
+    assert LINUX_ISOLATION.LINUX_SYSCALL_ALLOWLIST_SHA256 == (
+        "0f380c5848c32586f2614fcb8272760accf03a7995ba562c2a34a262ef8c1eda"
+    )
+
+
+def test_v19_selector_parser_rejects_unsupported_or_duplicate_output() -> None:
+    assert CGROUP_MANAGER._parse_selector_output(
+        "@sandbox", b"@sandbox\n    # reviewed\n    read\n    write\n"
+    ) == ("read", "write")
+    for raw in (
+        b"@sandbox\n    # reviewed\n    read\n    read\n",
+        b"@sandbox\n    # reviewed\n    read write\n",
+        b"wrong\n    # reviewed\n    read\n",
+    ):
+        with pytest.raises(ValueError, match="unsupported|duplicated"):
+            CGROUP_MANAGER._parse_selector_output("@sandbox", raw)
+
+
+def test_v19_filter_property_parser_is_strict() -> None:
+    assert CGROUP_MANAGER._parse_filter_property("") == (False, ())
+    assert CGROUP_MANAGER._parse_filter_property("allow read write") == (
+        True,
+        ("read", "write"),
+    )
+    for raw in ("deny read", "read read", "read @sandbox", "allow"):
+        with pytest.raises(ValueError, match="denylist|unsupported"):
+            CGROUP_MANAGER._parse_filter_property(raw)
+
+
+def test_v19_systemd_analyze_rejects_substitution_during_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = (
+        native(101),
+        SimpleNamespace(st_size=10, st_mode=stat.S_IFREG | 0o755, st_uid=0, st_gid=0),
+        "a" * 64,
+    )
+    after = (
+        native(102),
+        SimpleNamespace(st_size=10, st_mode=stat.S_IFREG | 0o755, st_uid=0, st_gid=0),
+        "a" * 64,
+    )
+    observations = iter((before, after))
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "plain_file_authority",
+        lambda _path: next(observations),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, b"systemd 255\n", b""),
+    )
+    with pytest.raises(ValueError, match="changed during version observation"):
+        CGROUP_MANAGER.systemd_analyze_authority()
+
+
+def test_v19_finalizer_uses_only_top_level_mechanics_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ExpectedV17Path(Exception):
+        pass
+
+    mechanics = tmp_path / "mechanics.json"
+    cleanup = tmp_path / "cleanup.json"
+    cgroup = tmp_path / "cgroup.json"
+    mechanics.write_text(
+        '{"schema_version":17,"nested":{"schema_version":18}}',
+        encoding="utf-8",
+    )
+    cleanup.write_text("{}", encoding="utf-8")
+    cgroup.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        FINALIZER.LinuxAppArmorCleanupReceiptV1,
+        "model_validate_json",
+        lambda _raw: object(),
+    )
+    monkeypatch.setattr(
+        FINALIZER.LinuxIsolationEvidenceV18,
+        "model_validate_json",
+        lambda _raw: pytest.fail("nested schema version must not select V19"),
+    )
+    monkeypatch.setattr(
+        FINALIZER.LinuxIsolationEvidenceV17,
+        "model_validate_json",
+        lambda _raw: (_ for _ in ()).throw(ExpectedV17Path()),
+    )
+    with pytest.raises(ExpectedV17Path):
+        FINALIZER.finalize(
+            mechanics,
+            cleanup,
+            cgroup,
+            tmp_path / "qualification.json",
+        )
+
+
+def test_v19_resolver_uses_exact_expansion_before_unit_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = v19_test_allowlist(monkeypatch)
+    policy = v19_syscall_policy(monkeypatch)
+    monkeypatch.setattr(CGROUP_MANAGER, "systemd_analyze_authority", lambda: policy.systemd_analyze)
+    monkeypatch.setattr(CGROUP_MANAGER, "systemd_manager_authority", lambda: policy.systemd_manager)
+    calls: list[list[str]] = []
+    environments: list[object] = []
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        calls.append(command)
+        environments.append(kwargs.get("env"))
+        selector = command[-1]
+        selected = (*names, "personality") if selector == "@system-service" else ("read",)
+        body = "\n".join(f"    {name}" for name in selected)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            f"{selector}\n    # reviewed\n{body}\n".encode(),
+            b"",
+        )
+
+    monkeypatch.setattr(CGROUP_MANAGER.subprocess, "run", run)
+    resolved = CGROUP_MANAGER.resolve_syscall_allowlist()
+    assert resolved.configured_explicit_allowlist == names
+    assert "personality" not in resolved.configured_explicit_allowlist
+    assert all(
+        command[:3] == ["/usr/bin/systemd-analyze", "--no-pager", "syscall-filter"]
+        for command in calls
+    )
+    assert not any("systemd-run" in command[0] for command in calls)
+    assert environments == [CGROUP_MANAGER._VERSION_ENVIRONMENT] * len(calls)
+
+    changed = list(names)
+    changed[-1] = "unexpectedcall"
+
+    def changed_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        selector = command[-1]
+        selected = (*changed, "personality") if selector == "@system-service" else ("read",)
+        body = "\n".join(f"    {name}" for name in selected)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            f"{selector}\n    # reviewed\n{body}\n".encode(),
+            b"",
+        )
+
+    monkeypatch.setattr(CGROUP_MANAGER.subprocess, "run", changed_run)
+    with pytest.raises(ValueError, match="pre-authorized V19 set"):
+        CGROUP_MANAGER.resolve_syscall_allowlist()
+
+
+def test_v19_unit_policy_keeps_configured_and_reported_authority_separate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = v19_test_allowlist(monkeypatch)
+    values = {
+        "NoNewPrivileges": "yes",
+        "SystemCallArchitectures": "native",
+        "SystemCallErrorNumber": "1",
+        "SystemCallFilter": "allow " + " ".join(names),
+        "User": "1000",
+        "Group": "1000",
+        "MemoryMax": "2147483648",
+        "TasksMax": "128",
+        "CPUQuotaPerSecUSec": "2s",
+        "CPUQuotaPeriodUSec": "100ms",
+    }
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda _unit, name, check=True: values[name],
+    )
+    unit = f"devfabric-linux-isolation-{ENVIRONMENT}.service"
+    observed = CGROUP_MANAGER.observe_unit_policy(unit, expected_filter=names)
+    assert isinstance(observed, LINUX_ISOLATION.LinuxSystemdUnitPolicyObservationV1)
+    assert observed.systemd_reported_filter == names
+
+    values["SystemCallFilter"] = ""
+    values["SystemCallErrorNumber"] = "kill"
+    control = f"devfabric-linux-isolation-control-{ENVIRONMENT}.service"
+    observed_control = CGROUP_MANAGER.observe_unit_policy(control, expected_filter=None)
+    assert isinstance(observed_control, LINUX_ISOLATION.LinuxSystemdControlPolicyObservationV1)
+    assert observed_control.system_call_error_number == "kill"
+    assert observed_control.systemd_reported_filter == ()
+
+
+def test_v19_raw_personality_rejects_non_x86_64(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(CGROUP_MANAGER.platform, "machine", lambda: "aarch64")
+    with pytest.raises(ValueError, match="x86_64-only"):
+        CGROUP_MANAGER.raw_personality()
+
+
+def test_v19_seccomp_inheritance_requires_equal_positive_counts() -> None:
+    group = f"/system.slice/devfabric-linux-isolation-{ENVIRONMENT}.service"
+    base = {
+        "setup_state_id": H,
+        "control_group": group,
+        "cgroup_native_identity": native(95).model_dump(mode="python"),
+        "observed_service_uid": 1000,
+        "observed_service_gid": 1000,
+        "observed_members": tuple(
+            {
+                "role": role,
+                "pid": 100 + index,
+                "start_time_ticks": 200 + index,
+                "control_group": group,
+                "no_new_privs": 1,
+                "seccomp_mode": 2,
+                "seccomp_filters": 3,
+            }
+            for index, role in enumerate(("probe", "namespace_launcher", "namespace_child"))
+        ),
+    }
+    observed = LINUX_ISOLATION.LinuxCgroupBoundaryObservationV2.model_validate(base)
+    assert {member.seccomp_filters for member in observed.observed_members} == {3}
+    base["observed_members"][2]["seccomp_filters"] = 4
+    with pytest.raises(ValidationError, match="filter count differs"):
+        LINUX_ISOLATION.LinuxCgroupBoundaryObservationV2.model_validate(base)
+
+
+def test_v19_control_receipt_rejects_personality_denial_and_authority_substitution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    receipt = v19_control_receipt(state)
+    observation = receipt.payload.observation
+    assert receipt.payload.observation.personality.result == 0
+    denied = observation.model_dump(mode="python")
+    denied["personality"] = {"result": -1, "observed_errno": 1}
+    with pytest.raises(ValidationError, match="did not succeed"):
+        LINUX_ISOLATION.LinuxMatchedControlObservationV1.model_validate(denied)
+    substituted = receipt.payload.model_dump(mode="python")
+    substituted["observation"]["linux_cgroup_setup_state_id"] = "7" * 64
+    with pytest.raises(ValidationError, match="authority differs"):
+        LINUX_ISOLATION.LinuxMatchedControlReceiptPayloadV1.model_validate(substituted)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="V19 control locators are native-Linux paths")
+def test_v19_control_failure_always_cleans_exact_unit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state_v2", lambda _state: None)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "file_authority",
+        lambda path: plain_file(
+            str(path.resolve()),
+            index=111,
+            sha="b" * 64 if path.name == "manager.py" else "a" * 64,
+        ),
+    )
+    monkeypatch.setattr(CGROUP_MANAGER, "git_blob_sha256", lambda *_args: "b" * 64)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "_run_transient_service",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("control failed")),
+    )
+    cleaned: list[tuple[str, str]] = []
+    written_modes: list[int] = []
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "write_new",
+        lambda _path, _raw, mode=0o644: written_modes.append(mode),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "_stop_exact_unit",
+        lambda unit, group, **_kwargs: cleaned.append((unit, group)),
+    )
+    python = tmp_path / "python"
+    manager = tmp_path / "manager.py"
+    state_path = tmp_path / "state.json"
+    python.write_bytes(b"python")
+    manager.write_bytes(b"manager")
+    state_path.write_text(state.model_dump_json(), encoding="utf-8")
+    with pytest.raises(ValueError, match="control failed"):
+        CGROUP_MANAGER.launch_control_v2(
+            state,
+            state_path,
+            tmp_path,
+            python,
+            manager,
+            tmp_path / "execution.json",
+            tmp_path / "observation.json",
+        )
+    control = state.payload.syscall_filter.matched_control
+    assert cleaned == [(control.unit_name, control.control_group)]
+    assert written_modes == [0o444]
+
+
+def test_v19_qualification_joins_full_v18_mechanics_and_exact_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state, mechanics, unit_policy = v19_mechanics(monkeypatch)
+    profile = mechanics.payload.profile
+    apparmor_cleanup = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=mechanics.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    cgroup_cleanup = LINUX_ISOLATION.LinuxCgroupCleanupReceiptV3.create(
+        LINUX_ISOLATION.LinuxCgroupCleanupPayloadV3(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=mechanics.linux_isolation_evidence_id,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            unit_name=state.payload.boundary.unit_name,
+            control_group=state.payload.boundary.control_group,
+            post_exit_state="systemd_removed_empty_cgroup",
+            unit_policy=unit_policy,
+            target_unit_absent=True,
+            target_cgroup_absent=True,
+            control_unit_name=state.payload.syscall_filter.matched_control.unit_name,
+            control_control_group=state.payload.syscall_filter.matched_control.control_group,
+            control_unit_absent=True,
+            control_cgroup_absent=True,
+        )
+    )
+    qualification = LINUX_ISOLATION.LinuxIsolationQualificationV19.create(
+        LINUX_ISOLATION.LinuxIsolationQualificationPayloadV19(
+            mechanics=mechanics,
+            apparmor_cleanup=apparmor_cleanup,
+            cgroup_cleanup=cgroup_cleanup,
+        )
+    )
+    assert qualification.payload.syscall_filter_qualified is True
+    assert qualification.payload.cgroup_resource_boundary_qualified is True
+    assert qualification.payload.native_executor_isolation_qualified is False
+    assert qualification.payload.package_readiness is False
+    wrong = qualification.payload.model_dump(mode="python")
+    wrong["cgroup_cleanup"]["payload"]["unit_policy"]["systemd_reported_filter"] = (
+        *unit_policy.systemd_reported_filter[:-1],
+        "zzzzsubstituted",
+    )
+    reported = wrong["cgroup_cleanup"]["payload"]["unit_policy"]["systemd_reported_filter"]
+    wrong["cgroup_cleanup"]["payload"]["unit_policy"]["systemd_reported_filter_sha256"] = digest(
+        canonical(list(reported))
+    )
+    wrong["cgroup_cleanup"]["linux_cgroup_cleanup_receipt_id"] = digest(
+        canonical(wrong["cgroup_cleanup"]["payload"])
+    )
+    with pytest.raises(ValidationError, match="policy and cleanup authority differ"):
+        LINUX_ISOLATION.LinuxIsolationQualificationPayloadV19.model_validate(wrong)
+
+
+@pytest.mark.parametrize("control", (False, True))
+def test_v19_exact_stop_rejects_same_name_control_group_substitution_without_stop(
+    monkeypatch: pytest.MonkeyPatch,
+    control: bool,
+) -> None:
+    unit_prefix = "devfabric-linux-isolation-control" if control else "devfabric-linux-isolation"
+    unit = f"{unit_prefix}-{ENVIRONMENT}.service"
+    expected_group = f"/system.slice/{unit}"
+    values = {"LoadState": "loaded", "ControlGroup": "/system.slice/foreign.service"}
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda _unit, name, check=True: values[name],
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("substituted unit must not be stopped"),
+    )
+    with pytest.raises(ValueError, match="control group differs"):
+        CGROUP_MANAGER._stop_exact_unit(
+            unit,
+            expected_group,
+            uid=1000,
+            gid=1000,
+            expected_filter=None if control else ("read",),
+        )
+
+
+@pytest.mark.parametrize("target_present", (False, True))
+def test_v19_partial_cleanup_resume_proves_both_authorities_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    target_present: bool,
+) -> None:
+    state, mechanics, unit_policy = v19_mechanics(monkeypatch)
+    boundary = state.payload.boundary
+    control = state.payload.syscall_filter.matched_control
+    cleanup_state = LINUX_ISOLATION.LinuxCgroupCleanupStateV2.create(
+        LINUX_ISOLATION.LinuxCgroupCleanupStatePayloadV2(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            linux_isolation_profile_id=mechanics.payload.profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=mechanics.linux_isolation_evidence_id,
+            unit_name=boundary.unit_name,
+            control_group=boundary.control_group,
+            cgroup_native_identity=(
+                mechanics.payload.receipt.payload.observation.cgroup.cgroup_native_identity
+            ),
+            post_exit_state="systemd_removed_empty_cgroup",
+        )
+    )
+    loaded = {
+        boundary.unit_name: "loaded" if target_present else "not-found",
+        control.unit_name: "not-found" if target_present else "loaded",
+    }
+    monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state_v2", lambda _state: None)
+    monkeypatch.setattr(CGROUP_MANAGER, "_verify_mechanics_join_v19", lambda *_args: None)
+    monkeypatch.setattr(CGROUP_MANAGER, "_verify_removed_empty_cgroup_state", lambda _state: None)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda unit, name, check=True: loaded[unit] if name == "LoadState" else "",
+    )
+    monkeypatch.setattr(CGROUP_MANAGER, "_path_is_absent", lambda _path: True)
+    stopped: list[str] = []
+
+    def stop(unit: str, _group: str, **_kwargs: object) -> None:
+        if loaded[unit] == "not-found":
+            return
+        stopped.append(unit)
+        loaded[unit] = "not-found"
+
+    monkeypatch.setattr(CGROUP_MANAGER, "_stop_exact_unit", stop)
+    receipt = CGROUP_MANAGER.resume_cleanup_v19(state, mechanics, unit_policy, cleanup_state)
+    expected_stopped = boundary.unit_name if target_present else control.unit_name
+    assert stopped == [expected_stopped]
+    assert receipt.payload.cleanup_succeeded is True
+    assert receipt.payload.unit_absent is True
+    assert receipt.payload.control_unit_absent is True
+
+
+def test_v19_cleanup_receipt_rejects_control_authority_tamper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state, mechanics, unit_policy = v19_mechanics(monkeypatch)
+    profile = mechanics.payload.profile
+    control = state.payload.syscall_filter.matched_control
+    payload = LINUX_ISOLATION.LinuxCgroupCleanupPayloadV3(
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        linux_isolation_profile_id=profile.linux_isolation_profile_id,
+        linux_isolation_evidence_id=mechanics.linux_isolation_evidence_id,
+        linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+        unit_name=state.payload.boundary.unit_name,
+        control_group=state.payload.boundary.control_group,
+        post_exit_state="systemd_removed_empty_cgroup",
+        unit_policy=unit_policy,
+        control_unit_name=control.unit_name,
+        control_control_group=control.control_group,
+    )
+    receipt = LINUX_ISOLATION.LinuxCgroupCleanupReceiptV3.create(payload)
+    raw = receipt.model_dump(mode="python")
+    alternate = "f" * 32
+    raw["payload"]["control_unit_name"] = f"devfabric-linux-isolation-control-{alternate}.service"
+    raw["payload"]["control_control_group"] = (
+        f"/system.slice/devfabric-linux-isolation-control-{alternate}.service"
+    )
+    raw["linux_cgroup_cleanup_receipt_id"] = digest(canonical(raw["payload"]))
+    forged = LINUX_ISOLATION.LinuxCgroupCleanupReceiptV3.model_validate(raw)
+    apparmor = LinuxAppArmorCleanupReceiptV1.create(
+        LinuxAppArmorCleanupPayloadV1(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            linux_isolation_evidence_id=mechanics.linux_isolation_evidence_id,
+            apparmor_authority_sha256=digest(
+                canonical(profile.payload.host.apparmor.model_dump(mode="json"))
+            ),
+        )
+    )
+    with pytest.raises(ValidationError, match="policy and cleanup authority differ"):
+        LINUX_ISOLATION.LinuxIsolationQualificationPayloadV19(
+            mechanics=mechanics,
+            apparmor_cleanup=apparmor,
+            cgroup_cleanup=forged,
+        )
+
+
+def test_v19_control_execution_and_limits_reject_substitution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    receipt = v19_control_receipt(state)
+    raw = receipt.payload.execution.payload.model_dump(mode="python")
+    raw["argv"] = (*raw["argv"][:-1], "/run/devfabric/substituted.json")
+    with pytest.raises(ValidationError, match="argv differs"):
+        LINUX_ISOLATION.LinuxMatchedControlExecutionPayloadV1.model_validate(raw)
+    receipt_raw = receipt.payload.model_dump(mode="python")
+    receipt_raw["observation"]["memory_max"] = "1073741824"
+    with pytest.raises(ValidationError, match="Input should be '2147483648'|authority differs"):
+        LINUX_ISOLATION.LinuxMatchedControlReceiptPayloadV1.model_validate(receipt_raw)
+
+
+def test_v19_control_execution_file_rejects_writable_and_substituted_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    execution = v19_control_receipt(state).payload.execution
+    path = tmp_path / "control-execution.json"
+    path.write_text(execution.model_dump_json(), encoding="utf-8")
+    actual = os.lstat(path)
+
+    def observed(mode: int) -> SimpleNamespace:
+        return SimpleNamespace(
+            st_mode=stat.S_IFREG | mode,
+            st_uid=0,
+            st_gid=0,
+            st_dev=actual.st_dev,
+            st_ino=actual.st_ino,
+            st_size=actual.st_size,
+        )
+
+    monkeypatch.setattr(CGROUP_MANAGER.os, "lstat", lambda _path: observed(0o644))
+    with pytest.raises(ValueError, match="permissions differ"):
+        CGROUP_MANAGER.read_control_execution(path)
+    monkeypatch.setattr(CGROUP_MANAGER.os, "lstat", lambda _path: observed(0o444))
+    assert CGROUP_MANAGER.read_control_execution(path) == execution
+    raw = execution.model_dump(mode="python")
+    raw["payload"]["state_sha256"] = "f" * 64
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    substituted = os.lstat(path)
+    monkeypatch.setattr(
+        CGROUP_MANAGER.os,
+        "lstat",
+        lambda _path: SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o444,
+            st_uid=0,
+            st_gid=0,
+            st_dev=substituted.st_dev,
+            st_ino=substituted.st_ino,
+            st_size=substituted.st_size,
+        ),
+    )
+    with pytest.raises(ValidationError, match="authority hash mismatch"):
+        CGROUP_MANAGER.read_control_execution(path)
