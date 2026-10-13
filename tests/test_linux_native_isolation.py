@@ -540,6 +540,57 @@ def plain_file(
     )
 
 
+def matched_control_python_runtime(
+    repo: str = "/repo",
+) -> LINUX_ISOLATION.LinuxMatchedControlPythonRuntimeAuthorityV1:
+    root = f"{repo}/.venv"
+    module = plain_file(
+        f"{repo}/src/devhub/__init__.py",
+        index=204,
+        sha="d" * 64,
+        mode="0644",
+    )
+    return LINUX_ISOLATION.LinuxMatchedControlPythonRuntimeAuthorityV1(
+        launcher_locator=f"{root}/bin/python",
+        launcher_link_target="/opt/hostedtoolcache/Python/3.12.10/x64/bin/python3.12",
+        launcher_owner_uid=1000,
+        launcher_owner_gid=1000,
+        launcher_native_identity=native(201),
+        resolved_interpreter=plain_file(
+            "/opt/hostedtoolcache/Python/3.12.10/x64/bin/python3.12",
+            index=202,
+            sha="a" * 64,
+        ),
+        pyvenv_config=plain_file(
+            f"{root}/pyvenv.cfg",
+            index=203,
+            sha="c" * 64,
+            mode="0644",
+        ),
+        devhub_module_origin=module,
+        devhub_module_git_blob_sha256=module.sha256,
+        imported_modules=tuple(
+            LINUX_ISOLATION.LinuxMatchedControlImportedModuleAuthorityV1(
+                module=name,
+                origin=plain_file(
+                    f"{repo}/src/devhub/{filename}",
+                    index=205 + index,
+                    sha=sha,
+                    mode="0644",
+                ),
+                git_blob_sha256=sha,
+            )
+            for index, (name, filename, sha) in enumerate(
+                (
+                    ("devhub.benchmark", "benchmark.py", "e" * 64),
+                    ("devhub.linux_isolation", "linux_isolation.py", "f" * 64),
+                    ("devhub.native_bundle", "native_bundle.py", "9" * 64),
+                )
+            )
+        ),
+    )
+
+
 def tool(
     name: Literal["unshare", "mount"],
     *,
@@ -9602,6 +9653,50 @@ def v19_control_receipt(
     )
 
 
+def v20_control_execution(
+    state: LINUX_ISOLATION.LinuxCgroupSetupStateV2,
+    *,
+    repo: str = "/repo",
+) -> LINUX_ISOLATION.LinuxMatchedControlExecutionV2:
+    runtime = matched_control_python_runtime(repo)
+    manager = plain_file(
+        f"{repo}/scripts/manage_linux_native_cgroup.py",
+        index=205,
+        sha="b" * 64,
+    )
+    state_path = "/run/devfabric/cgroup-state.json"
+    execution_path = "/run/devfabric/control-execution.json"
+    observation_path = "/run/devfabric/control-observation.json"
+    return LINUX_ISOLATION.LinuxMatchedControlExecutionV2.create(
+        LINUX_ISOLATION.LinuxMatchedControlExecutionPayloadV2(
+            implementation_commit=state.payload.implementation_commit,
+            environment_instance_id=state.payload.environment_instance_id,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            repo_locator=repo,
+            python_runtime=runtime,
+            manager_script=manager,
+            manager_script_git_blob_sha256=manager.sha256,
+            state_locator=state_path,
+            state_sha256="c" * 64,
+            execution_authority_locator=execution_path,
+            observation_locator=observation_path,
+            argv=(
+                runtime.launcher_locator,
+                "-I",
+                "-B",
+                manager.locator,
+                "control-probe-v19",
+                "--state",
+                state_path,
+                "--execution-authority",
+                execution_path,
+                "--output",
+                observation_path,
+            ),
+        )
+    )
+
+
 def v19_unit_journal(
     state: LINUX_ISOLATION.LinuxCgroupSetupStateV2,
     *,
@@ -9981,7 +10076,7 @@ def test_v19_control_probe_publishes_fixed_checkpoint_without_raw_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     state = v19_cgroup_state(monkeypatch)
-    execution = v19_control_receipt(state).payload.execution
+    execution = v20_control_execution(state)
     output = tmp_path / "control-failure.json"
     execution_path = tmp_path / "execution.json"
     execution_path.write_text("{}", encoding="utf-8")
@@ -10288,11 +10383,16 @@ def test_v19_control_launch_retains_systemd_failure_without_valid_child_frame(
 
     monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state_v2", lambda _state: None)
     monkeypatch.setattr(CGROUP_MANAGER, "file_authority", authority)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "python_runtime_authority",
+        lambda _python, repo, _commit: matched_control_python_runtime(str(repo)),
+    )
     monkeypatch.setattr(CGROUP_MANAGER, "git_blob_sha256", lambda *_args: "b" * 64)
 
     def run_service(**_kwargs: object) -> None:
         if frame_case == "noncanonical":
-            execution = LINUX_ISOLATION.LinuxMatchedControlExecutionV1.model_validate_json(
+            execution = LINUX_ISOLATION.LinuxMatchedControlExecutionV2.model_validate_json(
                 execution_path.read_bytes()
             )
             control = state.payload.syscall_filter.matched_control
@@ -10897,6 +10997,132 @@ def test_v19_control_receipt_rejects_personality_denial_and_authority_substituti
         LINUX_ISOLATION.LinuxMatchedControlReceiptPayloadV1.model_validate(substituted)
 
 
+def test_v20_forward_python_runtime_and_execution_are_self_hashed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    execution = v20_control_execution(state)
+    retained = LINUX_ISOLATION.LinuxMatchedControlExecutionV2.model_validate_json(
+        execution.model_dump_json()
+    )
+    assert retained == execution
+    assert retained.payload.argv[:4] == (
+        "/repo/.venv/bin/python",
+        "-I",
+        "-B",
+        "/repo/scripts/manage_linux_native_cgroup.py",
+    )
+    assert retained.payload.python_runtime.pyvenv_config.locator == "/repo/.venv/pyvenv.cfg"
+    assert (
+        retained.payload.python_runtime.devhub_module_origin.locator
+        == "/repo/src/devhub/__init__.py"
+    )
+
+    forged = execution.model_dump(mode="python")
+    forged["payload"]["python_runtime"]["launcher_link_target"] = "/tmp/substituted-python"
+    forged["linux_matched_control_execution_id"] = digest(canonical(forged["payload"]))
+    with pytest.raises(ValidationError, match="link target differs"):
+        LINUX_ISOLATION.LinuxMatchedControlExecutionV2.model_validate(forged)
+
+    substituted_module = execution.model_dump(mode="python")
+    imported = substituted_module["payload"]["python_runtime"]["imported_modules"][0]
+    imported["origin"]["locator"] = "/tmp/substituted/benchmark.py"
+    imported["origin"]["sha256"] = "8" * 64
+    imported["git_blob_sha256"] = "8" * 64
+    substituted_module["linux_matched_control_execution_id"] = digest(
+        canonical(substituted_module["payload"])
+    )
+    with pytest.raises(ValidationError, match="outside the reviewed repository"):
+        LINUX_ISOLATION.LinuxMatchedControlExecutionV2.model_validate(substituted_module)
+
+    unhashed = execution.model_dump(mode="python")
+    unhashed["payload"]["state_sha256"] = "7" * 64
+    with pytest.raises(ValidationError, match="authority hash mismatch"):
+        LINUX_ISOLATION.LinuxMatchedControlExecutionV2.model_validate(unhashed)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("pyvenv_config", plain_file("/other/pyvenv.cfg"), "pyvenv.cfg differs"),
+        (
+            "devhub_module_origin",
+            plain_file("/repo/src/other/__init__.py", sha="d" * 64),
+            "module origin differs",
+        ),
+    ),
+)
+def test_v20_forward_python_runtime_rejects_authority_substitution(
+    field: str,
+    value: LinuxFileAuthorityV1,
+    message: str,
+) -> None:
+    raw = matched_control_python_runtime().model_dump(mode="python")
+    raw[field] = value.model_dump(mode="python")
+    with pytest.raises(ValidationError, match=message):
+        LINUX_ISOLATION.LinuxMatchedControlPythonRuntimeAuthorityV1.model_validate(raw)
+
+
+def test_v20_receipt_accepts_forward_execution_while_historical_v1_remains_parseable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    historical = v19_control_receipt(state)
+    forward = v20_control_execution(state)
+    raw = historical.payload.model_dump(mode="python")
+    raw["execution"] = forward.model_dump(mode="python")
+    receipt = LINUX_ISOLATION.LinuxMatchedControlReceiptPayloadV1.model_validate(raw)
+    assert isinstance(receipt.execution, LINUX_ISOLATION.LinuxMatchedControlExecutionV2)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="lexical venv launcher is Linux-only")
+def test_v20_lexical_venv_child_imports_reviewed_module_and_emits_canonical_frame() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    launcher = Path(sys.executable)
+    if not launcher.is_symlink():
+        pytest.skip("current Linux test interpreter is not a lexical venv symlink")
+    expected_origin = (repo / "src" / "devhub" / "__init__.py").resolve(strict=True)
+    code = f"""
+from pathlib import Path
+import devhub
+from devhub.benchmark import canonical
+from devhub.linux_isolation import (
+    LinuxMatchedControlProbeFailurePayloadV1,
+    LinuxMatchedControlProbeFailureV1,
+)
+if Path(devhub.__file__).resolve(strict=True) != Path({str(expected_origin)!r}):
+    raise SystemExit(91)
+frame = LinuxMatchedControlProbeFailureV1.create(LinuxMatchedControlProbeFailurePayloadV1(
+    implementation_commit={("3" * 40)!r},
+    environment_instance_id={("4" * 32)!r},
+    linux_cgroup_setup_state_id={("5" * 64)!r},
+    linux_matched_control_execution_id={("6" * 64)!r},
+    unit_name={("devfabric-linux-isolation-control-" + "4" * 32 + ".service")!r},
+    control_group={("/system.slice/devfabric-linux-isolation-control-" + "4" * 32 + ".service")!r},
+    checkpoint='process_identity',
+    reason_code='validation_failed',
+))
+import sys
+sys.stdout.buffer.write(canonical(frame.model_dump(mode='json')))
+"""
+    result = subprocess.run(
+        [str(launcher), "-I", "-B", "-c", code],
+        cwd=repo,
+        env={"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"},
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    frame = LINUX_ISOLATION.LinuxMatchedControlProbeFailureV1.model_validate_json(result.stdout)
+    assert result.stdout == canonical(frame.model_dump(mode="json"))
+    assert frame.payload.checkpoint == "process_identity"
+    assert frame.payload.model_requests == 0
+    assert frame.payload.provider_sends == 0
+    assert frame.payload.mcp_tool_executions == 0
+    assert frame.payload.real_task_executions == 0
+
+
 @pytest.mark.skipif(os.name != "posix", reason="V19 control locators are native-Linux paths")
 def test_v19_control_failure_always_cleans_exact_unit(
     tmp_path: Path,
@@ -10912,6 +11138,11 @@ def test_v19_control_failure_always_cleans_exact_unit(
             index=111,
             sha="b" * 64 if path.name == "manager.py" else "a" * 64,
         ),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "python_runtime_authority",
+        lambda _python, repo, _commit: matched_control_python_runtime(str(repo)),
     )
     monkeypatch.setattr(CGROUP_MANAGER, "git_blob_sha256", lambda *_args: "b" * 64)
     monkeypatch.setattr(
@@ -11473,3 +11704,27 @@ def test_v19_control_execution_file_rejects_writable_and_substituted_bytes(
     )
     with pytest.raises(ValidationError, match="authority hash mismatch"):
         CGROUP_MANAGER.read_control_execution(path)
+
+
+def test_v20_control_execution_file_uses_json_aware_strict_version_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    execution = v20_control_execution(state)
+    path = tmp_path / "control-execution-v2.json"
+    path.write_bytes(canonical(execution.model_dump(mode="json")))
+    actual = os.lstat(path)
+    monkeypatch.setattr(
+        CGROUP_MANAGER.os,
+        "lstat",
+        lambda _path: SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o444,
+            st_uid=0,
+            st_gid=0,
+            st_dev=actual.st_dev,
+            st_ino=actual.st_ino,
+            st_size=actual.st_size,
+        ),
+    )
+    assert CGROUP_MANAGER.read_control_execution(path) == execution
