@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -1146,6 +1147,42 @@ def test_linux_bundle_search_path_sanitizer_rejects_symlink(tmp_path: Path) -> N
         pytest.skip("symlink creation unavailable")
     with pytest.raises(ValueError, match="not a plain file"):
         strip_linux_elf_search_paths(link, "python/bin/python3.12")
+
+
+def test_linux_bundle_loader_diagnostic_is_bounded_and_authority_specific() -> None:
+    requirement = LinuxElfRequirementV1(path="python/lib/extension.so")
+    line = "statically linked"
+    diagnostic = json.loads(BUILDER._loader_output_diagnostic(line, 3, requirement))
+
+    assert diagnostic == {
+        "classification": "UNRECOGNIZED_LOADER_OUTPUT_LINE_V1",
+        "interpreter_present": False,
+        "line_byte_count": len(line.encode()),
+        "line_index": 3,
+        "line_sha256": hashlib.sha256(line.encode()).hexdigest(),
+        "needed_count": 0,
+    }
+    assert line not in json.dumps(diagnostic)
+    assert "/" not in json.dumps(diagnostic)
+
+    changed_line = json.loads(
+        BUILDER._loader_output_diagnostic("statically linked ", 3, requirement)
+    )
+    assert changed_line["line_sha256"] != diagnostic["line_sha256"]
+
+    changed_authority = json.loads(
+        BUILDER._loader_output_diagnostic(
+            line,
+            3,
+            LinuxElfRequirementV1(
+                path="python/bin/python3.12",
+                interpreter="/lib64/ld-linux-x86-64.so.2",
+                needed=("libc.so.6",),
+            ),
+        )
+    )
+    assert changed_authority["interpreter_present"] is True
+    assert changed_authority["needed_count"] == 1
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Bundled glibc resolution is Linux-only")
