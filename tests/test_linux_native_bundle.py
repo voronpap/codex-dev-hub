@@ -1185,6 +1185,33 @@ def test_linux_bundle_loader_diagnostic_is_bounded_and_authority_specific() -> N
     assert changed_authority["needed_count"] == 1
 
 
+def test_linux_bundle_dependency_free_loader_output_is_exact() -> None:
+    dependency_free = LinuxElfRequirementV1(path="python/lib/extension.so")
+    exact = ("\tstatically linked",)
+
+    assert BUILDER._is_expected_dependency_free_loader_output(exact, dependency_free)
+    assert not BUILDER._is_expected_dependency_free_loader_output(
+        ("statically linked",), dependency_free
+    )
+    assert not BUILDER._is_expected_dependency_free_loader_output(
+        ("\tstatically linked", ""), dependency_free
+    )
+    assert not BUILDER._is_expected_dependency_free_loader_output(
+        ("\tstatically linked", "extra"), dependency_free
+    )
+    assert not BUILDER._is_expected_dependency_free_loader_output(
+        exact,
+        LinuxElfRequirementV1(
+            path="python/bin/python3.12",
+            interpreter="/lib64/ld-linux-x86-64.so.2",
+        ),
+    )
+    assert not BUILDER._is_expected_dependency_free_loader_output(
+        exact,
+        LinuxElfRequirementV1(path="runtime/lib/libc.so.6", needed=("libm.so.6",)),
+    )
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Bundled glibc resolution is Linux-only")
 def test_linux_bundle_loader_resolution_rejects_ambient_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1274,6 +1301,54 @@ def test_linux_bundle_loader_resolution_rejects_ambient_fallback(
     )
     with pytest.raises(ValueError, match="loader bytes differ"):
         BUILDER._verify_loader_resolution(root, closure)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Bundled glibc resolution is Linux-only")
+def test_linux_bundle_loader_resolution_accepts_only_exact_dependency_free_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "bundle"
+    bundle = materialize_v9(root)
+    dependency_free = LinuxElfRequirementV1(path="python/lib/extension.so")
+    closure = bundle.payload.runtime_closure.model_copy(
+        update={"elf_requirements": (dependency_free,)}
+    )
+
+    def completed(stdout: bytes) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess([], 0, stdout, b"")
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: completed(b"\tstatically linked\n"),
+    )
+    BUILDER._verify_loader_resolution(root, closure)
+
+    for rejected in (
+        b"statically linked\n",
+        b"\tstatically linked\n\n",
+        b"\tstatically linked\nextra\n",
+    ):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *_args, _stdout=rejected, **_kwargs: completed(_stdout),
+        )
+        with pytest.raises(ValueError, match="UNRECOGNIZED_LOADER_OUTPUT_LINE_V1"):
+            BUILDER._verify_loader_resolution(root, closure)
+
+    dependent = closure.model_copy(
+        update={
+            "elf_requirements": (dependency_free.model_copy(update={"needed": ("libc.so.6",)}),)
+        }
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: completed(b"\tstatically linked\n"),
+    )
+    with pytest.raises(ValueError, match="UNRECOGNIZED_LOADER_OUTPUT_LINE_V1"):
+        BUILDER._verify_loader_resolution(root, dependent)
 
 
 def test_linux_bundle_copies_transitive_runtime_closure_as_plain_files(

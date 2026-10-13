@@ -703,6 +703,15 @@ with the static `DT_NEEDED` count and interpreter-presence fact. It emits no
 raw line or path and still rejects the output. No artifact was published by
 that run, and all execution counters remained zero.
 
+Main-only diagnostic V10 run `38415902492/1` proved the rejected line was the
+exact 18-byte glibc literal `\tstatically linked` (SHA-256
+`cc2ca3f6de7743dd494fb483e75b9d9612a784dc24480521db510e37e155c89d`)
+for a manifest-bound ELF with zero `DT_NEEDED` entries and no interpreter. The
+verifier accepts only that single exact line for that exact static shape.
+Whitespace variants, additional or blank lines, an interpreter, or any direct
+dependency remain rejected. No artifact was published by the diagnostic run,
+and all execution counters remained zero.
+
 Bundle V10 still records `native_executor_isolation_qualified=false` and
 `package_readiness=false`. Its relocated metadata-only smoke proves the
 bundle-owned loader can start the exact Python runtime and import the reviewed
