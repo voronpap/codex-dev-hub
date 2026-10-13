@@ -660,12 +660,29 @@ use ambient `LD_LIBRARY_PATH`, copy glibc at runtime or widen Landlock. Exact
 file hashes and the full bundle inventory remain the authority; the source
 locations used while assembling the closure are not runtime authority.
 
-Bundle V9 still records `native_executor_isolation_qualified=false` and
+Main-only Bundle V9 run `38400549435/1` failed closed before publication. The
+retained setup-python runtime embeds
+`/opt/hostedtoolcache/Python/3.12.10/x64/lib` in `DT_RUNPATH` on the exact
+`python3.12` executable, `libpython` and native extension objects. Removing a
+convenience interpreter alias cannot remove that authority. No Bundle V9
+artifact exists, and the run performed no model, provider, tool or real-task
+execution.
+
+`LinuxNativeBundleV10` is the forward-only correction. Dependency discovery
+and closure copying happen while the source runtime's original resolution is
+still available. A bounded stdlib ELF64 rewriter then removes every
+`DT_RPATH` and `DT_RUNPATH` entry from every copied dynamic object without
+changing `PT_INTERP`, `DT_NEEDED`, file size or Unix mode. Strict static parsing
+re-runs after rewriting, and the exact bundled loader must resolve every
+non-loader ELF only through the manifest-bound closure. Historical V9 parsing
+and its failed evidence remain unchanged.
+
+Bundle V10 still records `native_executor_isolation_qualified=false` and
 `package_readiness=false`. Its relocated metadata-only smoke proves the
 bundle-owned loader can start the exact Python runtime and import the reviewed
 modules with ambient Python variables ignored. A later, separately versioned
-V16 isolation consumer must bind exact published V9 identities and prove the
-same launcher inside the private root before either readiness flag can change.
+isolation consumer must bind exact published V10 identities and prove the same
+launcher inside the private root before either readiness flag can change.
 
 The tested bundle is intentionally tied to Linux x86_64 and the exact host
 environment recorded by later qualification.  It does not claim support for
@@ -920,7 +937,7 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V8 run `38387100992` (`bundle_id=ccbe5b4f86421e95b77293c04969c66b23e491d6713f015d6b5c6e65ecb7c474`, `archive_id=4955e9cd2b0d58a1fb5a5a6d2eff57f785dcddca8df0b3a6c4cd9cb1c5ce3e40`); package readiness remains false pending V15 and later boundaries |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V8 run `38387100992`; V12 run `38350946287`, V13 run `38366520513`, V14 run `38382788177`, and V15 run `38394800882` remain failed closed with zero execution counters; Bundle V9 publication is pending |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V8 run `38387100992`; V12 run `38350946287`, V13 run `38366520513`, V14 run `38382788177`, V15 run `38394800882`, and Bundle V9 run `38400549435` remain failed closed with zero execution counters; Bundle V10 publication is pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

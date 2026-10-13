@@ -37,6 +37,7 @@ from devhub.linux_bundle import (
     LinuxNativeArchivePayloadV7,
     LinuxNativeArchivePayloadV8,
     LinuxNativeArchivePayloadV9,
+    LinuxNativeArchivePayloadV10,
     LinuxNativeArchiveV1,
     LinuxNativeArchiveV2,
     LinuxNativeArchiveV3,
@@ -46,6 +47,7 @@ from devhub.linux_bundle import (
     LinuxNativeArchiveV7,
     LinuxNativeArchiveV8,
     LinuxNativeArchiveV9,
+    LinuxNativeArchiveV10,
     LinuxNativeBundlePayloadV1,
     LinuxNativeBundlePayloadV2,
     LinuxNativeBundlePayloadV3,
@@ -55,6 +57,7 @@ from devhub.linux_bundle import (
     LinuxNativeBundlePayloadV7,
     LinuxNativeBundlePayloadV8,
     LinuxNativeBundlePayloadV9,
+    LinuxNativeBundlePayloadV10,
     LinuxNativeBundleV1,
     LinuxNativeBundleV2,
     LinuxNativeBundleV3,
@@ -64,6 +67,7 @@ from devhub.linux_bundle import (
     LinuxNativeBundleV7,
     LinuxNativeBundleV8,
     LinuxNativeBundleV9,
+    LinuxNativeBundleV10,
     LinuxPythonAuthorityV1,
     LinuxPythonRuntimePayloadV1,
     LinuxPythonRuntimeV1,
@@ -75,6 +79,7 @@ from devhub.linux_bundle import (
     inventory_linux_bundle,
     observe_linux_runtime,
     smoke_linux_bundle_cli,
+    strip_linux_elf_search_paths,
     verify_linux_native_bundle,
     verify_linux_native_release,
 )
@@ -431,6 +436,13 @@ def materialize_v9(root: Path) -> LinuxNativeBundleV9:
     return LinuxNativeBundleV9.create(LinuxNativeBundlePayloadV9.model_validate(raw))
 
 
+def materialize_v10(root: Path) -> LinuxNativeBundleV10:
+    current = materialize_v9(root)
+    raw = current.payload.model_dump(mode="python")
+    raw["schema_version"] = 10
+    return LinuxNativeBundleV10.create(LinuxNativeBundlePayloadV10.model_validate(raw))
+
+
 def reviewable_v12_artifact(root: Path) -> None:
     linux_pass_artifact(
         root,
@@ -453,6 +465,7 @@ def write_test_archive(
     | LinuxNativeArchiveV7
     | LinuxNativeArchiveV8
     | LinuxNativeArchiveV9
+    | LinuxNativeArchiveV10
 ):
     archive_path = release / BUILDER.ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
@@ -473,6 +486,7 @@ def write_test_archive(
             | LinuxNativeArchiveV7
             | LinuxNativeArchiveV8
             | LinuxNativeArchiveV9
+            | LinuxNativeArchiveV10
         ) = LinuxNativeArchiveV1.create(LinuxNativeArchivePayloadV1(**fields))
     elif schema_version == 2:
         receipt = LinuxNativeArchiveV2.create(LinuxNativeArchivePayloadV2(**fields))
@@ -488,8 +502,10 @@ def write_test_archive(
         receipt = LinuxNativeArchiveV7.create(LinuxNativeArchivePayloadV7(**fields))
     elif schema_version == 8:
         receipt = LinuxNativeArchiveV8.create(LinuxNativeArchivePayloadV8(**fields))
-    else:
+    elif schema_version == 9:
         receipt = LinuxNativeArchiveV9.create(LinuxNativeArchivePayloadV9(**fields))
+    else:
+        receipt = LinuxNativeArchiveV10.create(LinuxNativeArchivePayloadV10(**fields))
     (release / BUILDER.ARCHIVE_RECEIPT_NAME).write_text(receipt.model_dump_json(), encoding="utf-8")
     return receipt
 
@@ -661,6 +677,19 @@ def test_linux_native_bundle_v9_binds_exact_recursive_loader_closure(tmp_path: P
     assert LinuxNativeBundleV8.model_validate_json(historical.model_dump_json()) == historical
 
 
+def test_linux_native_bundle_v10_preserves_v9_and_versions_search_path_removal(
+    tmp_path: Path,
+) -> None:
+    current = materialize_v10(tmp_path / "current")
+    assert LinuxNativeBundleV10.model_validate_json(current.model_dump_json()) == current
+    assert current.payload.schema_version == 10
+    assert current.payload.native_executor_isolation_qualified is False
+    assert current.payload.package_readiness is False
+
+    historical = materialize_v9(tmp_path / "historical")
+    assert LinuxNativeBundleV9.model_validate_json(historical.model_dump_json()) == historical
+
+
 def test_linux_bundle_loader_command_is_exact_and_rejects_tamper(tmp_path: Path) -> None:
     bundle = materialize_v9(tmp_path / "bundle")
     closure = bundle.payload.runtime_closure
@@ -687,7 +716,7 @@ def test_linux_bundle_loader_command_is_exact_and_rejects_tamper(tmp_path: Path)
         bundled_loader_command(tmp_path / "bundle", closure, "python/bin/python3.12", ("-I",))
 
 
-@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6, 7, 8, 9))
+@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 def test_linux_release_rejects_mixed_manifest_and_archive_versions(
     tmp_path: Path, manifest_version: int
 ) -> None:
@@ -711,6 +740,8 @@ def test_linux_release_rejects_mixed_manifest_and_archive_versions(
         else materialize_v8(root)
         if manifest_version == 8
         else materialize_v9(root)
+        if manifest_version == 9
+        else materialize_v10(root)
     )
     (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
     write_test_archive(release, bundle.linux_native_bundle_id, 2 if manifest_version != 2 else 1)
@@ -928,6 +959,7 @@ def test_runtime_observation_accepts_only_missing_sys_path_inside_bundle(
 
 def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     workflow = (ROOT / ".github/workflows/linux-native-bundle.yml").read_text(encoding="utf-8")
+    assert workflow.startswith("name: Native Linux directory bundle V10\n")
     assert "workflow_dispatch:" in workflow
     assert "pull_request:" not in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
@@ -949,8 +981,8 @@ def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     assert "scripts/verify_linux_native_bundle.py" in workflow
     builder = (ROOT / "scripts/build_linux_native_bundle.py").read_text(encoding="utf-8")
     assert 'ARCHIVE_NAME = "devfabric-linux-native.tar.gz"' in builder
-    assert "LinuxNativeBundleV9.create" in builder
-    assert "LinuxNativeBundleV8.create" not in builder
+    assert "LinuxNativeBundleV10.create" in builder
+    assert "LinuxNativeBundleV9.create" not in builder
     source = (ROOT / "src/devhub/linux_bundle.py").read_text(encoding="utf-8")
     assert "native_executor_isolation_qualified: Literal[False]" in source
     assert "package_readiness: Literal[False]" in source
@@ -1003,6 +1035,119 @@ def test_linux_bundle_elf_observation_rejects_any_search_path_tag(
         inspect_linux_dynamic_elf(elf, "python/bin/python3.12")
 
 
+@pytest.mark.parametrize(
+    "relative,mode",
+    (
+        ("python/bin/python3.12", 0o755),
+        ("runtime/lib/libpython3.12.so.1.0", 0o644),
+        ("python/lib/python3.12/lib-dynload/_ssl.so", 0o755),
+    ),
+)
+def test_linux_bundle_strips_setup_python_search_paths_without_other_authority_changes(
+    tmp_path: Path, relative: str, mode: int
+) -> None:
+    hosted = "/opt/hostedtoolcache/Python/3.12.10/x64/lib"
+    elf = _write(
+        tmp_path,
+        relative,
+        _minimal_dynamic_elf(
+            needed=("libpython3.12.so.1.0", "libc.so.6"),
+            rpath=hosted,
+            runpath=hosted,
+        ),
+    )
+    elf.chmod(mode)
+    before = elf.read_bytes()
+    before_mode = elf.stat().st_mode & 0o777
+
+    assert strip_linux_elf_search_paths(elf, relative) == 2
+    observed = inspect_linux_dynamic_elf(elf, relative)
+    after = elf.read_bytes()
+
+    assert observed.needed == ("libc.so.6", "libpython3.12.so.1.0")
+    assert observed.rpath == ()
+    assert observed.runpath == ()
+    assert len(after) == len(before)
+    assert elf.stat().st_mode & 0o777 == before_mode
+    assert after[:0x200] == before[:0x200]
+    assert after[0x270:] == before[0x270:]
+    assert strip_linux_elf_search_paths(elf, relative) == 0
+
+
+def test_linux_bundle_authoritative_interpreter_still_requires_sanitization_if_alias_removed(
+    tmp_path: Path,
+) -> None:
+    raw = _minimal_dynamic_elf(
+        needed=("libpython3.12.so.1.0",),
+        runpath="/opt/hostedtoolcache/Python/3.12.10/x64/lib",
+    )
+    alias = _write(tmp_path, "python/bin/python", raw)
+    interpreter = _write(tmp_path, "python/bin/python3.12", raw)
+    alias.unlink()
+
+    with pytest.raises(ValueError, match="contains RPATH/RUNPATH"):
+        inspect_linux_dynamic_elf(interpreter, "python/bin/python3.12")
+
+
+def test_linux_bundle_builder_sanitizes_every_dynamic_object(tmp_path: Path) -> None:
+    root = tmp_path / "bundle"
+    hosted = "/opt/hostedtoolcache/Python/3.12.10/x64/lib"
+    paths = (
+        "python/bin/python3.12",
+        "runtime/lib/libpython3.12.so.1.0",
+        "python/lib/python3.12/lib-dynload/_ssl.so",
+    )
+    for relative in paths:
+        _write(root, relative, _minimal_dynamic_elf(runpath=hosted))
+
+    assert BUILDER._strip_runtime_search_paths(root) == len(paths)
+    for relative in paths:
+        observed = inspect_linux_dynamic_elf(root / relative, relative)
+        assert observed.rpath == ()
+        assert observed.runpath == ()
+
+
+def test_linux_bundle_search_path_sanitizer_rejects_malformed_dynamic_tables(
+    tmp_path: Path,
+) -> None:
+    truncated = _write(tmp_path, "truncated", b"\x7fELF\x02\x01")
+    with pytest.raises(ValueError, match="header is truncated"):
+        strip_linux_elf_search_paths(truncated, "python/bin/python3.12")
+
+    duplicate = bytearray(_minimal_dynamic_elf(runpath="/runner/lib"))
+    duplicate[56:58] = struct.pack("<H", 4)
+    dynamic_header = duplicate[64 + 2 * 56 : 64 + 3 * 56]
+    duplicate[64 + 3 * 56 : 64 + 4 * 56] = dynamic_header
+    duplicate_path = _write(tmp_path, "duplicate", bytes(duplicate))
+    with pytest.raises(ValueError, match="multiple PT_DYNAMIC"):
+        strip_linux_elf_search_paths(duplicate_path, "python/bin/python3.12")
+
+    unterminated = bytearray(_minimal_dynamic_elf(runpath="/runner/lib"))
+    dynamic_size = 5 * 16
+    unterminated[0x200 + dynamic_size - 16 : 0x200 + dynamic_size] = struct.pack("<qQ", 2, 0)
+    unterminated_path = _write(tmp_path, "unterminated", bytes(unterminated))
+    with pytest.raises(ValueError, match="has no terminator"):
+        strip_linux_elf_search_paths(unterminated_path, "python/bin/python3.12")
+
+    unaligned = bytearray(_minimal_dynamic_elf(runpath="/runner/lib"))
+    dynamic_header_offset = 64 + 2 * 56
+    unaligned[dynamic_header_offset + 32 : dynamic_header_offset + 40] = struct.pack("<Q", 17)
+    unaligned_path = _write(tmp_path, "unaligned", bytes(unaligned))
+    with pytest.raises(ValueError, match="dynamic table is invalid"):
+        strip_linux_elf_search_paths(unaligned_path, "python/bin/python3.12")
+
+
+def test_linux_bundle_search_path_sanitizer_rejects_symlink(tmp_path: Path) -> None:
+    target = _write(tmp_path, "target", _minimal_dynamic_elf(runpath="/runner/lib"))
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    with pytest.raises(ValueError, match="not a plain file"):
+        strip_linux_elf_search_paths(link, "python/bin/python3.12")
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Bundled glibc resolution is Linux-only")
 def test_linux_bundle_loader_resolution_rejects_ambient_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1050,15 +1195,7 @@ def test_linux_bundle_copies_transitive_runtime_closure_as_plain_files(
     libm = _write(sources, "libm.so.6", b"libm")
     monkeypatch.setattr(BUILDER, "_EXPECTED_INTERPRETER", str(loader))
     monkeypatch.setattr(BUILDER, "_elf_files", lambda _: objects)
-    monkeypatch.setattr(
-        BUILDER,
-        "inspect_linux_dynamic_elf",
-        lambda _path, relative: LinuxElfRequirementV1(
-            path=relative,
-            interpreter="/lib64/ld-linux-x86-64.so.2",
-            needed=("libc.so.6",),
-        ),
-    )
+    monkeypatch.setattr(BUILDER, "linux_elf_needed_names", lambda *_: ("libc.so.6",))
     monkeypatch.setattr(
         BUILDER,
         "_ldd_resolutions",
@@ -1301,7 +1438,7 @@ def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode preservation requires Linux")
-@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 8, 9))
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_version: int
 ) -> None:
@@ -1325,6 +1462,8 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
         else materialize_v8(root)
         if schema_version == 8
         else materialize_v9(root)
+        if schema_version == 9
+        else materialize_v10(root)
     )
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)
