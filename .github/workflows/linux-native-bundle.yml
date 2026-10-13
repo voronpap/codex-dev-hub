@@ -1,4 +1,4 @@
-name: Native Linux directory bundle
+name: Native Linux directory bundle V9
 
 on:
   workflow_dispatch:
@@ -66,7 +66,7 @@ jobs:
           gh run download "$BUILD_RUN_ID" --repo '${{ github.repository }}' \
             --name devfabric-linux-build-012-binaries \
             --dir "$RUNNER_TEMP/linux-build-012"
-      - name: Build and relocate exact native Linux bundle
+      - name: Build and relocate exact native Linux Bundle V9
         run: |
           uv run --locked --group linux-bundle-build python scripts/build_linux_native_bundle.py \
             --output "$RUNNER_TEMP/devfabric-linux-native" \
@@ -78,7 +78,7 @@ jobs:
           uv run --locked python scripts/verify_linux_native_bundle.py \
             --release "$RUNNER_TEMP/devfabric-linux-native" \
             --destination "$RUNNER_TEMP/devfabric-linux-native-verified"
-      - name: Upload exact native Linux bundle
+      - name: Upload exact native Linux Bundle V9
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: devfabric-linux-native-bundle

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -20,13 +21,17 @@ from pydantic import JsonValue
 from devhub.benchmark import canonical, write_new
 from devhub.linux_bundle import (
     LinuxCodexAuthorityV6,
-    LinuxLauncherV1,
-    LinuxNativeArchivePayloadV8,
-    LinuxNativeArchiveV8,
-    LinuxNativeBundlePayloadV8,
-    LinuxNativeBundleV8,
+    LinuxLauncherV2,
+    LinuxNativeArchivePayloadV9,
+    LinuxNativeArchiveV9,
+    LinuxNativeBundlePayloadV9,
+    LinuxNativeBundleV9,
     LinuxPythonAuthorityV1,
+    LinuxRuntimeClosureV1,
+    LinuxRuntimeLibraryV1,
+    inspect_linux_dynamic_elf,
     inventory_linux_bundle,
+    is_linux_dynamic_elf,
     observe_linux_runtime,
     verify_linux_native_bundle,
     verify_linux_native_release,
@@ -48,13 +53,24 @@ CODE_MODE_HOST_ARTIFACT_MAX_BYTES = 512 * 1024 * 1024
 CLI_LAUNCHER = """#!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-exec "$root/python/bin/python3.12" -I -B -m devhub.cli "$@"
+loader="$root/runtime/loader/ld-linux-x86-64.so.2"
+libraries="$root/runtime/lib"
+exec "$loader" --inhibit-cache --library-path "$libraries" \
+  "$root/python/bin/python3.12" -I -B -m devhub.cli "$@"
 """
 DELEGATE_LAUNCHER = """#!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-exec "$root/python/bin/python3.12" -I -B -m devhub.delegate_server "$@"
+loader="$root/runtime/loader/ld-linux-x86-64.so.2"
+libraries="$root/runtime/lib"
+exec "$loader" --inhibit-cache --library-path "$libraries" \
+  "$root/python/bin/python3.12" -I -B -m devhub.delegate_server "$@"
 """
+
+_LDD_RESOLVED = re.compile(r"^\s*([^\s]+) => (/[^\s]+) \(0x[0-9A-Fa-f]+\)\s*$")
+_LDD_ABSOLUTE = re.compile(r"^\s*(/[^\s]+) \(0x[0-9A-Fa-f]+\)\s*$")
+_LDD_VDSO = re.compile(r"^\s*linux-vdso\.so\.1 \(0x[0-9A-Fa-f]+\)\s*$")
+_EXPECTED_INTERPRETER = "/lib64/ld-linux-x86-64.so.2"
 
 
 def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 1800) -> None:
@@ -63,6 +79,175 @@ def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 1800) -> No
 
 def _output(argv: list[str], *, cwd: Path | None = None) -> str:
     return subprocess.check_output(argv, cwd=cwd, text=True, timeout=60).strip()
+
+
+def _elf_files(root: Path) -> tuple[Path, ...]:
+    values: list[Path] = []
+    for path in root.rglob("*"):
+        if path.is_file() and not path.is_symlink():
+            if is_linux_dynamic_elf(path):
+                values.append(path)
+    return tuple(sorted(values, key=lambda value: value.relative_to(root).as_posix()))
+
+
+def _ldd_resolutions(path: Path) -> dict[str, Path]:
+    completed = subprocess.run(
+        ["ldd", str(path)],
+        capture_output=True,
+        check=False,
+        timeout=60,
+        env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"},
+    )
+    stdout = completed.stdout.decode("utf-8", errors="strict")
+    stderr = completed.stderr.decode("utf-8", errors="strict")
+    if completed.returncode != 0 or stderr or "not found" in stdout:
+        raise ValueError(f"Linux runtime dependency resolution failed: {path.name}")
+    resolved: dict[str, Path] = {}
+    for line in stdout.splitlines():
+        match = _LDD_RESOLVED.match(line)
+        if match is None:
+            continue
+        name, locator = match.groups()
+        candidate = Path(locator).resolve(strict=True)
+        if not candidate.is_file():
+            raise ValueError(f"Linux runtime dependency is not a file: {name}")
+        previous = resolved.get(name)
+        if previous is not None and previous != candidate:
+            raise ValueError(f"Linux runtime dependency resolution is ambiguous: {name}")
+        resolved[name] = candidate
+    return resolved
+
+
+def _copy_runtime_closure(bundle_root: Path) -> None:
+    """Copy the exact loader and recursive DT_NEEDED closure as plain files."""
+
+    initial = _elf_files(bundle_root)
+    if not initial:
+        raise ValueError("Linux bundle contains no ELF objects")
+    requirements = tuple(
+        inspect_linux_dynamic_elf(path, path.relative_to(bundle_root).as_posix())
+        for path in initial
+    )
+    direct_names = {name for item in requirements for name in item.needed}
+    resolved: dict[str, Path] = {}
+    for path in initial:
+        for name, candidate in _ldd_resolutions(path).items():
+            previous = resolved.get(name)
+            if previous is not None and (
+                previous != candidate or file_sha256(previous) != file_sha256(candidate)
+            ):
+                raise ValueError(f"Linux runtime dependency authority differs: {name}")
+            resolved[name] = candidate
+    loader_name = Path(_EXPECTED_INTERPRETER).name
+    missing = direct_names - {loader_name} - set(resolved)
+    if missing:
+        raise ValueError(f"Linux runtime dependency is unresolved: {sorted(missing)[0]}")
+    required_names = set(resolved) - {loader_name}
+    runtime = bundle_root / "runtime"
+    loader_directory = runtime / "loader"
+    library_directory = runtime / "lib"
+    loader_directory.mkdir(parents=True)
+    library_directory.mkdir()
+    loader_source = Path(_EXPECTED_INTERPRETER).resolve(strict=True)
+    if not loader_source.is_file():
+        raise ValueError("Reviewed Linux dynamic loader is unavailable")
+    loader_destination = loader_directory / "ld-linux-x86-64.so.2"
+    shutil.copyfile(loader_source, loader_destination)
+    loader_destination.chmod(0o755)
+    for name in sorted(required_names):
+        destination = library_directory / name
+        shutil.copyfile(resolved[name], destination)
+
+
+def _seal_runtime_closure(bundle_root: Path) -> LinuxRuntimeClosureV1:
+    requirements = tuple(
+        inspect_linux_dynamic_elf(path, path.relative_to(bundle_root).as_posix())
+        for path in _elf_files(bundle_root)
+    )
+    loader = bundle_root / "runtime/loader/ld-linux-x86-64.so.2"
+    libraries = tuple(
+        LinuxRuntimeLibraryV1(
+            soname=path.name,
+            path=path.relative_to(bundle_root).as_posix(),
+            size=path.stat().st_size,
+            sha256=file_sha256(path),
+        )
+        for path in sorted((bundle_root / "runtime/lib").iterdir(), key=lambda value: value.name)
+    )
+    return LinuxRuntimeClosureV1(
+        loader_sha256=file_sha256(loader),
+        loader_size=loader.stat().st_size,
+        libraries=libraries,
+        elf_requirements=requirements,
+    )
+
+
+def _verify_loader_resolution(bundle_root: Path, closure: LinuxRuntimeClosureV1) -> None:
+    """Prove executable dependencies resolve only to the immutable closure."""
+
+    loader = bundle_root / closure.loader_path
+    library_directory = bundle_root / closure.library_directory
+    loader_name = Path(closure.loader_path).name
+    for requirement in closure.elf_requirements:
+        relative = requirement.path
+        if relative == closure.loader_path:
+            continue
+        completed = subprocess.run(
+            [
+                str(loader),
+                *closure.loader_arguments,
+                str(library_directory),
+                "--list",
+                str(bundle_root / relative),
+            ],
+            capture_output=True,
+            check=False,
+            timeout=60,
+            env={"LANG": "C", "LC_ALL": "C"},
+        )
+        stdout = completed.stdout.decode("utf-8", errors="strict")
+        stderr = completed.stderr.decode("utf-8", errors="strict")
+        if completed.returncode != 0 or stderr:
+            raise ValueError(f"Bundled loader resolution failed: {relative}")
+        observed: dict[str, Path] = {}
+        for line in stdout.splitlines():
+            match = _LDD_RESOLVED.match(line)
+            if match is not None:
+                name, locator = match.groups()
+                path = (
+                    loader.resolve(strict=True)
+                    if name == loader_name and locator == closure.embedded_interpreter
+                    else Path(locator).resolve(strict=True)
+                )
+            else:
+                absolute = _LDD_ABSOLUTE.match(line)
+                if absolute is not None:
+                    locator = absolute.group(1)
+                    if locator == closure.embedded_interpreter:
+                        name = loader_name
+                        path = loader.resolve(strict=True)
+                    else:
+                        path = Path(locator).resolve(strict=True)
+                        name = path.name
+                elif not line.strip() or _LDD_VDSO.match(line):
+                    continue
+                else:
+                    raise ValueError(f"Bundled loader output is unrecognized: {relative}")
+            previous = observed.get(name)
+            if previous is not None and previous != path:
+                raise ValueError(f"Bundled loader resolved a dependency ambiguously: {name}")
+            observed[name] = path
+        direct = set(requirement.needed)
+        if not direct.issubset(observed):
+            raise ValueError(f"Bundled loader omitted a direct dependency: {relative}")
+        for name, path in observed.items():
+            expected = (
+                loader.resolve(strict=True)
+                if name == loader_name
+                else (library_directory / name).resolve(strict=True)
+            )
+            if path != expected:
+                raise ValueError(f"Bundled loader used an ambient dependency: {name}")
 
 
 def reviewed_commit(repo: Path, expected_commit: str) -> str:
@@ -283,7 +468,7 @@ def _assemble(
     run_attempt: int,
     builder_python: Path,
     uv: Path,
-) -> LinuxNativeBundleV8:
+) -> LinuxNativeBundleV9:
     bundle_root = release / "bundle"
     manifest_path = release / "linux-native-bundle.json"
     bundle_root.mkdir(parents=True)
@@ -379,6 +564,7 @@ def _assemble(
         inventory_path = authority / "native-build-artifact-inventory.json"
         shutil.copy2(codex_artifact / receipt_path.name, receipt_path)
         shutil.copy2(codex_artifact / inventory_path.name, inventory_path)
+        _copy_runtime_closure(bundle_root)
         launchers = bundle_root / "bin"
         launchers.mkdir()
         cli_launcher = launchers / "devfabric"
@@ -388,8 +574,14 @@ def _assemble(
         cli_launcher.chmod(0o755)
         delegate_launcher.chmod(0o755)
         _normalize_bundle_modes(bundle_root)
+        closure = _seal_runtime_closure(bundle_root)
+        _verify_loader_resolution(bundle_root, closure)
         runtime = observe_linux_runtime(
-            interpreter, devhub_wheel, authority / "uv.lock", expected_commit
+            interpreter,
+            devhub_wheel,
+            authority / "uv.lock",
+            expected_commit,
+            closure,
         )
     build = receipt.payload
     binaries = {item.role: item for item in build.binaries}
@@ -414,16 +606,17 @@ def _assemble(
         dependency_wheels=dependencies,
         runtime=runtime,
     )
-    bundle = LinuxNativeBundleV8.create(
-        LinuxNativeBundlePayloadV8(
+    bundle = LinuxNativeBundleV9.create(
+        LinuxNativeBundlePayloadV9(
             implementation_commit=expected_commit,
             retained_codex_implementation_commit=expected_codex_commit,
             python=python,
             codex=codex,
-            launcher=LinuxLauncherV1(
+            launcher=LinuxLauncherV2(
                 cli_sha256=file_sha256(bundle_root / "bin/devfabric"),
                 delegate_sha256=file_sha256(bundle_root / "bin/devhub-delegate-server"),
             ),
+            runtime_closure=closure,
             files=inventory_linux_bundle(bundle_root),
         )
     )
@@ -435,12 +628,12 @@ def _assemble(
     return bundle
 
 
-def _write_archive(release: Path, bundle: LinuxNativeBundleV8) -> LinuxNativeArchiveV8:
+def _write_archive(release: Path, bundle: LinuxNativeBundleV9) -> LinuxNativeArchiveV9:
     archive_path = release / ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
         stream.add(release / "bundle", arcname="bundle", recursive=True)
-    archive = LinuxNativeArchiveV8.create(
-        LinuxNativeArchivePayloadV8(
+    archive = LinuxNativeArchiveV9.create(
+        LinuxNativeArchivePayloadV9(
             bundle_id=bundle.linux_native_bundle_id,
             size=archive_path.stat().st_size,
             sha256=file_sha256(archive_path),
@@ -461,7 +654,7 @@ def build(
     expected_codex_commit: str,
     accepted_run_id: int,
     accepted_run_attempt: int,
-) -> LinuxNativeBundleV8:
+) -> LinuxNativeBundleV9:
     repo = repo.resolve(strict=True)
     commit = reviewed_commit(repo, expected_commit)
     builder_python, uv = _verified_builder(repo)

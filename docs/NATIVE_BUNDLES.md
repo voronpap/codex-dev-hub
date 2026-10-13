@@ -638,6 +638,35 @@ flags. V15 does not reinterpret V14 failure evidence and cannot consume V7 or
 an independently supplied package path. Historical V14/V7 contracts remain
 parseable.
 
+Main-only V15 run `38394800882/1` failed closed at the packaged MCP
+`module_origin` checkpoint before a subprocess could start. The immutable
+failure shows `process_started=false`, successful cleanup and zero model,
+provider, tool and real-task execution counters. Bundle V8's dynamic CPython
+requires `/lib64/ld-linux-x86-64.so.2`, while the private root intentionally
+mounts no host `/lib*` tree and Bundle V8 contains no loader/shared-library
+closure. The failure therefore establishes a missing post-chroot runtime
+boundary; it is not native-isolation qualification evidence.
+
+`LinuxNativeBundleV9` is the forward package contract for that boundary. It
+keeps the exact retained Build-012 Codex authority and the V8 Python/runtime
+content rules, then adds a manifest-bound plain-file glibc loader and the
+complete recursive `DT_NEEDED` closure observed across packaged Python, native
+extensions and both retained Codex executables. The builder rejects another
+ELF class, machine or program interpreter, unresolved or ambiguous libraries,
+symlinks, path escapes and any library set that differs from the recursive
+closure. Launchers invoke the exact bundled loader with `--inhibit-cache` and
+one explicit bundle-owned library directory. They do not mount host libraries,
+use ambient `LD_LIBRARY_PATH`, copy glibc at runtime or widen Landlock. Exact
+file hashes and the full bundle inventory remain the authority; the source
+locations used while assembling the closure are not runtime authority.
+
+Bundle V9 still records `native_executor_isolation_qualified=false` and
+`package_readiness=false`. Its relocated metadata-only smoke proves the
+bundle-owned loader can start the exact Python runtime and import the reviewed
+modules with ambient Python variables ignored. A later, separately versioned
+V16 isolation consumer must bind exact published V9 identities and prove the
+same launcher inside the private root before either readiness flag can change.
+
 The tested bundle is intentionally tied to Linux x86_64 and the exact host
 environment recorded by later qualification.  It does not claim support for
 every distribution.  Directory assembly alone leaves
@@ -891,7 +920,7 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
 | Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V8 run `38387100992` (`bundle_id=ccbe5b4f86421e95b77293c04969c66b23e491d6713f015d6b5c6e65ecb7c474`, `archive_id=4955e9cd2b0d58a1fb5a5a6d2eff57f785dcddca8df0b3a6c4cd9cb1c5ce3e40`); package readiness remains false pending V15 and later boundaries |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V8 run `38387100992`; V12 run `38350946287`, V13 run `38366520513`, and V14 run `38382788177` remain failed closed with zero execution counters; V15 qualification is pending |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V8 run `38387100992`; V12 run `38350946287`, V13 run `38366520513`, V14 run `38382788177`, and V15 run `38394800882` remain failed closed with zero execution counters; Bundle V9 publication is pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant
