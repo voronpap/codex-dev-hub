@@ -3,7 +3,8 @@
 The contracts in this module describe one exact Linux host and one closed
 namespace launch.  They intentionally do not turn a native bundle into an
 execution-ready package: cgroup and syscall-filter qualification remain
-separate required gates.
+separate required gates, and a qualified cgroup receipt does not imply the
+remaining syscall, executor or package gates.
 """
 
 from __future__ import annotations
@@ -3974,6 +3975,58 @@ class LinuxCgroupCleanupReceiptV1(Contract):
         return self
 
 
+class LinuxCgroupCleanupPayloadV2(LinuxCgroupCleanupPayloadV1):
+    """V2 records the observed systemd post-exit cgroup lifecycle."""
+
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    receipt_kind: Literal["linux_cgroup_cleanup_receipt_v2"] = "linux_cgroup_cleanup_receipt_v2"  # type: ignore[assignment]
+    post_exit_state: Literal["systemd_removed_empty_cgroup"]
+
+
+class LinuxCgroupCleanupStatePayloadV2(LinuxCgroupCleanupStatePayloadV1):
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
+    state_kind: Literal["linux_cgroup_cleanup_state_v2"] = "linux_cgroup_cleanup_state_v2"  # type: ignore[assignment]
+    post_exit_state: Literal["systemd_removed_empty_cgroup"]
+
+
+class LinuxCgroupCleanupStateV2(Contract):
+    linux_cgroup_cleanup_state_id: Digest
+    payload: LinuxCgroupCleanupStatePayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupCleanupStatePayloadV2) -> LinuxCgroupCleanupStateV2:
+        return cls(
+            linux_cgroup_cleanup_state_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupCleanupStateV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_cleanup_state_id != expected:
+            raise ValueError("Linux cgroup cleanup V2 state hash mismatch")
+        return self
+
+
+class LinuxCgroupCleanupReceiptV2(Contract):
+    linux_cgroup_cleanup_receipt_id: Digest
+    payload: LinuxCgroupCleanupPayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupCleanupPayloadV2) -> LinuxCgroupCleanupReceiptV2:
+        return cls(
+            linux_cgroup_cleanup_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupCleanupReceiptV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_cleanup_receipt_id != expected:
+            raise ValueError("Linux cgroup cleanup V2 receipt hash mismatch")
+        return self
+
+
 class LinuxCgroupRollbackPayloadV1(Contract):
     schema_version: Literal[1] = 1
     receipt_kind: Literal["linux_cgroup_rollback_receipt_v1"] = "linux_cgroup_rollback_receipt_v1"
@@ -4705,6 +4758,35 @@ class LinuxIsolationQualificationV17(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_qualification_id != expected:
             raise ValueError("Linux isolation V17 qualification hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationPayloadV18(LinuxIsolationQualificationPayloadV17):
+    """V18 binds systemd's exact removed-empty-cgroup cleanup lifecycle."""
+
+    schema_version: Literal[18] = 18  # type: ignore[assignment]
+    cgroup_cleanup: LinuxCgroupCleanupReceiptV2  # type: ignore[assignment]
+
+
+class LinuxIsolationQualificationV18(ContractV2):
+    schema_version: Literal[18] = 18  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV18
+
+    @classmethod
+    def create(
+        cls, payload: LinuxIsolationQualificationPayloadV18
+    ) -> LinuxIsolationQualificationV18:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV18:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V18 qualification hash mismatch")
         return self
 
 

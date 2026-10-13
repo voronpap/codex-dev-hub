@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Join V17 Linux mechanics with exact AppArmor and cgroup cleanup receipts."""
+"""Join Linux mechanics with exact AppArmor and cgroup cleanup receipts."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from devhub.linux_isolation import (
     LinuxAppArmorCleanupReceiptV1,
     LinuxAppArmorLifecycleFailurePayloadV1,
     LinuxAppArmorLifecycleFailureV1,
-    LinuxCgroupCleanupReceiptV1,
+    LinuxCgroupCleanupReceiptV2,
     LinuxIsolationEvidenceV16,
     LinuxIsolationEvidenceV17,
     LinuxIsolationQualificationPayloadV16,
-    LinuxIsolationQualificationPayloadV17,
+    LinuxIsolationQualificationPayloadV18,
     LinuxIsolationQualificationV16,
-    LinuxIsolationQualificationV17,
+    LinuxIsolationQualificationV18,
 )
 
 
@@ -53,11 +53,11 @@ def finalize(
         return
     mechanics = LinuxIsolationEvidenceV17.model_validate_json(mechanics_path.read_bytes())
     cleanup = LinuxAppArmorCleanupReceiptV1.model_validate_json(cleanup_path.read_bytes())
-    cgroup_cleanup = LinuxCgroupCleanupReceiptV1.model_validate_json(
+    cgroup_cleanup = LinuxCgroupCleanupReceiptV2.model_validate_json(
         cgroup_cleanup_path.read_bytes()
     )
-    qualification = LinuxIsolationQualificationV17.create(
-        LinuxIsolationQualificationPayloadV17(
+    qualification = LinuxIsolationQualificationV18.create(
+        LinuxIsolationQualificationPayloadV18(
             mechanics=mechanics,
             apparmor_cleanup=cleanup,
             cgroup_cleanup=cgroup_cleanup,

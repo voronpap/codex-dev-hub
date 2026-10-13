@@ -1006,6 +1006,22 @@ completed `initialize`, `tools/list` and EOF without `tools/call`; all four
 execution counters are zero. Cgroup resource, syscall-filter, complete
 native-executor isolation and package readiness remain false.
 
+Main-only run `38450825800` on merge commit
+`91da5dfa0cc33b3ae6db0650a66102abd52224ec` is retained as a V17 cleanup
+lifecycle failure. The exact Bundle V11 mechanics completed inside the sealed
+systemd cgroup and observed the configured memory, PID and CPU limits, exact
+process-tree membership and zero execution counters. After the service reached
+`active/exited`, the failure was consistent with systemd removing its empty
+cgroup while retaining the transient unit. V17 did not seal the returned
+`ControlGroup` value or cgroup-path presence, and correctly refused that
+unmodelled post-exit state before writing a cleanup journal or stopping the
+unit; the final qualification was not created. V18 is the forward-only cleanup
+contract: it accepts only the exact loaded/transient/retained successful unit,
+an exactly empty post-exit `ControlGroup`, and absence of the sealed cgroup
+path, journals that state before stopping the exact unit, and then requires
+both unit and path absence. Nonempty substitutions and present expected paths
+still fail closed. The V17 failure does not grant readiness.
+
 ## Platform acceptance matrix
 
 `PENDING` means the requirement has no accepted native-package evidence yet.
