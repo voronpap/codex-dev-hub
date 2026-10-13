@@ -38,6 +38,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV11,
     LinuxIsolationEvidenceV12,
     LinuxIsolationEvidenceV13,
+    LinuxIsolationEvidenceV14,
     LinuxNativePathIdentityV1,
 )
 
@@ -65,6 +66,7 @@ MechanicsEvidence = (
     | LinuxIsolationEvidenceV11
     | LinuxIsolationEvidenceV12
     | LinuxIsolationEvidenceV13
+    | LinuxIsolationEvidenceV14
 )
 LifecyclePhase = Literal["setup", "rollback", "cleanup", "finalization"]
 
@@ -729,6 +731,8 @@ def read_mechanics(path: Path) -> MechanicsEvidence:
         return LinuxIsolationEvidenceV12.model_validate_json(encoded)
     if schema_version == 13:
         return LinuxIsolationEvidenceV13.model_validate_json(encoded)
+    if schema_version == 14:
+        return LinuxIsolationEvidenceV14.model_validate_json(encoded)
     raise ValueError("Linux isolation mechanics evidence version is unsupported")
 
 
