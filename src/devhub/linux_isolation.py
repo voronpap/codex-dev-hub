@@ -9,6 +9,8 @@ remaining syscall, executor or package gates.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -56,6 +58,23 @@ LANDLOCK_ACCESS_FS_IOCTL_DEV = 1 << 15
 LANDLOCK_ACCESS_FS_ABI3 = (1 << 15) - 1
 MINIMUM_REVIEWED_LANDLOCK_ABI = 3
 MAXIMUM_REVIEWED_LANDLOCK_ABI = 6
+
+
+def canonical_syscall_allowlist(names: tuple[str, ...]) -> bytes:
+    """Return the frozen V19 compact-JSON representation of an allowlist."""
+
+    return json.dumps(
+        list(names),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def syscall_allowlist_sha256(names: tuple[str, ...]) -> str:
+    """Hash the exact frozen V19 syscall-allowlist representation."""
+
+    return hashlib.sha256(canonical_syscall_allowlist(names)).hexdigest()
 
 
 def landlock_handled_access(abi: int) -> int:
@@ -5397,7 +5416,7 @@ class LinuxSyscallAllowlistAuthorityV1(Contract):
             raise ValueError("Configured syscall allowlist is not sorted and unique")
         if len(names) != LINUX_SYSCALL_ALLOWLIST_COUNT or "personality" in names:
             raise ValueError("Configured syscall allowlist differs from reviewed V19 expansion")
-        observed = digest(canonical(list(names)))
+        observed = syscall_allowlist_sha256(names)
         if (
             self.configured_allowlist_sha256 != observed
             or observed != LINUX_SYSCALL_ALLOWLIST_SHA256
