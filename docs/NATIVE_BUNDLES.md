@@ -694,6 +694,15 @@ ambient dependency. The strict parser now accepts only the exact
 locator or loader bytes still fail closed. No artifact was published by that
 run, and all execution counters remained zero.
 
+Main-only V10 run `38412556834/1` reached exact-loader verification and failed
+closed on an unmodeled output line while checking a Python extension DSO. The
+old exception retained only the ELF locator, so the rejected line could not be
+classified without speculation. The verifier now emits a fixed diagnostic
+classification, one-based line index, UTF-8 byte count and SHA-256 together
+with the static `DT_NEEDED` count and interpreter-presence fact. It emits no
+raw line or path and still rejects the output. No artifact was published by
+that run, and all execution counters remained zero.
+
 Bundle V10 still records `native_executor_isolation_qualified=false` and
 `package_readiness=false`. Its relocated metadata-only smoke proves the
 bundle-owned loader can start the exact Python runtime and import the reviewed

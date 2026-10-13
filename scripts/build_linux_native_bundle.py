@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -21,6 +22,7 @@ from pydantic import JsonValue
 from devhub.benchmark import canonical, write_new
 from devhub.linux_bundle import (
     LinuxCodexAuthorityV6,
+    LinuxElfRequirementV1,
     LinuxLauncherV2,
     LinuxNativeArchivePayloadV10,
     LinuxNativeArchiveV10,
@@ -73,6 +75,24 @@ _LDD_RESOLVED = re.compile(r"^\s*([^\s]+) => (/[^\s]+) \(0x[0-9A-Fa-f]+\)\s*$")
 _LDD_ABSOLUTE = re.compile(r"^\s*(/[^\s]+) \(0x[0-9A-Fa-f]+\)\s*$")
 _LDD_VDSO = re.compile(r"^\s*linux-vdso\.so\.1 \(0x[0-9A-Fa-f]+\)\s*$")
 _EXPECTED_INTERPRETER = "/lib64/ld-linux-x86-64.so.2"
+_UNRECOGNIZED_LOADER_OUTPUT = "UNRECOGNIZED_LOADER_OUTPUT_LINE_V1"
+
+
+def _loader_output_diagnostic(
+    line: str, line_index: int, requirement: LinuxElfRequirementV1
+) -> str:
+    """Return bounded, non-revealing evidence for an unmodeled loader line."""
+
+    encoded = line.encode("utf-8", errors="strict")
+    payload = {
+        "classification": _UNRECOGNIZED_LOADER_OUTPUT,
+        "interpreter_present": requirement.interpreter is not None,
+        "line_byte_count": len(encoded),
+        "line_index": line_index,
+        "line_sha256": hashlib.sha256(encoded).hexdigest(),
+        "needed_count": len(requirement.needed),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 1800) -> None:
@@ -230,7 +250,7 @@ def _verify_loader_resolution(bundle_root: Path, closure: LinuxRuntimeClosureV1)
             # The reviewed loader is the process image for this invocation. Glibc
             # may omit that self-dependency from --list even when DT_NEEDED names it.
             observed[loader_name] = resolved_loader
-        for line in stdout.splitlines():
+        for line_index, line in enumerate(stdout.splitlines(), start=1):
             match = _LDD_RESOLVED.match(line)
             if match is not None:
                 name, locator = match.groups()
@@ -261,7 +281,10 @@ def _verify_loader_resolution(bundle_root: Path, closure: LinuxRuntimeClosureV1)
                 elif not line.strip() or _LDD_VDSO.match(line):
                     continue
                 else:
-                    raise ValueError(f"Bundled loader output is unrecognized: {relative}")
+                    raise ValueError(
+                        "Bundled loader output is unrecognized: "
+                        f"{_loader_output_diagnostic(line, line_index, requirement)}"
+                    )
             previous = observed.get(name)
             if previous is not None and previous != path:
                 raise ValueError(f"Bundled loader resolved a dependency ambiguously: {name}")
