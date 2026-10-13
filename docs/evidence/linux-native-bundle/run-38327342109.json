@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "workflow": "linux-native-bundle",
+  "workflow_run_id": 38327342109,
+  "workflow_run_attempt": 1,
+  "implementation_commit": "35799d6d34b10ace7114e20c1eebabf30e0463f8",
+  "status": "FAIL",
+  "classification": "PRE_PUBLICATION_PACKAGED_CLI_MODULE_ENTRYPOINT_FAILURE",
+  "failed_step": "Build and relocate exact native Linux bundle",
+  "source_build": {
+    "build_id": "linux-build-009",
+    "workflow_run_id": 38320931373,
+    "workflow_run_attempt": 1,
+    "codex_sha256": "387bf9bab19454b231b1637da6c08b417c084374c47ce94134c88f98579d0cab",
+    "codex_size_bytes": 1344548816,
+    "code_mode_host_sha256": "d770fa924c6aaff3398f77dff5eef7a68399686727875a439826b07a73930555",
+    "code_mode_host_size_bytes": 161921120
+  },
+  "failure": {
+    "command": "python3.12 -I -B -m devhub.cli schema",
+    "exit_code": 0,
+    "stdout": "empty",
+    "stderr": "empty",
+    "reason": "devhub.cli defined main() but did not invoke it as a module"
+  },
+  "bundle_published": false,
+  "artifact_upload": "SKIPPED",
+  "execution_ready": false,
+  "model_requests": 0,
+  "provider_sends": 0,
+  "mcp_tool_executions": 0,
+  "real_task_executions": 0
+}

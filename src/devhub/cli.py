@@ -39,3 +39,7 @@ def main() -> int:
 
     create_server(config).run(transport="stdio")
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
