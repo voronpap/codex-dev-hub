@@ -1939,6 +1939,7 @@ class LinuxChildRuntimeFailureV2(ContractV2):
 class LinuxPackagedSubprocessCaptureV1(Contract):
     """Bounded subprocess evidence; retained hashes never claim full-stream identity."""
 
+    schema_version: Literal[1] = Field(...)
     process_started: bool
     returncode: int | None = None
     stdout_retained_bytes: Annotated[int, Field(ge=0, le=1024 * 1024)]

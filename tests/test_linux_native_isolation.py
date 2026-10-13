@@ -193,6 +193,7 @@ from devhub.linux_isolation import (
     LinuxPackageAuthorityV2,
     LinuxPackageAuthorityV3,
     LinuxPackagedMcpMetadataObservationV1,
+    LinuxPackagedSubprocessCaptureV1,
     LinuxRlimitsV1,
     LinuxSyntheticUpstreamAuthorityV1,
     LinuxSyntheticUpstreamObservationV1,
@@ -1583,6 +1584,7 @@ def test_v11_binds_self_hashed_bounded_broker_failure_contracts() -> None:
 
 def test_child_runtime_failure_v3_binds_bounded_packaged_mcp_checkpoint() -> None:
     capture = {
+        "schema_version": 1,
         "process_started": True,
         "returncode": 71,
         "stdout_retained_bytes": 3,
@@ -1657,6 +1659,7 @@ def test_child_runtime_failure_v3_fixed_checkpoint_shape(
     checkpoint: str, capture_required: bool
 ) -> None:
     capture = {
+        "schema_version": 1,
         "process_started": True,
         "returncode": 0,
         "stdout_retained_bytes": 0,
@@ -1692,6 +1695,7 @@ def test_child_runtime_failure_v3_fixed_checkpoint_shape(
 
 def test_child_runtime_failure_v3_rejects_false_unstarted_process_evidence() -> None:
     capture = {
+        "schema_version": 1,
         "process_started": False,
         "returncode": 1,
         "stdout_retained_bytes": 0,
@@ -1991,6 +1995,10 @@ def test_child_runtime_failure_v3_rejects_nested_capture_version_drift(mutation:
     else:
         nested["schema_version"] = 2
 
+    with pytest.raises(ValidationError):
+        LinuxPackagedSubprocessCaptureV1.model_validate(nested)
+
+    raw["child_runtime_failure_id"] = digest(canonical(raw["payload"]))
     with pytest.raises(ValidationError):
         LinuxChildRuntimeFailureV3.model_validate(raw)
 
@@ -4300,6 +4308,7 @@ def test_packaged_observer_missing_stream_is_typed_as_started(
             timeout=5,
         )
     assert captured.value.capture == {
+        "schema_version": 1,
         "process_started": True,
         "returncode": -9,
         "stdout_retained_bytes": 0,
