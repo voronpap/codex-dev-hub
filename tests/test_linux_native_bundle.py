@@ -445,9 +445,7 @@ def test_linux_release_rejects_v6_manifest_with_v5_archive(
     release = tmp_path / "release"
     root = release / "bundle"
     bundle = materialize_v6(root)
-    (release / "linux-native-bundle.json").write_text(
-        bundle.model_dump_json(), encoding="utf-8"
-    )
+    (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
     write_test_archive(release, bundle.linux_native_bundle_id, 5)
     shutil.rmtree(root)
 
@@ -461,9 +459,7 @@ def test_linux_release_rejects_v5_manifest_with_v6_archive(
     release = tmp_path / "release"
     root = release / "bundle"
     bundle = materialize_v5(root)
-    (release / "linux-native-bundle.json").write_text(
-        bundle.model_dump_json(), encoding="utf-8"
-    )
+    (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
     write_test_archive(release, bundle.linux_native_bundle_id, 6)
     shutil.rmtree(root)
 
@@ -657,7 +653,7 @@ def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     assert "ref: ${{ github.sha }}" in workflow
     assert "devfabric-linux-build-012-binaries" in workflow
     assert 'gh run view "$BUILD_RUN_ID"' in workflow
-    assert '.headSha == $head and .attempt == $attempt' in workflow
+    assert ".headSha == $head and .attempt == $attempt" in workflow
     assert '.conclusion == "success" and .event == "workflow_dispatch"' in workflow
     assert '.path == ".github/workflows/linux-native-codex.yml"' in workflow
     codex_workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")

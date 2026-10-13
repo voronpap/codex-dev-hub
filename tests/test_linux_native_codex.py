@@ -435,9 +435,7 @@ def test_linux_build_004_binds_ordinary_default_and_preserves_history() -> None:
     )
     assert corrected_package_authority.payload.provenance.build_id == "linux-build-012"
     assert (
-        LinuxNativeCodexBuildV12.model_validate_json(
-            corrected_package_authority.model_dump_json()
-        )
+        LinuxNativeCodexBuildV12.model_validate_json(corrected_package_authority.model_dump_json())
         == corrected_package_authority
     )
 
