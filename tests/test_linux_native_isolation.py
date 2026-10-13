@@ -10292,7 +10292,9 @@ def test_v19_control_launch_retains_systemd_failure_without_valid_child_frame(
 
     def run_service(**_kwargs: object) -> None:
         if frame_case == "noncanonical":
-            execution = CGROUP_MANAGER.read_control_execution(execution_path)
+            execution = LINUX_ISOLATION.LinuxMatchedControlExecutionV1.model_validate_json(
+                execution_path.read_bytes()
+            )
             control = state.payload.syscall_filter.matched_control
             child = LINUX_ISOLATION.LinuxMatchedControlProbeFailureV1.create(
                 LINUX_ISOLATION.LinuxMatchedControlProbeFailurePayloadV1(
