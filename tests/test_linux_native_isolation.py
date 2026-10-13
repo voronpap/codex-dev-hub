@@ -23,6 +23,7 @@ from pydantic import JsonValue, ValidationError
 
 import devhub.linux_ollama_broker as LINUX_BROKER
 from devhub.benchmark import canonical, digest
+from devhub.ledger import LedgerIdentityCoreV1, ledger_identity_sha256
 from devhub.linux_isolation import (
     LINUX_APPARMOR_CURRENT,
     LinuxAppArmorAuthorityV2,
@@ -3691,17 +3692,15 @@ def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
     calls: list[tuple[list[str], bytes | None]] = []
     instance_id = CHILD.hashlib.sha256(("1" * 64 + ":ledger").encode()).hexdigest()[:32]
     authority_id = CHILD.hashlib.sha256(("1" * 64 + ":authority").encode()).hexdigest()[:32]
-    ledger_hash = CHILD.digest(
-        CHILD.canonical(
-            {
-                "family": "devfabric_resource_ledger",
-                "format_version": 1,
-                "instance_id": instance_id,
-                "authority_scope_kind": "qualification",
-                "authority_scope_id": authority_id,
-                "account_binding_hash": None,
-            }
-        )
+    ledger_hash = CHILD.ledger_identity_payload_sha256(
+        {
+            "family": "devfabric_resource_ledger",
+            "format_version": 1,
+            "instance_id": instance_id,
+            "authority_scope_kind": "qualification",
+            "authority_scope_id": authority_id,
+            "account_binding_hash": None,
+        }
     )
 
     def observe(
@@ -3791,6 +3790,20 @@ def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
     assert result["tool_names"] == ["devhub_delegate"]
 
 
+def test_child_ledger_identity_hash_matches_production_contract() -> None:
+    assert CHILD is not None
+    identity = LedgerIdentityCoreV1(
+        instance_id="1" * 32,
+        authority_scope_kind="qualification",
+        authority_scope_id="2" * 32,
+    )
+    payload = identity.model_dump(mode="json")
+
+    expected = ledger_identity_sha256(identity)
+    assert CHILD.ledger_identity_payload_sha256(payload) == expected
+    assert CHILD.digest(CHILD.canonical(payload)) != expected
+
+
 @pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
 @pytest.mark.parametrize(
     "malformation",
@@ -3815,17 +3828,15 @@ def test_packaged_mcp_metadata_rejects_malformed_lifecycle(
     profile_id = "1" * 64
     instance_id = CHILD.hashlib.sha256((profile_id + ":ledger").encode()).hexdigest()[:32]
     authority_id = CHILD.hashlib.sha256((profile_id + ":authority").encode()).hexdigest()[:32]
-    ledger_hash = CHILD.digest(
-        CHILD.canonical(
-            {
-                "family": "devfabric_resource_ledger",
-                "format_version": 1,
-                "instance_id": instance_id,
-                "authority_scope_kind": "qualification",
-                "authority_scope_id": authority_id,
-                "account_binding_hash": None,
-            }
-        )
+    ledger_hash = CHILD.ledger_identity_payload_sha256(
+        {
+            "family": "devfabric_resource_ledger",
+            "format_version": 1,
+            "instance_id": instance_id,
+            "authority_scope_kind": "qualification",
+            "authority_scope_id": authority_id,
+            "account_binding_hash": None,
+        }
     )
     initialize: dict[str, object] = {
         "jsonrpc": "2.0",
@@ -3904,7 +3915,9 @@ def test_packaged_mcp_metadata_rejects_malformed_lifecycle(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
-@pytest.mark.parametrize("malformation", ("wrong_hash", "extra_line", "stderr"))
+@pytest.mark.parametrize(
+    "malformation", ("wrong_hash", "former_pretty_hash", "extra_line", "stderr")
+)
 def test_packaged_mcp_metadata_rejects_malformed_ledger_initialization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, malformation: str
 ) -> None:
@@ -3918,19 +3931,21 @@ def test_packaged_mcp_metadata_rejects_malformed_ledger_initialization(
     profile_id = "1" * 64
     instance_id = CHILD.hashlib.sha256((profile_id + ":ledger").encode()).hexdigest()[:32]
     authority_id = CHILD.hashlib.sha256((profile_id + ":authority").encode()).hexdigest()[:32]
-    expected_hash = CHILD.digest(
-        CHILD.canonical(
-            {
-                "family": "devfabric_resource_ledger",
-                "format_version": 1,
-                "instance_id": instance_id,
-                "authority_scope_kind": "qualification",
-                "authority_scope_id": authority_id,
-                "account_binding_hash": None,
-            }
-        )
-    )
-    retained_hash = "f" * 64 if malformation == "wrong_hash" else expected_hash
+    identity_payload = {
+        "family": "devfabric_resource_ledger",
+        "format_version": 1,
+        "instance_id": instance_id,
+        "authority_scope_kind": "qualification",
+        "authority_scope_id": authority_id,
+        "account_binding_hash": None,
+    }
+    expected_hash = CHILD.ledger_identity_payload_sha256(identity_payload)
+    retained_hash = expected_hash
+    if malformation == "wrong_hash":
+        retained_hash = "f" * 64
+    elif malformation == "former_pretty_hash":
+        retained_hash = CHILD.digest(CHILD.canonical(identity_payload))
+        assert retained_hash != expected_hash
     stdout = json.dumps({"ledger_identity_sha256": retained_hash}).encode() + b"\n"
     stderr = b""
     if malformation == "extra_line":
