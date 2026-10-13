@@ -5786,6 +5786,172 @@ class LinuxMatchedControlExecutionV1(ContractV2):
         return self
 
 
+class LinuxMatchedControlProbeFailurePayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    diagnostic_kind: Literal["linux_matched_control_probe_failure_v1"] = (
+        "linux_matched_control_probe_failure_v1"
+    )
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    linux_matched_control_execution_id: Digest
+    unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    checkpoint: Literal[
+        "execution_authority",
+        "command_identity",
+        "process_identity",
+        "cgroup_identity",
+        "resource_limits",
+        "process_security",
+        "personality_observation",
+        "execution_revalidation",
+        "success_observation_publish",
+    ]
+    reason_code: Literal["validation_failed", "os_error", "unexpected_error"]
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+
+    @model_validator(mode="after")
+    def exact_control_identity(self) -> LinuxMatchedControlProbeFailurePayloadV1:
+        suffix = f"{self.environment_instance_id}.service"
+        if not self.unit_name.endswith(suffix) or not self.control_group.endswith(suffix):
+            raise ValueError("Matched-control probe failure environment identity differs")
+        return self
+
+
+class LinuxMatchedControlProbeFailureV1(ContractV2):
+    schema_version: Literal[1] = 1  # type: ignore[assignment]
+    linux_matched_control_probe_failure_id: Digest
+    payload: LinuxMatchedControlProbeFailurePayloadV1
+
+    @classmethod
+    def create(
+        cls, payload: LinuxMatchedControlProbeFailurePayloadV1
+    ) -> LinuxMatchedControlProbeFailureV1:
+        return cls(
+            linux_matched_control_probe_failure_id=digest(
+                canonical(payload.model_dump(mode="json"))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxMatchedControlProbeFailureV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_matched_control_probe_failure_id != expected:
+            raise ValueError("Matched-control probe failure hash mismatch")
+        return self
+
+
+class LinuxMatchedControlFailureDiagnosticPayloadV1(Contract):
+    schema_version: Literal[1] = 1
+    diagnostic_kind: Literal["linux_matched_control_failure_diagnostic_v1"] = (
+        "linux_matched_control_failure_diagnostic_v1"
+    )
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    linux_matched_control_execution_id: Digest
+    post_create_journal: LinuxSystemdUnitPostCreateJournalV1
+    child_failure_status: Literal["validated", "missing", "invalid"]
+    child_failure: LinuxMatchedControlProbeFailureV1 | None = None
+    child_failure_raw_sha256: Digest | None = None
+    child_failure_raw_bytes: Annotated[int, Field(ge=0, le=262_144)] | None = None
+    systemd_result: Literal[
+        "exit_code",
+        "signal",
+        "core_dump",
+        "timeout",
+        "watchdog",
+        "resources",
+        "protocol",
+        "oom_kill",
+        "unexpected_success",
+        "other_failure",
+    ]
+    exec_main_code: Annotated[int, Field(ge=0, le=6)]
+    exec_main_status: Annotated[int, Field(ge=0, le=255)]
+    cleanup_attempted: Literal[True] = True
+    cleanup_succeeded: bool
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+
+    @model_validator(mode="after")
+    def exact_authority_join(self) -> LinuxMatchedControlFailureDiagnosticPayloadV1:
+        journal = self.post_create_journal.payload
+        if (
+            journal.implementation_commit != self.implementation_commit
+            or journal.environment_instance_id != self.environment_instance_id
+            or journal.linux_cgroup_setup_state_id != self.linux_cgroup_setup_state_id
+            or journal.unit_role != "matched_control"
+        ):
+            raise ValueError("Matched-control failure diagnostic authority differs")
+        metadata_present = (
+            self.child_failure_raw_sha256 is not None and self.child_failure_raw_bytes is not None
+        )
+        if (self.child_failure_raw_sha256 is None) != (self.child_failure_raw_bytes is None):
+            raise ValueError("Matched-control child failure metadata is incomplete")
+        if self.child_failure_status == "validated":
+            if self.child_failure is None or not metadata_present:
+                raise ValueError("Validated matched-control child failure is incomplete")
+            child = self.child_failure.payload
+            canonical_child = canonical(self.child_failure.model_dump(mode="json"))
+            if self.child_failure_raw_sha256 != digest(
+                canonical_child
+            ) or self.child_failure_raw_bytes != len(canonical_child):
+                raise ValueError("Validated matched-control child failure metadata differs")
+            if (
+                child.implementation_commit != self.implementation_commit
+                or child.environment_instance_id != self.environment_instance_id
+                or child.linux_cgroup_setup_state_id != self.linux_cgroup_setup_state_id
+                or child.linux_matched_control_execution_id
+                != self.linux_matched_control_execution_id
+                or child.unit_name != journal.unit_name
+                or child.control_group != journal.expected_control_group
+            ):
+                raise ValueError("Matched-control failure diagnostic authority differs")
+        elif self.child_failure is not None:
+            raise ValueError("Unvalidated matched-control child failure was retained")
+        elif self.child_failure_status == "missing" and metadata_present:
+            raise ValueError("Missing matched-control child failure has raw metadata")
+        return self
+
+
+class LinuxMatchedControlFailureDiagnosticV1(ContractV2):
+    schema_version: Literal[1] = 1  # type: ignore[assignment]
+    linux_matched_control_failure_diagnostic_id: Digest
+    payload: LinuxMatchedControlFailureDiagnosticPayloadV1
+
+    @classmethod
+    def create(
+        cls, payload: LinuxMatchedControlFailureDiagnosticPayloadV1
+    ) -> LinuxMatchedControlFailureDiagnosticV1:
+        return cls(
+            linux_matched_control_failure_diagnostic_id=digest(
+                canonical(payload.model_dump(mode="json"))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxMatchedControlFailureDiagnosticV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_matched_control_failure_diagnostic_id != expected:
+            raise ValueError("Matched-control failure diagnostic hash mismatch")
+        return self
+
+
 class LinuxMatchedControlReceiptPayloadV1(Contract):
     schema_version: Literal[1] = 1
     receipt_kind: Literal["linux_syscall_matched_control_receipt_v1"] = (
