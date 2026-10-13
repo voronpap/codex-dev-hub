@@ -9048,6 +9048,14 @@ def test_workflow_checks_out_exact_head_and_manual_runs_are_main_only() -> None:
     assert "scripts/manage_linux_native_cgroup.py control-v19" in workflow
     assert "scripts/manage_linux_native_cgroup.py run-v19" in workflow
     assert "scripts/manage_linux_native_cgroup.py cleanup-v19" in workflow
+    assert workflow.count('--unit-journal "$RUNNER_TEMP/linux-native-isolation/') == 2
+    assert workflow.count('--target-journal "$target_journal"') == 2
+    assert workflow.count('--control-journal "$control_journal"') == 2
+    resume_block = workflow.split("scripts/manage_linux_native_cgroup.py resume-v19", 1)[1].split(
+        "scripts/manage_linux_native_cgroup.py rollback-v19", 1
+    )[0]
+    assert "--target-journal" not in resume_block
+    assert "--control-journal" not in resume_block
     assert "--control-receipt" in workflow
     assert "control-observation.json" in workflow
     assert "--property=MemoryMax=2147483648" in (
@@ -9061,6 +9069,8 @@ def test_workflow_checks_out_exact_head_and_manual_runs_are_main_only() -> None:
     ).read_text(encoding="utf-8")
     assert "cgroup-rollback.json" in workflow
     assert "cgroup-cleanup-state.json" in workflow
+    assert "control-unit-journal.json" in workflow
+    assert "target-unit-journal.json" in workflow
     assert workflow.index("Remove exact transient cgroup and seal cleanup") < workflow.index(
         "Upload bounded qualification evidence"
     )
@@ -9592,6 +9602,55 @@ def v19_control_receipt(
     )
 
 
+def v19_unit_journal(
+    state: LINUX_ISOLATION.LinuxCgroupSetupStateV2,
+    *,
+    unit_role: Literal["matched_control", "target"] = "target",
+) -> tuple[
+    LINUX_ISOLATION.LinuxSystemdUnitPostCreateJournalV1,
+    dict[str, str],
+]:
+    authority = (
+        state.payload.syscall_filter.matched_control
+        if unit_role == "matched_control"
+        else state.payload.boundary
+    )
+    properties = {
+        "NoNewPrivileges": "yes",
+        "SystemCallArchitectures": "native",
+        "SystemCallErrorNumber": "kill",
+        "SystemCallFilter": "allow read",
+        "User": "1000",
+        "Group": "1000",
+        "MemoryMax": "2147483648",
+        "TasksMax": "128",
+        "CPUQuotaPerSecUSec": "2s",
+        "CPUQuotaPeriodUSec": "100ms",
+        "Transient": "yes",
+        "RemainAfterExit": "yes",
+        "InvocationID": "1" * 32,
+    }
+    journal = LINUX_ISOLATION.LinuxSystemdUnitPostCreateJournalV1.create(
+        LINUX_ISOLATION.LinuxSystemdUnitPostCreateJournalPayloadV1(
+            implementation_commit=state.payload.implementation_commit,
+            environment_instance_id=state.payload.environment_instance_id,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            unit_role=unit_role,
+            unit_name=authority.unit_name,
+            expected_control_group=authority.control_group,
+            observed_control_group=authority.control_group,
+            cgroup_absent=False,
+            cgroup_native_identity=native(99),
+            invocation_id=properties["InvocationID"],
+            argv_sha256="a" * 64,
+            stable_properties_sha256=digest(canonical(properties)),
+            system_call_filter_raw_sha256=digest(properties["SystemCallFilter"].encode("utf-8")),
+            system_call_filter_raw_bytes=len(properties["SystemCallFilter"]),
+        )
+    )
+    return journal, properties
+
+
 def v19_mechanics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[
@@ -9775,9 +9834,186 @@ def test_v19_filter_property_parser_is_strict() -> None:
         True,
         ("read", "write"),
     )
-    for raw in ("deny read", "read read", "read @sandbox", "allow"):
-        with pytest.raises(ValueError, match="denylist|unsupported"):
-            CGROUP_MANAGER._parse_filter_property(raw)
+    expected = {
+        "deny read": ("denylist",),
+        "read read": ("duplicate",),
+        "read @sandbox": ("invalid_token",),
+        "allow": ("missing_tokens",),
+    }
+    for raw, classifications in expected.items():
+        with pytest.raises(CGROUP_MANAGER.SystemdFilterRepresentationMismatch) as captured:
+            CGROUP_MANAGER._parse_filter_property(raw, unit_role="matched_control")
+        diagnostic = captured.value.observation
+        assert diagnostic.unit_role == "matched_control"
+        assert diagnostic.raw_byte_count == len(raw.encode("utf-8"))
+        assert diagnostic.raw_sha256 == digest(raw.encode("utf-8"))
+        assert diagnostic.rejected_token_classifications == classifications
+
+
+def test_v19_filter_mismatch_failure_is_forward_self_hashed_evidence() -> None:
+    raw = "deny read"
+    diagnostic = LINUX_ISOLATION.LinuxSystemdFilterDiagnosticV1(
+        unit_role="matched_control",
+        raw_byte_count=len(raw),
+        raw_sha256=digest(raw.encode("utf-8")),
+        token_count=1,
+        rejected_token_classifications=("denylist",),
+    )
+    failure = LINUX_ISOLATION.LinuxCgroupLifecycleFailureV3.create(
+        LINUX_ISOLATION.LinuxCgroupLifecycleFailurePayloadV3(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_cgroup_setup_state_id=H,
+            cleanup_attempted=True,
+            cleanup_succeeded=True,
+            authority_observation=diagnostic,
+        )
+    )
+    retained = LINUX_ISOLATION.LinuxCgroupLifecycleFailureV3.model_validate_json(
+        failure.model_dump_json()
+    )
+    assert retained == failure
+    assert retained.schema_version == 3
+    assert retained.payload.reason_code == "systemd_filter_representation_mismatch"
+    assert retained.payload.model_requests == 0
+    assert retained.payload.provider_sends == 0
+    assert retained.payload.mcp_tool_executions == 0
+    assert retained.payload.real_task_executions == 0
+
+    target = diagnostic.model_copy(update={"unit_role": "target"})
+    with pytest.raises(ValueError, match="Target diagnostic cannot claim inline cleanup"):
+        LINUX_ISOLATION.LinuxCgroupLifecycleFailurePayloadV3(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_cgroup_setup_state_id=H,
+            cleanup_attempted=True,
+            cleanup_succeeded=True,
+            authority_observation=target,
+        )
+    with pytest.raises(ValueError, match="must record inline cleanup attempt"):
+        LINUX_ISOLATION.LinuxCgroupLifecycleFailurePayloadV3(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_cgroup_setup_state_id=H,
+            cleanup_attempted=False,
+            cleanup_succeeded=False,
+            authority_observation=diagnostic,
+        )
+    for mutation, message in (
+        ({"authority_observation": {"unit_role": "target"}}, "Target diagnostic"),
+        (
+            {"cleanup_attempted": False, "cleanup_succeeded": False},
+            "must record inline cleanup attempt",
+        ),
+    ):
+        forged = failure.model_dump(mode="python")
+        for field, value in mutation.items():
+            if field == "authority_observation":
+                forged["payload"][field].update(value)
+            else:
+                forged["payload"][field] = value
+        forged["linux_cgroup_lifecycle_failure_id"] = digest(canonical(forged["payload"]))
+        with pytest.raises(ValueError, match=message):
+            LINUX_ISOLATION.LinuxCgroupLifecycleFailureV3.model_validate(forged)
+
+
+def test_v19_target_filter_diagnostic_does_not_claim_cleanup_before_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = "read @unsupported"
+    diagnostic = LINUX_ISOLATION.LinuxSystemdFilterDiagnosticV1(
+        unit_role="target",
+        raw_byte_count=len(raw),
+        raw_sha256=digest(raw.encode("utf-8")),
+        token_count=2,
+        rejected_token_classifications=("invalid_token",),
+    )
+    error = CGROUP_MANAGER.SystemdFilterRepresentationMismatch(diagnostic)
+    path = tmp_path / "failure.json"
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "write_new",
+        lambda output, content, mode=0o644: output.write_bytes(content),
+    )
+    CGROUP_MANAGER.write_failure(
+        path,
+        phase="run",
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        state_id=H,
+        error=error,
+    )
+    failure = LINUX_ISOLATION.LinuxCgroupLifecycleFailureV3.model_validate_json(path.read_bytes())
+    assert failure.payload.cleanup_attempted is False
+    assert failure.payload.cleanup_succeeded is False
+
+
+def test_v19_transient_service_publishes_journal_before_filter_parsing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unit = f"devfabric-linux-isolation-control-{ENVIRONMENT}.service"
+    group = f"/system.slice/{unit}"
+    load_states = iter(("not-found", "loaded"))
+    values = {
+        "Transient": "yes",
+        "RemainAfterExit": "yes",
+        "ActiveState": "active",
+        "SubState": "exited",
+        "ExecMainStatus": "0",
+        "Result": "success",
+    }
+    order: list[str] = []
+
+    def systemctl(_unit: str, name: str, check: bool = True) -> str:
+        if name == "LoadState":
+            return next(load_states)
+        return values[name]
+
+    monkeypatch.setattr(CGROUP_MANAGER, "systemctl_property", systemctl)
+    monkeypatch.setattr(
+        CGROUP_MANAGER.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, b"", b""),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "publish_post_create_journal",
+        lambda **_kwargs: order.append("journal"),
+    )
+
+    def observe(
+        _unit: str, *, expected_filter: tuple[str, ...] | None
+    ) -> LINUX_ISOLATION.LinuxSystemdControlPolicyObservationV1:
+        assert expected_filter is None
+        order.append("filter")
+        return LINUX_ISOLATION.LinuxSystemdControlPolicyObservationV1(
+            unit_name=unit,
+            system_call_error_number="kill",
+            raw_properties_sha256=H,
+            resources=LINUX_ISOLATION.LinuxSystemdResourcePolicyObservationV1(
+                service_uid=1000,
+                service_gid=1000,
+            ),
+        )
+
+    monkeypatch.setattr(CGROUP_MANAGER, "observe_unit_policy", observe)
+    CGROUP_MANAGER._run_transient_service(
+        unit=unit,
+        uid=1000,
+        gid=1000,
+        repo=tmp_path,
+        command=[sys.executable, "-c", "pass"],
+        explicit_allowlist=None,
+        journal_path=tmp_path / "unit-journal.json",
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        setup_state_id=H,
+        unit_role="matched_control",
+        expected_control_group=group,
+    )
+    assert order == ["journal", "filter"]
 
 
 def test_v19_systemd_analyze_rejects_substitution_during_version(
@@ -10237,6 +10473,7 @@ def test_v19_control_failure_always_cleans_exact_unit(
             manager,
             tmp_path / "execution.json",
             tmp_path / "observation.json",
+            tmp_path / "control-unit-journal.json",
         )
     control = state.payload.syscall_filter.matched_control
     assert cleaned == [(control.unit_name, control.control_group)]
@@ -10332,6 +10569,277 @@ def test_v19_exact_stop_rejects_same_name_control_group_substitution_without_sto
             gid=1000,
             expected_filter=None if control else ("read",),
         )
+
+
+def test_v19_post_create_journal_substitution_prevents_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    unit = state.payload.boundary.unit_name
+    group = state.payload.boundary.control_group
+    journal, properties = v19_unit_journal(state)
+    cgroup_identity = journal.payload.cgroup_native_identity
+    assert cgroup_identity is not None
+    properties["InvocationID"] = "2" * 32
+
+    def systemctl(_unit: str, name: str, check: bool = True) -> str:
+        if name == "LoadState":
+            return "loaded"
+        if name == "ControlGroup":
+            return group
+        return properties[name]
+
+    monkeypatch.setattr(CGROUP_MANAGER, "systemctl_property", systemctl)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "Path",
+        lambda _value: SimpleNamespace(
+            lstat=lambda: SimpleNamespace(
+                st_mode=stat.S_IFDIR | 0o755,
+                st_dev=cgroup_identity.device,
+                st_ino=cgroup_identity.inode,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("substituted journal must prevent stop"),
+    )
+    with pytest.raises(ValueError, match="journal authority changed"):
+        CGROUP_MANAGER._stop_exact_unit(
+            unit,
+            group,
+            uid=1000,
+            gid=1000,
+            expected_filter=("read",),
+            journal=journal,
+        )
+
+
+def test_v19_post_create_journal_rejects_state_or_role_transplant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    target_journal, _properties = v19_unit_journal(state)
+    CGROUP_MANAGER.validate_post_create_journal_authority(
+        target_journal,
+        state,
+        unit_role="target",
+    )
+    with pytest.raises(ValueError, match="setup state authority differ"):
+        CGROUP_MANAGER.validate_post_create_journal_authority(
+            target_journal,
+            state,
+            unit_role="matched_control",
+        )
+    transplanted_payload = target_journal.payload.model_copy(
+        update={"environment_instance_id": "f" * 32}
+    )
+    transplanted = LINUX_ISOLATION.LinuxSystemdUnitPostCreateJournalV1.create(transplanted_payload)
+    with pytest.raises(ValueError, match="setup state authority differ"):
+        CGROUP_MANAGER.validate_post_create_journal_authority(
+            transplanted,
+            state,
+            unit_role="target",
+        )
+
+
+def test_v19_post_create_journal_rejects_cgroup_native_identity_substitution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    journal, properties = v19_unit_journal(state)
+    cgroup_identity = journal.payload.cgroup_native_identity
+    assert cgroup_identity is not None
+    monkeypatch.setattr(CGROUP_MANAGER, "_stable_unit_properties", lambda _unit: properties)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda _unit, name, check=False: state.payload.boundary.control_group
+        if name == "ControlGroup"
+        else pytest.fail(f"unexpected property query: {name}"),
+    )
+    changed = SimpleNamespace(
+        st_mode=stat.S_IFDIR | 0o755,
+        st_dev=cgroup_identity.device,
+        st_ino=cgroup_identity.inode + 1,
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "Path",
+        lambda _value: SimpleNamespace(lstat=lambda: changed),
+    )
+    with pytest.raises(ValueError, match="cgroup native identity changed"):
+        CGROUP_MANAGER.revalidate_post_create_journal(
+            journal,
+            unit=state.payload.boundary.unit_name,
+            expected_control_group=state.payload.boundary.control_group,
+        )
+
+
+def test_v19_post_create_journal_binds_legitimate_post_exit_cgroup_absence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    journal, properties = v19_unit_journal(state, unit_role="matched_control")
+    absent = LINUX_ISOLATION.LinuxSystemdUnitPostCreateJournalV1.create(
+        journal.payload.model_copy(
+            update={
+                "observed_control_group": "",
+                "cgroup_absent": True,
+                "cgroup_native_identity": None,
+            }
+        )
+    )
+    CGROUP_MANAGER.validate_post_create_journal_authority(
+        absent,
+        state,
+        unit_role="matched_control",
+    )
+    monkeypatch.setattr(CGROUP_MANAGER, "_stable_unit_properties", lambda _unit: properties)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda _unit, name, check=False: ""
+        if name == "ControlGroup"
+        else pytest.fail(f"unexpected property query: {name}"),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "Path",
+        lambda _value: SimpleNamespace(lstat=lambda: (_ for _ in ()).throw(FileNotFoundError())),
+    )
+    CGROUP_MANAGER.revalidate_post_create_journal(
+        absent,
+        unit=state.payload.syscall_filter.matched_control.unit_name,
+        expected_control_group=state.payload.syscall_filter.matched_control.control_group,
+    )
+
+
+def test_v19_post_create_journal_bounded_fd_read_rejects_file_swap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    journal, _properties = v19_unit_journal(state)
+    raw = journal.model_dump_json().encode("utf-8")
+    before = SimpleNamespace(
+        st_mode=stat.S_IFREG | 0o444,
+        st_uid=0,
+        st_gid=0,
+        st_size=len(raw),
+        st_dev=1,
+        st_ino=2,
+        st_mtime_ns=3,
+        st_ctime_ns=4,
+    )
+    after = SimpleNamespace(**(vars(before) | {"st_ino": 5}))
+    stats = iter((before, after))
+    reads = iter((raw, b""))
+    opened: list[int] = []
+    closed: list[int] = []
+    monkeypatch.setattr(os, "O_NOFOLLOW", 0x20000, raising=False)
+    monkeypatch.setattr(
+        CGROUP_MANAGER.os,
+        "open",
+        lambda _path, flags: opened.append(flags) or 42,
+    )
+    monkeypatch.setattr(CGROUP_MANAGER.os, "fstat", lambda _fd: next(stats))
+    monkeypatch.setattr(CGROUP_MANAGER.os, "read", lambda _fd, _size: next(reads))
+    monkeypatch.setattr(CGROUP_MANAGER.os, "close", lambda fd: closed.append(fd))
+    with pytest.raises(ValueError, match="changed during bounded read"):
+        CGROUP_MANAGER.read_post_create_journal(Path("journal.json"))
+    assert opened[0] & os.O_NOFOLLOW
+    assert closed == [42]
+
+
+def test_v19_rollback_v3_truthfully_records_partial_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    boundary = state.payload.boundary
+    control = state.payload.syscall_filter.matched_control
+    target_journal = tmp_path / "target-journal.json"
+    control_journal = tmp_path / "control-journal.json"
+    target_journal.write_text("retained", encoding="utf-8")
+    control_journal.write_text("retained", encoding="utf-8")
+    loaded = {boundary.unit_name: "loaded", control.unit_name: "loaded"}
+    monkeypatch.setattr(CGROUP_MANAGER, "revalidate_state_v2", lambda _state: None)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "systemctl_property",
+        lambda unit, name, check=False: loaded[unit]
+        if name == "LoadState"
+        else pytest.fail(f"unexpected property query: {name}"),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "read_post_create_journal",
+        lambda _path: object(),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "validate_post_create_journal_authority",
+        lambda *_args, **_kwargs: None,
+    )
+    stops: list[str] = []
+
+    def stop(unit: str, *_args: object, **_kwargs: object) -> None:
+        stops.append(unit)
+        if unit == boundary.unit_name:
+            raise ValueError("target retained")
+        loaded[unit] = "not-found"
+
+    monkeypatch.setattr(CGROUP_MANAGER, "_stop_exact_unit", stop)
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "_path_is_absent",
+        lambda path: control.unit_name in str(path),
+    )
+    receipt = CGROUP_MANAGER.rollback_v19(
+        state,
+        target_journal,
+        control_journal,
+    )
+    assert stops == [boundary.unit_name, control.unit_name]
+    assert isinstance(receipt, LINUX_ISOLATION.LinuxCgroupRollbackReceiptV3)
+    assert receipt.schema_version == 3
+    assert receipt.payload.unit_absent is False
+    assert receipt.payload.cgroup_absent is False
+    assert receipt.payload.control_unit_absent is True
+    assert receipt.payload.control_cgroup_absent is True
+    assert receipt.payload.cleanup_succeeded is False
+
+
+def test_v19_historical_rollback_v2_remains_parseable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = v19_cgroup_state(monkeypatch)
+    boundary = state.payload.boundary
+    control = state.payload.syscall_filter.matched_control
+    historical = LINUX_ISOLATION.LinuxCgroupRollbackReceiptV2.create(
+        LINUX_ISOLATION.LinuxCgroupRollbackPayloadV2(
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            unit_name=boundary.unit_name,
+            control_group=boundary.control_group,
+            cleanup_succeeded=True,
+            unit_absent=True,
+            cgroup_absent=True,
+            control_unit_name=control.unit_name,
+            control_control_group=control.control_group,
+            control_unit_absent=True,
+            control_cgroup_absent=True,
+        )
+    )
+    assert (
+        LINUX_ISOLATION.LinuxCgroupRollbackReceiptV2.model_validate_json(
+            historical.model_dump_json()
+        )
+        == historical
+    )
 
 
 @pytest.mark.parametrize("target_present", (False, True))

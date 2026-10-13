@@ -36,12 +36,16 @@ from devhub.linux_isolation import (
     LinuxCgroupCleanupStateV2,
     LinuxCgroupLifecycleFailurePayloadV1,
     LinuxCgroupLifecycleFailurePayloadV2,
+    LinuxCgroupLifecycleFailurePayloadV3,
     LinuxCgroupLifecycleFailureV1,
     LinuxCgroupLifecycleFailureV2,
+    LinuxCgroupLifecycleFailureV3,
     LinuxCgroupRollbackPayloadV1,
     LinuxCgroupRollbackPayloadV2,
+    LinuxCgroupRollbackPayloadV3,
     LinuxCgroupRollbackReceiptV1,
     LinuxCgroupRollbackReceiptV2,
+    LinuxCgroupRollbackReceiptV3,
     LinuxCgroupSetupStatePayloadV1,
     LinuxCgroupSetupStatePayloadV2,
     LinuxCgroupSetupStateV1,
@@ -62,11 +66,14 @@ from devhub.linux_isolation import (
     LinuxSyscallFilterBoundaryAuthorityV1,
     LinuxSystemdAnalyzeAuthorityV1,
     LinuxSystemdControlPolicyObservationV1,
+    LinuxSystemdFilterDiagnosticV1,
     LinuxSystemdManagerAuthorityV1,
     LinuxSystemdResourcePolicyObservationV1,
     LinuxSystemdSelectorOutputDigestV1,
     LinuxSystemdToolAuthorityV1,
     LinuxSystemdUnitPolicyObservationV1,
+    LinuxSystemdUnitPostCreateJournalPayloadV1,
+    LinuxSystemdUnitPostCreateJournalV1,
     LinuxToolVersionEnvironmentV1,
     syscall_allowlist_sha256,
 )
@@ -93,6 +100,14 @@ class SyscallAllowlistAuthorityMismatch(ValueError):
         super().__init__(reason_code)
         self.reason_code = reason_code
         self.observation = observation
+
+
+class SystemdFilterRepresentationMismatch(ValueError):
+    def __init__(self, observation: LinuxSystemdFilterDiagnosticV1) -> None:
+        super().__init__("systemd_filter_representation_mismatch")
+        self.observation = observation
+        self.cleanup_attempted = False
+        self.cleanup_succeeded = False
 
 
 def file_sha256(path: Path) -> str:
@@ -532,20 +547,36 @@ def process_security_status(pid: int) -> tuple[int, int, int]:
     return values["NoNewPrivs"], values["Seccomp"], values["Seccomp_filters"]
 
 
-def _parse_filter_property(raw: str) -> tuple[bool, tuple[str, ...]]:
+def _parse_filter_property(
+    raw: str, *, unit_role: Literal["matched_control", "target"] = "target"
+) -> tuple[bool, tuple[str, ...]]:
     if not raw:
         return False, ()
     tokens = raw.split()
+    classifications: set[Literal["denylist", "duplicate", "invalid_token", "missing_tokens"]] = (
+        set()
+    )
     if tokens[0] in {"yes", "true", "allow"}:
         tokens = tokens[1:]
     elif tokens[0] in {"no", "false", "deny"}:
-        raise ValueError("systemd reported a syscall denylist instead of the required allowlist")
-    if (
-        not tokens
-        or len(tokens) != len(set(tokens))
-        or any(not re.fullmatch(r"[a-z0-9_]+", token) for token in tokens)
-    ):
-        raise ValueError("systemd reported an unsupported syscall-filter representation")
+        classifications.add("denylist")
+    if not tokens:
+        classifications.add("missing_tokens")
+    if len(tokens) != len(set(tokens)):
+        classifications.add("duplicate")
+    if any(not re.fullmatch(r"[a-z0-9_]+", token) for token in tokens):
+        classifications.add("invalid_token")
+    if classifications:
+        raw_bytes = raw.encode("utf-8")
+        raise SystemdFilterRepresentationMismatch(
+            LinuxSystemdFilterDiagnosticV1(
+                unit_role=unit_role,
+                raw_byte_count=len(raw_bytes),
+                raw_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+                token_count=len(tokens),
+                rejected_token_classifications=tuple(sorted(classifications)),
+            )
+        )
     return True, tuple(sorted(set(tokens)))
 
 
@@ -582,6 +613,196 @@ def _resource_policy(unit: str) -> tuple[LinuxSystemdResourcePolicyObservationV1
     )
 
 
+_STABLE_UNIT_PROPERTIES = (
+    "NoNewPrivileges",
+    "SystemCallArchitectures",
+    "SystemCallErrorNumber",
+    "SystemCallFilter",
+    "User",
+    "Group",
+    "MemoryMax",
+    "TasksMax",
+    "CPUQuotaPerSecUSec",
+    "CPUQuotaPeriodUSec",
+    "Transient",
+    "RemainAfterExit",
+    "InvocationID",
+)
+
+
+def _stable_unit_properties(unit: str) -> dict[str, str]:
+    return {name: systemctl_property(unit, name) for name in _STABLE_UNIT_PROPERTIES}
+
+
+def publish_post_create_journal(
+    *,
+    path: Path,
+    implementation_commit: str,
+    environment_instance_id: str,
+    setup_state_id: str,
+    unit_role: Literal["matched_control", "target"],
+    unit: str,
+    expected_control_group: str,
+    argv: list[str],
+) -> LinuxSystemdUnitPostCreateJournalV1:
+    raw = _stable_unit_properties(unit)
+    observed_group = systemctl_property(unit, "ControlGroup")
+    cgroup = Path(LINUX_CGROUP_ROOT + expected_control_group)
+    try:
+        cgroup_info = cgroup.lstat()
+    except FileNotFoundError:
+        cgroup_info = None
+    if cgroup_info is None:
+        cgroup_absent = True
+        cgroup_identity = None
+        cgroup_valid = observed_group == ""
+    else:
+        cgroup_absent = False
+        cgroup_identity = LinuxNativePathIdentityV1(
+            device=cgroup_info.st_dev,
+            inode=cgroup_info.st_ino,
+        )
+        cgroup_valid = (
+            observed_group == expected_control_group
+            and stat.S_ISDIR(cgroup_info.st_mode)
+            and not stat.S_ISLNK(cgroup_info.st_mode)
+        )
+    if not cgroup_valid:
+        raise ValueError("Systemd post-create cgroup authority differs")
+    invocation_id = raw["InvocationID"]
+    if not re.fullmatch(r"[a-f0-9]{32}", invocation_id):
+        raise ValueError("Transient systemd invocation identity is invalid")
+    filter_bytes = raw["SystemCallFilter"].encode("utf-8")
+    journal = LinuxSystemdUnitPostCreateJournalV1.create(
+        LinuxSystemdUnitPostCreateJournalPayloadV1(
+            implementation_commit=implementation_commit,
+            environment_instance_id=environment_instance_id,
+            linux_cgroup_setup_state_id=setup_state_id,
+            unit_role=unit_role,
+            unit_name=unit,
+            expected_control_group=expected_control_group,
+            observed_control_group=observed_group,
+            cgroup_absent=cgroup_absent,
+            cgroup_native_identity=cgroup_identity,
+            invocation_id=invocation_id,
+            argv_sha256=hashlib.sha256(canonical(argv)).hexdigest(),
+            stable_properties_sha256=hashlib.sha256(canonical(raw)).hexdigest(),
+            system_call_filter_raw_sha256=hashlib.sha256(filter_bytes).hexdigest(),
+            system_call_filter_raw_bytes=len(filter_bytes),
+        )
+    )
+    write_new(path, canonical(journal.model_dump(mode="json")), mode=0o444)
+    return journal
+
+
+def read_post_create_journal(path: Path) -> LinuxSystemdUnitPostCreateJournalV1:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != 0
+            or before.st_gid != 0
+            or stat.S_IMODE(before.st_mode) != 0o444
+            or before.st_size > 262_144
+        ):
+            raise ValueError("Systemd post-create journal permissions or size differ")
+        chunks: list[bytes] = []
+        remaining = before.st_size + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, min(65_536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        after = os.fstat(descriptor)
+        if (
+            len(raw) != before.st_size
+            or after.st_dev != before.st_dev
+            or after.st_ino != before.st_ino
+            or after.st_size != before.st_size
+            or after.st_uid != before.st_uid
+            or after.st_gid != before.st_gid
+            or stat.S_IMODE(after.st_mode) != stat.S_IMODE(before.st_mode)
+            or after.st_mtime_ns != before.st_mtime_ns
+            or after.st_ctime_ns != before.st_ctime_ns
+        ):
+            raise ValueError("Systemd post-create journal changed during bounded read")
+    finally:
+        os.close(descriptor)
+    return LinuxSystemdUnitPostCreateJournalV1.model_validate_json(raw)
+
+
+def validate_post_create_journal_authority(
+    journal: LinuxSystemdUnitPostCreateJournalV1,
+    state: LinuxCgroupSetupStateV2,
+    *,
+    unit_role: Literal["matched_control", "target"],
+) -> None:
+    payload = journal.payload
+    authority = (
+        state.payload.syscall_filter.matched_control
+        if unit_role == "matched_control"
+        else state.payload.boundary
+    )
+    if (
+        payload.implementation_commit != state.payload.implementation_commit
+        or payload.environment_instance_id != state.payload.environment_instance_id
+        or payload.linux_cgroup_setup_state_id != state.linux_cgroup_setup_state_id
+        or payload.unit_role != unit_role
+        or payload.unit_name != authority.unit_name
+        or payload.expected_control_group != authority.control_group
+    ):
+        raise ValueError("Systemd post-create journal and setup state authority differ")
+
+
+def revalidate_post_create_journal(
+    journal: LinuxSystemdUnitPostCreateJournalV1,
+    *,
+    unit: str,
+    expected_control_group: str,
+) -> None:
+    payload = journal.payload
+    raw = _stable_unit_properties(unit)
+    filter_bytes = raw["SystemCallFilter"].encode("utf-8")
+    observed_group = systemctl_property(unit, "ControlGroup", check=False)
+    cgroup = Path(LINUX_CGROUP_ROOT + expected_control_group)
+    try:
+        cgroup_info = cgroup.lstat()
+    except FileNotFoundError:
+        cgroup_info = None
+    cgroup_identity = payload.cgroup_native_identity
+    if payload.cgroup_absent:
+        cgroup_changed = cgroup_info is not None or observed_group != ""
+    elif cgroup_info is None:
+        cgroup_changed = observed_group != ""
+    else:
+        cgroup_changed = (
+            cgroup_identity is None
+            or observed_group != payload.observed_control_group
+            or not stat.S_ISDIR(cgroup_info.st_mode)
+            or stat.S_ISLNK(cgroup_info.st_mode)
+            or cgroup_info.st_dev != cgroup_identity.device
+            or cgroup_info.st_ino != cgroup_identity.inode
+        )
+    if cgroup_changed:
+        raise ValueError("Systemd post-create cgroup native identity changed")
+    if (
+        payload.unit_name != unit
+        or payload.expected_control_group != expected_control_group
+        or raw["InvocationID"] != payload.invocation_id
+        or hashlib.sha256(canonical(raw)).hexdigest() != payload.stable_properties_sha256
+        or hashlib.sha256(filter_bytes).hexdigest() != payload.system_call_filter_raw_sha256
+        or len(filter_bytes) != payload.system_call_filter_raw_bytes
+        or (
+            observed_group != payload.observed_control_group
+            and not (observed_group == "" and cgroup_info is None)
+        )
+    ):
+        raise ValueError("Systemd post-create journal authority changed")
+
+
 def observe_unit_policy(
     unit: str, *, expected_filter: tuple[str, ...] | None
 ) -> LinuxSystemdUnitPolicyObservationV1 | LinuxSystemdControlPolicyObservationV1:
@@ -597,7 +818,10 @@ def observe_unit_policy(
     resources, resource_raw = _resource_policy(unit)
     raw_values.update(resource_raw)
     architectures = tuple(sorted(raw_values["SystemCallArchitectures"].split()))
-    allowlist, reported = _parse_filter_property(raw_values["SystemCallFilter"])
+    allowlist, reported = _parse_filter_property(
+        raw_values["SystemCallFilter"],
+        unit_role=("matched_control" if expected_filter is None else "target"),
+    )
     raw_hash = hashlib.sha256(canonical(raw_values)).hexdigest()
     if raw_values["NoNewPrivileges"] != "yes" or architectures != ("native",):
         raise ValueError("systemd unit NNP or architecture policy differs")
@@ -696,6 +920,12 @@ def _run_transient_service(
     repo: Path,
     command: list[str],
     explicit_allowlist: tuple[str, ...] | None,
+    journal_path: Path | None = None,
+    implementation_commit: str | None = None,
+    environment_instance_id: str | None = None,
+    setup_state_id: str | None = None,
+    unit_role: Literal["matched_control", "target"] | None = None,
+    expected_control_group: str | None = None,
 ) -> None:
     if not command or not Path(command[0]).is_absolute():
         raise ValueError("Transient service command must use an absolute executable")
@@ -746,6 +976,26 @@ def _run_transient_service(
                 or systemctl_property(unit, "RemainAfterExit") != "yes"
             ):
                 raise ValueError("Transient service retention authority differs")
+            journal_values = (
+                implementation_commit,
+                environment_instance_id,
+                setup_state_id,
+                unit_role,
+                expected_control_group,
+            )
+            if journal_path is not None:
+                if any(value is None for value in journal_values):
+                    raise ValueError("Systemd post-create journal authority is incomplete")
+                publish_post_create_journal(
+                    path=journal_path,
+                    implementation_commit=implementation_commit or "",
+                    environment_instance_id=environment_instance_id or "",
+                    setup_state_id=setup_state_id or "",
+                    unit_role=unit_role or "target",
+                    unit=unit,
+                    expected_control_group=expected_control_group or "",
+                    argv=[*arguments, "--", *command],
+                )
             observed_policy = observe_unit_policy(unit, expected_filter=explicit_allowlist)
             if (
                 observed_policy.resources.service_uid != uid
@@ -780,6 +1030,7 @@ def _stop_exact_unit(
     uid: int,
     gid: int,
     expected_filter: tuple[str, ...] | None,
+    journal: LinuxSystemdUnitPostCreateJournalV1 | None = None,
 ) -> None:
     cgroup = Path(LINUX_CGROUP_ROOT + control_group)
     if systemctl_property(unit, "LoadState", check=False) == "not-found":
@@ -796,9 +1047,21 @@ def _stop_exact_unit(
         or systemctl_property(unit, "RemainAfterExit") != "yes"
     ):
         raise ValueError("Transient unit lifecycle policy differs before exact cleanup")
-    policy = observe_unit_policy(unit, expected_filter=expected_filter)
-    if policy.resources.service_uid != uid or policy.resources.service_gid != gid:
-        raise ValueError("Transient unit service identity differs before exact cleanup")
+    if journal is None:
+        policy = observe_unit_policy(unit, expected_filter=expected_filter)
+        if policy.resources.service_uid != uid or policy.resources.service_gid != gid:
+            raise ValueError("Transient unit service identity differs before exact cleanup")
+    else:
+        revalidate_post_create_journal(
+            journal,
+            unit=unit,
+            expected_control_group=control_group,
+        )
+        if (
+            int(systemctl_property(unit, "User")) != uid
+            or int(systemctl_property(unit, "Group")) != gid
+        ):
+            raise ValueError("Journaled transient unit service identity differs")
     subprocess.run(
         [LINUX_SYSTEMCTL, "stop", unit],
         check=True,
@@ -947,6 +1210,7 @@ def launch_control_v2(
     script: Path,
     execution_authority_path: Path,
     observation_path: Path,
+    journal_path: Path,
 ) -> LinuxMatchedControlReceiptV1:
     revalidate_state_v2(state)
     control = state.payload.syscall_filter.matched_control
@@ -986,6 +1250,7 @@ def launch_control_v2(
         )
     )
     write_new(resolved_execution, canonical(execution.model_dump(mode="json")), mode=0o444)
+    representation_error: SystemdFilterRepresentationMismatch | None = None
     try:
         _run_transient_service(
             unit=control.unit_name,
@@ -994,6 +1259,12 @@ def launch_control_v2(
             repo=repo,
             command=command,
             explicit_allowlist=None,
+            journal_path=journal_path,
+            implementation_commit=state.payload.implementation_commit,
+            environment_instance_id=state.payload.environment_instance_id,
+            setup_state_id=state.linux_cgroup_setup_state_id,
+            unit_role="matched_control",
+            expected_control_group=control.control_group,
         )
         policy = observe_unit_policy(control.unit_name, expected_filter=None)
         if not isinstance(policy, LinuxSystemdControlPolicyObservationV1):
@@ -1009,14 +1280,27 @@ def launch_control_v2(
             != script_blob
         ):
             raise ValueError("Matched control Git authority changed")
+    except SystemdFilterRepresentationMismatch as error:
+        representation_error = error
+        raise
     finally:
-        _stop_exact_unit(
-            control.unit_name,
-            control.control_group,
-            uid=control.service_uid,
-            gid=control.service_gid,
-            expected_filter=None,
-        )
+        try:
+            if representation_error is not None:
+                representation_error.cleanup_attempted = True
+            journal = read_post_create_journal(journal_path) if journal_path.exists() else None
+            _stop_exact_unit(
+                control.unit_name,
+                control.control_group,
+                uid=control.service_uid,
+                gid=control.service_gid,
+                expected_filter=None,
+                journal=journal,
+            )
+            if representation_error is not None:
+                representation_error.cleanup_succeeded = True
+        except BaseException:
+            if representation_error is None:
+                raise
     return LinuxMatchedControlReceiptV1.create(
         LinuxMatchedControlReceiptPayloadV1(
             implementation_commit=state.payload.implementation_commit,
@@ -1034,6 +1318,7 @@ def launch_v2(
     state: LinuxCgroupSetupStateV2,
     repo: Path,
     command: list[str],
+    journal_path: Path,
 ) -> LinuxSystemdUnitPolicyObservationV1:
     revalidate_state_v2(state)
     boundary = state.payload.boundary
@@ -1045,6 +1330,12 @@ def launch_v2(
         repo=repo,
         command=command,
         explicit_allowlist=allowlist,
+        journal_path=journal_path,
+        implementation_commit=state.payload.implementation_commit,
+        environment_instance_id=state.payload.environment_instance_id,
+        setup_state_id=state.linux_cgroup_setup_state_id,
+        unit_role="target",
+        expected_control_group=boundary.control_group,
     )
     observed = observe_unit_policy(boundary.unit_name, expected_filter=allowlist)
     if not isinstance(observed, LinuxSystemdUnitPolicyObservationV1):
@@ -1380,27 +1671,52 @@ def resume_cleanup_v19(
     )
 
 
-def rollback_v19(state: LinuxCgroupSetupStateV2) -> LinuxCgroupRollbackReceiptV2:
+def rollback_v19(
+    state: LinuxCgroupSetupStateV2,
+    target_journal_path: Path,
+    control_journal_path: Path,
+) -> LinuxCgroupRollbackReceiptV3:
     boundary = state.payload.boundary
     control = state.payload.syscall_filter.matched_control
     try:
         revalidate_state_v2(state)
-        _stop_exact_unit(
-            boundary.unit_name,
-            boundary.control_group,
-            uid=boundary.service_uid,
-            gid=boundary.service_gid,
-            expected_filter=state.payload.syscall_filter.policy.configured_explicit_allowlist,
-        )
-        _stop_exact_unit(
-            control.unit_name,
-            control.control_group,
-            uid=control.service_uid,
-            gid=control.service_gid,
-            expected_filter=None,
-        )
     except BaseException:
-        pass
+        state_valid = False
+    else:
+        state_valid = True
+    if state_valid:
+        targets = (
+            (
+                "target",
+                boundary,
+                state.payload.syscall_filter.policy.configured_explicit_allowlist,
+                target_journal_path,
+            ),
+            ("matched_control", control, None, control_journal_path),
+        )
+        for unit_role, authority, expected_filter, journal_path in targets:
+            try:
+                loaded = (
+                    systemctl_property(authority.unit_name, "LoadState", check=False) != "not-found"
+                )
+                journal = None
+                if loaded:
+                    journal = read_post_create_journal(journal_path)
+                    validate_post_create_journal_authority(
+                        journal,
+                        state,
+                        unit_role=unit_role,
+                    )
+                _stop_exact_unit(
+                    authority.unit_name,
+                    authority.control_group,
+                    uid=authority.service_uid,
+                    gid=authority.service_gid,
+                    expected_filter=expected_filter,
+                    journal=journal,
+                )
+            except BaseException:
+                continue
     target_unit_absent = (
         systemctl_property(boundary.unit_name, "LoadState", check=False) == "not-found"
     )
@@ -1412,8 +1728,8 @@ def rollback_v19(state: LinuxCgroupSetupStateV2) -> LinuxCgroupRollbackReceiptV2
     succeeded = all(
         (target_unit_absent, target_cgroup_absent, control_unit_absent, control_cgroup_absent)
     )
-    return LinuxCgroupRollbackReceiptV2.create(
-        LinuxCgroupRollbackPayloadV2(
+    return LinuxCgroupRollbackReceiptV3.create(
+        LinuxCgroupRollbackPayloadV3(
             implementation_commit=state.payload.implementation_commit,
             environment_instance_id=state.payload.environment_instance_id,
             linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
@@ -1545,6 +1861,23 @@ def write_failure(
         )
         write_new(path, canonical(failure_v2.model_dump(mode="json")))
         return
+    if (
+        isinstance(error, SystemdFilterRepresentationMismatch)
+        and phase == "run"
+        and state_id is not None
+    ):
+        failure_v3 = LinuxCgroupLifecycleFailureV3.create(
+            LinuxCgroupLifecycleFailurePayloadV3(
+                implementation_commit=implementation_commit,
+                environment_instance_id=environment_instance_id,
+                linux_cgroup_setup_state_id=state_id,
+                cleanup_attempted=error.cleanup_attempted,
+                cleanup_succeeded=error.cleanup_succeeded,
+                authority_observation=error.observation,
+            )
+        )
+        write_new(path, canonical(failure_v3.model_dump(mode="json")))
+        return
     reason = {
         "setup": "authority_invalid",
         "run": "service_execution_failed",
@@ -1619,6 +1952,7 @@ def main() -> None:
     control_v19.add_argument("--repo", type=Path, required=True)
     control_v19.add_argument("--observation", type=Path, required=True)
     control_v19.add_argument("--execution-authority", type=Path, required=True)
+    control_v19.add_argument("--unit-journal", type=Path, required=True)
     control_v19.add_argument("--output", type=Path, required=True)
     control_v19.add_argument("--implementation-commit", required=True)
     control_v19.add_argument("--environment-instance-id", required=True)
@@ -1627,6 +1961,7 @@ def main() -> None:
     run_v19.add_argument("--state", type=Path, required=True)
     run_v19.add_argument("--repo", type=Path, required=True)
     run_v19.add_argument("--policy-output", type=Path, required=True)
+    run_v19.add_argument("--unit-journal", type=Path, required=True)
     run_v19.add_argument("--implementation-commit", required=True)
     run_v19.add_argument("--environment-instance-id", required=True)
     run_v19.add_argument("--failure-output", type=Path, required=True)
@@ -1643,6 +1978,8 @@ def main() -> None:
     rollback_v19_parser = subparsers.add_parser("rollback-v19")
     rollback_v19_parser.add_argument("--state", type=Path, required=True)
     rollback_v19_parser.add_argument("--output", type=Path, required=True)
+    rollback_v19_parser.add_argument("--target-journal", type=Path, required=True)
+    rollback_v19_parser.add_argument("--control-journal", type=Path, required=True)
     rollback_v19_parser.add_argument("--implementation-commit", required=True)
     rollback_v19_parser.add_argument("--environment-instance-id", required=True)
     rollback_v19_parser.add_argument("--failure-output", type=Path, required=True)
@@ -1729,6 +2066,7 @@ def main() -> None:
                     Path(__file__),
                     args.execution_authority,
                     args.observation,
+                    args.unit_journal,
                 )
                 write_new(args.output, canonical(receipt.model_dump(mode="json")))
                 args.observation.unlink()
@@ -1736,7 +2074,7 @@ def main() -> None:
                 command = list(args.command)
                 if command[:1] == ["--"]:
                     command = command[1:]
-                policy = launch_v2(state_v19, args.repo, command)
+                policy = launch_v2(state_v19, args.repo, command, args.unit_journal)
                 write_new(args.policy_output, canonical(policy.model_dump(mode="json")))
             elif args.operation == "cleanup-v19":
                 receipt_v19 = cleanup_v19(
@@ -1761,7 +2099,11 @@ def main() -> None:
                 if not rollback_receipt.payload.cleanup_succeeded:
                     raise ValueError("V19 transient cgroup cleanup resume failed")
             else:
-                rollback_receipt = rollback_v19(state_v19)
+                rollback_receipt = rollback_v19(
+                    state_v19,
+                    args.target_journal,
+                    args.control_journal,
+                )
                 write_new(args.output, canonical(rollback_receipt.model_dump(mode="json")))
                 if not rollback_receipt.payload.cleanup_succeeded:
                     raise ValueError("V19 transient cgroup rollback failed")
