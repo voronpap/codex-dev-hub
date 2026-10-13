@@ -837,14 +837,55 @@ def process_group_absent(process_group: int) -> bool:
     return True
 
 
-def read_line(fd: int, timeout: float) -> bytes:
-    ready, _, _ = select.select([fd], [], [], timeout)
-    if not ready:
-        raise TimeoutError("Isolation child registration timed out")
-    raw = os.read(fd, 4096)
-    if not raw.endswith(b"\n") or raw.count(b"\n") != 1:
-        raise ValueError("Isolation child registration frame is invalid")
-    return raw[:-1]
+REGISTRATION_FRAME_LIMIT = 4096
+RESULT_FRAME_LIMIT = 64 * 1024
+FRAME_READ_CHUNK = 4096
+
+
+def read_bounded_frame(
+    fd: int,
+    timeout: float,
+    *,
+    limit: int,
+    frame_name: str,
+    require_eof: bool = False,
+) -> bytes:
+    """Read one newline-terminated child frame without trusting pipe chunking."""
+
+    if limit <= 1:
+        raise ValueError("Isolation child frame limit is invalid")
+    deadline = time.monotonic() + timeout
+    raw = bytearray()
+    complete = False
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"Isolation child {frame_name} timed out")
+        ready, _, _ = select.select([fd], [], [], remaining)
+        if not ready:
+            raise TimeoutError(f"Isolation child {frame_name} timed out")
+        chunk = os.read(fd, min(FRAME_READ_CHUNK, limit + 1 - len(raw)))
+        if not chunk:
+            if complete:
+                return bytes(raw[:-1])
+            raise ValueError(f"Isolation child {frame_name} ended before its terminal newline")
+        if complete:
+            raise ValueError(
+                f"Isolation child {frame_name} contains multiple frames or trailing bytes"
+            )
+        raw.extend(chunk)
+        if len(raw) > limit:
+            raise ValueError(f"Isolation child {frame_name} exceeds its byte limit")
+        newline = raw.find(b"\n")
+        if newline < 0:
+            continue
+        if newline != len(raw) - 1 or raw.count(b"\n") != 1:
+            raise ValueError(
+                f"Isolation child {frame_name} contains multiple frames or trailing bytes"
+            )
+        if not require_eof:
+            return bytes(raw[:-1])
+        complete = True
 
 
 class BoundedCollector:
@@ -1446,7 +1487,14 @@ def run_probe(
         )
         active_phase = "child_registration"
         try:
-            raw_registration = json.loads(read_line(registration_read, 15))
+            raw_registration = json.loads(
+                read_bounded_frame(
+                    registration_read,
+                    15,
+                    limit=REGISTRATION_FRAME_LIMIT,
+                    frame_name="registration",
+                )
+            )
         except (TimeoutError, ValueError) as error:
             raise ChildRegistrationFailure("Isolation child registration failed") from error
         if (
@@ -1546,7 +1594,13 @@ def run_probe(
         process.wait(timeout=10)
         active_phase = "child_result"
         try:
-            result = read_line(result_read, 5)
+            result = read_bounded_frame(
+                result_read,
+                5,
+                limit=RESULT_FRAME_LIMIT,
+                frame_name="result",
+                require_eof=True,
+            )
             raw_result = json.loads(result)
         except (TimeoutError, ValueError, json.JSONDecodeError):
             raw_result = None

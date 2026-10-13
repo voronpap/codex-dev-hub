@@ -6568,6 +6568,66 @@ def test_registered_observation_keeps_registration_authority_join() -> None:
         PROBE.validate_registered_observation(raw, registration)
 
 
+def install_frame_reads(monkeypatch: pytest.MonkeyPatch, chunks: list[bytes]) -> None:
+    pending = iter(chunks)
+    monkeypatch.setattr(PROBE.select, "select", lambda *_args: ([11], [], []))
+    monkeypatch.setattr(PROBE.os, "read", lambda *_args: next(pending))
+
+
+def test_bounded_frame_reader_accumulates_chunked_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_frame_reads(monkeypatch, [b'{"schema":', b"16}", b"\n"])
+    assert PROBE.read_bounded_frame(11, 1, limit=64, frame_name="result") == b'{"schema":16}'
+
+
+def test_bounded_frame_reader_accepts_exact_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_frame_reads(monkeypatch, [b"1234567\n"])
+    assert PROBE.read_bounded_frame(11, 1, limit=8, frame_name="result") == b"1234567"
+
+
+def test_bounded_frame_reader_requires_eof_after_complete_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_frame_reads(monkeypatch, [b"complete\n", b""])
+    assert (
+        PROBE.read_bounded_frame(11, 1, limit=16, frame_name="result", require_eof=True)
+        == b"complete"
+    )
+
+
+def test_bounded_frame_reader_rejects_later_second_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_frame_reads(monkeypatch, [b"first\n", b"second\n"])
+    with pytest.raises(ValueError, match="multiple frames or trailing bytes"):
+        PROBE.read_bounded_frame(11, 1, limit=16, frame_name="result", require_eof=True)
+
+
+@pytest.mark.parametrize(
+    ("chunks", "message"),
+    [
+        ([b"123456789"], "exceeds its byte limit"),
+        ([b"a\nb\n"], "multiple frames or trailing bytes"),
+        ([b"partial", b""], "ended before its terminal newline"),
+    ],
+)
+def test_bounded_frame_reader_rejects_invalid_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    chunks: list[bytes],
+    message: str,
+) -> None:
+    install_frame_reads(monkeypatch, chunks)
+    with pytest.raises(ValueError, match=message):
+        PROBE.read_bounded_frame(11, 1, limit=8, frame_name="result")
+
+
+def test_bounded_frame_reader_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(PROBE.select, "select", lambda *_args: ([], [], []))
+    with pytest.raises(TimeoutError, match="result timed out"):
+        PROBE.read_bounded_frame(11, 1, limit=64, frame_name="result")
+
+
 @pytest.mark.skipif(os.name != "posix", reason="Linux probe success path is Linux-only")
 def test_run_probe_v16_carries_loader_authority_and_joins_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
