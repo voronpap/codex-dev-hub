@@ -618,8 +618,25 @@ producer. Every packaged subprocess capture now carries its explicit version
 before it is included in a child failure hash. V8 keeps the retained Build-012
 Codex authority and the split current-Python-source authority from V7; it does
 not rebuild or reinterpret the accepted Codex executables. Package readiness
-and native isolation qualification remain false. Exact V8 artifact identities
-must be recorded only after a successful main-only bundle publication.
+and native isolation qualification remain false. Main-only Bundle V8 run
+`38387100992/1` at package commit
+`cffb59052eb7f0c026a6fffb056b301ef3f90458` published bundle ID
+`ccbe5b4f86421e95b77293c04969c66b23e491d6713f015d6b5c6e65ecb7c474`,
+archive ID
+`4955e9cd2b0d58a1fb5a5a6d2eff57f785dcddca8df0b3a6c4cd9cb1c5ce3e40`,
+archive SHA-256
+`a234a484c18ffaadb6269ac41015b85f6b734359abd9d4cec2a09f2c964a4ea5`,
+and corrected installed child SHA-256
+`5f4499d613904359a5a972fa71fb1df79a62708aa43a1b7e3a9277102fc82793`.
+The Linux workflow strictly verified all 4,748 inventory entries, relocation,
+and the packaged CLI metadata smoke before publication.
+
+`LinuxNativeIsolationV15` is the separate forward-only consumer for this exact
+Bundle V8 authority. It retains the V14 mechanics, cleanup-first publication,
+strict V3 child-failure parsing, zero execution counters, and false readiness
+flags. V15 does not reinterpret V14 failure evidence and cannot consume V7 or
+an independently supplied package path. Historical V14/V7 contracts remain
+parseable.
 
 The tested bundle is intentionally tied to Linux x86_64 and the exact host
 environment recorded by later qualification.  It does not claim support for
@@ -864,7 +881,7 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | --- | --- | --- |
 | Exact native Codex | PARTIAL — accepted `windows-build-007` pair is bound to historical commit `c886b042eb57d24a1893d16f5752ac03ef24398a`; forward-only `windows-build-008` is registered for the current merged implementation | PASS for Build-012 run `38354927618` at commit `c272ed6169a718204f2830a4aa34a5548a650652` |
 | Same-binary host authority | PARTIAL — `windows-build-007` proved Default/A/B, EOF, security negatives and complete retention; exact-current-commit `windows-build-008` pending | PASS for Build-012 Default/A/B, EOF, eight security negatives, scratch cleanup and zero execution counters |
-| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V14 preserves strict packaged initialize/tools-list/EOF with no `tools/call`; runs `38350946287` (V12), `38366520513` (V13), and `38382788177` (V14) remain failed closed with zero execution counters; corrected Bundle V8 publication and a later successful receipt are pending |
+| MCP lifecycle | PARTIAL source coverage; packaged receipt pending | PARTIAL — V15 preserves strict packaged initialize/tools-list/EOF with no `tools/call`; runs `38350946287` (V12), `38366520513` (V13), and `38382788177` (V14) remain failed closed with zero execution counters; a successful V15 receipt is pending |
 | Self-contained runtime | PENDING clean host without developer tools | PENDING clean host without developer tools |
 | Native paths/IPC | PARTIAL spaces/Unicode source coverage | PENDING native-package coverage |
 | Native isolation | PARTIAL — no-direct-network AppContainer/Job baseline and fixed-destination metadata broker implemented; exact-host receipt and complete packaged boundary pending | PARTIAL — accepted V11 run `38307459549` proves namespace/mount/Landlock/AppArmor/broker mechanics; Bundle V6-bound V13 failed at coarse result assembly, and Bundle V7-bound V14 failed closed on the now-corrected nested capture version; cgroup, syscall and complete packaged executor boundaries remain pending |
@@ -872,9 +889,9 @@ syscall-filter, complete native-executor isolation and package readiness false.
 | Accounting | Shared core implemented; Windows end-to-end pending | Shared core implemented; native Linux end-to-end pending |
 | Secrets | PENDING reviewed Windows protected store | PENDING reviewed Linux user-scoped protected store/integration |
 | Data lifecycle | PENDING upgrade/rollback/disk-full proof | PENDING upgrade/rollback/disk-full proof |
-| Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V7 run `38374815599` (`bundle_id=7761d0f34d03983aaea1349ac6ac3b5b7a0720c8df93b66037db71ec1cbef176`, `archive_id=8de888cacb2725cd760ebf4deb6d5ee0f5723f6d16f3accca6b8ca716b123e2a`); package readiness remains false pending V14 and later boundaries |
+| Runnable artifact | PENDING directory/launcher/file manifest | PASS for Bundle V8 run `38387100992` (`bundle_id=ccbe5b4f86421e95b77293c04969c66b23e491d6713f015d6b5c6e65ecb7c474`, `archive_id=4955e9cd2b0d58a1fb5a5a6d2eff57f785dcddca8df0b3a6c4cd9cb1c5ce3e40`); package readiness remains false pending V15 and later boundaries |
 | Installer/package | Engineering pending; public release blocked on license | Engineering pending; format depends on tested environment; public release blocked on license |
-| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V7 run `38374815599`; V12 run `38350946287`, V13 run `38366520513`, and V14 run `38382788177` remain failed closed with zero execution counters; Bundle V8 publication is pending |
+| CI/review | PASS for historical `windows-build-007`; current `windows-build-008` registration is under review and later package gates remain separate | PASS for Build-012 run `38354927618` and Bundle V8 run `38387100992`; V12 run `38350946287`, V13 run `38366520513`, and V14 run `38382788177` remain failed closed with zero execution counters; V15 qualification is pending |
 | Final execution | PENDING one Windows-only context/manifest | PENDING one native-Linux-only context/manifest |
 
 ## Stdio and lifecycle invariant

@@ -73,6 +73,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidencePayloadV11,
     LinuxIsolationEvidencePayloadV13,
     LinuxIsolationEvidencePayloadV14,
+    LinuxIsolationEvidencePayloadV15,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
     LinuxIsolationEvidenceV3,
@@ -85,6 +86,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV10,
     LinuxIsolationEvidenceV13,
     LinuxIsolationEvidenceV14,
+    LinuxIsolationEvidenceV15,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailurePayloadV2,
     LinuxIsolationFailurePayloadV3,
@@ -114,6 +116,7 @@ from devhub.linux_isolation import (
     LinuxIsolationObservationV11,
     LinuxIsolationObservationV13,
     LinuxIsolationObservationV14,
+    LinuxIsolationObservationV15,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfilePayloadV3,
@@ -128,6 +131,7 @@ from devhub.linux_isolation import (
     LinuxIsolationProfilePayloadV12,
     LinuxIsolationProfilePayloadV13,
     LinuxIsolationProfilePayloadV14,
+    LinuxIsolationProfilePayloadV15,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
     LinuxIsolationProfileV3,
@@ -142,6 +146,7 @@ from devhub.linux_isolation import (
     LinuxIsolationProfileV12,
     LinuxIsolationProfileV13,
     LinuxIsolationProfileV14,
+    LinuxIsolationProfileV15,
     LinuxIsolationQualificationPayloadV3,
     LinuxIsolationQualificationPayloadV4,
     LinuxIsolationQualificationPayloadV5,
@@ -157,7 +162,7 @@ from devhub.linux_isolation import (
     LinuxIsolationQualificationV8,
     LinuxIsolationQualificationV9,
     LinuxIsolationQualificationV10,
-    LinuxIsolationQualificationV14,
+    LinuxIsolationQualificationV15,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
@@ -170,6 +175,7 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptPayloadV10,
     LinuxIsolationReceiptPayloadV13,
     LinuxIsolationReceiptPayloadV14,
+    LinuxIsolationReceiptPayloadV15,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
     LinuxIsolationReceiptV3,
@@ -183,6 +189,7 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptV11,
     LinuxIsolationReceiptV13,
     LinuxIsolationReceiptV14,
+    LinuxIsolationReceiptV15,
     LinuxMountAuthorityObservationV1,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
@@ -192,6 +199,7 @@ from devhub.linux_isolation import (
     LinuxPackageAuthorityV1,
     LinuxPackageAuthorityV2,
     LinuxPackageAuthorityV3,
+    LinuxPackageAuthorityV4,
     LinuxPackagedMcpMetadataObservationV1,
     LinuxPackagedSubprocessCaptureV1,
     LinuxRlimitsV1,
@@ -544,6 +552,10 @@ def package_authority_v3() -> LinuxPackageAuthorityV3:
     return LinuxPackageAuthorityV3()
 
 
+def package_authority_v4() -> LinuxPackageAuthorityV4:
+    return LinuxPackageAuthorityV4()
+
+
 def package_probe_hash(path: Path) -> str:
     if path.name == "linux_native_isolation_child.py":
         return package_authority().child_module_sha256
@@ -553,6 +565,12 @@ def package_probe_hash(path: Path) -> str:
 def package_probe_hash_v3(path: Path) -> str:
     if path.name == "linux_native_isolation_child.py":
         return package_authority_v3().child_module_sha256
+    return H
+
+
+def package_probe_hash_v4(path: Path) -> str:
+    if path.name == "linux_native_isolation_child.py":
+        return package_authority_v4().child_module_sha256
     return H
 
 
@@ -632,6 +650,34 @@ def profile_payload_v14() -> LinuxIsolationProfilePayloadV14:
         if item["target"] == "/bundle":
             item["source_identity_sha256"] = fixture_hash
     return LinuxIsolationProfilePayloadV14.model_validate(raw)
+
+
+def profile_payload_v15() -> LinuxIsolationProfilePayloadV15:
+    raw = profile_payload_v11().model_dump(mode="python")
+    package = package_authority_v4()
+    raw["schema_version"] = 15
+    raw["profile_kind"] = "linux_native_isolation_v15"
+    raw["child_runtime_failure_protocol"] = "linux_child_runtime_failure_v3"
+    raw["package"] = package.model_dump(mode="python")
+    raw["native_bundle_id"] = package.bundle_id
+    raw["bundle_manifest_sha256"] = package.bundle_manifest_sha256
+    raw["bootstrap_python"]["sha256"] = package.python_executable_sha256
+    raw["child_probe_sha256"] = package.child_module_sha256
+    fixture = LinuxBundleDirectoryAuthorityV1(
+        locator="/tmp/fixture",
+        owner_uid=1000,
+        owner_gid=1000,
+        native_identity=native(3),
+    )
+    raw["source_directories"] = tuple(
+        fixture.model_dump(mode="python") if item["role"] == "fixture" else item
+        for item in raw["source_directories"]
+    )
+    fixture_hash = digest(canonical(fixture.model_dump(mode="json")))
+    for item in raw["mounts"]:
+        if item["target"] == "/bundle":
+            item["source_identity_sha256"] = fixture_hash
+    return LinuxIsolationProfilePayloadV15.model_validate(raw)
 
 
 def historical_profile_payload_v12() -> LinuxIsolationProfilePayloadV12:
@@ -734,6 +780,16 @@ def profile_v14_for_server(server: socket.socket) -> LinuxIsolationProfileV14:
     raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
     raw["broker"]["broker_host_uid"] = authority.owner_uid
     return LinuxIsolationProfileV14.create(LinuxIsolationProfilePayloadV14.model_validate(raw))
+
+
+def profile_v15_for_server(server: socket.socket) -> LinuxIsolationProfileV15:
+    raw = profile_payload_v15().model_dump(mode="python")
+    authority = PROBE.synthetic_upstream_authority(server)
+    raw["synthetic_upstream"] = authority.model_dump(mode="python")
+    raw["broker"]["broker_host_pid"] = authority.owner_pid
+    raw["broker"]["broker_host_start_time_ticks"] = authority.owner_start_time_ticks
+    raw["broker"]["broker_host_uid"] = authority.owner_uid
+    return LinuxIsolationProfileV15.create(LinuxIsolationProfilePayloadV15.model_validate(raw))
 
 
 def registered_child_command(
@@ -891,6 +947,21 @@ def observation_v14() -> LinuxIsolationObservationV14:
         stderr_retained_bytes=0,
     ).model_dump(mode="python")
     return LinuxIsolationObservationV14.model_validate(raw)
+
+
+def observation_v15() -> LinuxIsolationObservationV15:
+    package = package_authority_v4()
+    raw = observation_v11().model_dump(mode="python")
+    raw["schema_version"] = 15
+    raw["child_module_sha256"] = package.child_module_sha256
+    raw["packaged_mcp"] = LinuxPackagedMcpMetadataObservationV1(
+        python_executable_sha256=package.python_executable_sha256,
+        stdout_retained_sha256=H,
+        stderr_retained_sha256=H,
+        stdout_retained_bytes=1,
+        stderr_retained_bytes=0,
+    ).model_dump(mode="python")
+    return LinuxIsolationObservationV15.model_validate(raw)
 
 
 def evidence_payload(
@@ -1057,6 +1128,22 @@ def evidence_payload_v14(
     profile: LinuxIsolationProfileV14, receipt: LinuxIsolationReceiptV14
 ) -> LinuxIsolationEvidencePayloadV14:
     return LinuxIsolationEvidencePayloadV14(
+        profile=profile,
+        receipt=receipt,
+        child_stdout_retained_sha256=H,
+        child_stderr_retained_sha256=H,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup=LinuxHostCleanupObservationV1(),
+    )
+
+
+def evidence_payload_v15(
+    profile: LinuxIsolationProfileV15, receipt: LinuxIsolationReceiptV15
+) -> LinuxIsolationEvidencePayloadV15:
+    return LinuxIsolationEvidencePayloadV15(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -2004,16 +2091,16 @@ def test_child_runtime_failure_v3_rejects_nested_capture_version_drift(mutation:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
-def test_finalizer_joins_only_v14_mechanics(tmp_path: Path) -> None:
-    profile = LinuxIsolationProfileV14.create(profile_payload_v14())
-    receipt = LinuxIsolationReceiptV14.create(
-        LinuxIsolationReceiptPayloadV14(
+def test_finalizer_joins_only_v15_mechanics(tmp_path: Path) -> None:
+    profile = LinuxIsolationProfileV15.create(profile_payload_v15())
+    receipt = LinuxIsolationReceiptV15.create(
+        LinuxIsolationReceiptPayloadV15(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation_v14(),
+            observation=observation_v15(),
         )
     )
-    evidence = LinuxIsolationEvidenceV14.create(evidence_payload_v14(profile, receipt))
+    evidence = LinuxIsolationEvidenceV15.create(evidence_payload_v15(profile, receipt))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
             implementation_commit=COMMIT,
@@ -2032,7 +2119,7 @@ def test_finalizer_joins_only_v14_mechanics(tmp_path: Path) -> None:
     cleanup_path.write_text(cleanup.model_dump_json(), encoding="utf-8")
     assert APPARMOR_MANAGER.read_mechanics(mechanics_path) == evidence
     FINALIZER.finalize(mechanics_path, cleanup_path, output)
-    qualification = LinuxIsolationQualificationV14.model_validate_json(output.read_bytes())
+    qualification = LinuxIsolationQualificationV15.model_validate_json(output.read_bytes())
     assert qualification.payload.mechanics == evidence
     assert qualification.payload.apparmor_cleanup == cleanup
 
@@ -3928,6 +4015,245 @@ def test_v14_profile_and_observation_bind_exact_bundle_v7_split_authority() -> N
             LinuxIsolationProfilePayloadV14.model_validate(substituted)
 
 
+def test_v15_profile_and_observation_bind_exact_bundle_v8_split_authority() -> None:
+    profile = LinuxIsolationProfileV15.create(profile_payload_v15())
+    observed = observation_v15()
+    receipt = LinuxIsolationReceiptV15.create(
+        LinuxIsolationReceiptPayloadV15(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observed,
+        )
+    )
+    evidence = LinuxIsolationEvidenceV15.create(evidence_payload_v15(profile, receipt))
+    package = profile.payload.package
+
+    assert package.bundle_schema_version == 8
+    assert package.archive_schema_version == 8
+    assert package.package_implementation_commit == ("cffb59052eb7f0c026a6fffb056b301ef3f90458")
+    assert package.retained_codex_implementation_commit == (
+        "c272ed6169a718204f2830a4aa34a5548a650652"
+    )
+    assert package.bundle_run_id == 38387100992
+    assert package.bundle_run_attempt == 1
+    assert package.bundle_id == profile.payload.native_bundle_id
+    assert package.child_module_sha256 == observed.child_module_sha256
+    assert package.child_module_sha256 == (
+        "5f4499d613904359a5a972fa71fb1df79a62708aa43a1b7e3a9277102fc82793"
+    )
+    assert profile.payload.child_runtime_failure_protocol == "linux_child_runtime_failure_v3"
+    assert evidence.payload.receipt.payload.model_requests == 0
+    assert evidence.payload.receipt.payload.provider_sends == 0
+    assert evidence.payload.receipt.payload.mcp_tool_executions == 0
+    assert evidence.payload.receipt.payload.real_task_executions == 0
+    assert evidence.payload.receipt.payload.native_executor_isolation_qualified is False
+    assert evidence.payload.receipt.payload.package_readiness is False
+
+    for field, value in (
+        ("package_implementation_commit", "f" * 40),
+        ("retained_codex_implementation_commit", "f" * 40),
+        ("bundle_run_id", 1),
+        ("archive_id", "f" * 64),
+        ("bundle_id", "f" * 64),
+        ("python_runtime_id", "f" * 64),
+        ("child_module_sha256", "f" * 64),
+    ):
+        substituted = profile.payload.model_dump(mode="python")
+        substituted["package"][field] = value
+        with pytest.raises(ValidationError):
+            LinuxIsolationProfilePayloadV15.model_validate(substituted)
+
+
+def stub_v8_package_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    bundle_id: str | None = None,
+    archive_bundle_id: str | None = None,
+    child_observed_sha256: str | None = None,
+) -> tuple[Path, Path]:
+    """Install a minimal exact-V8 projection fixture around the strict bundle verifier."""
+
+    package = package_authority_v4()
+    release = tmp_path / "release"
+    root = tmp_path / "bundle"
+    child = root / package.child_module_path
+    release.mkdir()
+    child.parent.mkdir(parents=True)
+    child.write_bytes(b"packaged-child")
+    manifest_path = release / "linux-native-bundle.json"
+    archive_receipt_path = release / "linux-native-archive.json"
+    archive_path = release / "devfabric-linux-native.tar.gz"
+    manifest_path.write_text("{}", encoding="utf-8")
+    archive_receipt_path.write_text("{}", encoding="utf-8")
+    archive_path.write_bytes(b"archive")
+
+    projected_bundle_id = bundle_id or package.bundle_id
+    codex = SimpleNamespace(
+        accepted_run_id=package.build_run_id,
+        accepted_run_attempt=package.build_run_attempt,
+        devfabric_implementation_commit=package.retained_codex_implementation_commit,
+        build_id=package.build_id,
+        build_receipt_sha256=package.build_receipt_sha256,
+        inventory_sha256=package.build_inventory_sha256,
+        linux_native_codex_build_id=package.linux_native_codex_build_id,
+        executable_sha256=package.codex_sha256,
+        code_mode_host_sha256=package.code_mode_host_sha256,
+    )
+    runtime = SimpleNamespace(
+        linux_python_runtime_id=package.python_runtime_id,
+        payload=SimpleNamespace(devhub_source_commit=package.package_implementation_commit),
+    )
+    python = SimpleNamespace(
+        runtime=runtime,
+        executable_sha256=package.python_executable_sha256,
+    )
+    child_entry = SimpleNamespace(
+        path=package.child_module_path,
+        kind="file",
+        sha256=package.child_module_sha256,
+    )
+    bundle = SimpleNamespace(
+        linux_native_bundle_id=projected_bundle_id,
+        payload=SimpleNamespace(
+            implementation_commit=package.package_implementation_commit,
+            retained_codex_implementation_commit=package.retained_codex_implementation_commit,
+            python=python,
+            codex=codex,
+            files=(child_entry,),
+        ),
+    )
+    archive = SimpleNamespace(
+        linux_native_archive_id=package.archive_id,
+        payload=SimpleNamespace(
+            bundle_id=archive_bundle_id or projected_bundle_id,
+            size=package.archive_size,
+            sha256=package.archive_sha256,
+        ),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "LinuxNativeBundleV8",
+        SimpleNamespace(model_validate_json=lambda _raw: bundle),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "LinuxNativeArchiveV8",
+        SimpleNamespace(model_validate_json=lambda _raw: archive),
+    )
+    monkeypatch.setattr(PROBE, "verify_linux_native_bundle", lambda *_args: None)
+    real_stat = Path.stat
+
+    def projected_stat(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        result = real_stat(path, follow_symlinks=follow_symlinks)
+        if path == archive_path:
+            values = list(result)
+            values[6] = package.archive_size
+            return os.stat_result(values)
+        return result
+
+    def projected_sha256(path: Path) -> str:
+        if path == manifest_path:
+            return package.bundle_manifest_sha256
+        if path == archive_path:
+            return package.archive_sha256
+        if path == child:
+            return child_observed_sha256 or package.child_module_sha256
+        raise AssertionError(f"unexpected package hash path: {path}")
+
+    monkeypatch.setattr(Path, "stat", projected_stat)
+    monkeypatch.setattr(PROBE, "file_sha256", projected_sha256)
+    return release, root
+
+
+def test_verified_package_authority_v15_projects_exact_bundle_v8(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    release, root = stub_v8_package_release(tmp_path, monkeypatch)
+
+    observed_root, authority = PROBE.verified_package_authority_v15(
+        release,
+        root,
+        38387100992,
+        1,
+    )
+
+    assert observed_root == root.resolve(strict=True)
+    assert authority == package_authority_v4()
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        {"schema_version": 7},
+        {
+            "schema_version": 8,
+            "linux_native_bundle_id": H,
+            "payload": {"schema_version": 7},
+        },
+    ),
+)
+def test_verified_package_authority_v15_rejects_v7_or_mixed_bundle_schema(
+    raw: dict[str, object], tmp_path: Path
+) -> None:
+    release = tmp_path / "release"
+    root = tmp_path / "bundle"
+    release.mkdir()
+    root.mkdir()
+    (release / "linux-native-bundle.json").write_text(
+        json.dumps(raw),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError):
+        PROBE.verified_package_authority_v15(release, root, 38387100992, 1)
+
+
+@pytest.mark.parametrize(("run_id", "run_attempt"), ((1, 1), (38387100992, 2)))
+def test_verified_package_authority_v15_rejects_run_identity_mismatch(
+    run_id: int,
+    run_attempt: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release, root = stub_v8_package_release(tmp_path, monkeypatch)
+
+    with pytest.raises(ValidationError):
+        PROBE.verified_package_authority_v15(release, root, run_id, run_attempt)
+
+
+@pytest.mark.parametrize("substitution", ("archive_bundle", "bundle"))
+def test_verified_package_authority_v15_rejects_archive_or_bundle_substitution(
+    substitution: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    replacement = "f" * 64
+    release, root = stub_v8_package_release(
+        tmp_path,
+        monkeypatch,
+        bundle_id=replacement if substitution == "bundle" else None,
+        archive_bundle_id=replacement if substitution == "archive_bundle" else None,
+    )
+
+    expected_error = ValueError if substitution == "archive_bundle" else ValidationError
+    with pytest.raises(expected_error):
+        PROBE.verified_package_authority_v15(release, root, 38387100992, 1)
+
+
+def test_verified_package_authority_v15_rejects_child_byte_substitution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    release, root = stub_v8_package_release(
+        tmp_path,
+        monkeypatch,
+        child_observed_sha256="f" * 64,
+    )
+
+    with pytest.raises(ValueError, match="exact split implementation"):
+        PROBE.verified_package_authority_v15(release, root, 38387100992, 1)
+
+
 def test_v14_failure_accepts_only_bound_child_runtime_failure_v3() -> None:
     profile = LinuxIsolationProfileV14.create(profile_payload_v14())
     child = LinuxChildRuntimeFailureV3.create(
@@ -5484,11 +5810,11 @@ def test_run_probe_accepts_zero_exit_child_json_arrays(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v14_for_server(server)
+    profile = profile_v15_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     broker_dir = tmp_path / "broker"
     broker_dir.mkdir(mode=0o700)
-    child_result = observation_v14().model_dump_json().encode("utf-8") + b"\n"
+    child_result = observation_v15().model_dump_json().encode("utf-8") + b"\n"
     monkeypatch.setattr(PROBE, "revalidate_profile_sources", lambda *_args: None)
     monkeypatch.setattr(PROBE, "revalidate_synthetic_upstream", lambda *_args: None)
     monkeypatch.setattr(PROBE, "namespace_id", lambda kind: f"{kind}:[1]")
@@ -5536,7 +5862,7 @@ def test_run_probe_accepts_zero_exit_child_json_arrays(
         )
     finally:
         server.close()
-    assert observed == observation_v14().model_copy(
+    assert observed == observation_v15().model_copy(
         update={
             "synthetic_upstream": LinuxSyntheticUpstreamObservationV1(
                 authority=profile.payload.synthetic_upstream
@@ -5683,7 +6009,7 @@ def test_run_probe_prefers_typed_runtime_failure_over_expected_broker_cancellati
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v14_for_server(server)
+    profile = profile_v15_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     failure = LinuxChildRuntimeFailureV3.create(
         LinuxChildRuntimeFailurePayloadV3(
@@ -5739,7 +6065,7 @@ def test_run_probe_keeps_independent_broker_failure_primary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v14_for_server(server)
+    profile = profile_v15_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     failure = LinuxChildRuntimeFailureV3.create(
         LinuxChildRuntimeFailurePayloadV3(
@@ -5803,7 +6129,7 @@ def test_run_probe_binds_preworker_broker_failure(
     failure_point: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v14_for_server(server)
+    profile = profile_v15_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     (tmp_path / "broker").mkdir(mode=0o700)
     host_pid = os.getpid()
@@ -5866,7 +6192,7 @@ def test_run_probe_binds_preworker_broker_failure(
 def test_main_seals_every_primary_broker_failure(
     failure_point: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    expected = profile_payload_v14()
+    expected = profile_payload_v15()
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
     release = tmp_path / "release"
@@ -5889,7 +6215,7 @@ def test_main_seals_every_primary_broker_failure(
         result: bytes | None = None
         returncode = 0
         if failure_point == "concurrent_worker_child":
-            profile = cast(LinuxIsolationProfileV14, args[0])
+            profile = cast(LinuxIsolationProfileV15, args[0])
             child = LinuxChildRuntimeFailureV3.create(
                 LinuxChildRuntimeFailurePayloadV3(
                     linux_isolation_profile_id=profile.linux_isolation_profile_id,
@@ -5919,12 +6245,12 @@ def test_main_seals_every_primary_broker_failure(
     monkeypatch.setattr(PROBE, "verified_git_head", lambda *_args: None)
     monkeypatch.setattr(
         PROBE,
-        "verified_package_authority",
-        lambda *_args: (tmp_path, package_authority_v3()),
+        "verified_package_authority_v15",
+        lambda *_args: (tmp_path, package_authority_v4()),
     )
     fixture = next(item for item in expected.source_directories if item.role == "fixture")
     monkeypatch.setattr(PROBE, "bundle_directory_authority", lambda *_args: fixture)
-    monkeypatch.setattr(PROBE, "file_sha256", package_probe_hash_v3)
+    monkeypatch.setattr(PROBE, "file_sha256", package_probe_hash_v4)
     monkeypatch.setattr(PROBE, "apparmor_authority", lambda *_args: expected.host.apparmor)
     monkeypatch.setattr(PROBE, "host_authority", lambda *_args: expected.host)
     monkeypatch.setattr(PROBE, "file_authority", fixed_file_authority)
@@ -6010,7 +6336,7 @@ def test_run_probe_rejects_missing_or_malformed_runtime_failure(
     result: bytes | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = PROBE.bind_stub_ollama(port=0)
-    profile = profile_v14_for_server(server)
+    profile = profile_v15_for_server(server)
     capture = PROBE.ProbeProcessCapture()
     (tmp_path / "broker").mkdir(mode=0o700)
     host_pid = os.getpid()
@@ -6063,7 +6389,7 @@ def test_main_publishes_exact_v8_child_failure_phase_without_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expected = profile_payload_v14()
+    expected = profile_payload_v15()
     diagnostic = b"bounded-main-child-bootstrap-failure"
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
@@ -6092,7 +6418,7 @@ def test_main_publishes_exact_v8_child_failure_phase_without_success(
         )
 
     def fail_after_launch(*args: object) -> None:
-        active_profile = cast(LinuxIsolationProfileV14, args[0])
+        active_profile = cast(LinuxIsolationProfileV15, args[0])
         server = cast(socket.socket, args[7])
         capture = cast(PROBE.ProbeProcessCapture, args[8])
         capture.process_started = True
@@ -6150,12 +6476,12 @@ def test_main_publishes_exact_v8_child_failure_phase_without_success(
     monkeypatch.setattr(PROBE, "verified_git_head", lambda *_args: None)
     monkeypatch.setattr(
         PROBE,
-        "verified_package_authority",
-        lambda *_args: (tmp_path, package_authority_v3()),
+        "verified_package_authority_v15",
+        lambda *_args: (tmp_path, package_authority_v4()),
     )
     fixture = next(item for item in expected.source_directories if item.role == "fixture")
     monkeypatch.setattr(PROBE, "bundle_directory_authority", lambda *_args: fixture)
-    monkeypatch.setattr(PROBE, "file_sha256", package_probe_hash_v3)
+    monkeypatch.setattr(PROBE, "file_sha256", package_probe_hash_v4)
     monkeypatch.setattr(PROBE, "apparmor_authority", lambda *_args: expected.host.apparmor)
     monkeypatch.setattr(PROBE, "host_authority", lambda *_args: expected.host)
     monkeypatch.setattr(PROBE, "file_authority", fixed_file_authority)
@@ -6738,9 +7064,9 @@ def test_workflow_checks_out_exact_head_and_manual_runs_are_main_only() -> None:
     assert "pull_request:" not in workflow
     assert "ref: ${{ github.sha }}" in workflow
     assert "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'" in workflow
-    assert "Exact successful Linux Bundle V7 workflow run ID" in workflow
-    assert "EXPECTED_BUNDLE_COMMIT: 0c39acf9afca1106985a1c35fca846c86d5789c7" in workflow
-    assert 'test "$BUNDLE_RUN_ID" = "38374815599"' in workflow
+    assert "Exact successful Linux Bundle V8 workflow run ID" in workflow
+    assert "EXPECTED_BUNDLE_COMMIT: cffb59052eb7f0c026a6fffb056b301ef3f90458" in workflow
+    assert 'test "$BUNDLE_RUN_ID" = "38387100992"' in workflow
     assert 'test "$BUNDLE_RUN_ATTEMPT" = "1"' in workflow
     assert 'gh run view "$BUNDLE_RUN_ID"' in workflow
     assert 'gh api "repos/${{ github.repository }}/actions/runs/$BUNDLE_RUN_ID"' in workflow
