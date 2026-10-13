@@ -4148,6 +4148,92 @@ class LinuxSystemdSelectorOutputDigestV1(Contract):
     raw_output_sha256: Digest
 
 
+class LinuxSystemdFilterDiagnosticV1(Contract):
+    unit_role: Literal["matched_control", "target"]
+    raw_byte_count: Annotated[int, Field(ge=0, le=262_144)]
+    raw_sha256: Digest
+    token_count: Annotated[int, Field(ge=0, le=4096)]
+    rejected_token_classifications: tuple[
+        Literal["denylist", "duplicate", "invalid_token", "missing_tokens"], ...
+    ]
+
+    @model_validator(mode="after")
+    def sorted_unique_reasons(self) -> LinuxSystemdFilterDiagnosticV1:
+        values = self.rejected_token_classifications
+        if not values or values != tuple(sorted(set(values))):
+            raise ValueError("Systemd filter diagnostic classifications must be sorted and unique")
+        return self
+
+
+class LinuxSystemdUnitPostCreateJournalPayloadV1(Contract):
+    journal_kind: Literal["linux_systemd_unit_post_create_v1"] = "linux_systemd_unit_post_create_v1"
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    unit_role: Literal["matched_control", "target"]
+    unit_name: Annotated[
+        str,
+        Field(pattern=(r"^devfabric-linux-isolation-(?:control-)?[a-f0-9]{32}\.service$")),
+    ]
+    expected_control_group: Annotated[
+        str,
+        Field(
+            pattern=(
+                r"^/system\.slice/devfabric-linux-isolation-(?:control-)?"
+                r"[a-f0-9]{32}\.service$"
+            )
+        ),
+    ]
+    observed_control_group: str
+    cgroup_absent: bool
+    cgroup_native_identity: LinuxNativePathIdentityV1 | None
+    invocation_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    argv_sha256: Digest
+    stable_properties_sha256: Digest
+    system_call_filter_raw_sha256: Digest
+    system_call_filter_raw_bytes: Annotated[int, Field(ge=0, le=262_144)]
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+
+    @model_validator(mode="after")
+    def observed_expected_control_group(self) -> LinuxSystemdUnitPostCreateJournalPayloadV1:
+        if self.cgroup_absent:
+            valid = self.observed_control_group == "" and self.cgroup_native_identity is None
+        else:
+            valid = (
+                self.observed_control_group == self.expected_control_group
+                and self.cgroup_native_identity is not None
+            )
+        if not valid:
+            raise ValueError("Systemd post-create journal control group differs")
+        return self
+
+
+class LinuxSystemdUnitPostCreateJournalV1(Contract):
+    linux_systemd_unit_post_create_journal_id: Digest
+    payload: LinuxSystemdUnitPostCreateJournalPayloadV1
+
+    @classmethod
+    def create(
+        cls, payload: LinuxSystemdUnitPostCreateJournalPayloadV1
+    ) -> LinuxSystemdUnitPostCreateJournalV1:
+        return cls(
+            linux_systemd_unit_post_create_journal_id=digest(
+                canonical(payload.model_dump(mode="json"))
+            ),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxSystemdUnitPostCreateJournalV1:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_systemd_unit_post_create_journal_id != expected:
+            raise ValueError("Systemd post-create journal hash mismatch")
+        return self
+
+
 class LinuxSyscallAllowlistMismatchObservationV1(Contract):
     configured_allowlist_count: Annotated[int, Field(ge=0, le=4096)]
     configured_allowlist_sha256: Digest
@@ -4227,6 +4313,56 @@ class LinuxCgroupLifecycleFailureV2(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_cgroup_lifecycle_failure_id != expected:
             raise ValueError("Linux cgroup lifecycle failure V2 hash mismatch")
+        return self
+
+
+class LinuxCgroupLifecycleFailurePayloadV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    receipt_kind: Literal["linux_cgroup_lifecycle_failure_v3"] = "linux_cgroup_lifecycle_failure_v3"
+    phase: Literal["run"] = "run"
+    reason_code: Literal["systemd_filter_representation_mismatch"] = (
+        "systemd_filter_representation_mismatch"
+    )
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    cleanup_attempted: bool
+    cleanup_succeeded: bool
+    authority_observation: LinuxSystemdFilterDiagnosticV1
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+
+    @model_validator(mode="after")
+    def truthful_cleanup_state(self) -> LinuxCgroupLifecycleFailurePayloadV3:
+        if self.cleanup_succeeded and not self.cleanup_attempted:
+            raise ValueError("Successful diagnostic cleanup was not attempted")
+        role = self.authority_observation.unit_role
+        if role == "target" and (self.cleanup_attempted or self.cleanup_succeeded):
+            raise ValueError("Target diagnostic cannot claim inline cleanup")
+        if role == "matched_control" and not self.cleanup_attempted:
+            raise ValueError("Matched-control diagnostic must record inline cleanup attempt")
+        return self
+
+
+class LinuxCgroupLifecycleFailureV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    linux_cgroup_lifecycle_failure_id: Digest
+    payload: LinuxCgroupLifecycleFailurePayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupLifecycleFailurePayloadV3) -> LinuxCgroupLifecycleFailureV3:
+        return cls(
+            linux_cgroup_lifecycle_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupLifecycleFailureV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_lifecycle_failure_id != expected:
+            raise ValueError("Linux cgroup lifecycle failure V3 hash mismatch")
         return self
 
 
@@ -5976,6 +6112,79 @@ class LinuxCgroupRollbackReceiptV2(ContractV2):
             canonical(self.payload.model_dump(mode="json"))
         ):
             raise ValueError("Linux V19 rollback receipt hash mismatch")
+        return self
+
+
+class LinuxCgroupRollbackPayloadV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    receipt_kind: Literal["linux_cgroup_rollback_receipt_v3"] = "linux_cgroup_rollback_receipt_v3"
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    control_group: Annotated[
+        str,
+        Field(pattern=r"^/system\.slice/devfabric-linux-isolation-[a-f0-9]{32}\.service$"),
+    ]
+    control_unit_name: Annotated[
+        str,
+        Field(pattern=r"^devfabric-linux-isolation-control-[a-f0-9]{32}\.service$"),
+    ]
+    control_control_group: Annotated[
+        str,
+        Field(
+            pattern=(
+                r"^/system\.slice/devfabric-linux-isolation-control-"
+                r"[a-f0-9]{32}\.service$"
+            )
+        ),
+    ]
+    cleanup_attempted: Literal[True] = True
+    cleanup_succeeded: bool
+    unit_absent: bool
+    cgroup_absent: bool
+    control_unit_absent: bool
+    control_cgroup_absent: bool
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+
+    @model_validator(mode="after")
+    def truthful_complete_success(self) -> LinuxCgroupRollbackPayloadV3:
+        expected = all(
+            (
+                self.unit_absent,
+                self.cgroup_absent,
+                self.control_unit_absent,
+                self.control_cgroup_absent,
+            )
+        )
+        if self.cleanup_succeeded != expected:
+            raise ValueError("Linux V19 rollback V3 success differs from absence observations")
+        return self
+
+
+class LinuxCgroupRollbackReceiptV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    linux_cgroup_rollback_receipt_id: Digest
+    payload: LinuxCgroupRollbackPayloadV3
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupRollbackPayloadV3) -> LinuxCgroupRollbackReceiptV3:
+        return cls(
+            linux_cgroup_rollback_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupRollbackReceiptV3:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_rollback_receipt_id != expected:
+            raise ValueError("Linux V19 rollback V3 receipt hash mismatch")
         return self
 
 
