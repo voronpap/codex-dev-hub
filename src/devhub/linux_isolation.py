@@ -807,7 +807,7 @@ class LinuxIsolationProfilePayloadV12(LinuxIsolationProfilePayloadV11):
 class LinuxPackageAuthorityV2(Contract):
     """Exact Build-012/Bundle V6 authority consumed by isolation V13."""
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[2] = 2  # type: ignore[assignment]
     bundle_schema_version: Literal[6] = 6
     archive_schema_version: Literal[6] = 6
     bundle_workflow_path: Literal[".github/workflows/linux-native-bundle.yml"] = (
