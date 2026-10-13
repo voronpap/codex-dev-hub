@@ -9668,10 +9668,26 @@ def test_v19_selector_parser_rejects_unsupported_or_duplicate_output() -> None:
     assert CGROUP_MANAGER._parse_selector_output(
         "@sandbox", b"@sandbox\n    # reviewed\n    read\n    write\n"
     ) == ("read", "write")
+    assert CGROUP_MANAGER._parse_selector_output(
+        "@system-service",
+        (
+            b"@system-service\n"
+            b"    # General system service operations\n"
+            b"    \x1b[0m@basic-io\n"
+            b"    read\n"
+        ),
+    ) == ("@basic-io", "read")
     for raw in (
         b"@sandbox\n    # reviewed\n    read\n    read\n",
         b"@sandbox\n    # reviewed\n    read write\n",
         b"wrong\n    # reviewed\n    read\n",
+        b"@sandbox\n    # reviewed\n    \x1b[31m@basic-io\n",
+        b"@sandbox\n    # reviewed\n    \x1b[0mread\n",
+        b"@sandbox\n    # reviewed\n    @basic-io\x1b[0m\n",
+        b"@sandbox\n    # reviewed\n    \x1b[0m\x1b[0m@basic-io\n",
+        b"@sandbox\n    # reviewed\n    \x1b[0m@Basic-io\n",
+        b"@sandbox\n    # reviewed\n    \x1b[0m@basic_io\n",
+        b"@sandbox\n    # reviewed\n    unknown-line!\n",
     ):
         with pytest.raises(ValueError, match="unsupported|duplicated"):
             CGROUP_MANAGER._parse_selector_output("@sandbox", raw)
