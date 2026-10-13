@@ -685,6 +685,15 @@ already hash-bound loader command; any conflicting emitted loader locator and
 every other omitted or ambient dependency still fail closed. No V10 artifact
 was published by that run, and all execution counters remained zero.
 
+Main-only V10 run `38409488686/1` failed closed before publication when glibc
+reported the target's embedded interpreter as an absolute alias resolving to
+the exact bundled loader. The verifier had only modeled the absolute and
+omitted-self representations and therefore rejected the alias key as an
+ambient dependency. The strict parser now accepts only the exact
+`embedded_interpreter => hash-bound bundled loader` mapping; a different alias,
+locator or loader bytes still fail closed. No artifact was published by that
+run, and all execution counters remained zero.
+
 Bundle V10 still records `native_executor_isolation_qualified=false` and
 `package_readiness=false`. Its relocated metadata-only smoke proves the
 bundle-owned loader can start the exact Python runtime and import the reviewed
