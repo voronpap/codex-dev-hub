@@ -251,9 +251,13 @@ def _parse_selector_output(selector: str, raw: bytes) -> tuple[str, ...]:
         raise ValueError("systemd-analyze selector output has an unsupported representation")
     values: list[str] = []
     for line in lines[2:]:
-        if not re.fullmatch(r"    @[a-z0-9-]+|    [a-z0-9_]+", line):
+        match = re.fullmatch(
+            r"    (?:\x1b\[0m)?(?P<selector>@[a-z0-9-]+)|    (?P<syscall>[a-z0-9_]+)",
+            line,
+        )
+        if match is None:
             raise ValueError("systemd-analyze selector output contains an unsupported line")
-        values.append(line.strip())
+        values.append(match.group("selector") or match.group("syscall"))
     if not values or len(values) != len(set(values)):
         raise ValueError("systemd-analyze selector output is empty or duplicated")
     return tuple(values)
