@@ -35,7 +35,9 @@ from devhub.linux_isolation import (
     LinuxCgroupCleanupStatePayloadV2,
     LinuxCgroupCleanupStateV2,
     LinuxCgroupLifecycleFailurePayloadV1,
+    LinuxCgroupLifecycleFailurePayloadV2,
     LinuxCgroupLifecycleFailureV1,
+    LinuxCgroupLifecycleFailureV2,
     LinuxCgroupRollbackPayloadV1,
     LinuxCgroupRollbackPayloadV2,
     LinuxCgroupRollbackReceiptV1,
@@ -56,11 +58,13 @@ from devhub.linux_isolation import (
     LinuxNativePathIdentityV1,
     LinuxRawPersonalityObservationV1,
     LinuxSyscallAllowlistAuthorityV1,
+    LinuxSyscallAllowlistMismatchObservationV1,
     LinuxSyscallFilterBoundaryAuthorityV1,
     LinuxSystemdAnalyzeAuthorityV1,
     LinuxSystemdControlPolicyObservationV1,
     LinuxSystemdManagerAuthorityV1,
     LinuxSystemdResourcePolicyObservationV1,
+    LinuxSystemdSelectorOutputDigestV1,
     LinuxSystemdToolAuthorityV1,
     LinuxSystemdUnitPolicyObservationV1,
     LinuxToolVersionEnvironmentV1,
@@ -73,6 +77,21 @@ _VERSION_ENVIRONMENT = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bi
 _SYSCALL_SELECTORS = ("@system-service", "@mount", "@sandbox")
 _PERSONALITY_QUERY = 0xFFFFFFFF
 _SYS_PERSONALITY_X86_64 = 135
+
+
+class SyscallAllowlistAuthorityMismatch(ValueError):
+    def __init__(
+        self,
+        reason_code: Literal[
+            "syscall_allowlist_count_mismatch",
+            "syscall_allowlist_hash_mismatch",
+            "systemd_version_output_mismatch",
+        ],
+        observation: LinuxSyscallAllowlistMismatchObservationV1,
+    ) -> None:
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+        self.observation = observation
 
 
 def file_sha256(path: Path) -> str:
@@ -164,7 +183,7 @@ def file_authority(path: Path) -> LinuxFileAuthorityV1:
     )
 
 
-def systemd_analyze_authority() -> LinuxSystemdAnalyzeAuthorityV1:
+def _systemd_analyze_observation() -> tuple[LinuxFileAuthorityV1, str]:
     path = Path(LINUX_SYSTEMD_ANALYZE)
     native, info, sha = plain_file_authority(path)
     version = subprocess.run(
@@ -182,19 +201,35 @@ def systemd_analyze_authority() -> LinuxSystemdAnalyzeAuthorityV1:
         or after_sha != sha
     ):
         raise ValueError("systemd-analyze authority changed during version observation")
-    return LinuxSystemdAnalyzeAuthorityV1(
-        locator=str(path),
-        sha256=sha,
-        size=info.st_size,
-        owner_uid=info.st_uid,
-        owner_gid=info.st_gid,
-        mode=f"0{stat.S_IMODE(info.st_mode):03o}",
-        native_identity=native,
-        version_output_sha256=hashlib.sha256(version.stdout + version.stderr).hexdigest(),
+    return (
+        LinuxFileAuthorityV1(
+            locator=str(path),
+            sha256=sha,
+            size=info.st_size,
+            owner_uid=info.st_uid,
+            owner_gid=info.st_gid,
+            mode=f"0{stat.S_IMODE(info.st_mode):03o}",
+            native_identity=native,
+        ),
+        hashlib.sha256(version.stdout + version.stderr).hexdigest(),
     )
 
 
-def systemd_manager_authority() -> LinuxSystemdManagerAuthorityV1:
+def systemd_analyze_authority() -> LinuxSystemdAnalyzeAuthorityV1:
+    observed, version_output_sha256 = _systemd_analyze_observation()
+    return LinuxSystemdAnalyzeAuthorityV1(
+        locator=LINUX_SYSTEMD_ANALYZE,
+        sha256=observed.sha256,
+        size=observed.size,
+        owner_uid=observed.owner_uid,
+        owner_gid=observed.owner_gid,
+        mode=observed.mode,
+        native_identity=observed.native_identity,
+        version_output_sha256=version_output_sha256,
+    )
+
+
+def _systemd_manager_observation() -> tuple[LinuxFileAuthorityV1, int, str, str]:
     manager_link = os.readlink("/proc/1/exe")
     if manager_link != LINUX_SYSTEMD_MANAGER:
         raise ValueError("PID 1 is not the reviewed systemd manager executable")
@@ -229,8 +264,8 @@ def systemd_manager_authority() -> LinuxSystemdManagerAuthorityV1:
         or after_boot_id != boot_id
     ):
         raise ValueError("PID 1 systemd authority changed during version observation")
-    return LinuxSystemdManagerAuthorityV1(
-        executable=LinuxFileAuthorityV1(
+    return (
+        LinuxFileAuthorityV1(
             locator=str(path),
             sha256=sha,
             size=info.st_size,
@@ -239,9 +274,19 @@ def systemd_manager_authority() -> LinuxSystemdManagerAuthorityV1:
             mode=f"0{stat.S_IMODE(info.st_mode):03o}",
             native_identity=native,
         ),
+        start_time_ticks,
+        boot_id,
+        hashlib.sha256(version.stdout + version.stderr).hexdigest(),
+    )
+
+
+def systemd_manager_authority() -> LinuxSystemdManagerAuthorityV1:
+    executable, start_time_ticks, boot_id, version_output_sha256 = _systemd_manager_observation()
+    return LinuxSystemdManagerAuthorityV1(
+        executable=executable,
         start_time_ticks=start_time_ticks,
         boot_id=boot_id,
-        version_output_sha256=hashlib.sha256(version.stdout + version.stderr).hexdigest(),
+        version_output_sha256=version_output_sha256,
     )
 
 
@@ -264,9 +309,11 @@ def _parse_selector_output(selector: str, raw: bytes) -> tuple[str, ...]:
 
 
 def resolve_syscall_allowlist() -> LinuxSyscallAllowlistAuthorityV1:
-    analyze = systemd_analyze_authority()
-    manager = systemd_manager_authority()
-    if analyze.version_output_sha256 != manager.version_output_sha256:
+    analyze_file, analyze_version = _systemd_analyze_observation()
+    manager_file, manager_start_time, manager_boot_id, manager_version = (
+        _systemd_manager_observation()
+    )
+    if analyze_version != manager_version:
         raise ValueError("systemd analyzer and manager lineages differ")
     outputs: dict[str, bytes] = {}
     parsed: dict[str, tuple[str, ...]] = {}
@@ -303,12 +350,47 @@ def resolve_syscall_allowlist() -> LinuxSyscallAllowlistAuthorityV1:
     output_projection = {
         selector: hashlib.sha256(outputs[selector]).hexdigest() for selector in sorted(outputs)
     }
-    if (
-        len(configured) != LINUX_SYSCALL_ALLOWLIST_COUNT
-        or configured_sha != LINUX_SYSCALL_ALLOWLIST_SHA256
-        or analyze.version_output_sha256 != LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
-    ):
-        raise ValueError("Resolved syscall selector expansion is not the pre-authorized V19 set")
+    mismatch_observation = LinuxSyscallAllowlistMismatchObservationV1(
+        configured_allowlist_count=len(configured),
+        configured_allowlist_sha256=configured_sha,
+        systemd_analyze_version_output_sha256=analyze_version,
+        systemd_manager_version_output_sha256=manager_version,
+        selector_outputs=tuple(
+            LinuxSystemdSelectorOutputDigestV1(
+                selector=selector,
+                raw_output_sha256=output_projection[selector],
+            )
+            for selector in sorted(output_projection)
+        ),
+    )
+    if len(configured) != LINUX_SYSCALL_ALLOWLIST_COUNT:
+        raise SyscallAllowlistAuthorityMismatch(
+            "syscall_allowlist_count_mismatch", mismatch_observation
+        )
+    if configured_sha != LINUX_SYSCALL_ALLOWLIST_SHA256:
+        raise SyscallAllowlistAuthorityMismatch(
+            "syscall_allowlist_hash_mismatch", mismatch_observation
+        )
+    if analyze_version != LINUX_REVIEWED_SYSTEMD_VERSION_SHA256:
+        raise SyscallAllowlistAuthorityMismatch(
+            "systemd_version_output_mismatch", mismatch_observation
+        )
+    analyze = LinuxSystemdAnalyzeAuthorityV1(
+        locator=LINUX_SYSTEMD_ANALYZE,
+        sha256=analyze_file.sha256,
+        size=analyze_file.size,
+        owner_uid=analyze_file.owner_uid,
+        owner_gid=analyze_file.owner_gid,
+        mode=analyze_file.mode,
+        native_identity=analyze_file.native_identity,
+        version_output_sha256=analyze_version,
+    )
+    manager = LinuxSystemdManagerAuthorityV1(
+        executable=manager_file,
+        start_time_ticks=manager_start_time,
+        boot_id=manager_boot_id,
+        version_output_sha256=manager_version,
+    )
     return LinuxSyscallAllowlistAuthorityV1(
         configured_explicit_allowlist=configured,
         configured_allowlist_sha256=configured_sha,
@@ -1445,7 +1527,23 @@ def write_failure(
     implementation_commit: str,
     environment_instance_id: str,
     state_id: str | None,
+    error: BaseException,
 ) -> None:
+    if (
+        isinstance(error, SyscallAllowlistAuthorityMismatch)
+        and phase == "setup"
+        and state_id is None
+    ):
+        failure_v2 = LinuxCgroupLifecycleFailureV2.create(
+            LinuxCgroupLifecycleFailurePayloadV2(
+                reason_code=error.reason_code,
+                implementation_commit=implementation_commit,
+                environment_instance_id=environment_instance_id,
+                authority_observation=error.observation,
+            )
+        )
+        write_new(path, canonical(failure_v2.model_dump(mode="json")))
+        return
     reason = {
         "setup": "authority_invalid",
         "run": "service_execution_failed",
@@ -1666,7 +1764,7 @@ def main() -> None:
                 write_new(args.output, canonical(rollback_receipt.model_dump(mode="json")))
                 if not rollback_receipt.payload.cleanup_succeeded:
                     raise ValueError("V19 transient cgroup rollback failed")
-    except BaseException:
+    except BaseException as error:
         if not args.failure_output.exists():
             if args.operation.startswith("setup"):
                 failure_phase: Literal["setup", "run", "cleanup"] = "setup"
@@ -1687,6 +1785,7 @@ def main() -> None:
                 implementation_commit=args.implementation_commit,
                 environment_instance_id=args.environment_instance_id,
                 state_id=(state.linux_cgroup_setup_state_id if state is not None else None),
+                error=error,
             )
         raise
 

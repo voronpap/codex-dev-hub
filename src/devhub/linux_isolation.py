@@ -4124,6 +4124,93 @@ class LinuxCgroupLifecycleFailureV1(Contract):
         return self
 
 
+class LinuxSystemdSelectorOutputDigestV1(Contract):
+    selector: Annotated[str, Field(pattern=r"^@[a-z0-9-]+$")]
+    raw_output_sha256: Digest
+
+
+class LinuxSyscallAllowlistMismatchObservationV1(Contract):
+    configured_allowlist_count: Annotated[int, Field(ge=0, le=4096)]
+    configured_allowlist_sha256: Digest
+    systemd_analyze_version_output_sha256: Digest
+    systemd_manager_version_output_sha256: Digest
+    selector_outputs: Annotated[
+        tuple[LinuxSystemdSelectorOutputDigestV1, ...], Field(min_length=1, max_length=64)
+    ]
+
+    @model_validator(mode="after")
+    def sorted_unique_selectors(self) -> LinuxSyscallAllowlistMismatchObservationV1:
+        selectors = tuple(value.selector for value in self.selector_outputs)
+        if selectors != tuple(sorted(set(selectors))):
+            raise ValueError("Systemd selector output observations must be sorted and unique")
+        return self
+
+
+class LinuxCgroupLifecycleFailurePayloadV2(ContractV2):
+    receipt_kind: Literal["linux_cgroup_lifecycle_failure_v2"] = "linux_cgroup_lifecycle_failure_v2"
+    phase: Literal["setup"] = "setup"
+    reason_code: Literal[
+        "syscall_allowlist_count_mismatch",
+        "syscall_allowlist_hash_mismatch",
+        "systemd_version_output_mismatch",
+    ]
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: None = None
+    cleanup_attempted: Literal[False] = False
+    cleanup_succeeded: Literal[False] = False
+    authority_observation: LinuxSyscallAllowlistMismatchObservationV1
+    model_requests: Literal[0] = 0
+    provider_sends: Literal[0] = 0
+    mcp_tool_executions: Literal[0] = 0
+    real_task_executions: Literal[0] = 0
+
+    @model_validator(mode="after")
+    def exact_mismatch_classification(self) -> LinuxCgroupLifecycleFailurePayloadV2:
+        observed = self.authority_observation
+        if (
+            observed.systemd_analyze_version_output_sha256
+            != observed.systemd_manager_version_output_sha256
+        ):
+            raise ValueError("Systemd analyzer and manager mismatch observations differ")
+        if self.reason_code == "syscall_allowlist_count_mismatch":
+            if observed.configured_allowlist_count == LINUX_SYSCALL_ALLOWLIST_COUNT:
+                raise ValueError("Syscall allowlist count mismatch reason is not observed")
+        elif self.reason_code == "syscall_allowlist_hash_mismatch":
+            if (
+                observed.configured_allowlist_count != LINUX_SYSCALL_ALLOWLIST_COUNT
+                or observed.configured_allowlist_sha256 == LINUX_SYSCALL_ALLOWLIST_SHA256
+            ):
+                raise ValueError("Syscall allowlist hash mismatch reason is not the first mismatch")
+        elif (
+            observed.configured_allowlist_count != LINUX_SYSCALL_ALLOWLIST_COUNT
+            or observed.configured_allowlist_sha256 != LINUX_SYSCALL_ALLOWLIST_SHA256
+            or observed.systemd_analyze_version_output_sha256
+            == LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
+        ):
+            raise ValueError("Systemd version mismatch reason is not the first mismatch")
+        return self
+
+
+class LinuxCgroupLifecycleFailureV2(ContractV2):
+    linux_cgroup_lifecycle_failure_id: Digest
+    payload: LinuxCgroupLifecycleFailurePayloadV2
+
+    @classmethod
+    def create(cls, payload: LinuxCgroupLifecycleFailurePayloadV2) -> LinuxCgroupLifecycleFailureV2:
+        return cls(
+            linux_cgroup_lifecycle_failure_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxCgroupLifecycleFailureV2:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_cgroup_lifecycle_failure_id != expected:
+            raise ValueError("Linux cgroup lifecycle failure V2 hash mismatch")
+        return self
+
+
 class LinuxAppArmorSetupStatePayloadV1(Contract):
     """Root-owned ownership journal for the narrow temporary AppArmor authority."""
 

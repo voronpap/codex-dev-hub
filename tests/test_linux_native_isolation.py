@@ -8220,7 +8220,7 @@ def test_main_seals_every_primary_broker_failure(
 
         monkeypatch.setattr(PROBE.LinuxMetadataBrokerV1, "serve_requests", fail_worker)
     monkeypatch.setattr(
-        sys,
+        CGROUP_MANAGER.sys,
         "argv",
         [
             "probe_linux_native_isolation.py",
@@ -9458,6 +9458,30 @@ def v19_syscall_policy(
     )
 
 
+def patch_v19_systemd_observations(
+    monkeypatch: pytest.MonkeyPatch,
+    policy: LINUX_ISOLATION.LinuxSyscallAllowlistAuthorityV1,
+) -> None:
+    analyze_file = LINUX_ISOLATION.LinuxFileAuthorityV1.model_validate(
+        policy.systemd_analyze.model_dump(mode="python", exclude={"name", "version_output_sha256"})
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "_systemd_analyze_observation",
+        lambda: (analyze_file, policy.systemd_analyze.version_output_sha256),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "_systemd_manager_observation",
+        lambda: (
+            policy.systemd_manager.executable,
+            policy.systemd_manager.start_time_ticks,
+            policy.systemd_manager.boot_id,
+            policy.systemd_manager.version_output_sha256,
+        ),
+    )
+
+
 def v19_cgroup_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> LINUX_ISOLATION.LinuxCgroupSetupStateV2:
@@ -9777,8 +9801,7 @@ def test_v19_resolver_uses_exact_expansion_before_unit_creation(
 ) -> None:
     names = v19_test_allowlist(monkeypatch)
     policy = v19_syscall_policy(monkeypatch)
-    monkeypatch.setattr(CGROUP_MANAGER, "systemd_analyze_authority", lambda: policy.systemd_analyze)
-    monkeypatch.setattr(CGROUP_MANAGER, "systemd_manager_authority", lambda: policy.systemd_manager)
+    patch_v19_systemd_observations(monkeypatch, policy)
     calls: list[list[str]] = []
     environments: list[object] = []
 
@@ -9821,8 +9844,206 @@ def test_v19_resolver_uses_exact_expansion_before_unit_creation(
         )
 
     monkeypatch.setattr(CGROUP_MANAGER.subprocess, "run", changed_run)
-    with pytest.raises(ValueError, match="pre-authorized V19 set"):
+    with pytest.raises(
+        CGROUP_MANAGER.SyscallAllowlistAuthorityMismatch,
+        match="syscall_allowlist_hash_mismatch",
+    ):
         CGROUP_MANAGER.resolve_syscall_allowlist()
+
+
+@pytest.mark.parametrize(
+    ("reason_code", "output_mutation", "expected_version"),
+    [
+        ("syscall_allowlist_count_mismatch", "add", None),
+        ("syscall_allowlist_hash_mismatch", "replace", None),
+        ("systemd_version_output_mismatch", "none", "e" * 64),
+    ],
+)
+def test_v19_resolver_seals_exact_authority_mismatch_before_state_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reason_code: str,
+    output_mutation: str,
+    expected_version: str | None,
+) -> None:
+    names = v19_test_allowlist(monkeypatch)
+    actual_names = list(names)
+    if output_mutation == "add":
+        actual_names.append("unexpectedcall")
+    elif output_mutation == "replace":
+        actual_names[-1] = "unexpectedcall"
+    actual_names = sorted(actual_names)
+    policy = v19_syscall_policy(monkeypatch)
+    patch_v19_systemd_observations(monkeypatch, policy)
+
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        calls.append(command)
+        selector = command[-1]
+        selected = (*actual_names, "personality") if selector == "@system-service" else ("read",)
+        body = "\n".join(f"    {name}" for name in selected)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            f"{selector}\n    # reviewed\n{body}\n".encode(),
+            b"",
+        )
+
+    monkeypatch.setattr(CGROUP_MANAGER.subprocess, "run", run)
+    if expected_version is not None:
+        monkeypatch.setattr(
+            CGROUP_MANAGER, "LINUX_REVIEWED_SYSTEMD_VERSION_SHA256", expected_version
+        )
+        monkeypatch.setattr(
+            LINUX_ISOLATION, "LINUX_REVIEWED_SYSTEMD_VERSION_SHA256", expected_version
+        )
+
+    with pytest.raises(CGROUP_MANAGER.SyscallAllowlistAuthorityMismatch) as captured:
+        CGROUP_MANAGER.resolve_syscall_allowlist()
+    assert captured.value.reason_code == reason_code
+    assert captured.value.observation.configured_allowlist_count == len(actual_names)
+    assert captured.value.observation.configured_allowlist_sha256 == digest(canonical(actual_names))
+    assert tuple(value.selector for value in captured.value.observation.selector_outputs) == (
+        "@mount",
+        "@sandbox",
+        "@system-service",
+    )
+    assert not any("systemd-run" in command[0] for command in calls)
+
+    failure_path = tmp_path / "failure.json"
+    state_path = tmp_path / "state.json"
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "write_new",
+        lambda path, raw, mode=0o644: path.write_bytes(raw),
+    )
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "setup_state_v2",
+        lambda *_args: (_ for _ in ()).throw(captured.value),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "manage_linux_native_cgroup.py",
+            "setup-v19",
+            "--implementation-commit",
+            COMMIT,
+            "--environment-instance-id",
+            ENVIRONMENT,
+            "--service-uid",
+            "1000",
+            "--service-gid",
+            "1000",
+            "--output",
+            str(state_path),
+            "--failure-output",
+            str(failure_path),
+        ],
+    )
+    with pytest.raises(CGROUP_MANAGER.SyscallAllowlistAuthorityMismatch):
+        CGROUP_MANAGER.main()
+    failure = LINUX_ISOLATION.LinuxCgroupLifecycleFailureV2.model_validate_json(
+        failure_path.read_bytes()
+    )
+    assert failure.payload.reason_code == reason_code
+    assert failure.payload.authority_observation == captured.value.observation
+    assert failure.payload.model_requests == 0
+    assert failure.payload.provider_sends == 0
+    assert failure.payload.mcp_tool_executions == 0
+    assert failure.payload.real_task_executions == 0
+    assert not state_path.exists()
+
+
+def test_v19_mismatch_receipt_rejects_rehashed_contradictory_authority() -> None:
+    observation = LINUX_ISOLATION.LinuxSyscallAllowlistMismatchObservationV1(
+        configured_allowlist_count=LINUX_ISOLATION.LINUX_SYSCALL_ALLOWLIST_COUNT + 1,
+        configured_allowlist_sha256=LINUX_ISOLATION.LINUX_SYSCALL_ALLOWLIST_SHA256,
+        systemd_analyze_version_output_sha256=(
+            LINUX_ISOLATION.LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
+        ),
+        systemd_manager_version_output_sha256=(
+            LINUX_ISOLATION.LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
+        ),
+        selector_outputs=(
+            LINUX_ISOLATION.LinuxSystemdSelectorOutputDigestV1(
+                selector="@system-service",
+                raw_output_sha256="a" * 64,
+            ),
+        ),
+    )
+    valid = LINUX_ISOLATION.LinuxCgroupLifecycleFailureV2.create(
+        LINUX_ISOLATION.LinuxCgroupLifecycleFailurePayloadV2(
+            reason_code="syscall_allowlist_count_mismatch",
+            implementation_commit=COMMIT,
+            environment_instance_id=ENVIRONMENT,
+            authority_observation=observation,
+        )
+    )
+    contradictory = valid.model_dump(mode="python")
+    contradictory["payload"]["reason_code"] = "syscall_allowlist_hash_mismatch"
+    contradictory["linux_cgroup_lifecycle_failure_id"] = digest(canonical(contradictory["payload"]))
+    with pytest.raises(ValueError, match="hash mismatch reason is not the first mismatch"):
+        LINUX_ISOLATION.LinuxCgroupLifecycleFailureV2.model_validate(contradictory)
+
+    divergent = valid.model_dump(mode="python")
+    divergent["payload"]["authority_observation"]["systemd_manager_version_output_sha256"] = (
+        "b" * 64
+    )
+    divergent["linux_cgroup_lifecycle_failure_id"] = digest(canonical(divergent["payload"]))
+    with pytest.raises(ValueError, match="analyzer and manager mismatch observations differ"):
+        LINUX_ISOLATION.LinuxCgroupLifecycleFailureV2.model_validate(divergent)
+
+
+@pytest.mark.parametrize(
+    ("phase", "expected_reason"),
+    [("run", "service_execution_failed"), ("cleanup", "cleanup_failed")],
+)
+def test_v19_later_phase_mismatch_preserves_existing_lifecycle_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: Literal["run", "cleanup"],
+    expected_reason: str,
+) -> None:
+    observation = LINUX_ISOLATION.LinuxSyscallAllowlistMismatchObservationV1(
+        configured_allowlist_count=LINUX_ISOLATION.LINUX_SYSCALL_ALLOWLIST_COUNT + 1,
+        configured_allowlist_sha256=LINUX_ISOLATION.LINUX_SYSCALL_ALLOWLIST_SHA256,
+        systemd_analyze_version_output_sha256=(
+            LINUX_ISOLATION.LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
+        ),
+        systemd_manager_version_output_sha256=(
+            LINUX_ISOLATION.LINUX_REVIEWED_SYSTEMD_VERSION_SHA256
+        ),
+        selector_outputs=(
+            LINUX_ISOLATION.LinuxSystemdSelectorOutputDigestV1(
+                selector="@system-service",
+                raw_output_sha256="c" * 64,
+            ),
+        ),
+    )
+    error = CGROUP_MANAGER.SyscallAllowlistAuthorityMismatch(
+        "syscall_allowlist_count_mismatch", observation
+    )
+    output = tmp_path / f"{phase}-failure.json"
+    monkeypatch.setattr(
+        CGROUP_MANAGER,
+        "write_new",
+        lambda path, raw, mode=0o644: path.write_bytes(raw),
+    )
+    CGROUP_MANAGER.write_failure(
+        output,
+        phase=phase,
+        implementation_commit=COMMIT,
+        environment_instance_id=ENVIRONMENT,
+        state_id=H,
+        error=error,
+    )
+    failure = LinuxCgroupLifecycleFailureV1.model_validate_json(output.read_bytes())
+    assert failure.payload.phase == phase
+    assert failure.payload.reason_code == expected_reason
+    assert failure.payload.linux_cgroup_setup_state_id == H
 
 
 def test_v19_unit_policy_keeps_configured_and_reported_authority_separate(
