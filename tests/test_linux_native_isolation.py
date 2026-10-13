@@ -35,6 +35,7 @@ from devhub.linux_isolation import (
     LinuxAppArmorSetupStateV1,
     LinuxBrokerExpectationV1,
     LinuxBrokerObservationV1,
+    LinuxBundleDirectoryAuthorityV1,
     LinuxChildBootstrapFailurePayloadV1,
     LinuxChildBootstrapFailurePayloadV2,
     LinuxChildBootstrapFailurePayloadV3,
@@ -66,6 +67,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidencePayloadV9,
     LinuxIsolationEvidencePayloadV10,
     LinuxIsolationEvidencePayloadV11,
+    LinuxIsolationEvidencePayloadV12,
     LinuxIsolationEvidenceV1,
     LinuxIsolationEvidenceV2,
     LinuxIsolationEvidenceV3,
@@ -76,7 +78,7 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV8,
     LinuxIsolationEvidenceV9,
     LinuxIsolationEvidenceV10,
-    LinuxIsolationEvidenceV11,
+    LinuxIsolationEvidenceV12,
     LinuxIsolationFailurePayloadV1,
     LinuxIsolationFailurePayloadV2,
     LinuxIsolationFailurePayloadV3,
@@ -102,6 +104,7 @@ from devhub.linux_isolation import (
     LinuxIsolationObservationV9,
     LinuxIsolationObservationV10,
     LinuxIsolationObservationV11,
+    LinuxIsolationObservationV12,
     LinuxIsolationProfilePayloadV1,
     LinuxIsolationProfilePayloadV2,
     LinuxIsolationProfilePayloadV3,
@@ -113,6 +116,7 @@ from devhub.linux_isolation import (
     LinuxIsolationProfilePayloadV9,
     LinuxIsolationProfilePayloadV10,
     LinuxIsolationProfilePayloadV11,
+    LinuxIsolationProfilePayloadV12,
     LinuxIsolationProfileV1,
     LinuxIsolationProfileV2,
     LinuxIsolationProfileV3,
@@ -124,6 +128,7 @@ from devhub.linux_isolation import (
     LinuxIsolationProfileV9,
     LinuxIsolationProfileV10,
     LinuxIsolationProfileV11,
+    LinuxIsolationProfileV12,
     LinuxIsolationQualificationPayloadV3,
     LinuxIsolationQualificationPayloadV4,
     LinuxIsolationQualificationPayloadV5,
@@ -139,7 +144,7 @@ from devhub.linux_isolation import (
     LinuxIsolationQualificationV8,
     LinuxIsolationQualificationV9,
     LinuxIsolationQualificationV10,
-    LinuxIsolationQualificationV11,
+    LinuxIsolationQualificationV12,
     LinuxIsolationReceiptPayloadV1,
     LinuxIsolationReceiptPayloadV2,
     LinuxIsolationReceiptPayloadV3,
@@ -150,7 +155,7 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptPayloadV8,
     LinuxIsolationReceiptPayloadV9,
     LinuxIsolationReceiptPayloadV10,
-    LinuxIsolationReceiptPayloadV11,
+    LinuxIsolationReceiptPayloadV12,
     LinuxIsolationReceiptV1,
     LinuxIsolationReceiptV2,
     LinuxIsolationReceiptV3,
@@ -162,12 +167,15 @@ from devhub.linux_isolation import (
     LinuxIsolationReceiptV9,
     LinuxIsolationReceiptV10,
     LinuxIsolationReceiptV11,
+    LinuxIsolationReceiptV12,
     LinuxMountAuthorityObservationV1,
     LinuxMountAuthorityV1,
     LinuxNamespaceObservationV1,
     LinuxNamespaceOwnerProjectionExpectationV1,
     LinuxNamespaceOwnerProjectionObservationV1,
     LinuxNativePathIdentityV1,
+    LinuxPackageAuthorityV1,
+    LinuxPackagedMcpMetadataObservationV1,
     LinuxRlimitsV1,
     LinuxSyntheticUpstreamAuthorityV1,
     LinuxSyntheticUpstreamObservationV1,
@@ -213,7 +221,7 @@ FINALIZER = load_script(
 CHILD = (
     load_script(
         "linux_native_isolation_child",
-        ROOT / "scripts/linux_native_isolation_child.py",
+        ROOT / "src/devhub/linux_native_isolation_child.py",
     )
     if os.name == "posix"
     else None
@@ -510,6 +518,51 @@ def profile_payload_v11() -> LinuxIsolationProfilePayloadV11:
     return LinuxIsolationProfilePayloadV11.model_validate(raw)
 
 
+def package_authority() -> LinuxPackageAuthorityV1:
+    return LinuxPackageAuthorityV1(
+        implementation_commit=COMMIT,
+        build_run_id=10,
+        build_run_attempt=1,
+        bundle_run_id=11,
+        bundle_run_attempt=1,
+        archive_id=H,
+        archive_sha256=H,
+        archive_size=1,
+        bundle_id=H,
+        bundle_manifest_sha256=H,
+        build_receipt_sha256=H,
+        build_inventory_sha256=H,
+        linux_native_codex_build_id=H,
+        codex_sha256=H,
+        code_mode_host_sha256=H,
+        python_runtime_id=H,
+        python_executable_sha256=H,
+        child_module_sha256=H,
+    )
+
+
+def profile_payload_v12() -> LinuxIsolationProfilePayloadV12:
+    raw = profile_payload_v11().model_dump(mode="python")
+    raw["schema_version"] = 12
+    raw["profile_kind"] = "linux_native_isolation_v12"
+    raw["package"] = package_authority().model_dump(mode="python")
+    fixture = LinuxBundleDirectoryAuthorityV1(
+        locator="/tmp/fixture",
+        owner_uid=1000,
+        owner_gid=1000,
+        native_identity=native(3),
+    )
+    raw["source_directories"] = tuple(
+        fixture.model_dump(mode="python") if item["role"] == "fixture" else item
+        for item in raw["source_directories"]
+    )
+    fixture_hash = digest(canonical(fixture.model_dump(mode="json")))
+    for item in raw["mounts"]:
+        if item["target"] == "/bundle":
+            item["source_identity_sha256"] = fixture_hash
+    return LinuxIsolationProfilePayloadV12.model_validate(raw)
+
+
 def profile_v6_for_server(server: socket.socket) -> LinuxIsolationProfileV6:
     authority = PROBE.synthetic_upstream_authority(server)
     raw = profile_payload_v6().model_dump(mode="python")
@@ -697,6 +750,20 @@ def observation_v11() -> LinuxIsolationObservationV11:
     return LinuxIsolationObservationV11.model_validate(raw)
 
 
+def observation_v12() -> LinuxIsolationObservationV12:
+    raw = observation_v11().model_dump(mode="python")
+    raw["schema_version"] = 12
+    raw["child_module_sha256"] = H
+    raw["packaged_mcp"] = LinuxPackagedMcpMetadataObservationV1(
+        python_executable_sha256=H,
+        stdout_retained_sha256=H,
+        stderr_retained_sha256=H,
+        stdout_retained_bytes=1,
+        stderr_retained_bytes=0,
+    ).model_dump(mode="python")
+    return LinuxIsolationObservationV12.model_validate(raw)
+
+
 def evidence_payload(
     profile: LinuxIsolationProfileV3, receipt: LinuxIsolationReceiptV3
 ) -> LinuxIsolationEvidencePayloadV3:
@@ -829,6 +896,22 @@ def evidence_payload_v11(
     profile: LinuxIsolationProfileV11, receipt: LinuxIsolationReceiptV11
 ) -> LinuxIsolationEvidencePayloadV11:
     return LinuxIsolationEvidencePayloadV11(
+        profile=profile,
+        receipt=receipt,
+        child_stdout_retained_sha256=H,
+        child_stderr_retained_sha256=H,
+        child_stdout_retained_bytes=0,
+        child_stderr_retained_bytes=0,
+        child_stdout_truncated=False,
+        child_stderr_truncated=False,
+        cleanup=LinuxHostCleanupObservationV1(),
+    )
+
+
+def evidence_payload_v12(
+    profile: LinuxIsolationProfileV12, receipt: LinuxIsolationReceiptV12
+) -> LinuxIsolationEvidencePayloadV12:
+    return LinuxIsolationEvidencePayloadV12(
         profile=profile,
         receipt=receipt,
         child_stdout_retained_sha256=H,
@@ -1556,16 +1639,16 @@ def test_child_runtime_failure_writer_uses_the_reviewed_v11_contract() -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Linux finalizer requires O_NOFOLLOW")
-def test_finalizer_joins_only_v11_mechanics(tmp_path: Path) -> None:
-    profile = LinuxIsolationProfileV11.create(profile_payload_v11())
-    receipt = LinuxIsolationReceiptV11.create(
-        LinuxIsolationReceiptPayloadV11(
+def test_finalizer_joins_only_v12_mechanics(tmp_path: Path) -> None:
+    profile = LinuxIsolationProfileV12.create(profile_payload_v12())
+    receipt = LinuxIsolationReceiptV12.create(
+        LinuxIsolationReceiptPayloadV12(
             linux_isolation_profile_id=profile.linux_isolation_profile_id,
             environment_instance_id=ENVIRONMENT,
-            observation=observation_v11(),
+            observation=observation_v12(),
         )
     )
-    evidence = LinuxIsolationEvidenceV11.create(evidence_payload_v11(profile, receipt))
+    evidence = LinuxIsolationEvidenceV12.create(evidence_payload_v12(profile, receipt))
     cleanup = LinuxAppArmorCleanupReceiptV1.create(
         LinuxAppArmorCleanupPayloadV1(
             implementation_commit=COMMIT,
@@ -1584,7 +1667,7 @@ def test_finalizer_joins_only_v11_mechanics(tmp_path: Path) -> None:
     cleanup_path.write_text(cleanup.model_dump_json(), encoding="utf-8")
     assert APPARMOR_MANAGER.read_mechanics(mechanics_path) == evidence
     FINALIZER.finalize(mechanics_path, cleanup_path, output)
-    qualification = LinuxIsolationQualificationV11.model_validate_json(output.read_bytes())
+    qualification = LinuxIsolationQualificationV12.model_validate_json(output.read_bytes())
     assert qualification.payload.mechanics == evidence
     assert qualification.payload.apparmor_cleanup == cleanup
 
@@ -3065,7 +3148,7 @@ def test_pre_worker_launch_failure_closes_retained_synthetic_listener(
     with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
-            Path("/repo/scripts/linux_native_isolation_child.py"),
+            Path("/repo/src/devhub/linux_native_isolation_child.py"),
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -3134,7 +3217,7 @@ def test_kernel_landlock_abi_below_minimum_fails_closed(kernel_abi: int) -> None
 
 
 def test_child_independently_derives_reviewed_policy_from_kernel_abi() -> None:
-    source = (ROOT / "scripts/linux_native_isolation_child.py").read_text(encoding="utf-8")
+    source = (ROOT / "src/devhub/linux_native_isolation_child.py").read_text(encoding="utf-8")
     assert "kernel_abi = landlock_abi()" in source
     assert "policy_abi = enforced_landlock_abi(kernel_abi)" in source
     assert "landlock_handled_access(policy_abi)" in source
@@ -3276,7 +3359,7 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
     profile = LinuxIsolationProfileV9.create(profile_payload_v9())
     command = PROBE.namespace_command(
         profile,
-        Path("/repo/scripts/linux_native_isolation_child.py"),
+        Path("/repo/src/devhub/linux_native_isolation_child.py"),
         Path("/tmp/root"),
         Path("/tmp/fixture"),
         Path("/tmp/state"),
@@ -3288,12 +3371,10 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
     )
     assert "--keep-caps" in command
     python_index = command.index("--net") + 1
-    assert command[python_index : python_index + 3] == [
+    assert command[python_index : python_index + 2] == [
         profile.payload.bootstrap_python.locator,
-        "-I",
-        "-B",
+        str(Path("/repo/src/devhub/linux_native_isolation_child.py")),
     ]
-    assert command[python_index + 3] == str(Path("/repo/scripts/linux_native_isolation_child.py"))
     assert command[0] == "/opt/devfabric/libexec/unshare"
     assert command[command.index("--expected-apparmor-current") + 1] == LINUX_APPARMOR_CURRENT
     assert command[command.index("--expected-kernel-landlock-abi") + 1] == "7"
@@ -3309,10 +3390,99 @@ def test_namespace_command_uses_keep_caps_and_bound_bootstrap() -> None:
     assert "--dependency" not in command
 
 
+def test_v12_namespace_command_uses_exact_installed_child_module() -> None:
+    profile = LinuxIsolationProfileV12.create(profile_payload_v12())
+    command = PROBE.namespace_command(
+        profile,
+        Path("/bundle/python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"),
+        Path("/tmp/root"),
+        Path("/tmp/fixture"),
+        Path("/tmp/state"),
+        Path("/tmp/output"),
+        Path("/tmp/broker"),
+        10,
+        11,
+        {"user": "user:[1]", "mnt": "mnt:[2]", "pid": "pid:[3]", "net": "net:[4]"},
+    )
+    python_index = command.index("--net") + 1
+    assert command[python_index : python_index + 5] == [
+        profile.payload.bootstrap_python.locator,
+        "-I",
+        "-B",
+        "-m",
+        "devhub.linux_native_isolation_child",
+    ]
+    assert command[command.index("--expected-python-sha256") + 1] == H
+    assert command[command.index("--expected-child-module-sha256") + 1] == H
+    assert str(ROOT / "scripts/linux_native_isolation_child.py") not in command
+
+
+def test_v12_profile_and_observation_bind_exact_package_authority() -> None:
+    profile = LinuxIsolationProfileV12.create(profile_payload_v12())
+    observed = observation_v12()
+    receipt = LinuxIsolationReceiptV12.create(
+        LinuxIsolationReceiptPayloadV12(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=observed,
+        )
+    )
+
+    assert profile.payload.package.predecessor_build_id == "linux-build-010"
+    assert profile.payload.package.build_id == "linux-build-011"
+    assert (
+        profile.payload.package.bundle_workflow_path == ".github/workflows/linux-native-bundle.yml"
+    )
+    assert profile.payload.package.bundle_id == profile.payload.native_bundle_id
+    assert observed.child_module_sha256 == profile.payload.package.child_module_sha256
+    assert observed.packaged_mcp.tools_call_sent is False
+    assert observed.packaged_mcp.module_origin.endswith("/devhub/delegate_server.py")
+    evidence = LinuxIsolationEvidenceV12.create(evidence_payload_v12(profile, receipt))
+    assert evidence.payload.receipt.payload.model_requests == 0
+
+    tampered = profile.payload.model_dump(mode="python")
+    tampered["package"]["child_module_sha256"] = "f" * 64
+    with pytest.raises(ValidationError, match="package authority differs"):
+        LinuxIsolationProfilePayloadV12.model_validate(tampered)
+
+    wrong_workflow = profile.payload.model_dump(mode="python")
+    wrong_workflow["package"]["bundle_workflow_path"] = ".github/workflows/linux-native-codex.yml"
+    with pytest.raises(ValidationError):
+        LinuxIsolationProfilePayloadV12.model_validate(wrong_workflow)
+
+    mismatched_observation = observed.model_copy(update={"child_module_sha256": "f" * 64})
+    mismatched_receipt = LinuxIsolationReceiptV12.create(
+        LinuxIsolationReceiptPayloadV12(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=mismatched_observation,
+        )
+    )
+    with pytest.raises(ValidationError, match="package observation authority differs"):
+        evidence_payload_v12(profile, mismatched_receipt)
+
+    mismatched_python = observed.model_copy(
+        update={
+            "packaged_mcp": observed.packaged_mcp.model_copy(
+                update={"python_executable_sha256": "f" * 64}
+            )
+        }
+    )
+    mismatched_python_receipt = LinuxIsolationReceiptV12.create(
+        LinuxIsolationReceiptPayloadV12(
+            linux_isolation_profile_id=profile.linux_isolation_profile_id,
+            environment_instance_id=ENVIRONMENT,
+            observation=mismatched_python,
+        )
+    )
+    with pytest.raises(ValidationError, match="package observation authority differs"):
+        evidence_payload_v12(profile, mismatched_python_receipt)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="Isolated child bootstrap is Linux-only")
 def test_child_bootstrap_is_stdlib_only_and_matches_host_helpers() -> None:
     assert CHILD is not None
-    source = (ROOT / "scripts/linux_native_isolation_child.py").read_text(encoding="utf-8")
+    source = (ROOT / "src/devhub/linux_native_isolation_child.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     roots: set[str] = set()
     for node in tree.body:
@@ -3322,6 +3492,7 @@ def test_child_bootstrap_is_stdlib_only_and_matches_host_helpers() -> None:
             roots.add(node.module.split(".", 1)[0])
     assert "devhub" not in roots
     assert "pydantic" not in roots
+    assert '"tools/call"' not in source
     assert roots - {"__future__"} <= sys.stdlib_module_names
     for abi in (3, 4, 5, 6):
         assert CHILD.landlock_handled_access(abi) == landlock_handled_access(abi)
@@ -3333,6 +3504,484 @@ def test_child_bootstrap_is_stdlib_only_and_matches_host_helpers() -> None:
     )
     assert CHILD.canonical(value) == canonical(value)
     assert CHILD.digest(CHILD.canonical(value)) == digest(canonical(value))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bounded child subprocess is Linux-only")
+def test_packaged_observer_subprocess_is_bounded_and_observes_eof() -> None:
+    assert CHILD is not None
+    environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
+    returncode, stdout, stderr = CHILD.run_bounded_subprocess(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            "import sys; data=sys.stdin.buffer.read(); sys.stdout.buffer.write(data)",
+        ],
+        environment=environment,
+        input_data=b"exact-input",
+        timeout=5,
+    )
+    assert (returncode, stdout, stderr) == (0, b"exact-input", b"")
+
+    with pytest.raises(ValueError, match="retained bound"):
+        CHILD.run_bounded_subprocess(
+            [
+                sys.executable,
+                "-I",
+                "-B",
+                "-c",
+                "import sys; sys.stdout.buffer.write(b'x' * (1024 * 1024 + 1))",
+            ],
+            environment=environment,
+            input_data=None,
+            timeout=5,
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bounded child subprocess is Linux-only")
+def test_packaged_observer_closes_pipe_and_kills_group_after_write_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+
+    class FailingInput(io.BytesIO):
+        def write(self, data: bytes, /) -> int:
+            del data
+            raise OSError("injected write failure")
+
+    class Process:
+        def __init__(self) -> None:
+            self.pid = 1234
+            self.stdin = FailingInput()
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
+            self.returncode: int | None = None
+            self.waits: list[float | None] = []
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.waits.append(timeout)
+            if self.returncode is None:
+                self.returncode = 0
+            return self.returncode
+
+    process = Process()
+    popen_arguments: dict[str, object] = {}
+
+    def popen(command: list[str], **kwargs: object) -> Process:
+        popen_arguments["command"] = command
+        popen_arguments.update(kwargs)
+        return process
+
+    killed: list[tuple[int, int]] = []
+
+    def killpg(pid: int, signal_number: int) -> None:
+        killed.append((pid, signal_number))
+        process.returncode = -signal_number
+
+    monkeypatch.setattr(CHILD.subprocess, "Popen", popen)
+    monkeypatch.setattr(CHILD.os, "killpg", killpg)
+
+    with pytest.raises(OSError, match="injected write failure"):
+        CHILD.run_bounded_subprocess(
+            ["/bundle/python/bin/python3.12", "-I", "-B"],
+            environment={"PATH": "/usr/bin:/bin"},
+            input_data=b"request",
+            timeout=5,
+        )
+
+    assert popen_arguments["stdin"] is subprocess.PIPE
+    assert popen_arguments["stdout"] is subprocess.PIPE
+    assert popen_arguments["stderr"] is subprocess.PIPE
+    assert killed == [(process.pid, CHILD.signal.SIGKILL)]
+    assert process.waits == [5]
+    assert process.stdin.closed is True
+    assert process.stdout.closed is True
+    assert process.stderr.closed is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Bounded child subprocess is Linux-only")
+def test_packaged_observer_preserves_primary_and_cleanup_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+
+    class FailingInput(io.BytesIO):
+        def write(self, data: bytes, /) -> int:
+            del data
+            raise OSError("primary write failure")
+
+    class TrackedOutput(io.BytesIO):
+        def __init__(self, *, fail_close: bool = False) -> None:
+            super().__init__()
+            self.close_attempted = False
+            self.fail_close = fail_close
+
+        def close(self) -> None:
+            self.close_attempted = True
+            if self.fail_close:
+                raise OSError("cleanup close failure")
+            super().close()
+
+    class Process:
+        def __init__(self) -> None:
+            self.pid = 4321
+            self.stdin = FailingInput()
+            self.stdout = TrackedOutput()
+            self.stderr = TrackedOutput(fail_close=True)
+            self.wait_attempted = False
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.wait_attempted = True
+            raise OSError("cleanup wait failure")
+
+    process = Process()
+    kill_attempted = False
+
+    def killpg(pid: int, signal_number: int) -> None:
+        del pid, signal_number
+        nonlocal kill_attempted
+        kill_attempted = True
+        raise OSError("cleanup kill failure")
+
+    monkeypatch.setattr(CHILD.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(CHILD.os, "killpg", killpg)
+
+    with pytest.raises(BaseExceptionGroup) as captured:
+        CHILD.run_bounded_subprocess(
+            ["/bundle/python/bin/python3.12", "-I", "-B"],
+            environment={"PATH": "/usr/bin:/bin"},
+            input_data=b"request",
+            timeout=5,
+        )
+
+    messages = {str(error) for error in captured.value.exceptions}
+    assert "primary write failure" in messages
+    assert "cleanup kill failure" in messages
+    assert "cleanup wait failure" in messages
+    assert "cleanup close failure" in messages
+    assert kill_attempted is True
+    assert process.wait_attempted is True
+    assert process.stdin.closed is True
+    assert process.stdout.close_attempted is True
+    assert process.stderr.close_attempted is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
+def test_packaged_mcp_metadata_uses_exact_protocol_and_eof(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert CHILD is not None
+    python = tmp_path / "python3.12"
+    python.write_bytes(b"exact-python")
+    state = tmp_path / "state"
+    output = tmp_path / "output"
+    home = tmp_path / "home"
+    bundle = tmp_path / "bundle"
+    for directory in (state, output, home, bundle):
+        directory.mkdir()
+    expected_origin = "/bundle/python/lib/python3.12/site-packages/devhub/delegate_server.py"
+    calls: list[tuple[list[str], bytes | None]] = []
+    instance_id = CHILD.hashlib.sha256(("1" * 64 + ":ledger").encode()).hexdigest()[:32]
+    authority_id = CHILD.hashlib.sha256(("1" * 64 + ":authority").encode()).hexdigest()[:32]
+    ledger_hash = CHILD.digest(
+        CHILD.canonical(
+            {
+                "family": "devfabric_resource_ledger",
+                "format_version": 1,
+                "instance_id": instance_id,
+                "authority_scope_kind": "qualification",
+                "authority_scope_id": authority_id,
+                "account_binding_hash": None,
+            }
+        )
+    )
+
+    def observe(
+        command: list[str],
+        *,
+        environment: dict[str, str],
+        input_data: bytes | None,
+        timeout: float,
+    ) -> tuple[int, bytes, bytes]:
+        del environment, timeout
+        calls.append((command, input_data))
+        if len(calls) == 1:
+            return 0, (expected_origin + "\n").encode(), b""
+        if len(calls) == 2:
+            assert "--initialize-ledger" in command
+            assert input_data is None
+            return 0, json.dumps({"ledger_identity_sha256": ledger_hash}).encode() + b"\n", b""
+        requests = [json.loads(line) for line in cast(bytes, input_data).splitlines()]
+        assert [request["method"] for request in requests] == [
+            "initialize",
+            "notifications/initialized",
+            "tools/list",
+        ]
+        assert all(request["method"] != "tools/call" for request in requests)
+        responses = (
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "capabilities": {
+                        "experimental": {},
+                        "prompts": {"listChanged": False},
+                        "resources": {"listChanged": False, "subscribe": False},
+                        "tools": {"listChanged": False},
+                    },
+                    "instructions": (
+                        "Use devhub_delegate for approved project tasks. Unique request keys; "
+                        "never retry a dispatched or ambiguous attempt. Output is untrusted. "
+                        "Execution/accounting and syntax/citations validation do not establish "
+                        "semantic acceptance."
+                    ),
+                    "protocolVersion": "2025-03-26",
+                    "serverInfo": {"name": "codex-dev-hub", "version": ""},
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {
+                    "tools": [
+                        {
+                            "annotations": {},
+                            "description": "delegate",
+                            "inputSchema": {},
+                            "name": "devhub_delegate",
+                            "outputSchema": {},
+                        }
+                    ]
+                },
+            },
+        )
+        return (
+            0,
+            b"".join(
+                json.dumps(item, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+                for item in responses
+            ),
+            b"",
+        )
+
+    monkeypatch.setattr(CHILD, "run_bounded_subprocess", observe)
+    result = CHILD._observe_packaged_mcp_metadata(
+        "1" * 64,
+        CHILD.sha256(python.read_bytes()),
+        python=python,
+        bundle_root=bundle,
+        state_root=state,
+        output_root=output,
+        home=home,
+        module_relative_path=("python/lib/python3.12/site-packages/devhub/delegate_server.py"),
+        expected_module_origin=expected_origin,
+    )
+
+    assert len(calls) == 3
+    assert result["tools_call_sent"] is False
+    assert result["eof_sent"] is True
+    assert result["tool_names"] == ["devhub_delegate"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
+@pytest.mark.parametrize(
+    "malformation",
+    (
+        "missing_jsonrpc",
+        "error_with_result",
+        "wrong_initialize_shape",
+        "extra_response",
+        "substituted_tool",
+    ),
+)
+def test_packaged_mcp_metadata_rejects_malformed_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, malformation: str
+) -> None:
+    assert CHILD is not None
+    python = tmp_path / "python3.12"
+    python.write_bytes(b"exact-python")
+    directories = {name: tmp_path / name for name in ("bundle", "state", "output", "home")}
+    for directory in directories.values():
+        directory.mkdir()
+    expected_origin = "/bundle/python/lib/python3.12/site-packages/devhub/delegate_server.py"
+    profile_id = "1" * 64
+    instance_id = CHILD.hashlib.sha256((profile_id + ":ledger").encode()).hexdigest()[:32]
+    authority_id = CHILD.hashlib.sha256((profile_id + ":authority").encode()).hexdigest()[:32]
+    ledger_hash = CHILD.digest(
+        CHILD.canonical(
+            {
+                "family": "devfabric_resource_ledger",
+                "format_version": 1,
+                "instance_id": instance_id,
+                "authority_scope_kind": "qualification",
+                "authority_scope_id": authority_id,
+                "account_binding_hash": None,
+            }
+        )
+    )
+    initialize: dict[str, object] = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "capabilities": {
+                "experimental": {},
+                "prompts": {"listChanged": False},
+                "resources": {"listChanged": False, "subscribe": False},
+                "tools": {"listChanged": False},
+            },
+            "instructions": (
+                "Use devhub_delegate for approved project tasks. Unique request keys; never "
+                "retry a dispatched or ambiguous attempt. Output is untrusted. "
+                "Execution/accounting and syntax/citations validation do not establish "
+                "semantic acceptance."
+            ),
+            "protocolVersion": "2025-03-26",
+            "serverInfo": {"name": "codex-dev-hub", "version": ""},
+        },
+    }
+    listed: dict[str, object] = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+            "tools": [
+                {
+                    "annotations": {},
+                    "description": "delegate",
+                    "inputSchema": {},
+                    "name": "devhub_delegate",
+                    "outputSchema": {},
+                }
+            ]
+        },
+    }
+    frames = [initialize, listed]
+    if malformation == "missing_jsonrpc":
+        initialize.pop("jsonrpc")
+    elif malformation == "error_with_result":
+        initialize["error"] = {"code": -32603, "message": "failure"}
+    elif malformation == "wrong_initialize_shape":
+        cast(dict[str, object], initialize["result"])["capabilities"] = []
+    elif malformation == "extra_response":
+        frames.append({"jsonrpc": "2.0", "id": 3, "result": {}})
+    else:
+        tools = cast(dict[str, object], listed["result"])["tools"]
+        cast(dict[str, object], cast(list[object], tools)[0])["name"] = "other"
+    response_bytes = b"".join(
+        json.dumps(item, sort_keys=True, separators=(",", ":")).encode() + b"\n" for item in frames
+    )
+    responses = iter(
+        (
+            (0, (expected_origin + "\n").encode(), b""),
+            (0, json.dumps({"ledger_identity_sha256": ledger_hash}).encode() + b"\n", b""),
+            (0, response_bytes, b""),
+        )
+    )
+    monkeypatch.setattr(
+        CHILD,
+        "run_bounded_subprocess",
+        lambda *args, **kwargs: next(responses),
+    )
+    with pytest.raises(ValueError, match="metadata lifecycle differs"):
+        CHILD._observe_packaged_mcp_metadata(
+            profile_id,
+            CHILD.sha256(python.read_bytes()),
+            python=python,
+            bundle_root=directories["bundle"],
+            state_root=directories["state"],
+            output_root=directories["output"],
+            home=directories["home"],
+            module_relative_path=("python/lib/python3.12/site-packages/devhub/delegate_server.py"),
+            expected_module_origin=expected_origin,
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
+@pytest.mark.parametrize("malformation", ("wrong_hash", "extra_line", "stderr"))
+def test_packaged_mcp_metadata_rejects_malformed_ledger_initialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, malformation: str
+) -> None:
+    assert CHILD is not None
+    python = tmp_path / "python3.12"
+    python.write_bytes(b"exact-python")
+    directories = {name: tmp_path / name for name in ("bundle", "state", "output", "home")}
+    for directory in directories.values():
+        directory.mkdir()
+    expected_origin = "/bundle/python/lib/python3.12/site-packages/devhub/delegate_server.py"
+    profile_id = "1" * 64
+    instance_id = CHILD.hashlib.sha256((profile_id + ":ledger").encode()).hexdigest()[:32]
+    authority_id = CHILD.hashlib.sha256((profile_id + ":authority").encode()).hexdigest()[:32]
+    expected_hash = CHILD.digest(
+        CHILD.canonical(
+            {
+                "family": "devfabric_resource_ledger",
+                "format_version": 1,
+                "instance_id": instance_id,
+                "authority_scope_kind": "qualification",
+                "authority_scope_id": authority_id,
+                "account_binding_hash": None,
+            }
+        )
+    )
+    retained_hash = "f" * 64 if malformation == "wrong_hash" else expected_hash
+    stdout = json.dumps({"ledger_identity_sha256": retained_hash}).encode() + b"\n"
+    stderr = b""
+    if malformation == "extra_line":
+        stdout += b"{}\n"
+    elif malformation == "stderr":
+        stderr = b"unexpected"
+    responses = iter(
+        (
+            (0, (expected_origin + "\n").encode(), b""),
+            (0, stdout, stderr),
+        )
+    )
+    monkeypatch.setattr(
+        CHILD,
+        "run_bounded_subprocess",
+        lambda *args, **kwargs: next(responses),
+    )
+    with pytest.raises(ValueError, match="ledger initialization failed"):
+        CHILD._observe_packaged_mcp_metadata(
+            profile_id,
+            CHILD.sha256(python.read_bytes()),
+            python=python,
+            bundle_root=directories["bundle"],
+            state_root=directories["state"],
+            output_root=directories["output"],
+            home=directories["home"],
+            module_relative_path=("python/lib/python3.12/site-packages/devhub/delegate_server.py"),
+            expected_module_origin=expected_origin,
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Packaged MCP observation is Linux-only")
+def test_packaged_mcp_metadata_wrapper_binds_exact_release_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert CHILD is not None
+    observed: dict[str, object] = {}
+
+    def capture(*args: object, **kwargs: object) -> dict[str, object]:
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return {"tools_call_sent": False}
+
+    monkeypatch.setattr(CHILD, "_observe_packaged_mcp_metadata", capture)
+    assert CHILD.packaged_mcp_metadata_observation("1" * 64, "2" * 64) == {"tools_call_sent": False}
+    kwargs = cast(dict[str, object], observed["kwargs"])
+    assert kwargs["python"] == Path("/bundle/python/bin/python3.12")
+    assert kwargs["bundle_root"] == Path("/bundle")
+    assert kwargs["state_root"] == Path("/state")
+    assert kwargs["output_root"] == Path("/output")
+    assert kwargs["home"] == Path("/home/devfabric")
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Isolated child rlimits are Linux-only")
@@ -3928,7 +4577,7 @@ def test_v3_failure_rejects_malformed_and_rehashed_profile_identity_forgery(
         PROBE.validate_child_bootstrap_failure(
             profile,
             failure,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             ROOT,
         )
 
@@ -3956,7 +4605,7 @@ def test_v3_failure_host_accepts_only_exact_profile_expected_identity(
     PROBE.validate_child_bootstrap_failure(
         profile,
         failure,
-        ROOT / "scripts/linux_native_isolation_child.py",
+        ROOT / "src/devhub/linux_native_isolation_child.py",
         ROOT,
     )
     assert revalidated == [True]
@@ -4095,7 +4744,7 @@ def test_run_probe_accepts_zero_exit_child_json_arrays(
     try:
         observed = PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -4120,7 +4769,7 @@ def test_run_probe_accepts_zero_exit_child_json_arrays(
 def test_child_bootstrap_starts_with_base_interpreter_under_hostile_python_env(
     tmp_path: Path,
 ) -> None:
-    child = ROOT / "scripts/linux_native_isolation_child.py"
+    child = ROOT / "src/devhub/linux_native_isolation_child.py"
     environment = os.environ.copy()
     environment.update(
         {
@@ -4171,7 +4820,7 @@ def test_pre_registration_failure_retains_actual_bounded_process_capture(
     with pytest.raises(PROBE.ChildRegistrationFailure):
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -4231,7 +4880,7 @@ def test_run_probe_accepts_only_self_hashed_bounded_bootstrap_failure(
     with pytest.raises(PROBE.ChildBootstrapFailure) as error:
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -4288,7 +4937,7 @@ def test_run_probe_prefers_typed_runtime_failure_over_expected_broker_cancellati
     with pytest.raises(PROBE.ChildRuntimeFailure) as error:
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -4349,7 +4998,7 @@ def test_run_probe_keeps_independent_broker_failure_primary(
     with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -4416,7 +5065,7 @@ def test_run_probe_binds_preworker_broker_failure(
     with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -4436,9 +5085,11 @@ def test_run_probe_binds_preworker_broker_failure(
 def test_main_seals_every_primary_broker_failure(
     failure_point: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    expected = profile_payload_v11()
+    expected = profile_payload_v12()
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
+    release = tmp_path / "release"
+    release.mkdir()
     host_pid = os.getpid()
     host_start_time = PROBE.process_start_time(host_pid)
     projection_inputs: list[
@@ -4457,7 +5108,7 @@ def test_main_seals_every_primary_broker_failure(
         result: bytes | None = None
         returncode = 0
         if failure_point == "concurrent_worker_child":
-            profile = cast(LinuxIsolationProfileV11, args[0])
+            profile = cast(LinuxIsolationProfileV12, args[0])
             child = LinuxChildRuntimeFailureV2.create(
                 LinuxChildRuntimeFailurePayloadV2(
                     linux_isolation_profile_id=profile.linux_isolation_profile_id,
@@ -4485,6 +5136,14 @@ def test_main_seals_every_primary_broker_failure(
         return real_projection(capture)
 
     monkeypatch.setattr(PROBE, "verified_git_head", lambda *_args: None)
+    monkeypatch.setattr(
+        PROBE,
+        "verified_package_authority",
+        lambda *_args: (tmp_path, package_authority()),
+    )
+    fixture = next(item for item in expected.source_directories if item.role == "fixture")
+    monkeypatch.setattr(PROBE, "bundle_directory_authority", lambda *_args: fixture)
+    monkeypatch.setattr(PROBE, "file_sha256", lambda *_args: H)
     monkeypatch.setattr(PROBE, "apparmor_authority", lambda *_args: expected.host.apparmor)
     monkeypatch.setattr(PROBE, "host_authority", lambda *_args: expected.host)
     monkeypatch.setattr(PROBE, "file_authority", fixed_file_authority)
@@ -4525,6 +5184,14 @@ def test_main_seals_every_primary_broker_failure(
             str(output),
             "--failure-output",
             str(failure_output),
+            "--release",
+            str(release),
+            "--bundle-root",
+            str(tmp_path),
+            "--bundle-run-id",
+            "11",
+            "--bundle-run-attempt",
+            "1",
         ],
     )
     with pytest.raises(PROBE.ProbePhaseFailure):
@@ -4583,7 +5250,7 @@ def test_run_probe_rejects_missing_or_malformed_runtime_failure(
     with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -4615,10 +5282,12 @@ def test_main_publishes_exact_v7_child_failure_phase_without_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expected = profile_payload_v11()
+    expected = profile_payload_v12()
     diagnostic = b"bounded-main-child-bootstrap-failure"
     output = tmp_path / "mechanics.json"
     failure_output = tmp_path / "failure.json"
+    release = tmp_path / "release"
+    release.mkdir()
     scratch_paths: list[Path] = []
     real_temporary_directory = PROBE.tempfile.TemporaryDirectory
 
@@ -4642,9 +5311,9 @@ def test_main_publishes_exact_v7_child_failure_phase_without_success(
         )
 
     def fail_after_launch(*args: object) -> None:
-        active_profile = cast(LinuxIsolationProfileV11, args[0])
-        server = cast(socket.socket, args[-2])
-        capture = args[-1]
+        active_profile = cast(LinuxIsolationProfileV12, args[0])
+        server = cast(socket.socket, args[7])
+        capture = cast(PROBE.ProbeProcessCapture, args[8])
         capture.process_started = True
         capture.returncode = 7
         capture.stderr.data.extend(diagnostic)
@@ -4698,6 +5367,14 @@ def test_main_publishes_exact_v7_child_failure_phase_without_success(
 
     monkeypatch.setattr(PROBE.tempfile, "TemporaryDirectory", TrackingTemporaryDirectory)
     monkeypatch.setattr(PROBE, "verified_git_head", lambda *_args: None)
+    monkeypatch.setattr(
+        PROBE,
+        "verified_package_authority",
+        lambda *_args: (tmp_path, package_authority()),
+    )
+    fixture = next(item for item in expected.source_directories if item.role == "fixture")
+    monkeypatch.setattr(PROBE, "bundle_directory_authority", lambda *_args: fixture)
+    monkeypatch.setattr(PROBE, "file_sha256", lambda *_args: H)
     monkeypatch.setattr(PROBE, "apparmor_authority", lambda *_args: expected.host.apparmor)
     monkeypatch.setattr(PROBE, "host_authority", lambda *_args: expected.host)
     monkeypatch.setattr(PROBE, "file_authority", fixed_file_authority)
@@ -4717,6 +5394,14 @@ def test_main_publishes_exact_v7_child_failure_phase_without_success(
             str(output),
             "--failure-output",
             str(failure_output),
+            "--release",
+            str(release),
+            "--bundle-root",
+            str(tmp_path),
+            "--bundle-run-id",
+            "11",
+            "--bundle-run-attempt",
+            "1",
         ],
     )
     expected_exception = (
@@ -4978,7 +5663,7 @@ def test_pre_launch_cleanup_attempts_all_descriptors_after_one_close_failure(
     with pytest.raises(PROBE.ProbeCleanupFailure):
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -5024,7 +5709,7 @@ def test_acquisition_failures_close_every_owned_descriptor_and_listener(
     with pytest.raises((OSError, ValueError)):
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -5090,7 +5775,7 @@ def test_each_parent_write_close_failure_still_cleans_all_resources(
     with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -5173,7 +5858,7 @@ def test_partial_collector_start_failure_cleans_started_thread_process_and_fds(
     with pytest.raises(PROBE.ProbePhaseFailure) as error:
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -5244,7 +5929,7 @@ def test_process_poll_failure_still_kills_waits_closes_and_reports_cleanup_failu
     with pytest.raises(PROBE.ProbeCleanupFailure, match="OSError"):
         PROBE.run_probe(
             profile,
-            ROOT / "scripts/linux_native_isolation_child.py",
+            ROOT / "src/devhub/linux_native_isolation_child.py",
             tmp_path / "root",
             tmp_path / "bundle",
             tmp_path / "state",
@@ -5272,6 +5957,14 @@ def test_workflow_checks_out_exact_head_and_manual_runs_are_main_only() -> None:
     assert "pull_request:" not in workflow
     assert "ref: ${{ github.sha }}" in workflow
     assert "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'" in workflow
+    assert "Exact successful Linux Bundle V5 workflow run ID" in workflow
+    assert 'gh run view "$BUNDLE_RUN_ID"' in workflow
+    assert 'gh api "repos/${{ github.repository }}/actions/runs/$BUNDLE_RUN_ID"' in workflow
+    assert "jq -e '.path == \".github/workflows/linux-native-bundle.yml\"'" in workflow
+    assert ".headSha == $head" in workflow
+    assert "--name devfabric-linux-native-bundle" in workflow
+    assert "scripts/verify_linux_native_bundle.py" in workflow
+    assert "--bundle-run-id '${{ inputs.native_bundle_run_id }}'" in workflow
     source = (ROOT / "scripts/probe_linux_native_isolation.py").read_text(encoding="utf-8")
     assert '["git", "rev-parse", "HEAD"]' in source
     assert '["git", "status", "--porcelain"]' in source

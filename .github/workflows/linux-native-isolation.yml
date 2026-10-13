@@ -2,8 +2,18 @@ name: Native Linux isolation mechanics
 
 on:
   workflow_dispatch:
+    inputs:
+      native_bundle_run_id:
+        description: Exact successful Linux Bundle V5 workflow run ID
+        required: true
+        type: string
+      native_bundle_run_attempt:
+        description: Exact successful Linux Bundle V5 workflow run attempt
+        required: true
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -29,6 +39,28 @@ jobs:
           tests/test_linux_native_isolation.py
           tests/test_ollama_transport.py
           tests/test_linux_native_bundle.py
+      - name: Download and verify exact-main Linux Bundle V5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+          BUNDLE_RUN_ID: ${{ inputs.native_bundle_run_id }}
+          BUNDLE_RUN_ATTEMPT: ${{ inputs.native_bundle_run_attempt }}
+        run: |
+          gh run view "$BUNDLE_RUN_ID" --repo '${{ github.repository }}' \
+            --json headSha,attempt,conclusion,event > "$RUNNER_TEMP/linux-bundle-run.json"
+          gh api "repos/${{ github.repository }}/actions/runs/$BUNDLE_RUN_ID" \
+            > "$RUNNER_TEMP/linux-bundle-run-api.json"
+          jq -e --arg head "$EXPECTED_COMMIT" --argjson attempt "$BUNDLE_RUN_ATTEMPT" \
+            '.headSha == $head and .attempt == $attempt and .conclusion == "success" and .event == "workflow_dispatch"' \
+            "$RUNNER_TEMP/linux-bundle-run.json"
+          jq -e '.path == ".github/workflows/linux-native-bundle.yml"' \
+            "$RUNNER_TEMP/linux-bundle-run-api.json"
+          gh run download "$BUNDLE_RUN_ID" --repo '${{ github.repository }}' \
+            --name devfabric-linux-native-bundle \
+            --dir "$RUNNER_TEMP/linux-native-release"
+          uv run --locked python scripts/verify_linux_native_bundle.py \
+            --release "$RUNNER_TEMP/linux-native-release" \
+            --destination "$RUNNER_TEMP/linux-native-release-verified"
       - name: Bind exact clean main authority
         env:
           IMPLEMENTATION_COMMIT: ${{ github.sha }}
@@ -59,7 +91,11 @@ jobs:
             --implementation-commit "$IMPLEMENTATION_COMMIT" \
             --environment-instance-id "$environment_id" \
             --output "$RUNNER_TEMP/linux-native-isolation/mechanics.json" \
-            --failure-output "$RUNNER_TEMP/linux-native-isolation/failure.json"
+            --failure-output "$RUNNER_TEMP/linux-native-isolation/failure.json" \
+            --release "$RUNNER_TEMP/linux-native-release" \
+            --bundle-root "$RUNNER_TEMP/linux-native-release-verified/bundle" \
+            --bundle-run-id '${{ inputs.native_bundle_run_id }}' \
+            --bundle-run-attempt '${{ inputs.native_bundle_run_attempt }}'
       - name: Remove owned AppArmor authority and seal cleanup
         if: always()
         env:

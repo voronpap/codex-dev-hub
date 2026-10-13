@@ -132,6 +132,13 @@ class LinuxDirectoryAuthorityV1(Contract):
     native_identity: LinuxNativePathIdentityV1
 
 
+class LinuxBundleDirectoryAuthorityV1(LinuxDirectoryAuthorityV1):
+    """Exact extracted native bundle root, retained at its published 0755 mode."""
+
+    role: Literal["fixture"] = "fixture"
+    mode: Literal["0755"] = "0755"  # type: ignore[assignment]
+
+
 class LinuxToolAuthorityV1(LinuxFileAuthorityV1):
     """Exact host tool used before the child drops namespace capabilities."""
 
@@ -718,6 +725,85 @@ class LinuxIsolationProfilePayloadV11(LinuxIsolationProfilePayloadV10):
     )
 
 
+class LinuxPackageAuthorityV1(Contract):
+    """Exact package authority consumed by native Linux isolation V12."""
+
+    schema_version: Literal[1] = 1
+    predecessor_bundle_id: Literal[
+        "27dd89b9a82879778a9d31115c43ebc12306087b54fe84b414f71b234aff6bf2"
+    ] = "27dd89b9a82879778a9d31115c43ebc12306087b54fe84b414f71b234aff6bf2"
+    predecessor_archive_id: Literal[
+        "c1dc8bd2181a334d50219e92723a605f1473f887c54d6e9966b4f604f7efe419"
+    ] = "c1dc8bd2181a334d50219e92723a605f1473f887c54d6e9966b4f604f7efe419"
+    predecessor_archive_sha256: Literal[
+        "a03b097115cd003797766c0816de4af631413925aa290d55557daff4a6439f43"
+    ] = "a03b097115cd003797766c0816de4af631413925aa290d55557daff4a6439f43"
+    predecessor_build_id: Literal["linux-build-010"] = "linux-build-010"
+    predecessor_build_run_id: Literal[38330846665] = 38330846665
+    predecessor_bundle_run_id: Literal[38336960375] = 38336960375
+    bundle_workflow_path: Literal[".github/workflows/linux-native-bundle.yml"] = (
+        ".github/workflows/linux-native-bundle.yml"
+    )
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    build_id: Literal["linux-build-011"] = "linux-build-011"
+    build_run_id: Annotated[int, Field(ge=1)]
+    build_run_attempt: Annotated[int, Field(ge=1)]
+    bundle_run_id: Annotated[int, Field(ge=1)]
+    bundle_run_attempt: Annotated[int, Field(ge=1)]
+    archive_id: Digest
+    archive_sha256: Digest
+    archive_size: Annotated[int, Field(ge=1, le=2 * 1024 * 1024 * 1024)]
+    bundle_id: Digest
+    bundle_manifest_sha256: Digest
+    build_receipt_sha256: Digest
+    build_inventory_sha256: Digest
+    linux_native_codex_build_id: Digest
+    codex_sha256: Digest
+    code_mode_host_sha256: Digest
+    python_runtime_id: Digest
+    python_executable_sha256: Digest
+    child_module_path: Literal[
+        "python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"
+    ] = "python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"
+    child_module_sha256: Digest
+    child_module_name: Literal["devhub.linux_native_isolation_child"] = (
+        "devhub.linux_native_isolation_child"
+    )
+
+
+class LinuxIsolationProfilePayloadV12(LinuxIsolationProfilePayloadV11):
+    """Package-bound profile using only the exact V5 native release."""
+
+    schema_version: Literal[12] = 12  # type: ignore[assignment]
+    profile_kind: Literal["linux_native_isolation_v12"] = "linux_native_isolation_v12"  # type: ignore[assignment]
+    child_module_argv: tuple[
+        Literal["-I"],
+        Literal["-B"],
+        Literal["-m"],
+        Literal["devhub.linux_native_isolation_child"],
+    ] = ("-I", "-B", "-m", "devhub.linux_native_isolation_child")
+    source_directories: Annotated[
+        tuple[LinuxDirectoryAuthorityV1 | LinuxBundleDirectoryAuthorityV1, ...],
+        Field(min_length=5),
+    ]
+    package: LinuxPackageAuthorityV1
+
+    @model_validator(mode="after")
+    def exact_package_join(self) -> LinuxIsolationProfilePayloadV12:
+        if (
+            self.package.implementation_commit != self.implementation_commit
+            or self.package.bundle_id != self.native_bundle_id
+            or self.package.bundle_manifest_sha256 != self.bundle_manifest_sha256
+            or self.package.python_executable_sha256 != self.bootstrap_python.sha256
+            or self.package.child_module_sha256 != self.child_probe_sha256
+        ):
+            raise ValueError("Linux isolation package authority differs from the profile")
+        fixture = next(item for item in self.source_directories if item.role == "fixture")
+        if not isinstance(fixture, LinuxBundleDirectoryAuthorityV1):
+            raise ValueError("Linux isolation V12 fixture is not the exact published bundle root")
+        return self
+
+
 class LinuxIsolationProfileV1(Contract):
     linux_isolation_profile_id: Digest
     payload: LinuxIsolationProfilePayloadV1
@@ -933,6 +1019,26 @@ class LinuxIsolationProfileV11(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_profile_id != expected:
             raise ValueError("Linux isolation V11 profile hash mismatch")
+        return self
+
+
+class LinuxIsolationProfileV12(ContractV2):
+    schema_version: Literal[12] = 12  # type: ignore[assignment]
+    linux_isolation_profile_id: Digest
+    payload: LinuxIsolationProfilePayloadV12
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationProfilePayloadV12) -> LinuxIsolationProfileV12:
+        return cls(
+            linux_isolation_profile_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationProfileV12:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_profile_id != expected:
+            raise ValueError("Linux isolation V12 profile hash mismatch")
         return self
 
 
@@ -1748,6 +1854,44 @@ class LinuxIsolationObservationV11(LinuxIsolationObservationV10):
     schema_version: Literal[11] = 11  # type: ignore[assignment]
 
 
+class LinuxPackagedMcpMetadataObservationV1(Contract):
+    """Bounded metadata-only observation of the packaged delegate server."""
+
+    schema_version: Literal[1] = 1
+    python_executable_sha256: Digest
+    module_origin: Literal[
+        "/bundle/python/lib/python3.12/site-packages/devhub/delegate_server.py"
+    ] = "/bundle/python/lib/python3.12/site-packages/devhub/delegate_server.py"
+    argv: tuple[Literal["-I"], Literal["-B"], Literal["-m"], Literal["devhub.delegate_server"]] = (
+        "-I",
+        "-B",
+        "-m",
+        "devhub.delegate_server",
+    )
+    initialize_succeeded: Literal[True] = True
+    tools_list_succeeded: Literal[True] = True
+    tool_names: tuple[Literal["devhub_delegate"]] = ("devhub_delegate",)
+    tools_call_sent: Literal[False] = False
+    eof_sent: Literal[True] = True
+    clean_exit: Literal[True] = True
+    exit_code: Literal[0] = 0
+    stdout_retained_sha256: Digest
+    stderr_retained_sha256: Digest
+    stdout_retained_bytes: Annotated[int, Field(ge=1, le=1024 * 1024)]
+    stderr_retained_bytes: Annotated[int, Field(ge=0, le=1024 * 1024)]
+
+
+class LinuxIsolationObservationV12(LinuxIsolationObservationV11):
+    """V12 binds the installed child and packaged MCP metadata lifecycle."""
+
+    schema_version: Literal[12] = 12  # type: ignore[assignment]
+    child_module_origin: Literal[
+        "/bundle/python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"
+    ] = "/bundle/python/lib/python3.12/site-packages/devhub/linux_native_isolation_child.py"
+    child_module_sha256: Digest
+    packaged_mcp: LinuxPackagedMcpMetadataObservationV1
+
+
 class LinuxHostCleanupObservationV1(Contract):
     child_exited: Literal[True] = True
     process_group_absent: Literal[True] = True
@@ -2145,6 +2289,34 @@ class LinuxIsolationReceiptV11(ContractV2):
         return self
 
 
+class LinuxIsolationReceiptPayloadV12(LinuxIsolationReceiptPayloadV11):
+    schema_version: Literal[12] = 12  # type: ignore[assignment]
+    receipt_kind: Literal["linux_native_isolation_receipt_v12"] = (
+        "linux_native_isolation_receipt_v12"  # type: ignore[assignment]
+    )
+    observation: LinuxIsolationObservationV12
+
+
+class LinuxIsolationReceiptV12(ContractV2):
+    schema_version: Literal[12] = 12  # type: ignore[assignment]
+    linux_isolation_receipt_id: Digest
+    payload: LinuxIsolationReceiptPayloadV12
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationReceiptPayloadV12) -> LinuxIsolationReceiptV12:
+        return cls(
+            linux_isolation_receipt_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationReceiptV12:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_receipt_id != expected:
+            raise ValueError("Linux isolation V12 receipt hash mismatch")
+        return self
+
+
 class LinuxIsolationEvidencePayloadV2(ContractV2):
     schema_version: Literal[2] = 2
     profile: LinuxIsolationProfileV2
@@ -2510,6 +2682,43 @@ class LinuxIsolationEvidenceV11(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_evidence_id != expected:
             raise ValueError("Linux isolation V11 evidence hash mismatch")
+        return self
+
+
+class LinuxIsolationEvidencePayloadV12(LinuxIsolationEvidencePayloadV11):
+    schema_version: Literal[12] = 12  # type: ignore[assignment]
+    profile: LinuxIsolationProfileV12  # type: ignore[assignment]
+    receipt: LinuxIsolationReceiptV12  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def exact_package_observation_join(self) -> LinuxIsolationEvidencePayloadV12:
+        package = self.profile.payload.package
+        observed = self.receipt.payload.observation
+        if (
+            observed.child_module_sha256 != package.child_module_sha256
+            or observed.packaged_mcp.python_executable_sha256 != package.python_executable_sha256
+        ):
+            raise ValueError("Linux isolation V12 package observation authority differs")
+        return self
+
+
+class LinuxIsolationEvidenceV12(ContractV2):
+    schema_version: Literal[12] = 12  # type: ignore[assignment]
+    linux_isolation_evidence_id: Digest
+    payload: LinuxIsolationEvidencePayloadV12
+
+    @classmethod
+    def create(cls, payload: LinuxIsolationEvidencePayloadV12) -> LinuxIsolationEvidenceV12:
+        return cls(
+            linux_isolation_evidence_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationEvidenceV12:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_evidence_id != expected:
+            raise ValueError("Linux isolation V12 evidence hash mismatch")
         return self
 
 
@@ -3014,6 +3223,33 @@ class LinuxIsolationQualificationV11(ContractV2):
         expected = digest(canonical(self.payload.model_dump(mode="json")))
         if self.linux_isolation_qualification_id != expected:
             raise ValueError("Linux isolation V11 qualification hash mismatch")
+        return self
+
+
+class LinuxIsolationQualificationPayloadV12(LinuxIsolationQualificationPayloadV11):
+    schema_version: Literal[12] = 12  # type: ignore[assignment]
+    mechanics: LinuxIsolationEvidenceV12  # type: ignore[assignment]
+
+
+class LinuxIsolationQualificationV12(ContractV2):
+    schema_version: Literal[12] = 12  # type: ignore[assignment]
+    linux_isolation_qualification_id: Digest
+    payload: LinuxIsolationQualificationPayloadV12
+
+    @classmethod
+    def create(
+        cls, payload: LinuxIsolationQualificationPayloadV12
+    ) -> LinuxIsolationQualificationV12:
+        return cls(
+            linux_isolation_qualification_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxIsolationQualificationV12:
+        expected = digest(canonical(self.payload.model_dump(mode="json")))
+        if self.linux_isolation_qualification_id != expected:
+            raise ValueError("Linux isolation V12 qualification hash mismatch")
         return self
 
 

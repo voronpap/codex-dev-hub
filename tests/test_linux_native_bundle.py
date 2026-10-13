@@ -19,24 +19,29 @@ from devhub.linux_bundle import (
     LinuxCodexAuthorityV2,
     LinuxCodexAuthorityV3,
     LinuxCodexAuthorityV4,
+    LinuxCodexAuthorityV5,
     LinuxLauncherV1,
     LinuxModuleOriginV1,
     LinuxNativeArchivePayloadV1,
     LinuxNativeArchivePayloadV2,
     LinuxNativeArchivePayloadV3,
     LinuxNativeArchivePayloadV4,
+    LinuxNativeArchivePayloadV5,
     LinuxNativeArchiveV1,
     LinuxNativeArchiveV2,
     LinuxNativeArchiveV3,
     LinuxNativeArchiveV4,
+    LinuxNativeArchiveV5,
     LinuxNativeBundlePayloadV1,
     LinuxNativeBundlePayloadV2,
     LinuxNativeBundlePayloadV3,
     LinuxNativeBundlePayloadV4,
+    LinuxNativeBundlePayloadV5,
     LinuxNativeBundleV1,
     LinuxNativeBundleV2,
     LinuxNativeBundleV3,
     LinuxNativeBundleV4,
+    LinuxNativeBundleV5,
     LinuxPythonAuthorityV1,
     LinuxPythonRuntimePayloadV1,
     LinuxPythonRuntimeV1,
@@ -235,19 +240,37 @@ def materialize_v4(root: Path) -> LinuxNativeBundleV4:
     return LinuxNativeBundleV4.create(LinuxNativeBundlePayloadV4.model_validate(raw))
 
 
-def reviewable_v10_artifact(root: Path) -> None:
+def materialize_v5(root: Path) -> LinuxNativeBundleV5:
+    historical = materialize(root)
+    raw = historical.payload.model_dump(mode="python")
+    raw["schema_version"] = 5
+    raw["codex"] = {
+        **raw["codex"],
+        "schema_version": 5,
+        "build_id": "linux-build-011",
+    }
+    return LinuxNativeBundleV5.create(LinuxNativeBundlePayloadV5.model_validate(raw))
+
+
+def reviewable_v11_artifact(root: Path) -> None:
     linux_pass_artifact(
         root,
         implementation_commit=COMMIT,
         workflow_run_id=123,
         workflow_run_attempt=1,
     )
-    INVENTORY.seal_linux(root, "linux-build-010")
+    INVENTORY.seal_linux(root, "linux-build-011")
 
 
 def write_test_archive(
     release: Path, bundle_id: str, schema_version: int
-) -> LinuxNativeArchiveV1 | LinuxNativeArchiveV2 | LinuxNativeArchiveV3 | LinuxNativeArchiveV4:
+) -> (
+    LinuxNativeArchiveV1
+    | LinuxNativeArchiveV2
+    | LinuxNativeArchiveV3
+    | LinuxNativeArchiveV4
+    | LinuxNativeArchiveV5
+):
     archive_path = release / BUILDER.ARCHIVE_NAME
     with tarfile.open(archive_path, mode="w:gz", format=tarfile.PAX_FORMAT) as stream:
         stream.add(release / "bundle", arcname="bundle", recursive=True)
@@ -262,13 +285,16 @@ def write_test_archive(
             | LinuxNativeArchiveV2
             | LinuxNativeArchiveV3
             | LinuxNativeArchiveV4
+            | LinuxNativeArchiveV5
         ) = LinuxNativeArchiveV1.create(LinuxNativeArchivePayloadV1(**fields))
     elif schema_version == 2:
         receipt = LinuxNativeArchiveV2.create(LinuxNativeArchivePayloadV2(**fields))
     elif schema_version == 3:
         receipt = LinuxNativeArchiveV3.create(LinuxNativeArchivePayloadV3(**fields))
-    else:
+    elif schema_version == 4:
         receipt = LinuxNativeArchiveV4.create(LinuxNativeArchivePayloadV4(**fields))
+    else:
+        receipt = LinuxNativeArchiveV5.create(LinuxNativeArchivePayloadV5(**fields))
     (release / BUILDER.ARCHIVE_RECEIPT_NAME).write_text(receipt.model_dump_json(), encoding="utf-8")
     return receipt
 
@@ -333,7 +359,23 @@ def test_linux_native_bundle_v4_requires_build_010_and_preserves_v3(tmp_path: Pa
         LinuxNativeBundlePayloadV4.model_validate(raw)
 
 
-@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4))
+def test_linux_native_bundle_v5_requires_build_011_and_preserves_v4(tmp_path: Path) -> None:
+    current = materialize_v5(tmp_path / "current")
+    assert LinuxNativeBundleV5.model_validate_json(current.model_dump_json()) == current
+    assert isinstance(current.payload.codex, LinuxCodexAuthorityV5)
+    assert current.payload.codex.build_id == "linux-build-011"
+    assert current.payload.native_executor_isolation_qualified is False
+    assert current.payload.package_readiness is False
+
+    historical = materialize_v4(tmp_path / "historical")
+    assert LinuxNativeBundleV4.model_validate_json(historical.model_dump_json()) == historical
+    raw = current.payload.model_dump(mode="python")
+    raw["codex"]["build_id"] = "linux-build-010"
+    with pytest.raises(ValidationError):
+        LinuxNativeBundlePayloadV5.model_validate(raw)
+
+
+@pytest.mark.parametrize("manifest_version", (1, 2, 3, 4, 5))
 def test_linux_release_rejects_mixed_manifest_and_archive_versions(
     tmp_path: Path, manifest_version: int
 ) -> None:
@@ -347,6 +389,8 @@ def test_linux_release_rejects_mixed_manifest_and_archive_versions(
         else materialize_v3(root)
         if manifest_version == 3
         else materialize_v4(root)
+        if manifest_version == 4
+        else materialize_v5(root)
     )
     (release / "linux-native-bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
     write_test_archive(release, bundle.linux_native_bundle_id, 2 if manifest_version != 2 else 1)
@@ -540,7 +584,7 @@ def test_linux_bundle_workflow_is_exact_main_only_and_non_ready() -> None:
     assert "pull_request:" not in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "ref: ${{ github.sha }}" in workflow
-    assert "devfabric-linux-build-010-binaries" in workflow
+    assert "devfabric-linux-build-011-binaries" in workflow
     codex_workflow = (ROOT / ".github/workflows/linux-native-codex.yml").read_text(encoding="utf-8")
     assert "linux-native-codex-evidence/linux-native-codex-build.json" in codex_workflow
     assert "--expected-commit '${{ github.sha }}'" in workflow
@@ -684,16 +728,16 @@ def test_linux_bundle_rejects_binary_over_its_role_specific_bound(
         BUILDER._plain_artifact_layout(root)
 
 
-def test_linux_bundle_reviews_exact_v10_artifact_authority(tmp_path: Path) -> None:
+def test_linux_bundle_reviews_exact_v11_artifact_authority(tmp_path: Path) -> None:
     root = tmp_path / "artifact"
-    reviewable_v10_artifact(root)
+    reviewable_v11_artifact(root)
 
     receipt = BUILDER._review_codex_artifact(root, COMMIT, 123, 1)
 
     assert receipt.payload.provenance.implementation_commit == COMMIT
     assert receipt.payload.provenance.workflow_run_id == 123
     assert receipt.payload.provenance.workflow_run_attempt == 1
-    assert receipt.payload.provenance.build_id == "linux-build-010"
+    assert receipt.payload.provenance.build_id == "linux-build-011"
     assert len(tuple(root.rglob("*"))) == 8  # binary directory plus seven retained files
 
 
@@ -705,33 +749,33 @@ def test_linux_bundle_reviews_exact_v10_artifact_authority(tmp_path: Path) -> No
         (COMMIT, 123, 2),
     ),
 )
-def test_linux_bundle_rejects_v10_artifact_authority_mismatch(
+def test_linux_bundle_rejects_v11_artifact_authority_mismatch(
     tmp_path: Path, expected_commit: str, run_id: int, run_attempt: int
 ) -> None:
     root = tmp_path / "artifact"
-    reviewable_v10_artifact(root)
+    reviewable_v11_artifact(root)
 
     with pytest.raises(ValueError, match="provenance differs"):
         BUILDER._review_codex_artifact(root, expected_commit, run_id, run_attempt)
 
 
-def test_linux_bundle_rejects_v9_artifact_and_receipt_inventory_substitution(
+def test_linux_bundle_rejects_v10_artifact_and_receipt_inventory_substitution(
     tmp_path: Path,
 ) -> None:
     historical = tmp_path / "historical"
     linux_pass_artifact(
         historical,
-        "linux-build-009",
+        "linux-build-010",
         implementation_commit=COMMIT,
         workflow_run_id=123,
         workflow_run_attempt=1,
     )
-    INVENTORY.seal_linux(historical, "linux-build-009")
+    INVENTORY.seal_linux(historical, "linux-build-010")
     with pytest.raises(ValidationError):
         BUILDER._review_codex_artifact(historical, COMMIT, 123, 1)
 
     current = tmp_path / "current"
-    reviewable_v10_artifact(current)
+    reviewable_v11_artifact(current)
     inventory_path = current / "native-build-artifact-inventory.json"
     inventory = NativeBuildArtifactInventoryV2.model_validate_json(inventory_path.read_bytes())
     raw = inventory.payload.model_dump(mode="python")
@@ -778,7 +822,7 @@ def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path
     inventory = NativeBuildArtifactInventoryV2.create(
         NativeBuildArtifactInventoryPayloadV2(
             platform="linux",
-            build_id="linux-build-010",
+            build_id="linux-build-011",
             status="PASS",
             build_result_sha256=file_sha256(root / "linux-build-result.json"),
             linux_pair=pair,
@@ -793,7 +837,7 @@ def test_linux_bundle_builder_joins_retained_result_proof_and_eof(tmp_path: Path
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode preservation requires Linux")
-@pytest.mark.parametrize("schema_version", (1, 2, 3, 4))
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5))
 def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_version: int
 ) -> None:
@@ -807,6 +851,8 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
         else materialize_v3(root)
         if schema_version == 3
         else materialize_v4(root)
+        if schema_version == 4
+        else materialize_v5(root)
     )
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)
@@ -839,7 +885,7 @@ def test_linux_bundle_archive_preserves_modes_and_fresh_extraction(
 def test_linux_release_rejects_substitution(tmp_path: Path, substitution: str) -> None:
     release = tmp_path / "release"
     root = release / "bundle"
-    bundle = materialize_v4(root)
+    bundle = materialize_v5(root)
     for item in bundle.payload.files:
         root.joinpath(*item.path.split("/")).chmod(item.mode)
     manifest = release / "linux-native-bundle.json"
