@@ -55,18 +55,20 @@ from devhub.linux_isolation import (
     LinuxIsolationEvidenceV17,
     LinuxIsolationEvidenceV18,
     LinuxMatchedControlAuthorityV1,
-    LinuxMatchedControlExecutionPayloadV2,
+    LinuxMatchedControlExecutionPayloadV3,
     LinuxMatchedControlExecutionV1,
     LinuxMatchedControlExecutionV2,
+    LinuxMatchedControlExecutionV3,
     LinuxMatchedControlFailureDiagnosticPayloadV1,
     LinuxMatchedControlFailureDiagnosticV1,
     LinuxMatchedControlImportedModuleAuthorityV1,
     LinuxMatchedControlObservationV1,
     LinuxMatchedControlProbeFailurePayloadV1,
     LinuxMatchedControlProbeFailureV1,
-    LinuxMatchedControlPythonRuntimeAuthorityV1,
+    LinuxMatchedControlPythonRuntimeAuthorityV2,
     LinuxMatchedControlReceiptPayloadV1,
     LinuxMatchedControlReceiptV1,
+    LinuxMatchedControlSymlinkAuthorityV1,
     LinuxNativePathIdentityV1,
     LinuxRawPersonalityObservationV1,
     LinuxSyscallAllowlistAuthorityV1,
@@ -143,7 +145,11 @@ class MatchedControlProcessFailure(ValueError):
     def __init__(
         self,
         *,
-        execution: LinuxMatchedControlExecutionV1 | LinuxMatchedControlExecutionV2,
+        execution: (
+            LinuxMatchedControlExecutionV1
+            | LinuxMatchedControlExecutionV2
+            | LinuxMatchedControlExecutionV3
+        ),
         journal: LinuxSystemdUnitPostCreateJournalV1,
         child_failure_status: Literal["validated", "missing", "invalid"],
         child_failure: LinuxMatchedControlProbeFailureV1 | None,
@@ -302,20 +308,77 @@ def file_authority(path: Path) -> LinuxFileAuthorityV1:
     )
 
 
+def python_symlink_chain_authority(
+    python: Path,
+) -> tuple[tuple[LinuxMatchedControlSymlinkAuthorityV1, ...], LinuxFileAuthorityV1]:
+    """Observe and immediately revalidate one bounded interpreter symlink chain."""
+    if not python.is_absolute() or str(python) != os.path.normpath(str(python)):
+        raise ValueError("Matched control Python launcher is not absolute")
+    launcher = python
+    symlink_chain: list[LinuxMatchedControlSymlinkAuthorityV1] = []
+    observed_links: list[tuple[Path, os.stat_result, str]] = []
+    observed_locators: set[Path] = set()
+    current = launcher
+    while True:
+        if current in observed_locators:
+            raise ValueError("Matched control Python symlink chain contains a cycle")
+        observed_locators.add(current)
+        info = os.lstat(current)
+        if not stat.S_ISLNK(info.st_mode):
+            break
+        if len(symlink_chain) == 8:
+            raise ValueError("Matched control Python symlink chain exceeds reviewed bound")
+        raw_target = os.readlink(current)
+        symlink_chain.append(
+            LinuxMatchedControlSymlinkAuthorityV1(
+                locator=str(current),
+                raw_target=raw_target,
+                owner_uid=info.st_uid,
+                owner_gid=info.st_gid,
+                native_identity=LinuxNativePathIdentityV1(
+                    device=info.st_dev,
+                    inode=info.st_ino,
+                ),
+            )
+        )
+        observed_links.append((current, info, raw_target))
+        target = Path(raw_target)
+        if not target.is_absolute():
+            target = current.parent / target
+        current = Path(os.path.normpath(str(target)))
+    if not symlink_chain:
+        raise ValueError("Matched control Python launcher is not a symlink")
+    final_info = os.lstat(current)
+    if not stat.S_ISREG(final_info.st_mode):
+        raise ValueError("Matched control Python symlink chain does not end at a regular file")
+    resolved_interpreter = file_authority(current)
+    if resolved_interpreter.locator != str(current):
+        raise ValueError("Matched control Python chain final locator resolves through substitution")
+    for link, before, raw_target in observed_links:
+        after = os.lstat(link)
+        if (
+            not stat.S_ISLNK(after.st_mode)
+            or after.st_dev != before.st_dev
+            or after.st_ino != before.st_ino
+            or after.st_uid != before.st_uid
+            or after.st_gid != before.st_gid
+            or os.readlink(link) != raw_target
+        ):
+            raise ValueError("Matched control Python symlink chain changed during observation")
+    if file_authority(current) != resolved_interpreter:
+        raise ValueError("Matched control Python interpreter changed during observation")
+    return tuple(symlink_chain), resolved_interpreter
+
+
 def python_runtime_authority(
     python: Path,
     repo: Path,
     implementation_commit: str,
-) -> LinuxMatchedControlPythonRuntimeAuthorityV1:
+) -> LinuxMatchedControlPythonRuntimeAuthorityV2:
     """Bind the lexical venv launcher and every import authority it depends on."""
 
-    if not python.is_absolute() or str(python) != os.path.normpath(str(python)):
-        raise ValueError("Matched control Python launcher is not absolute")
     launcher = python
-    launcher_info = os.lstat(launcher)
-    if not stat.S_ISLNK(launcher_info.st_mode):
-        raise ValueError("Matched control Python launcher is not a symlink")
-    link_target = os.readlink(launcher)
+    symlink_chain, resolved_interpreter = python_symlink_chain_authority(launcher)
     resolved_repo = repo.resolve(strict=True)
     pyvenv_config = file_authority(launcher.parent.parent / "pyvenv.cfg")
     expected_module = (resolved_repo / "src" / "devhub" / "__init__.py").resolve(strict=True)
@@ -372,26 +435,12 @@ def python_runtime_authority(
                 git_blob_sha256=imported_blob,
             )
         )
-    launcher_after = os.lstat(launcher)
-    if (
-        not stat.S_ISLNK(launcher_after.st_mode)
-        or launcher_after.st_dev != launcher_info.st_dev
-        or launcher_after.st_ino != launcher_info.st_ino
-        or launcher_after.st_uid != launcher_info.st_uid
-        or launcher_after.st_gid != launcher_info.st_gid
-        or os.readlink(launcher) != link_target
-    ):
-        raise ValueError("Matched control Python launcher changed during observation")
-    return LinuxMatchedControlPythonRuntimeAuthorityV1(
+    if python_symlink_chain_authority(launcher) != (symlink_chain, resolved_interpreter):
+        raise ValueError("Matched control Python symlink chain changed during observation")
+    return LinuxMatchedControlPythonRuntimeAuthorityV2(
         launcher_locator=str(launcher),
-        launcher_link_target=link_target,
-        launcher_owner_uid=launcher_info.st_uid,
-        launcher_owner_gid=launcher_info.st_gid,
-        launcher_native_identity=LinuxNativePathIdentityV1(
-            device=launcher_info.st_dev,
-            inode=launcher_info.st_ino,
-        ),
-        resolved_interpreter=file_authority(launcher.resolve(strict=True)),
+        symlink_chain=symlink_chain,
+        resolved_interpreter=resolved_interpreter,
         pyvenv_config=pyvenv_config,
         devhub_module_origin=module_authority,
         devhub_module_git_blob_sha256=module_blob,
@@ -1369,7 +1418,9 @@ def _stop_exact_unit(
 
 def read_control_execution(
     path: Path,
-) -> LinuxMatchedControlExecutionV1 | LinuxMatchedControlExecutionV2:
+) -> (
+    LinuxMatchedControlExecutionV1 | LinuxMatchedControlExecutionV2 | LinuxMatchedControlExecutionV3
+):
     if path.is_symlink():
         raise ValueError("Matched control execution authority cannot be a symlink")
     before = os.lstat(path)
@@ -1394,13 +1445,19 @@ def read_control_execution(
     decoded = json.loads(raw)
     if not isinstance(decoded, dict):
         raise ValueError("Matched control execution authority is not an object")
+    if decoded.get("schema_version") == 3:
+        return LinuxMatchedControlExecutionV3.model_validate_json(raw)
     if decoded.get("schema_version") == 2:
         return LinuxMatchedControlExecutionV2.model_validate_json(raw)
     return LinuxMatchedControlExecutionV1.model_validate_json(raw)
 
 
 def revalidate_control_execution(
-    execution: LinuxMatchedControlExecutionV1 | LinuxMatchedControlExecutionV2,
+    execution: (
+        LinuxMatchedControlExecutionV1
+        | LinuxMatchedControlExecutionV2
+        | LinuxMatchedControlExecutionV3
+    ),
     state: LinuxCgroupSetupStateV2,
     state_path: Path,
 ) -> None:
@@ -1454,7 +1511,7 @@ def control_probe(
     ] = "execution_authority"
     try:
         execution = read_control_execution(execution_path)
-        if not isinstance(execution, LinuxMatchedControlExecutionV2):
+        if not isinstance(execution, LinuxMatchedControlExecutionV3):
             raise ValueError("Matched control requires forward Python runtime authority")
         if execution.linux_matched_control_execution_id != expected_execution_id:
             raise ValueError("Matched control execution identity differs")
@@ -1601,8 +1658,8 @@ def launch_control_v2(
         "--output",
         str(resolved_observation),
     ]
-    execution = LinuxMatchedControlExecutionV2.create(
-        LinuxMatchedControlExecutionPayloadV2(
+    execution = LinuxMatchedControlExecutionV3.create(
+        LinuxMatchedControlExecutionPayloadV3(
             implementation_commit=state.payload.implementation_commit,
             environment_instance_id=state.payload.environment_instance_id,
             linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
