@@ -5804,6 +5804,16 @@ class LinuxMatchedControlImportedModuleAuthorityV1(Contract):
         return self
 
 
+class LinuxMatchedControlSymlinkAuthorityV1(Contract):
+    """One exact lexical hop in the matched-control Python launcher chain."""
+
+    locator: Annotated[str, Field(min_length=2, max_length=4096, pattern=r"^/[^\x00\r\n]+$")]
+    raw_target: Annotated[str, Field(min_length=1, max_length=4096, pattern=r"^[^\x00\r\n]+$")]
+    owner_uid: Annotated[int, Field(ge=0)]
+    owner_gid: Annotated[int, Field(ge=0)]
+    native_identity: LinuxNativePathIdentityV1
+
+
 class LinuxMatchedControlPythonRuntimeAuthorityV1(Contract):
     """Forward authority for the exact virtual-environment Python launcher."""
 
@@ -5836,6 +5846,65 @@ class LinuxMatchedControlPythonRuntimeAuthorityV1(Contract):
         normalized_target = PurePosixPath(posixpath.normpath(str(target)))
         if normalized_target != PurePosixPath(self.resolved_interpreter.locator):
             raise ValueError("Matched control Python link target differs from resolved interpreter")
+        if PurePosixPath(self.pyvenv_config.locator) != environment_root / "pyvenv.cfg":
+            raise ValueError("Matched control pyvenv.cfg differs from the launcher environment")
+        module = PurePosixPath(self.devhub_module_origin.locator)
+        if module.name != "__init__.py" or module.parent.name != "devhub":
+            raise ValueError("Matched control DevFabric module origin differs")
+        if self.devhub_module_origin.sha256 != self.devhub_module_git_blob_sha256:
+            raise ValueError("Matched control DevFabric module differs from its reviewed Git blob")
+        names = tuple(item.module for item in self.imported_modules)
+        if names != tuple(sorted(names)) or set(names) != {
+            "devhub.benchmark",
+            "devhub.linux_isolation",
+            "devhub.native_bundle",
+        }:
+            raise ValueError("Matched control imported module authority set differs")
+        return self
+
+
+class LinuxMatchedControlPythonRuntimeAuthorityV2(ContractV2):
+    """Forward authority for a bounded, exact virtual-environment symlink chain."""
+
+    schema_version: Literal[2] = 2
+    launcher_locator: Annotated[
+        str, Field(min_length=2, max_length=4096, pattern=r"^/[^\x00\r\n]+$")
+    ]
+    symlink_chain: Annotated[
+        tuple[LinuxMatchedControlSymlinkAuthorityV1, ...], Field(min_length=1, max_length=8)
+    ]
+    resolved_interpreter: LinuxFileAuthorityV1
+    pyvenv_config: LinuxFileAuthorityV1
+    devhub_module_origin: LinuxFileAuthorityV1
+    devhub_module_git_blob_sha256: Digest
+    imported_modules: Annotated[
+        tuple[LinuxMatchedControlImportedModuleAuthorityV1, ...], Field(min_length=3, max_length=3)
+    ]
+
+    @model_validator(mode="after")
+    def exact_virtual_environment_shape(self) -> LinuxMatchedControlPythonRuntimeAuthorityV2:
+        launcher = PurePosixPath(self.launcher_locator)
+        if launcher.name != "python" or launcher.parent.name != "bin":
+            raise ValueError("Matched control Python launcher is not the reviewed venv entrypoint")
+        if self.symlink_chain[0].locator != self.launcher_locator:
+            raise ValueError("Matched control Python symlink chain does not start at launcher")
+        locators = tuple(item.locator for item in self.symlink_chain)
+        if len(set(locators)) != len(locators):
+            raise ValueError("Matched control Python symlink chain contains a cycle")
+        for index, item in enumerate(self.symlink_chain):
+            link = PurePosixPath(item.locator)
+            target = PurePosixPath(item.raw_target)
+            if not target.is_absolute():
+                target = link.parent / target
+            normalized_target = PurePosixPath(posixpath.normpath(str(target)))
+            expected = (
+                PurePosixPath(self.symlink_chain[index + 1].locator)
+                if index + 1 < len(self.symlink_chain)
+                else PurePosixPath(self.resolved_interpreter.locator)
+            )
+            if normalized_target != expected:
+                raise ValueError("Matched control Python symlink chain target differs")
+        environment_root = launcher.parent.parent
         if PurePosixPath(self.pyvenv_config.locator) != environment_root / "pyvenv.cfg":
             raise ValueError("Matched control pyvenv.cfg differs from the launcher environment")
         module = PurePosixPath(self.devhub_module_origin.locator)
@@ -5925,6 +5994,85 @@ class LinuxMatchedControlExecutionV2(ContractV2):
 
     @model_validator(mode="after")
     def verified_id(self) -> LinuxMatchedControlExecutionV2:
+        if self.linux_matched_control_execution_id != digest(
+            canonical(self.payload.model_dump(mode="json"))
+        ):
+            raise ValueError("Matched control execution authority hash mismatch")
+        return self
+
+
+class LinuxMatchedControlExecutionPayloadV3(ContractV2):
+    schema_version: Literal[3] = 3  # type: ignore[assignment]
+    authority_kind: Literal["linux_syscall_matched_control_execution_v3"] = (
+        "linux_syscall_matched_control_execution_v3"
+    )
+    implementation_commit: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    linux_cgroup_setup_state_id: Digest
+    repo_locator: Annotated[str, Field(pattern=r"^/[^\r\n]+$")]
+    python_runtime: LinuxMatchedControlPythonRuntimeAuthorityV2
+    manager_script: LinuxFileAuthorityV1
+    manager_script_git_blob_sha256: Digest
+    state_locator: Annotated[str, Field(pattern=r"^/[^\r\n]+$")]
+    state_sha256: Digest
+    execution_authority_locator: Annotated[str, Field(pattern=r"^/[^\r\n]+$")]
+    observation_locator: Annotated[str, Field(pattern=r"^/[^\r\n]+$")]
+    argv: Annotated[tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=11)]
+
+    @model_validator(mode="after")
+    def exact_forward_argv(self) -> LinuxMatchedControlExecutionPayloadV3:
+        expected = (
+            self.python_runtime.launcher_locator,
+            "-I",
+            "-B",
+            self.manager_script.locator,
+            "control-probe-v19",
+            "--state",
+            self.state_locator,
+            "--execution-authority",
+            self.execution_authority_locator,
+            "--output",
+            self.observation_locator,
+        )
+        if self.argv != expected:
+            raise ValueError("Matched control forward execution argv differs")
+        expected_module = PurePosixPath(self.repo_locator) / "src" / "devhub" / "__init__.py"
+        if PurePosixPath(self.python_runtime.devhub_module_origin.locator) != expected_module:
+            raise ValueError("Matched control DevFabric module is outside the reviewed repository")
+        expected_imports = {
+            "devhub.benchmark": "benchmark.py",
+            "devhub.linux_isolation": "linux_isolation.py",
+            "devhub.native_bundle": "native_bundle.py",
+        }
+        for imported in self.python_runtime.imported_modules:
+            expected_origin = (
+                PurePosixPath(self.repo_locator)
+                / "src"
+                / "devhub"
+                / expected_imports[imported.module]
+            )
+            if PurePosixPath(imported.origin.locator) != expected_origin:
+                raise ValueError(
+                    "Matched control imported module is outside the reviewed repository"
+                )
+        return self
+
+
+class LinuxMatchedControlExecutionV3(ContractV2):
+    linux_matched_control_execution_id: Digest
+    payload: LinuxMatchedControlExecutionPayloadV3
+
+    @classmethod
+    def create(
+        cls, payload: LinuxMatchedControlExecutionPayloadV3
+    ) -> LinuxMatchedControlExecutionV3:
+        return cls(
+            linux_matched_control_execution_id=digest(canonical(payload.model_dump(mode="json"))),
+            payload=payload,
+        )
+
+    @model_validator(mode="after")
+    def verified_id(self) -> LinuxMatchedControlExecutionV3:
         if self.linux_matched_control_execution_id != digest(
             canonical(self.payload.model_dump(mode="json"))
         ):
@@ -6107,7 +6255,11 @@ class LinuxMatchedControlReceiptPayloadV1(Contract):
     environment_instance_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
     linux_cgroup_setup_state_id: Digest
     authority: LinuxMatchedControlAuthorityV1
-    execution: LinuxMatchedControlExecutionV1 | LinuxMatchedControlExecutionV2
+    execution: (
+        LinuxMatchedControlExecutionV1
+        | LinuxMatchedControlExecutionV2
+        | LinuxMatchedControlExecutionV3
+    )
     observation: LinuxMatchedControlObservationV1
     unit_policy: LinuxSystemdControlPolicyObservationV1
     exact_unit_cleanup_verified: Literal[True] = True

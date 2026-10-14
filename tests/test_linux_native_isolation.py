@@ -591,6 +591,74 @@ def matched_control_python_runtime(
     )
 
 
+def matched_control_python_runtime_v2(
+    repo: str = "/repo",
+    *,
+    multi_hop: bool = True,
+) -> LINUX_ISOLATION.LinuxMatchedControlPythonRuntimeAuthorityV2:
+    root = f"{repo}/.venv"
+    resolved = "/opt/hostedtoolcache/Python/3.12.10/x64/bin/python3.12"
+    chain = [
+        LINUX_ISOLATION.LinuxMatchedControlSymlinkAuthorityV1(
+            locator=f"{root}/bin/python",
+            raw_target="/opt/hostedtoolcache/Python/3.12.10/x64/bin/python3"
+            if multi_hop
+            else resolved,
+            owner_uid=1000,
+            owner_gid=1000,
+            native_identity=native(201),
+        )
+    ]
+    if multi_hop:
+        chain.append(
+            LINUX_ISOLATION.LinuxMatchedControlSymlinkAuthorityV1(
+                locator="/opt/hostedtoolcache/Python/3.12.10/x64/bin/python3",
+                raw_target="python3.12",
+                owner_uid=0,
+                owner_gid=0,
+                native_identity=native(202),
+            )
+        )
+    module = plain_file(
+        f"{repo}/src/devhub/__init__.py",
+        index=204,
+        sha="d" * 64,
+        mode="0644",
+    )
+    return LINUX_ISOLATION.LinuxMatchedControlPythonRuntimeAuthorityV2(
+        launcher_locator=f"{root}/bin/python",
+        symlink_chain=tuple(chain),
+        resolved_interpreter=plain_file(resolved, index=203, sha="a" * 64),
+        pyvenv_config=plain_file(
+            f"{root}/pyvenv.cfg",
+            index=205,
+            sha="c" * 64,
+            mode="0644",
+        ),
+        devhub_module_origin=module,
+        devhub_module_git_blob_sha256=module.sha256,
+        imported_modules=tuple(
+            LINUX_ISOLATION.LinuxMatchedControlImportedModuleAuthorityV1(
+                module=name,
+                origin=plain_file(
+                    f"{repo}/src/devhub/{filename}",
+                    index=206 + index,
+                    sha=sha,
+                    mode="0644",
+                ),
+                git_blob_sha256=sha,
+            )
+            for index, (name, filename, sha) in enumerate(
+                (
+                    ("devhub.benchmark", "benchmark.py", "e" * 64),
+                    ("devhub.linux_isolation", "linux_isolation.py", "f" * 64),
+                    ("devhub.native_bundle", "native_bundle.py", "9" * 64),
+                )
+            )
+        ),
+    )
+
+
 def tool(
     name: Literal["unshare", "mount"],
     *,
@@ -9697,6 +9765,50 @@ def v20_control_execution(
     )
 
 
+def v21_control_execution(
+    state: LINUX_ISOLATION.LinuxCgroupSetupStateV2,
+    *,
+    repo: str = "/repo",
+) -> LINUX_ISOLATION.LinuxMatchedControlExecutionV3:
+    runtime = matched_control_python_runtime_v2(repo)
+    manager = plain_file(
+        f"{repo}/scripts/manage_linux_native_cgroup.py",
+        index=215,
+        sha="b" * 64,
+    )
+    state_path = "/run/devfabric/cgroup-state.json"
+    execution_path = "/run/devfabric/control-execution.json"
+    observation_path = "/run/devfabric/control-observation.json"
+    return LINUX_ISOLATION.LinuxMatchedControlExecutionV3.create(
+        LINUX_ISOLATION.LinuxMatchedControlExecutionPayloadV3(
+            implementation_commit=state.payload.implementation_commit,
+            environment_instance_id=state.payload.environment_instance_id,
+            linux_cgroup_setup_state_id=state.linux_cgroup_setup_state_id,
+            repo_locator=repo,
+            python_runtime=runtime,
+            manager_script=manager,
+            manager_script_git_blob_sha256=manager.sha256,
+            state_locator=state_path,
+            state_sha256="c" * 64,
+            execution_authority_locator=execution_path,
+            observation_locator=observation_path,
+            argv=(
+                runtime.launcher_locator,
+                "-I",
+                "-B",
+                manager.locator,
+                "control-probe-v19",
+                "--state",
+                state_path,
+                "--execution-authority",
+                execution_path,
+                "--output",
+                observation_path,
+            ),
+        )
+    )
+
+
 def v19_unit_journal(
     state: LINUX_ISOLATION.LinuxCgroupSetupStateV2,
     *,
@@ -10076,7 +10188,7 @@ def test_v19_control_probe_publishes_fixed_checkpoint_without_raw_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     state = v19_cgroup_state(monkeypatch)
-    execution = v20_control_execution(state)
+    execution = v21_control_execution(state)
     output = tmp_path / "control-failure.json"
     execution_path = tmp_path / "execution.json"
     execution_path.write_text("{}", encoding="utf-8")
@@ -10386,13 +10498,13 @@ def test_v19_control_launch_retains_systemd_failure_without_valid_child_frame(
     monkeypatch.setattr(
         CGROUP_MANAGER,
         "python_runtime_authority",
-        lambda _python, repo, _commit: matched_control_python_runtime(str(repo)),
+        lambda _python, repo, _commit: matched_control_python_runtime_v2(str(repo)),
     )
     monkeypatch.setattr(CGROUP_MANAGER, "git_blob_sha256", lambda *_args: "b" * 64)
 
     def run_service(**_kwargs: object) -> None:
         if frame_case == "noncanonical":
-            execution = LINUX_ISOLATION.LinuxMatchedControlExecutionV2.model_validate_json(
+            execution = LINUX_ISOLATION.LinuxMatchedControlExecutionV3.model_validate_json(
                 execution_path.read_bytes()
             )
             control = state.payload.syscall_filter.matched_control
@@ -11041,6 +11153,88 @@ def test_v20_forward_python_runtime_and_execution_are_self_hashed(
         LINUX_ISOLATION.LinuxMatchedControlExecutionV2.model_validate(unhashed)
 
 
+def test_v21_forward_python_runtime_accepts_direct_and_multihop_chains() -> None:
+    direct = matched_control_python_runtime_v2(multi_hop=False)
+    multi = matched_control_python_runtime_v2(multi_hop=True)
+    assert len(direct.symlink_chain) == 1
+    assert len(multi.symlink_chain) == 2
+    assert multi.symlink_chain[0].raw_target.endswith("/python3")
+    assert multi.symlink_chain[1].raw_target == "python3.12"
+
+
+@pytest.mark.parametrize("case", ("cycle", "missing", "reorder", "intermediate"))
+def test_v21_forward_python_runtime_rejects_broken_symlink_chains(case: str) -> None:
+    raw = matched_control_python_runtime_v2().model_dump(mode="python")
+    chain = raw["symlink_chain"]
+    if case == "cycle":
+        chain[1]["locator"] = chain[0]["locator"]
+    elif case == "missing":
+        chain[0]["raw_target"] = "/missing/python3"
+    elif case == "reorder":
+        raw["symlink_chain"] = tuple(reversed(chain))
+    else:
+        chain[1]["raw_target"] = "substituted-python3.12"
+    with pytest.raises(ValidationError, match="symlink chain"):
+        LINUX_ISOLATION.LinuxMatchedControlPythonRuntimeAuthorityV2.model_validate(raw)
+
+
+def test_v21_forward_execution_rejects_rehashed_intermediate_substitution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution = v21_control_execution(v19_cgroup_state(monkeypatch))
+    raw = execution.model_dump(mode="python")
+    raw["payload"]["python_runtime"]["symlink_chain"][1]["raw_target"] = "substituted-python3.12"
+    raw["linux_matched_control_execution_id"] = digest(canonical(raw["payload"]))
+    with pytest.raises(ValidationError, match="symlink chain target differs"):
+        LINUX_ISOLATION.LinuxMatchedControlExecutionV3.model_validate(raw)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlink chains are Linux-only")
+def test_v21_production_symlink_collector_direct_multihop_cycle_and_missing(
+    tmp_path: Path,
+) -> None:
+    interpreter = tmp_path / "python3.12"
+    interpreter.write_bytes(b"python")
+    direct = tmp_path / "python-direct"
+    direct.symlink_to(interpreter)
+    direct_chain, direct_file = CGROUP_MANAGER.python_symlink_chain_authority(direct)
+    assert len(direct_chain) == 1
+    assert direct_file.locator == str(interpreter)
+
+    intermediate = tmp_path / "python3"
+    intermediate.symlink_to(interpreter.name)
+    multi = tmp_path / "python-multi"
+    multi.symlink_to(intermediate.name)
+    multi_chain, multi_file = CGROUP_MANAGER.python_symlink_chain_authority(multi)
+    assert tuple(item.locator for item in multi_chain) == (str(multi), str(intermediate))
+    assert multi_file == direct_file
+
+    first = tmp_path / "cycle-a"
+    second = tmp_path / "cycle-b"
+    first.symlink_to(second.name)
+    second.symlink_to(first.name)
+    with pytest.raises(ValueError, match="contains a cycle"):
+        CGROUP_MANAGER.python_symlink_chain_authority(first)
+
+    missing = tmp_path / "missing"
+    missing.symlink_to("absent-python")
+    with pytest.raises(FileNotFoundError):
+        CGROUP_MANAGER.python_symlink_chain_authority(missing)
+
+    eight_links = [tmp_path / f"eight-{index}" for index in range(8)]
+    for index, link in reversed(tuple(enumerate(eight_links))):
+        link.symlink_to(interpreter.name if index == 7 else eight_links[index + 1].name)
+    accepted_chain, accepted_file = CGROUP_MANAGER.python_symlink_chain_authority(eight_links[0])
+    assert len(accepted_chain) == 8
+    assert accepted_file == direct_file
+
+    nine_links = [tmp_path / f"nine-{index}" for index in range(9)]
+    for index, link in reversed(tuple(enumerate(nine_links))):
+        link.symlink_to(interpreter.name if index == 8 else nine_links[index + 1].name)
+    with pytest.raises(ValueError, match="exceeds reviewed bound"):
+        CGROUP_MANAGER.python_symlink_chain_authority(nine_links[0])
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     (
@@ -11073,6 +11267,14 @@ def test_v20_receipt_accepts_forward_execution_while_historical_v1_remains_parse
     raw["execution"] = forward.model_dump(mode="python")
     receipt = LINUX_ISOLATION.LinuxMatchedControlReceiptPayloadV1.model_validate(raw)
     assert isinstance(receipt.execution, LINUX_ISOLATION.LinuxMatchedControlExecutionV2)
+
+    current = v21_control_execution(state)
+    current_raw = historical.payload.model_dump(mode="python")
+    current_raw["execution"] = current.model_dump(mode="python")
+    current_receipt = LINUX_ISOLATION.LinuxMatchedControlReceiptPayloadV1.model_validate(
+        current_raw
+    )
+    assert isinstance(current_receipt.execution, LINUX_ISOLATION.LinuxMatchedControlExecutionV3)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="lexical venv launcher is Linux-only")
@@ -11123,6 +11325,27 @@ sys.stdout.buffer.write(canonical(frame.model_dump(mode='json')))
     assert frame.payload.real_task_executions == 0
 
 
+@pytest.mark.skipif(os.name != "posix", reason="production venv authority is Linux-only")
+def test_v21_production_runtime_authority_collects_actual_venv_chain() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    launcher = Path(sys.executable)
+    if not launcher.is_symlink():
+        pytest.skip("current Linux test interpreter is not a lexical venv symlink")
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    ).stdout.strip()
+    authority = CGROUP_MANAGER.python_runtime_authority(launcher, repo, commit)
+    assert authority.launcher_locator == str(launcher)
+    assert authority.symlink_chain[0].locator == str(launcher)
+    assert authority.resolved_interpreter.locator == str(launcher.resolve(strict=True))
+    assert len(authority.symlink_chain) <= 8
+
+
 @pytest.mark.skipif(os.name != "posix", reason="V19 control locators are native-Linux paths")
 def test_v19_control_failure_always_cleans_exact_unit(
     tmp_path: Path,
@@ -11142,7 +11365,7 @@ def test_v19_control_failure_always_cleans_exact_unit(
     monkeypatch.setattr(
         CGROUP_MANAGER,
         "python_runtime_authority",
-        lambda _python, repo, _commit: matched_control_python_runtime(str(repo)),
+        lambda _python, repo, _commit: matched_control_python_runtime_v2(str(repo)),
     )
     monkeypatch.setattr(CGROUP_MANAGER, "git_blob_sha256", lambda *_args: "b" * 64)
     monkeypatch.setattr(
